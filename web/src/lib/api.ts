@@ -1,7 +1,7 @@
 import type { MessageRecord, AgentConfig } from '../types';
 
 function getBaseUrl(): string {
-  return import.meta.env.VITE_SLOCK_SERVER_URL || 'http://localhost:7777';
+  return import.meta.env.VITE_SLOCK_SERVER_URL || '';
 }
 
 // Server returns camelCase, frontend uses snake_case — normalize here.

@@ -50,7 +50,7 @@ export function useAppStore() {
   const viewModeRef = useRef(viewMode);
   viewModeRef.current = viewMode;
 
-  const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || 'http://localhost:7777';
+  const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
   useEffect(() => {
     localStorage.setItem('zouk_theme', theme);

@@ -97,8 +97,12 @@ export class SlockWebSocket {
   private _connected = false;
 
   constructor(serverUrl: string) {
-    const base = serverUrl.replace(/^http/, 'ws');
-    this.url = `${base}/ws`;
+    if (serverUrl) {
+      this.url = `${serverUrl.replace(/^http/, 'ws')}/ws`;
+    } else {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      this.url = `${proto}//${window.location.host}/ws`;
+    }
   }
 
   get connected(): boolean {
