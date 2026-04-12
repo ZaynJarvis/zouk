@@ -65,6 +65,8 @@ export interface ServerMachine {
   id: string;
   hostname: string;
   os: string;
+  runtimes?: string[];
+  agentIds?: string[];
 }
 
 export interface InitPayload {

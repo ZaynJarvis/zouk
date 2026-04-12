@@ -1,7 +1,7 @@
-import { Bot, Play, Square, ChevronDown, ChevronRight, Loader2, Trash2, Pencil, Check, X } from 'lucide-react';
+import { Bot, Play, Square, ChevronDown, ChevronRight, Loader2, Trash2, Pencil, Check, X, Plus, Server, Monitor } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
-import type { ServerAgent } from '../types';
+import type { ServerAgent, ServerMachine, AgentConfig } from '../types';
 
 const activityColors: Record<string, string> = {
   thinking: 'bg-nb-yellow animate-pulse',
@@ -143,8 +143,145 @@ function AgentCard({ agent, onStop, onDelete, onUpdateConfig }: {
   );
 }
 
+function MachineCard({ machine }: { machine: ServerMachine }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb-sm">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors"
+      >
+        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <div className="w-8 h-8 border-2 border-nb-black dark:border-dark-border font-display font-bold text-xs flex items-center justify-center bg-nb-green-light">
+          <Server size={14} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-display font-bold text-sm text-nb-black dark:text-dark-text truncate">
+            {machine.hostname || 'Unknown Host'}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 border border-nb-black dark:border-dark-border bg-nb-green" />
+            <span className="text-2xs text-nb-gray-500 dark:text-dark-muted">Connected</span>
+          </div>
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 border-t-2 border-nb-gray-200 dark:border-dark-border space-y-1">
+          <div className="mt-2 text-xs text-nb-gray-600 dark:text-dark-muted">
+            <span className="font-bold">OS:</span> {machine.os || 'unknown'}
+          </div>
+          {machine.runtimes && machine.runtimes.length > 0 && (
+            <div className="text-xs text-nb-gray-600 dark:text-dark-muted">
+              <span className="font-bold">Runtimes:</span> {machine.runtimes.join(', ')}
+            </div>
+          )}
+          <div className="text-2xs text-nb-gray-400 dark:text-dark-muted">
+            ID: {machine.id.slice(0, 8)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddAgentConfigForm({ onSave }: { onSave: (config: AgentConfig) => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [runtime, setRuntime] = useState('claude');
+  const [model, setModel] = useState('');
+  const [description, setDescription] = useState('');
+
+  const handleSubmit = () => {
+    if (!name.trim()) return;
+    onSave({
+      name: name.trim(),
+      displayName: displayName.trim() || undefined,
+      description: description.trim() || undefined,
+      runtime,
+      model: model.trim() || undefined,
+      serverUrl: '',
+    } as AgentConfig);
+    setName('');
+    setDisplayName('');
+    setRuntime('claude');
+    setModel('');
+    setDescription('');
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 border-2 border-nb-black dark:border-dark-border text-sm font-bold bg-nb-blue text-nb-white shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+      >
+        <Plus size={14} /> Add Agent Config
+      </button>
+    );
+  }
+
+  return (
+    <div className="border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb-sm p-4 space-y-3">
+      <h4 className="font-display font-bold text-sm text-nb-black dark:text-dark-text">New Agent Config</h4>
+      <div className="space-y-2">
+        <input
+          className="w-full px-2 py-1.5 border-2 border-nb-black dark:border-dark-border text-sm bg-nb-white dark:bg-dark-surface"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Name (required)"
+        />
+        <input
+          className="w-full px-2 py-1.5 border-2 border-nb-black dark:border-dark-border text-sm bg-nb-white dark:bg-dark-surface"
+          value={displayName}
+          onChange={e => setDisplayName(e.target.value)}
+          placeholder="Display name (optional)"
+        />
+        <select
+          className="w-full px-2 py-1.5 border-2 border-nb-black dark:border-dark-border text-sm bg-nb-white dark:bg-dark-surface"
+          value={runtime}
+          onChange={e => setRuntime(e.target.value)}
+        >
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+          <option value="kimi">Kimi</option>
+          <option value="hermes">Hermes</option>
+        </select>
+        <input
+          className="w-full px-2 py-1.5 border-2 border-nb-black dark:border-dark-border text-sm bg-nb-white dark:bg-dark-surface"
+          value={model}
+          onChange={e => setModel(e.target.value)}
+          placeholder="Model (optional)"
+        />
+        <textarea
+          className="w-full px-2 py-1.5 border-2 border-nb-black dark:border-dark-border text-xs bg-nb-white dark:bg-dark-surface resize-none"
+          rows={2}
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+          placeholder="Description (optional)"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={handleSubmit}
+          disabled={!name.trim()}
+          className="flex items-center gap-1 px-3 py-1.5 border-2 border-nb-black text-sm font-bold bg-nb-green shadow-nb-sm hover:shadow-nb disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+        >
+          <Check size={12} /> Save
+        </button>
+        <button
+          onClick={() => setOpen(false)}
+          className="flex items-center gap-1 px-3 py-1.5 border-2 border-nb-black text-sm font-bold bg-nb-white dark:bg-dark-surface transition-all"
+        >
+          <X size={12} /> Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AgentsView() {
-  const { agents, configs, startAgent, stopAgent, deleteAgent, updateAgentConfig } = useApp();
+  const { agents, configs, machines, startAgent, stopAgent, deleteAgent, updateAgentConfig, saveAgentConfig } = useApp();
   const [starting, setStarting] = useState<string | null>(null);
 
   const handleStartAgent = async (configName: string) => {
@@ -168,6 +305,27 @@ export default function AgentsView() {
     <div className="flex-1 overflow-y-auto">
       <div className="px-6 py-4">
         <h2 className="font-display font-black text-2xl text-nb-black dark:text-dark-text mb-4">Agents</h2>
+
+        {/* Connected Machines / Servers */}
+        <div className="mb-6">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted mb-2">
+            <span className="flex items-center gap-1.5"><Monitor size={12} /> Connected Servers ({machines.length})</span>
+          </h3>
+          {machines.length > 0 ? (
+            <div className="space-y-2">
+              {machines.map(m => <MachineCard key={m.id} machine={m} />)}
+            </div>
+          ) : (
+            <div className="border-2 border-dashed border-nb-gray-300 dark:border-dark-border px-4 py-3 text-sm text-nb-gray-400 dark:text-dark-muted">
+              No servers connected. Start a zouk-daemon to connect.
+            </div>
+          )}
+        </div>
+
+        {/* Add Agent Config */}
+        <div className="mb-6">
+          <AddAgentConfigForm onSave={saveAgentConfig} />
+        </div>
 
         {configs.length > 0 && (
           <div className="mb-6">

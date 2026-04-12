@@ -180,6 +180,11 @@ export function useAppStore() {
         });
         break;
       }
+      case 'machine:updated': {
+        const e = event as { machine: ServerMachine };
+        setMachines(prev => prev.map(m => m.id === e.machine.id ? e.machine : m));
+        break;
+      }
       case 'machine:disconnected': {
         const e = event as { machineId: string };
         setMachines(prev => prev.filter(m => m.id !== e.machineId));
@@ -295,6 +300,15 @@ export function useAppStore() {
     }
   }, [addToast]);
 
+  const saveAgentConfigAction = useCallback(async (config: AgentConfig) => {
+    try {
+      await api.saveAgentConfig(config);
+      addToast(`Agent config "${config.displayName || config.name}" saved`, 'success');
+    } catch {
+      addToast('Failed to save agent config', 'error');
+    }
+  }, [addToast]);
+
   const updateAgentConfigAction = useCallback(async (agentId: string, updates: Partial<import('../types').AgentConfig>) => {
     try {
       await api.updateAgentConfig(agentId, updates);
@@ -334,6 +348,7 @@ export function useAppStore() {
     stopAgent: stopAgentAction,
     deleteAgent: deleteAgentAction,
     updateAgentConfig: updateAgentConfigAction,
+    saveAgentConfig: saveAgentConfigAction,
     wsSend,
   };
 }
