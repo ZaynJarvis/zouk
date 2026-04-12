@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 
 function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
@@ -25,8 +25,8 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 
 export default function ChannelSidebar() {
   const {
-    channels, agents, humans, activeChannelName, selectChannel,
-    createChannel, currentUser, unreadCounts, wsConnected,
+    channels, agents, humans, activeChannelName, selectChannel, viewMode,
+    createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -133,16 +133,50 @@ export default function ChannelSidebar() {
             collapsed={agentsCollapsed}
             onToggle={() => setAgentsCollapsed(!agentsCollapsed)}
           />
-          {!agentsCollapsed && agents.map(agent => (
-            <div
-              key={agent.id}
-              className="flex items-center gap-2 px-3 py-1.5 text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated transition-colors"
-            >
-              <Bot size={14} className="flex-shrink-0" />
-              <span className="truncate text-sm">{agent.displayName || agent.name}</span>
-              <span className={`ml-auto w-2 h-2 border border-nb-black dark:border-dark-border flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
-            </div>
-          ))}
+          {!agentsCollapsed && agents.map(agent => {
+            const isActive = activeChannelName === agent.name && viewMode === 'dm';
+            const unread = unreadCounts[agent.name] || 0;
+            return (
+              <button
+                key={agent.id}
+                onClick={() => selectChannel(agent.name, true)}
+                className={`
+                  w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group
+                  ${isActive
+                    ? 'bg-nb-blue border-2 border-nb-black shadow-nb-sm font-bold text-nb-white mx-1 -ml-0'
+                    : unread > 0
+                      ? 'font-semibold text-nb-black dark:text-dark-text hover:bg-nb-gray-100 dark:hover:bg-dark-elevated'
+                      : 'text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated hover:text-nb-black dark:hover:text-dark-text'
+                  }
+                `}
+              >
+                <Bot size={14} className="flex-shrink-0" />
+                <span className="truncate text-sm">{agent.displayName || agent.name}</span>
+                <div className="ml-auto flex items-center gap-1.5">
+                  {agent.status === 'active' && (
+                    <span
+                      role="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        wsSend({ type: 'agent:reset-workspace', agentId: agent.id });
+                        addToast(`Resetting ${agent.name}...`, 'info');
+                      }}
+                      className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nb-gray-400 hover:text-nb-orange transition-all"
+                      title="Reset context"
+                    >
+                      <RotateCcw size={12} />
+                    </span>
+                  )}
+                  <span className={`w-2 h-2 border border-nb-black dark:border-dark-border flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
+                  {unread > 0 && !isActive && (
+                    <span className="bg-nb-pink text-nb-white text-2xs font-black px-1.5 py-0.5 border-2 border-nb-black shadow-nb-sm min-w-[20px] text-center">
+                      {unread}
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
           {!agentsCollapsed && agents.length === 0 && (
             <div className="px-3 py-1.5 text-xs text-nb-gray-400 dark:text-dark-muted italic">No agents</div>
           )}

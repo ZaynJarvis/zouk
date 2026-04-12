@@ -1,13 +1,14 @@
-import { useState } from 'react';
-import { FileText, Zap, CheckSquare, Settings, Save, Square, Globe, Lock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw } from 'lucide-react';
 import type { ServerAgent, Skill } from '../types';
+import { useApp } from '../store/AppContext';
 
-type Tab = 'instructions' | 'skills' | 'tasks' | 'settings';
+type Tab = 'instructions' | 'workspace' | 'activity' | 'settings';
 
 const TAB_CONFIG: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: 'instructions', label: 'Instructions', icon: FileText },
-  { key: 'skills', label: 'Skills', icon: Zap },
-  { key: 'tasks', label: 'Tasks', icon: CheckSquare },
+  { key: 'workspace', label: 'Workspace', icon: FolderOpen },
+  { key: 'activity', label: 'Activity', icon: Activity },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -43,7 +44,7 @@ const AVAILABLE_SKILLS: Skill[] = [
   { id: 's4', name: 'Security Audit', description: 'Scans code for security vulnerabilities' },
 ];
 
-/* ── Instructions Tab ── */
+/* ── Instructions Tab (System Prompt + Skills combined) ── */
 function InstructionsTab({
   agent,
   onUpdate,
@@ -54,8 +55,23 @@ function InstructionsTab({
   const [instructions, setInstructions] = useState(agent.instructions || '');
   const isDirty = instructions !== (agent.instructions || '');
 
+  const assignedSkills = agent.skills || [];
+  const assignedIds = new Set(assignedSkills.map((s) => s.id));
+  const availableSkills = AVAILABLE_SKILLS.filter((s) => !assignedIds.has(s.id));
+  const [showPicker, setShowPicker] = useState(false);
+
+  const handleAddSkill = (skill: Skill) => {
+    onUpdate({ skills: [...assignedSkills, { id: skill.id, name: skill.name, description: skill.description }] });
+    setShowPicker(false);
+  };
+
+  const handleRemoveSkill = (skillId: string) => {
+    onUpdate({ skills: assignedSkills.filter((s) => s.id !== skillId) });
+  };
+
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto">
+      {/* System Prompt */}
       <div className="flex items-center justify-between mb-3">
         <div>
           <h3 className="font-display font-bold text-sm text-nb-black dark:text-dark-text">System Prompt</h3>
@@ -73,41 +89,15 @@ function InstructionsTab({
       <textarea
         value={instructions}
         onChange={(e) => setInstructions(e.target.value)}
-        placeholder="Enter agent instructions... e.g. 'You are a deep researcher and security auditor. Focus on thorough analysis and clear explanations.'"
-        className="flex-1 min-h-[300px] resize-none w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm font-mono text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
+        placeholder="Enter agent instructions..."
+        className="min-h-[200px] resize-none w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm font-mono text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
       />
-    </div>
-  );
-}
 
-/* ── Skills Tab ── */
-function SkillsTab({
-  agent,
-  onUpdate,
-}: {
-  agent: ServerAgent;
-  onUpdate: (updates: Partial<ServerAgent>) => void;
-}) {
-  const assignedSkills = agent.skills || [];
-  const assignedIds = new Set(assignedSkills.map((s) => s.id));
-  const availableSkills = AVAILABLE_SKILLS.filter((s) => !assignedIds.has(s.id));
-  const [showPicker, setShowPicker] = useState(false);
-
-  const handleAdd = (skill: Skill) => {
-    onUpdate({ skills: [...assignedSkills, { id: skill.id, name: skill.name, description: skill.description }] });
-    setShowPicker(false);
-  };
-
-  const handleRemove = (skillId: string) => {
-    onUpdate({ skills: assignedSkills.filter((s) => s.id !== skillId) });
-  };
-
-  return (
-    <div className="flex-1 flex flex-col p-5 overflow-y-auto">
-      <div className="flex items-center justify-between mb-4">
+      {/* Skills */}
+      <div className="flex items-center justify-between mt-6 mb-3">
         <div>
-          <h3 className="font-display font-bold text-sm text-nb-black dark:text-dark-text">Assigned Skills</h3>
-          <p className="text-xs text-nb-gray-500 dark:text-dark-muted mt-0.5">Skills define reusable instructions and tooling for this agent.</p>
+          <h3 className="font-display font-bold text-sm text-nb-black dark:text-dark-text">Skills</h3>
+          <p className="text-xs text-nb-gray-500 dark:text-dark-muted mt-0.5">Reusable instructions and tooling for this agent.</p>
         </div>
         <button
           onClick={() => setShowPicker(!showPicker)}
@@ -118,15 +108,15 @@ function SkillsTab({
       </div>
 
       {showPicker && availableSkills.length > 0 && (
-        <div className="mb-4 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb-sm overflow-hidden">
+        <div className="mb-3 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb-sm overflow-hidden">
           {availableSkills.map((skill) => (
             <button
               key={skill.id}
-              onClick={() => handleAdd(skill)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors border-b border-nb-gray-200 dark:border-dark-border last:border-b-0"
+              onClick={() => handleAddSkill(skill)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors border-b border-nb-gray-200 dark:border-dark-border last:border-b-0"
             >
-              <div className="w-8 h-8 border-2 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center shrink-0">
-                <Zap size={14} />
+              <div className="w-7 h-7 border-2 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center shrink-0">
+                <Zap size={12} />
               </div>
               <div className="flex-1 min-w-0">
                 <span className="font-bold text-sm text-nb-black dark:text-dark-text">{skill.name}</span>
@@ -137,27 +127,19 @@ function SkillsTab({
         </div>
       )}
 
-      {assignedSkills.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-          <div className="w-14 h-14 border-3 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center mb-3 shadow-nb-sm">
-            <Zap size={24} className="text-nb-orange" />
-          </div>
-          <p className="text-sm text-nb-gray-500 dark:text-dark-muted font-bold">No skills assigned yet.</p>
-          <p className="text-xs text-nb-gray-400 dark:text-dark-muted mt-1">Add skills to give this agent specialized capabilities.</p>
-        </div>
-      ) : (
+      {assignedSkills.length > 0 && (
         <div className="space-y-2">
           {assignedSkills.map((skill) => (
             <div key={skill.id} className="flex items-center gap-3 p-3 border-2 border-nb-gray-200 dark:border-dark-border bg-nb-white dark:bg-dark-surface">
-              <div className="w-8 h-8 border-2 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center shrink-0">
-                <Zap size={14} />
+              <div className="w-7 h-7 border-2 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center shrink-0">
+                <Zap size={12} />
               </div>
               <div className="flex-1 min-w-0">
                 <span className="font-bold text-sm text-nb-black dark:text-dark-text">{skill.name}</span>
                 {skill.description && <p className="text-xs text-nb-gray-500 dark:text-dark-muted">{skill.description}</p>}
               </div>
               <button
-                onClick={() => handleRemove(skill.id)}
+                onClick={() => handleRemoveSkill(skill.id)}
                 className="text-nb-gray-400 hover:text-nb-red text-sm transition-colors shrink-0 font-bold"
                 title="Remove skill"
               >
@@ -171,33 +153,179 @@ function SkillsTab({
   );
 }
 
-/* ── Tasks Tab ── */
-function TasksTab({ agent }: { agent: ServerAgent }) {
+/* ── Workspace Tab (filesystem + file viewer) ── */
+function WorkspaceTab({ agent }: { agent: ServerAgent }) {
+  const { workspaceFiles, workspaceFileContent, requestWorkspaceFiles, requestFileContent } = useApp();
+  const ws = workspaceFiles[agent.id];
+  const [viewingFile, setViewingFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (agent.status === 'active') {
+      requestWorkspaceFiles(agent.id);
+    }
+  }, [agent.id, agent.status, requestWorkspaceFiles]);
+
+  const fileContent = workspaceFileContent?.agentId === agent.id && workspaceFileContent?.path === viewingFile
+    ? workspaceFileContent.content
+    : null;
+
+  const handleFileClick = (name: string, type: string) => {
+    if (type === 'directory') {
+      const newPath = ws?.dirPath ? `${ws.dirPath}/${name}` : name;
+      requestWorkspaceFiles(agent.id, newPath);
+    } else {
+      const filePath = ws?.dirPath ? `${ws.dirPath}/${name}` : name;
+      setViewingFile(filePath);
+      requestFileContent(agent.id, filePath);
+    }
+  };
+
+  const handleBack = () => {
+    if (viewingFile) {
+      setViewingFile(null);
+      return;
+    }
+    if (ws?.dirPath) {
+      const parent = ws.dirPath.split('/').slice(0, -1).join('/') || undefined;
+      requestWorkspaceFiles(agent.id, parent);
+    }
+  };
+
+  if (agent.status !== 'active') {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
+        <div className="w-14 h-14 border-3 border-nb-black dark:border-dark-border bg-nb-gray-100 dark:bg-dark-elevated flex items-center justify-center mb-3 shadow-nb-sm">
+          <FolderOpen size={24} className="text-nb-gray-400" />
+        </div>
+        <p className="text-sm text-nb-gray-500 dark:text-dark-muted font-bold">Agent is offline</p>
+        <p className="text-xs text-nb-gray-400 dark:text-dark-muted mt-1">Start the agent to browse its workspace.</p>
+      </div>
+    );
+  }
+
+  // File content viewer
+  if (viewingFile) {
+    return (
+      <div className="flex-1 flex flex-col p-5 overflow-hidden">
+        <div className="flex items-center gap-2 mb-3">
+          <button
+            onClick={handleBack}
+            className="w-7 h-7 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex items-center justify-center hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          >
+            <ArrowLeft size={14} />
+          </button>
+          <span className="text-xs font-mono text-nb-gray-600 dark:text-dark-muted truncate">{viewingFile}</span>
+        </div>
+        <pre className="flex-1 overflow-auto p-3 border-2 border-nb-black dark:border-dark-border bg-nb-gray-50 dark:bg-dark-bg text-xs font-mono text-nb-black dark:text-dark-text whitespace-pre-wrap">
+          {fileContent ?? 'Loading...'}
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col p-5 overflow-y-auto">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {ws?.dirPath && (
+            <button
+              onClick={handleBack}
+              className="w-7 h-7 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex items-center justify-center hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            >
+              <ArrowLeft size={14} />
+            </button>
+          )}
+          <h3 className="font-display font-bold text-sm text-nb-black dark:text-dark-text">
+            {ws?.dirPath || agent.workDir || 'Workspace'}
+          </h3>
+        </div>
+        <button
+          onClick={() => requestWorkspaceFiles(agent.id, ws?.dirPath)}
+          className="w-7 h-7 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex items-center justify-center hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          title="Refresh"
+        >
+          <RefreshCw size={12} />
+        </button>
+      </div>
+
+      {ws?.files && ws.files.length > 0 ? (
+        <div className="border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface overflow-hidden">
+          {ws.files.map((f) => (
+            <button
+              key={f.name}
+              onClick={() => handleFileClick(f.name, f.type)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors border-b border-nb-gray-200 dark:border-dark-border last:border-b-0"
+            >
+              {f.type === 'directory'
+                ? <Folder size={14} className="flex-shrink-0 text-nb-yellow-dark" />
+                : <File size={14} className="flex-shrink-0 text-nb-gray-500" />
+              }
+              <span className="flex-1 text-sm font-mono text-nb-black dark:text-dark-text truncate">{f.name}</span>
+              {f.type === 'directory' && <ChevronRight size={14} className="text-nb-gray-400 flex-shrink-0" />}
+              {f.size !== undefined && f.type !== 'directory' && (
+                <span className="text-2xs text-nb-gray-400 dark:text-dark-muted flex-shrink-0">
+                  {f.size < 1024 ? `${f.size}B` : `${(f.size / 1024).toFixed(1)}K`}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
+          <div className="w-14 h-14 border-3 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center mb-3 shadow-nb-sm">
+            <FolderOpen size={24} className="text-nb-orange" />
+          </div>
+          <p className="text-sm text-nb-gray-500 dark:text-dark-muted font-bold">No files yet</p>
+          <p className="text-xs text-nb-gray-400 dark:text-dark-muted mt-1">Files will appear here when the agent creates them.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Activity Tab ── */
+function ActivityTab({ agent }: { agent: ServerAgent }) {
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto">
       <div className="mb-4">
-        <h3 className="font-display font-bold text-sm text-nb-black dark:text-dark-text">Task History</h3>
-        <p className="text-xs text-nb-gray-500 dark:text-dark-muted mt-0.5">Tasks assigned to and completed by this agent.</p>
+        <h3 className="font-display font-bold text-sm text-nb-black dark:text-dark-text">Activity Log</h3>
+        <p className="text-xs text-nb-gray-500 dark:text-dark-muted mt-0.5">Real-time activity from this agent.</p>
       </div>
 
       {agent.entries && agent.entries.length > 0 ? (
         <div className="space-y-1">
           {agent.entries.map((entry, i) => (
-            <div key={i} className="text-xs text-nb-gray-600 dark:text-dark-muted font-mono px-3 py-1.5 border border-nb-gray-200 dark:border-dark-border bg-nb-gray-50 dark:bg-dark-elevated">
-              {entry.kind === 'text' && entry.text}
-              {entry.kind === 'status' && <span>[{entry.activity}] {entry.detail || ''}</span>}
-              {entry.kind === 'thinking' && <span className="text-nb-orange">Thinking: {entry.text || ''}</span>}
-              {entry.kind === 'tool_start' && <span className="text-nb-blue">Tool: {entry.toolName}</span>}
+            <div
+              key={i}
+              className={`text-xs font-mono px-3 py-1.5 border border-nb-gray-200 dark:border-dark-border ${
+                entry.kind === 'status'
+                  ? 'bg-nb-blue-light/30 dark:bg-dark-elevated text-nb-blue'
+                  : entry.kind === 'thinking'
+                    ? 'bg-nb-yellow-light/30 dark:bg-dark-elevated text-nb-orange'
+                    : entry.kind === 'tool_start'
+                      ? 'bg-nb-green/10 dark:bg-dark-elevated text-nb-green-dark'
+                      : 'bg-nb-gray-50 dark:bg-dark-elevated text-nb-gray-600 dark:text-dark-muted'
+              }`}
+            >
+              {entry.kind === 'text' && <span>{entry.text}</span>}
+              {entry.kind === 'status' && (
+                <span className="flex items-center gap-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${activityColors[entry.activity || 'offline']}`} />
+                  [{entry.activity}] {entry.detail || ''}
+                </span>
+              )}
+              {entry.kind === 'thinking' && <span>Thinking: {entry.text || ''}</span>}
+              {entry.kind === 'tool_start' && <span>Tool: {entry.toolName}</span>}
             </div>
           ))}
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
           <div className="w-14 h-14 border-3 border-nb-black dark:border-dark-border bg-nb-green-light dark:bg-dark-elevated flex items-center justify-center mb-3 shadow-nb-sm">
-            <CheckSquare size={24} className="text-nb-green" />
+            <Activity size={24} className="text-nb-green" />
           </div>
-          <p className="text-sm text-nb-gray-500 dark:text-dark-muted font-bold">No task history yet.</p>
-          <p className="text-xs text-nb-gray-400 dark:text-dark-muted mt-1">Tasks will appear here when the agent starts working.</p>
+          <p className="text-sm text-nb-gray-500 dark:text-dark-muted font-bold">No activity yet.</p>
+          <p className="text-xs text-nb-gray-400 dark:text-dark-muted mt-1">Activity will appear here when the agent starts working.</p>
         </div>
       )}
     </div>
@@ -308,7 +436,7 @@ function SettingsTab({
             <span className="font-bold text-sm text-nb-black dark:text-dark-text">
               {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime || 'Unknown'}
             </span>
-            <span className="text-xs text-nb-gray-400 dark:text-dark-muted">/ {agent.model || '—'}</span>
+            <span className="text-xs text-nb-gray-400 dark:text-dark-muted">/ {agent.model || '\u2014'}</span>
           </div>
         </div>
 
@@ -400,7 +528,7 @@ export default function AgentDetail({
           )}
         </div>
         <div className="text-xs text-nb-gray-400 dark:text-dark-muted shrink-0 font-mono">
-          {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime} · {agent.model || '—'}
+          {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime} · {agent.model || '\u2014'}
         </div>
       </div>
 
@@ -425,8 +553,8 @@ export default function AgentDetail({
       {/* Tab content */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {tab === 'instructions' && <InstructionsTab agent={agent} onUpdate={onUpdate} />}
-        {tab === 'skills' && <SkillsTab agent={agent} onUpdate={onUpdate} />}
-        {tab === 'tasks' && <TasksTab agent={agent} />}
+        {tab === 'workspace' && <WorkspaceTab agent={agent} />}
+        {tab === 'activity' && <ActivityTab agent={agent} />}
         {tab === 'settings' && <SettingsTab agent={agent} onUpdate={onUpdate} onStop={onStop} />}
       </div>
     </div>

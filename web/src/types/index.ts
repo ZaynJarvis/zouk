@@ -134,6 +134,19 @@ export interface InitPayload {
   machines: ServerMachine[];
 }
 
+export interface WorkspaceFile {
+  name: string;
+  type: 'file' | 'directory';
+  size?: number;
+  modifiedAt?: string;
+}
+
+export interface WorkspaceState {
+  files: WorkspaceFile[];
+  dirPath: string;
+  fileContent?: { path: string; content: string; requestId: string } | null;
+}
+
 export type ViewMode = 'channel' | 'dm' | 'threads' | 'agents';
 export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | null;
 export type Theme = 'light' | 'dark';
