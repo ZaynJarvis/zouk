@@ -1,0 +1,32 @@
+html[data-theme="hermes"] {
+  /* Surfaces — warm ivory/cream inspired by fine leather */
+  --nc-black: 250 247 242;
+  --nc-deep: 245 241 234;
+  --nc-surface: 255 255 255;
+  --nc-elevated: 250 247 242;
+  --nc-border: 226 217 207;
+  --nc-border-bright: 196 162 101;
+  --nc-panel: 245 241 234;
+
+  /* Accent — Hermes orange + luxury complements */
+  --nc-red: 207 55 35;
+  --nc-green: 27 107 74;
+  --nc-cyan: 243 112 34;
+  --nc-yellow: 196 162 101;
+  --nc-magenta: 142 68 112;
+  --nc-indigo: 62 82 120;
+
+  /* Text — deep espresso, warm and refined */
+  --nc-text: 64 48 38;
+  --nc-text-bright: 44 24 16;
+  --nc-muted: 156 139 122;
+
+  /* Selection */
+  --nc-selection-bg: 243 112 34;
+  --nc-selection-text: 255 255 255;
+
+  /* Font stacks — serif display for luxury feel */
+  --nc-font-display: 'Cormorant Garamond', 'Georgia', serif;
+  --nc-font-body: 'Inter', system-ui, sans-serif;
+  --nc-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}

@@ -595,6 +595,124 @@ html[data-theme="brutalist"] [class*="shadow-nc-"] {
 }
 
 /* ==========================================================================
+   Hermes theme — luxury refinement
+   Only applied when data-theme="hermes" is set on <html>.
+   ========================================================================== */
+
+/* Panels — subtle warm shadow, clean background */
+html[data-theme="hermes"] .cyber-panel {
+  background: rgb(var(--nc-surface));
+  box-shadow: 0 1px 3px rgba(44,24,16,0.06), 0 4px 16px rgba(44,24,16,0.03);
+  border-radius: 3px;
+}
+
+html[data-theme="hermes"] .cyber-panel-elevated {
+  background: rgb(var(--nc-elevated));
+  box-shadow: 0 2px 8px rgba(44,24,16,0.06);
+  border-radius: 3px;
+}
+
+/* Buttons — refined, warm hover with orange accent */
+html[data-theme="hermes"] .cyber-btn {
+  border-radius: 2px;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+html[data-theme="hermes"] .cyber-btn:hover,
+html[data-theme="hermes"] .cyber-btn:focus-visible {
+  box-shadow: 0 1px 4px rgba(243,112,34,0.12);
+  border-color: rgb(var(--nc-cyan));
+}
+
+html[data-theme="hermes"] .cyber-btn-lg {
+  border-radius: 2px;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+html[data-theme="hermes"] .cyber-btn-lg:hover,
+html[data-theme="hermes"] .cyber-btn-lg:focus-visible {
+  box-shadow: 0 2px 8px rgba(243,112,34,0.12);
+  border-color: rgb(var(--nc-cyan));
+}
+
+/* Input — warm focus border */
+html[data-theme="hermes"] .cyber-input {
+  border-radius: 2px;
+}
+
+html[data-theme="hermes"] .cyber-input:focus {
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: 0 0 0 2px rgba(243,112,34,0.08);
+}
+
+/* Status chips — rounded, warm */
+html[data-theme="hermes"] .status-chip {
+  border-radius: 2px;
+}
+
+html[data-theme="hermes"] .status-chip-sm {
+  border-radius: 2px;
+}
+
+/* Tone colors — softer, muted luxury palette */
+html[data-theme="hermes"] .tone-critical {
+  background: rgb(var(--nc-red) / 0.06);
+  border-color: rgb(var(--nc-red) / 0.25);
+}
+
+html[data-theme="hermes"] .tone-terminal {
+  background: rgb(var(--nc-green) / 0.06);
+  border-color: rgb(var(--nc-green) / 0.25);
+}
+
+html[data-theme="hermes"] .tone-telemetry {
+  background: rgb(var(--nc-cyan) / 0.06);
+  border-color: rgb(var(--nc-cyan) / 0.25);
+}
+
+html[data-theme="hermes"] .tone-warning {
+  background: rgb(var(--nc-yellow) / 0.06);
+  border-color: rgb(var(--nc-yellow) / 0.25);
+}
+
+html[data-theme="hermes"] .tone-neutral {
+  background: rgb(var(--nc-elevated));
+  border-color: rgb(var(--nc-border));
+  color: rgb(var(--nc-text-bright));
+}
+
+/* Scrollbar — warm, subtle */
+html[data-theme="hermes"] .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--nc-border));
+  border-radius: 2px;
+}
+
+html[data-theme="hermes"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--nc-cyan));
+}
+
+/* Border glow — subtle warm accent */
+html[data-theme="hermes"] .cyber-border-glow {
+  box-shadow: 0 0 0 1px rgb(var(--nc-cyan) / 0.15);
+}
+
+/* Divider — warm gradient */
+html[data-theme="hermes"] .cyber-divider {
+  background: linear-gradient(90deg, transparent, rgb(var(--nc-border)), transparent);
+}
+
+/* Selection — orange highlight */
+html[data-theme="hermes"] ::selection {
+  background-color: rgb(var(--nc-selection-bg) / 0.15);
+  color: rgb(var(--nc-selection-text));
+}
+
+/* Code blocks — warm background */
+html[data-theme="hermes"] pre[class*="border"] {
+  border-radius: 3px;
+}
+
+/* ==========================================================================
    Keyframes — defined globally, only referenced by NC-specific selectors
    ========================================================================== */
 
