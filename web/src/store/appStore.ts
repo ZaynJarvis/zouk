@@ -79,6 +79,8 @@ export function useAppStore() {
   activeChannelRef.current = activeChannelName;
   const viewModeRef = useRef(viewMode);
   viewModeRef.current = viewMode;
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
@@ -133,18 +135,29 @@ export function useAppStore() {
             });
           }
         } else {
-          // For DM messages, channel_name is "dm-{peer}" from server
-          // For channel messages, it's the channel name
           const isDmMessage = msg.channel_type === 'dm';
-          // Normalize DM channel name to just the peer name for matching
-          const conversationKey = isDmMessage ? msg.channel_name.replace(/^dm-/, '') : msg.channel_name;
+          // For DMs, resolve peer name from dm_parties or canonical channel name
+          let conversationKey = msg.channel_name;
+          if (isDmMessage) {
+            if (msg.dm_parties && msg.dm_parties.length === 2) {
+              // Pick the party that isn't the current user
+              const currentName = currentUserRef.current;
+              conversationKey = msg.dm_parties.find(p => p !== currentName) || msg.dm_parties[0];
+            } else if (msg.channel_name.startsWith('dm:')) {
+              // Canonical name like "dm:alice,zeus" — resolve peer
+              const parties = msg.channel_name.substring(3).split(',');
+              const currentName = currentUserRef.current;
+              conversationKey = parties.find(p => p !== currentName) || parties[0];
+            }
+          }
 
-          // Only add to current view if it matches the active conversation
           const isActiveConversation = conversationKey === activeChannelRef.current
             && ((isDmMessage && viewModeRef.current === 'dm')
                 || (!isDmMessage && viewModeRef.current !== 'dm'));
 
           if (isActiveConversation) {
+            // Update channel_name to peer name for consistent frontend display
+            if (isDmMessage) msg.channel_name = conversationKey;
             setMessages(prev => [...prev, msg]);
           } else {
             setUnreadCounts(prev => ({
@@ -249,7 +262,7 @@ export function useAppStore() {
     let cancelled = false;
     setLoadingMessages(true);
     const isDm = viewModeRef.current === 'dm';
-    api.fetchMessages(activeChannelName, isDm).then(msgs => {
+    api.fetchMessages(activeChannelName, isDm, 200, isDm ? currentUserRef.current : undefined).then(msgs => {
       if (!cancelled) {
         setMessages(msgs);
         setLoadingMessages(false);

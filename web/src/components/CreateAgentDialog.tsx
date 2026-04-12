@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, ChevronDown, Globe, Lock, Server, TriangleAlert as AlertTriangle } from 'lucide-react';
+import { X, Plus, ChevronDown, Globe, Lock, Server, AlertTriangle } from 'lucide-react';
 import type { ServerMachine } from '../types';
 
 const MODELS_BY_PROVIDER: Record<string, string[]> = {

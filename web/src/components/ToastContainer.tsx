@@ -1,4 +1,4 @@
-import { CircleCheck as CheckCircle, TriangleAlert as AlertTriangle, CircleAlert as AlertCircle, Info } from 'lucide-react';
+import { CheckCircle, AlertTriangle, AlertCircle, Info } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 
 const icons = {

@@ -119,34 +119,76 @@ function findOrCreateChannel(name, type = "channel") {
   return ch;
 }
 
-function parseTarget(target) {
+// ─── Canonical DM channel helpers ─────────────────────────────────
+// DMs use a canonical sorted-pair name: "dm:alice,zeus" so each pair
+// of users shares exactly one channel regardless of who initiated.
+
+function dmChannelName(a, b) {
+  return `dm:${[a, b].sort().join(",")}`;
+}
+
+function dmChannelParties(channelName) {
+  if (!channelName || !channelName.startsWith("dm:")) return null;
+  return channelName.substring(3).split(",");
+}
+
+function dmPeerFrom(channelName, myName) {
+  const parties = dmChannelParties(channelName);
+  if (!parties || parties.length < 2) return channelName;
+  return parties.find((p) => p !== myName) || parties[0];
+}
+
+function parseTarget(target, senderName) {
   // "#channel", "dm:@user", "#channel:shortid", "dm:@user:shortid"
   if (!target) return { channelName: "all", channelType: "channel", threadId: null };
   if (target.startsWith("dm:")) {
     const parts = target.substring(3).split(":");
     const peer = parts[0].replace("@", "");
-    return { channelName: `dm-${peer}`, channelType: "dm", threadId: parts[1] || null, dmPeer: peer };
+    const channelName = senderName ? dmChannelName(senderName, peer) : `dm:${peer}`;
+    return { channelName, channelType: "dm", threadId: parts[1] || null, dmPeer: peer };
   }
   const parts = target.substring(1).split(":");
   return { channelName: parts[0], channelType: "channel", threadId: parts[1] || null };
 }
 
 function formatTarget(channelName, channelType, threadId) {
-  let t = channelType === "dm" ? `dm:@${channelName.replace("dm-", "")}` : `#${channelName}`;
+  if (channelType === "dm") {
+    const parties = dmChannelParties(channelName);
+    // For agents, format as dm:@peer; fall back to raw name
+    const name = parties ? parties[0] : channelName;
+    let t = `dm:@${name}`;
+    if (threadId) t += `:${threadId}`;
+    return t;
+  }
+  let t = `#${channelName}`;
   if (threadId) t += `:${threadId}`;
   return t;
 }
 
-function matchesTarget(msg, target) {
-  const { channelName, channelType, threadId } = parseTarget(target);
+function matchesTarget(msg, target, requesterName) {
+  const { channelName, channelType, threadId } = parseTarget(target, requesterName);
+  // For DM without requesterName, fall back to checking if canonical names overlap
+  if (channelType === "dm" && !requesterName && msg.channelType === "dm") {
+    const targetParts = target.startsWith("dm:") ? [target.substring(3).split(":")[0].replace("@", "")] : [];
+    const msgParties = dmChannelParties(msg.channelName);
+    if (targetParts.length && msgParties) {
+      return msgParties.includes(targetParts[0])
+        && (threadId ? msg.threadId === threadId : !msg.threadId);
+    }
+  }
   return msg.channelName === channelName
     && msg.channelType === channelType
     && (threadId ? msg.threadId === threadId : !msg.threadId);
 }
 
-function formatMessageForClient(msg) {
+function formatMessageForClient(msg, viewerName) {
   const isThread = !!msg.threadId;
-  const normalizeDmName = (name) => name?.replace(/^dm-/, "") || name;
+  // For DMs: if viewerName provided, show peer name; otherwise include dm_parties
+  const resolveDmName = (name) => {
+    if (!viewerName) return name; // canonical name stays, frontend resolves
+    return dmPeerFrom(name, viewerName);
+  };
+  const parties = msg.channelType === "dm" ? dmChannelParties(msg.channelName) : null;
   return {
     id: msg.id,
     messageId: msg.id,
@@ -154,10 +196,10 @@ function formatMessageForClient(msg) {
     senderType: msg.senderType,
     channelName: isThread
       ? msg.threadId
-      : (msg.channelType === "dm" ? normalizeDmName(msg.channelName) : msg.channelName),
+      : (msg.channelType === "dm" ? resolveDmName(msg.channelName) : msg.channelName),
     channelType: isThread ? "thread" : msg.channelType,
     parentChannelName: isThread
-      ? (msg.channelType === "dm" ? normalizeDmName(msg.channelName) : msg.channelName)
+      ? (msg.channelType === "dm" ? resolveDmName(msg.channelName) : msg.channelName)
       : null,
     parentChannelType: isThread ? msg.channelType : null,
     threadId: msg.threadId || null,
@@ -168,11 +210,14 @@ function formatMessageForClient(msg) {
     taskNumber: msg.taskNumber || null,
     taskAssigneeId: msg.taskAssigneeId || null,
     taskAssigneeType: msg.taskAssigneeType || null,
+    // Include parties so frontend can resolve peer without viewerName
+    ...(parties && !viewerName ? { dmParties: parties } : {}),
   };
 }
 
-function formatMessageForAgent(msg) {
-  const formatted = formatMessageForClient(msg);
+function formatMessageForAgent(msg, recipientAgentId) {
+  const agentName = recipientAgentId ? (store.agents[recipientAgentId]?.name || recipientAgentId) : null;
+  const formatted = formatMessageForClient(msg, agentName);
   return {
     message_id: formatted.messageId,
     sender_name: formatted.senderName,
@@ -214,7 +259,7 @@ function deliverToAgent(agentId, message) {
       type: "agent:deliver",
       agentId,
       seq,
-      message: formatMessageForAgent(message),
+      message: formatMessageForAgent(message, agentId),
     }));
     // Mark this message as delivered so check_messages won't return it again
     store.agentReadSeq[agentId] = Math.max(store.agentReadSeq[agentId] || 0, message.seq);
@@ -274,7 +319,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 app.post("/internal/agent/:agentId/send", (req, res) => {
   const { agentId } = req.params;
   const { target, content, attachmentIds } = req.body;
-  const { channelName, channelType, threadId } = parseTarget(target);
+  const senderName = store.agents[agentId]?.name || agentId;
+  const { channelName, channelType, threadId } = parseTarget(target, senderName);
   const ch = findOrCreateChannel(channelName, channelType);
 
   const msg = {
@@ -307,7 +353,7 @@ app.get("/internal/agent/:agentId/receive", (req, res) => {
   // Return only messages after the agent's last read seq, excluding agent's own messages
   const unread = store.messages
     .filter((m) => m.seq > lastRead && m.senderName !== (store.agents[agentId]?.name || agentId))
-    .map(formatMessageForAgent);
+    .map((m) => formatMessageForAgent(m, agentId));
   // Update read position
   if (store.messages.length > 0) {
     store.agentReadSeq[agentId] = store.messages[store.messages.length - 1].seq;
@@ -333,8 +379,10 @@ app.get("/internal/agent/:agentId/server", (req, res) => {
 
 // read_history
 app.get("/internal/agent/:agentId/history", (req, res) => {
+  const { agentId } = req.params;
   const { channel, limit = 50, before, after, around } = req.query;
-  let msgs = store.messages.filter((m) => matchesTarget(m, channel));
+  const agentName = store.agents[agentId]?.name || agentId;
+  let msgs = store.messages.filter((m) => matchesTarget(m, channel, agentName));
   const limitNum = parseInt(limit);
 
   if (around) {
@@ -355,7 +403,7 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
   }
 
   res.json({
-    messages: msgs.map(formatMessageForClient),
+    messages: msgs.map((m) => formatMessageForAgent(m, agentId)),
     last_read_seq: store.seq,
     has_more: false,
     has_older: false,
@@ -367,10 +415,12 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
 
 // search_messages
 app.get("/internal/agent/:agentId/search", (req, res) => {
+  const { agentId } = req.params;
+  const agentName = store.agents[agentId]?.name || agentId;
   const { q, limit = 10, channel } = req.query;
   let msgs = store.messages;
   if (channel) {
-    msgs = msgs.filter((m) => matchesTarget(m, channel));
+    msgs = msgs.filter((m) => matchesTarget(m, channel, agentName));
   }
   if (q) {
     const query = q.toLowerCase();
@@ -548,8 +598,10 @@ app.post("/internal/agent/:agentId/tasks/update-status", (req, res) => {
 
 // resolve-channel
 app.post("/internal/agent/:agentId/resolve-channel", (req, res) => {
+  const { agentId } = req.params;
+  const agentName = store.agents[agentId]?.name || agentId;
   const { target } = req.body;
-  const { channelName, channelType } = parseTarget(target);
+  const { channelName, channelType } = parseTarget(target, agentName);
   const ch = findOrCreateChannel(channelName, channelType);
   res.json({ channelId: ch.id });
 });
@@ -579,7 +631,7 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 // Send message from web UI (human user)
 app.post("/api/messages", (req, res) => {
   const { target, content, senderName = "local-user" } = req.body;
-  const { channelName, channelType, threadId, dmPeer } = parseTarget(target);
+  const { channelName, channelType, threadId, dmPeer } = parseTarget(target, senderName);
   const ch = findOrCreateChannel(channelName, channelType);
 
   const msg = {
@@ -599,7 +651,6 @@ app.post("/api/messages", (req, res) => {
 
   // For DMs, deliver only to the target agent; for channels, deliver to all
   if (channelType === "dm" && dmPeer) {
-    // Find the agent by name or displayName
     for (const [agentId, agent] of Object.entries(store.agents)) {
       if (agent.name === dmPeer || agent.displayName === dmPeer) {
         deliverToAgent(agentId, msg);
@@ -609,7 +660,7 @@ app.post("/api/messages", (req, res) => {
   } else {
     deliverToAllAgents(msg);
   }
-  // Broadcast to web UI
+  // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
   broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
   res.json({ messageId: msg.id, message: msg });
@@ -617,11 +668,12 @@ app.post("/api/messages", (req, res) => {
 
 // Get messages for a channel
 app.get("/api/messages", (req, res) => {
-  const { channel = "#all", limit = 100 } = req.query;
+  const { channel = "#all", limit = 100, sender } = req.query;
   const msgs = store.messages
-    .filter((m) => matchesTarget(m, channel))
+    .filter((m) => matchesTarget(m, channel, sender || null))
     .slice(-parseInt(limit));
-  res.json({ messages: msgs.map(formatMessageForClient) });
+  // For DMs with a known viewer, format with peer name; otherwise include dmParties
+  res.json({ messages: msgs.map((m) => formatMessageForClient(m, sender || null)) });
 });
 
 // Get channels
