@@ -61,15 +61,12 @@ export default function ChannelSidebar() {
 
   return (
     <div className={`w-[260px] h-full flex flex-col overflow-hidden ${nc ? 'bg-nc-surface border-r border-nc-border' : wapo ? 'bg-nc-surface border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
-      <div className={`px-3 py-3 ${nc ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+      <div className={`px-3 h-14 flex flex-col justify-center ${nc ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
         <div className="flex items-center justify-between">
           {nc
             ? <GlitchText as="h2" className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider" intensity="low">ZOUK</GlitchText>
             : wapo
-              ? <div className="truncate">
-                  <div className="text-[10px] uppercase tracking-[0.22em] text-[#7c2430] font-semibold">Editorial Desk</div>
-                  <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk Post</h2>
-                </div>
+              ? <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk Post</h2>
               : <h2 className="font-display font-black text-lg text-nc-text-bright truncate">Zouk</h2>
           }
           {totalUnread > 0 && (
