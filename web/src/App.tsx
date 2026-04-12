@@ -21,7 +21,7 @@ function GoogleAuthSync() {
 }
 
 function AppShell() {
-  const { theme, viewMode, sidebarOpen, isLoggedIn } = useApp();
+  const { theme, viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -37,7 +37,20 @@ function AppShell() {
     <div className="h-screen w-screen flex overflow-hidden bg-nb-gray-100 dark:bg-dark-bg font-body text-nb-black dark:text-dark-text">
       <WorkspaceRail />
 
-      <div className={`${sidebarOpen ? 'block' : 'hidden'} lg:block flex-shrink-0`}>
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/40 z-30"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <div className={`
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        lg:translate-x-0 lg:relative lg:z-auto
+        fixed inset-y-0 left-0 z-40
+        transition-transform duration-200 ease-out
+        flex-shrink-0
+      `}>
         <ChannelSidebar />
       </div>
 

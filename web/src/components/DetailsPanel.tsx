@@ -21,7 +21,7 @@ export default function DetailsPanel() {
   const isDm = viewMode === 'dm';
 
   return (
-    <div className="w-[380px] h-full border-l-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex flex-col animate-slide-in-right">
+    <div className="w-full lg:w-[380px] h-full border-l-0 lg:border-l-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex flex-col animate-slide-in-right fixed inset-0 z-30 lg:relative lg:z-auto">
       <div className="h-14 border-b-3 border-nb-black dark:border-dark-border flex items-center justify-between px-4">
         <h3 className="font-display font-extrabold text-base text-nb-black dark:text-dark-text">Details</h3>
         <button

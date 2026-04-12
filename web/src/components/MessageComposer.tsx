@@ -125,10 +125,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const channelLabel = viewMode === 'dm' ? `@${activeChannelName}` : `#${activeChannelName}`;
 
   return (
-    <div className="px-5 pb-4 pt-2 relative">
+    <div className="px-2 sm:px-5 pb-3 sm:pb-4 pt-2 relative">
       {/* @ mention autocomplete dropdown */}
       {mentionQuery !== null && mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-5 right-5 mb-1 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb z-20 max-h-[240px] overflow-y-auto">
+        <div className="absolute bottom-full left-2 right-2 sm:left-5 sm:right-5 mb-1 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb z-20 max-h-[240px] overflow-y-auto">
           {mentionMatches.map((match, i) => (
             <button
               key={match.name}
@@ -165,7 +165,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onClick={handleSubmit}
           disabled={!text.trim()}
           className={`
-            flex items-center justify-center w-11 border-l-3 border-nb-black dark:border-dark-border transition-all flex-shrink-0 self-stretch
+            flex items-center justify-center w-12 sm:w-11 border-l-3 border-nb-black dark:border-dark-border transition-all flex-shrink-0 self-stretch
             ${text.trim()
               ? 'bg-nb-green text-nb-black hover:bg-nb-green/90 active:translate-x-[2px] active:translate-y-[2px]'
               : 'bg-nb-gray-100 dark:bg-dark-elevated text-nb-gray-400 dark:text-dark-muted cursor-not-allowed'

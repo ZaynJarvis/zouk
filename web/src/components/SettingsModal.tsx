@@ -26,21 +26,21 @@ export default function SettingsModal() {
   return (
     <div className="fixed inset-0 z-50 bg-nb-black/40 dark:bg-black/60 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSettingsOpen(false)}>
       <div
-        className="w-full max-w-3xl h-[80vh] bg-nb-white dark:bg-dark-surface border-3 border-nb-black dark:border-dark-border shadow-nb-lg flex animate-bounce-in"
+        className="w-full max-w-3xl h-[80vh] sm:h-[80vh] bg-nb-white dark:bg-dark-surface border-3 border-nb-black dark:border-dark-border shadow-nb-lg flex flex-col sm:flex-row animate-bounce-in"
         onClick={e => e.stopPropagation()}
       >
-        <div className="w-48 border-r-3 border-nb-black dark:border-dark-border bg-nb-cream dark:bg-dark-bg flex flex-col">
-          <div className="px-4 py-4 border-b-2 border-nb-gray-200 dark:border-dark-border">
+        <div className="w-full sm:w-48 border-b-3 sm:border-b-0 sm:border-r-3 border-nb-black dark:border-dark-border bg-nb-cream dark:bg-dark-bg flex flex-col flex-shrink-0">
+          <div className="px-4 py-4 border-b-2 border-nb-gray-200 dark:border-dark-border hidden sm:block">
             <h3 className="font-display font-black text-lg text-nb-black dark:text-dark-text">Settings</h3>
           </div>
-          <nav className="flex-1 py-2">
+          <nav className="flex sm:flex-col sm:flex-1 py-2 overflow-x-auto sm:overflow-x-visible">
             {sections.map(s => (
               <button
                 key={s.id}
                 onClick={() => setActiveSection(s.id)}
-                className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-all ${
+                className={`flex items-center gap-2 px-4 py-2 text-sm whitespace-nowrap transition-all ${
                   activeSection === s.id
-                    ? 'bg-nb-yellow border-r-3 border-nb-black font-bold text-nb-black dark:text-nb-black'
+                    ? 'bg-nb-yellow sm:border-r-3 border-nb-black font-bold text-nb-black dark:text-nb-black'
                     : 'text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated hover:text-nb-black dark:hover:text-dark-text'
                 }`}
               >

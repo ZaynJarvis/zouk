@@ -8,7 +8,7 @@ export default function WorkspaceRail() {
   } = useApp();
 
   return (
-    <div className="w-[72px] h-full bg-nb-gray-800 dark:bg-dark-bg border-r-3 border-nb-black dark:border-dark-border flex flex-col items-center py-4 gap-3">
+    <div className="hidden lg:flex w-[72px] h-full bg-nb-gray-800 dark:bg-dark-bg border-r-3 border-nb-black dark:border-dark-border flex-col items-center py-4 gap-3">
       <div className="w-10 h-10 border-2 border-nb-yellow bg-nb-yellow font-display font-black text-lg flex items-center justify-center text-nb-black">
         S
       </div>
