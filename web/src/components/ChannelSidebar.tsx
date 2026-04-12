@@ -54,7 +54,7 @@ export default function ChannelSidebar() {
   };
 
   return (
-    <div className="w-[260px] h-full bg-nb-cream dark:bg-dark-surface border-r-3 border-nb-black dark:border-dark-border flex flex-col overflow-hidden">
+    <div data-component="channel-sidebar" className="w-[260px] h-full bg-nb-cream dark:bg-dark-surface border-r-3 border-nb-black dark:border-dark-border flex flex-col overflow-hidden">
       <div className="px-3 py-3 border-b-3 border-nb-black dark:border-dark-border">
         <div className="flex items-center justify-between">
           <h2 className="font-display font-black text-lg text-nb-black dark:text-dark-text truncate">Zouk</h2>

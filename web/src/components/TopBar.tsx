@@ -9,7 +9,7 @@ export default function TopBar() {
   } = useApp();
 
   return (
-    <div className="h-14 border-b-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex items-center px-4 gap-3">
+    <div data-component="top-bar" className="h-14 border-b-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex items-center px-4 gap-3">
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
         className="lg:hidden w-8 h-8 border-2 border-nb-black dark:border-dark-border flex items-center justify-center hover:bg-nb-gray-100 dark:hover:bg-dark-elevated transition-colors"
