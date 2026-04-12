@@ -131,26 +131,96 @@ function parseTarget(target) {
   return { channelName: parts[0], channelType: "channel", threadId: parts[1] || null };
 }
 
+// For DM messages, resolve the canonical channel name.
+// When agent "Zeus" sends to "dm:@zaynjarvis", the existing DM channel is "dm-Zeus" (created when
+// zaynjarvis first DM'd Zeus). We need to reuse that channel, not create "dm-zaynjarvis".
+function resolveDmChannel(senderName, parsed) {
+  if (parsed.channelType !== "dm" || !parsed.dmPeer) return parsed;
+  // Check if there's already a DM channel between these two parties under the peer's name
+  const reverseName = `dm-${senderName}`;
+  const hasReverse = store.messages.some((m) => m.channelName === reverseName && m.channelType === "dm");
+  if (hasReverse) {
+    return { ...parsed, channelName: reverseName };
+  }
+  return parsed;
+}
+
 function formatTarget(channelName, channelType, threadId) {
   let t = channelType === "dm" ? `dm:@${channelName.replace("dm-", "")}` : `#${channelName}`;
   if (threadId) t += `:${threadId}`;
   return t;
 }
 
-function formatMessageForAgent(msg) {
+function matchesTarget(msg, target) {
+  const { channelName, channelType, threadId } = parseTarget(target);
+  return msg.channelName === channelName
+    && msg.channelType === channelType
+    && (threadId ? msg.threadId === threadId : !msg.threadId);
+}
+
+function formatMessageForClient(msg) {
+  const isThread = !!msg.threadId;
+  const normalizeDmName = (name) => name?.replace(/^dm-/, "") || name;
   return {
-    message_id: msg.id,
-    sender_name: msg.senderName,
-    sender_type: msg.senderType,
-    channel_name: msg.channelName,
-    channel_type: msg.channelType,
+    id: msg.id,
+    messageId: msg.id,
+    senderName: msg.senderName,
+    senderType: msg.senderType,
+    channelName: isThread
+      ? msg.threadId
+      : (msg.channelType === "dm" ? normalizeDmName(msg.channelName) : msg.channelName),
+    channelType: isThread ? "thread" : msg.channelType,
+    parentChannelName: isThread
+      ? (msg.channelType === "dm" ? normalizeDmName(msg.channelName) : msg.channelName)
+      : null,
+    parentChannelType: isThread ? msg.channelType : null,
+    threadId: msg.threadId || null,
     content: msg.content,
-    timestamp: msg.createdAt,
+    createdAt: msg.createdAt,
     attachments: msg.attachments || [],
-    task_status: msg.taskStatus || null,
-    task_number: msg.taskNumber || null,
-    task_assignee_id: msg.taskAssigneeId || null,
-    task_assignee_type: msg.taskAssigneeType || null,
+    taskStatus: msg.taskStatus || null,
+    taskNumber: msg.taskNumber || null,
+    taskAssigneeId: msg.taskAssigneeId || null,
+    taskAssigneeType: msg.taskAssigneeType || null,
+  };
+}
+
+function formatMessageForAgent(msg, recipientAgentId) {
+  const formatted = formatMessageForClient(msg);
+  // For DMs: the agent should see the OTHER person's name as the channel,
+  // not their own name. The raw channelName is "dm-{initiator-peer}" after normalization.
+  let channelName = formatted.channelName;
+  let parentChannelName = formatted.parentChannelName;
+  if (recipientAgentId) {
+    const agent = store.agents[recipientAgentId];
+    if (agent) {
+      const agentNames = [agent.name, agent.displayName].filter(Boolean);
+      // For DM channel: if it shows the agent's own name, swap to the other party
+      if (formatted.channelType === "dm" && agentNames.includes(channelName)) {
+        // The other party is the sender (if they sent it) or we need to find who else is in this DM
+        channelName = msg.senderName !== agent.name ? msg.senderName : channelName;
+      }
+      if (formatted.parentChannelType === "dm" && parentChannelName && agentNames.includes(parentChannelName)) {
+        parentChannelName = msg.senderName !== agent.name ? msg.senderName : parentChannelName;
+      }
+    }
+  }
+  return {
+    message_id: formatted.messageId,
+    sender_name: formatted.senderName,
+    sender_type: formatted.senderType,
+    channel_name: channelName,
+    channel_type: formatted.channelType,
+    parent_channel_name: parentChannelName,
+    parent_channel_type: formatted.parentChannelType,
+    thread_id: formatted.threadId,
+    content: formatted.content,
+    timestamp: formatted.createdAt,
+    attachments: formatted.attachments,
+    task_status: formatted.taskStatus,
+    task_number: formatted.taskNumber,
+    task_assignee_id: formatted.taskAssigneeId,
+    task_assignee_type: formatted.taskAssigneeType,
   };
 }
 
@@ -176,7 +246,7 @@ function deliverToAgent(agentId, message) {
       type: "agent:deliver",
       agentId,
       seq,
-      message: formatMessageForAgent(message),
+      message: formatMessageForAgent(message, agentId),
     }));
     // Mark this message as delivered so check_messages won't return it again
     store.agentReadSeq[agentId] = Math.max(store.agentReadSeq[agentId] || 0, message.seq);
@@ -236,7 +306,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 app.post("/internal/agent/:agentId/send", (req, res) => {
   const { agentId } = req.params;
   const { target, content, attachmentIds } = req.body;
-  const { channelName, channelType, threadId } = parseTarget(target);
+  const senderName = store.agents[agentId]?.name || agentId;
+  const parsed = parseTarget(target);
+  const { channelName, channelType, threadId } = resolveDmChannel(senderName, parsed);
   const ch = findOrCreateChannel(channelName, channelType);
 
   const msg = {
@@ -257,7 +329,7 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
   // Deliver to other agents
   deliverToAllAgents(msg, agentId);
   // Broadcast to web UI
-  broadcastToWeb({ type: "message", message: msg });
+  broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
   res.json({ messageId: msg.id, recentUnread: [] });
 });
@@ -269,7 +341,7 @@ app.get("/internal/agent/:agentId/receive", (req, res) => {
   // Return only messages after the agent's last read seq, excluding agent's own messages
   const unread = store.messages
     .filter((m) => m.seq > lastRead && m.senderName !== (store.agents[agentId]?.name || agentId))
-    .map(formatMessageForAgent);
+    .map((m) => formatMessageForAgent(m, agentId));
   // Update read position
   if (store.messages.length > 0) {
     store.agentReadSeq[agentId] = store.messages[store.messages.length - 1].seq;
@@ -295,9 +367,16 @@ app.get("/internal/agent/:agentId/server", (req, res) => {
 
 // read_history
 app.get("/internal/agent/:agentId/history", (req, res) => {
+  const { agentId } = req.params;
   const { channel, limit = 50, before, after, around } = req.query;
-  const { channelName } = parseTarget(channel);
-  let msgs = store.messages.filter((m) => m.channelName === channelName);
+  // Resolve DM channel: agent may request "dm:@peer" but the channel is stored as "dm-{agentName}"
+  const agentName = store.agents[agentId]?.name || agentId;
+  const parsed = parseTarget(channel);
+  const resolved = resolveDmChannel(agentName, parsed);
+  const resolvedTarget = resolved.channelType === "dm"
+    ? `dm:@${resolved.channelName.replace(/^dm-/, "")}${resolved.threadId ? `:${resolved.threadId}` : ""}`
+    : channel;
+  let msgs = store.messages.filter((m) => matchesTarget(m, resolvedTarget));
   const limitNum = parseInt(limit);
 
   if (around) {
@@ -318,19 +397,7 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
   }
 
   res.json({
-    messages: msgs.map((m) => ({
-      id: m.id,
-      seq: m.seq,
-      senderName: m.senderName,
-      senderType: m.senderType,
-      content: m.content,
-      createdAt: m.createdAt,
-      attachments: m.attachments || [],
-      taskStatus: m.taskStatus || null,
-      taskNumber: m.taskNumber || null,
-      taskAssigneeId: null,
-      taskAssigneeType: null,
-    })),
+    messages: msgs.map((m) => formatMessageForAgent(m, agentId)),
     last_read_seq: store.seq,
     has_more: false,
     has_older: false,
@@ -345,8 +412,7 @@ app.get("/internal/agent/:agentId/search", (req, res) => {
   const { q, limit = 10, channel } = req.query;
   let msgs = store.messages;
   if (channel) {
-    const { channelName } = parseTarget(channel);
-    msgs = msgs.filter((m) => m.channelName === channelName);
+    msgs = msgs.filter((m) => matchesTarget(m, channel));
   }
   if (q) {
     const query = q.toLowerCase();
@@ -356,18 +422,10 @@ app.get("/internal/agent/:agentId/search", (req, res) => {
 
   res.json({
     results: msgs.map((m) => ({
-      id: m.id,
+      ...formatMessageForClient(m),
       seq: m.seq,
       createdAt: m.createdAt,
-      senderName: m.senderName,
-      senderType: m.senderType,
-      content: m.content,
       snippet: m.content.substring(0, 200),
-      channelName: m.channelName,
-      channelType: m.channelType,
-      parentChannelName: null,
-      parentChannelType: null,
-      threadId: m.threadId,
     })),
   });
 });
@@ -437,7 +495,7 @@ app.post("/internal/agent/:agentId/tasks", (req, res) => {
       taskStatus: "todo",
     };
     store.messages.push(msg);
-    broadcastToWeb({ type: "message", message: msg });
+    broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
     return { taskNumber: taskNum, messageId: msgId, title: td.title };
   });
@@ -485,7 +543,7 @@ app.post("/internal/agent/:agentId/tasks/claim", (req, res) => {
       createdAt: now(), attachments: [], taskNumber: num, taskStatus: "in_progress",
     };
     store.messages.push(msg);
-    broadcastToWeb({ type: "message", message: msg });
+    broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
     return { taskNumber: num, messageId: task.messageId, success: true, reason: null };
   });
@@ -525,7 +583,7 @@ app.post("/internal/agent/:agentId/tasks/update-status", (req, res) => {
       createdAt: now(), attachments: [], taskNumber: task_number, taskStatus: status,
     };
     store.messages.push(msg);
-    broadcastToWeb({ type: "message", message: msg });
+    broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
   }
   res.json({ success: true });
 });
@@ -594,7 +652,7 @@ app.post("/api/messages", (req, res) => {
     deliverToAllAgents(msg);
   }
   // Broadcast to web UI
-  broadcastToWeb({ type: "message", message: msg });
+  broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
   res.json({ messageId: msg.id, message: msg });
 });
@@ -602,11 +660,10 @@ app.post("/api/messages", (req, res) => {
 // Get messages for a channel
 app.get("/api/messages", (req, res) => {
   const { channel = "#all", limit = 100 } = req.query;
-  const { channelName } = parseTarget(channel);
   const msgs = store.messages
-    .filter((m) => m.channelName === channelName)
+    .filter((m) => matchesTarget(m, channel))
     .slice(-parseInt(limit));
-  res.json({ messages: msgs });
+  res.json({ messages: msgs.map(formatMessageForClient) });
 });
 
 // Get channels

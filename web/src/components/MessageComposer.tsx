@@ -102,6 +102,11 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     }
   }, []);
 
+  // Auto-focus textarea when switching channels/views
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, [activeChannelName, viewMode]);
+
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
