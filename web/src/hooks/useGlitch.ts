@@ -16,8 +16,6 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
   const ref = useRef<T>(null);
   const intervalRef = useRef<ReturnType<typeof setTimeout>>();
   const burstRef = useRef<ReturnType<typeof setTimeout>>();
-  const microRef = useRef<ReturnType<typeof setInterval>>();
-  const isHovering = useRef(false);
 
   const {
     minInterval = 2000,
@@ -57,20 +55,24 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
     const el = ref.current;
     if (!el) return;
 
+    // Clear any in-flight burst to prevent orphaned timers
+    if (burstRef.current) clearTimeout(burstRef.current);
+
     const severity = rand(minSeverity, maxSeverity);
     const duration = rand(minDuration, maxDuration);
+    let elapsed = 0;
+    const step = 50;
 
-    setVars(el, severity, true);
-
-    microRef.current = setInterval(() => {
-      if (!ref.current) return;
-      setVars(ref.current, rand(minSeverity, maxSeverity), true);
-    }, 50);
-
-    burstRef.current = setTimeout(() => {
-      if (microRef.current) clearInterval(microRef.current);
-      if (ref.current) clearVars(ref.current);
-    }, duration);
+    const tick = () => {
+      if (elapsed >= duration) {
+        if (ref.current) clearVars(ref.current);
+        return;
+      }
+      if (ref.current) setVars(ref.current, severity * rand(0.3, 1), true);
+      elapsed += step;
+      burstRef.current = setTimeout(tick, step);
+    };
+    tick();
   }, [minSeverity, maxSeverity, minDuration, maxDuration, setVars, clearVars]);
 
   const scheduleNext = useCallback(() => {
@@ -90,14 +92,12 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
       scheduleNext();
     } else {
       const onEnter = () => {
-        isHovering.current = true;
+        startBurst();
         scheduleNext();
       };
       const onLeave = () => {
-        isHovering.current = false;
         if (intervalRef.current) clearTimeout(intervalRef.current);
         if (burstRef.current) clearTimeout(burstRef.current);
-        if (microRef.current) clearInterval(microRef.current);
         clearVars(el);
       };
       el.addEventListener('mouseenter', onEnter);
@@ -107,14 +107,12 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
         el.removeEventListener('mouseleave', onLeave);
         if (intervalRef.current) clearTimeout(intervalRef.current);
         if (burstRef.current) clearTimeout(burstRef.current);
-        if (microRef.current) clearInterval(microRef.current);
       };
     }
 
     return () => {
       if (intervalRef.current) clearTimeout(intervalRef.current);
       if (burstRef.current) clearTimeout(burstRef.current);
-      if (microRef.current) clearInterval(microRef.current);
     };
   }, [trigger, scheduleNext, clearVars]);
 
