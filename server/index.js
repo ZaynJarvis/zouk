@@ -9,6 +9,7 @@ const fs = require("fs");
 const { URL } = require("url");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
+const db = require("./db");
 
 const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
@@ -115,6 +116,7 @@ function findOrCreateChannel(name, type = "channel") {
   if (!ch) {
     ch = { id: `ch-${uuidv4().substring(0, 8)}`, name, description: "", type: type || "channel", members: [] };
     store.channels.push(ch);
+    db.saveChannel(ch);
   }
   return ch;
 }
@@ -337,6 +339,7 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
     attachments: (attachmentIds || []).map((aid) => store.attachments[aid] ? { id: aid, filename: store.attachments[aid].filename } : { id: aid, filename: "unknown" }),
   };
   store.messages.push(msg);
+  db.saveMessage(msg);
 
   // Deliver to other agents
   deliverToAllAgents(msg, agentId);
@@ -485,6 +488,7 @@ app.post("/internal/agent/:agentId/tasks", (req, res) => {
       createdByName: agentName,
     };
     store.tasks.push(task);
+    db.saveTask(task);
 
     // Create a system message for the task
     const msg = {
@@ -503,6 +507,7 @@ app.post("/internal/agent/:agentId/tasks", (req, res) => {
       taskStatus: "todo",
     };
     store.messages.push(msg);
+    db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
     return { taskNumber: taskNum, messageId: msgId, title: td.title };
@@ -541,6 +546,7 @@ app.post("/internal/agent/:agentId/tasks/claim", (req, res) => {
     task.claimedByName = agentName;
     task.claimedByType = "agent";
     task.status = "in_progress";
+    db.saveTask(task);
 
     const msg = {
       id: uuidv4(), seq: nextSeq(),
@@ -551,6 +557,7 @@ app.post("/internal/agent/:agentId/tasks/claim", (req, res) => {
       createdAt: now(), attachments: [], taskNumber: num, taskStatus: "in_progress",
     };
     store.messages.push(msg);
+    db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
     return { taskNumber: num, messageId: task.messageId, success: true, reason: null };
@@ -567,6 +574,7 @@ app.post("/internal/agent/:agentId/tasks/unclaim", (req, res) => {
     task.claimedByName = null;
     task.claimedByType = null;
     task.status = "todo";
+    db.saveTask(task);
   }
   res.json({ success: true });
 });
@@ -579,6 +587,7 @@ app.post("/internal/agent/:agentId/tasks/update-status", (req, res) => {
   if (task) {
     const oldStatus = task.status;
     task.status = status;
+    db.saveTask(task);
     const agentName = store.agents[agentId]?.name || agentId;
     const emoji = status === "done" ? "✅" : status === "in_review" ? "👀" : "🔄";
 
@@ -591,6 +600,7 @@ app.post("/internal/agent/:agentId/tasks/update-status", (req, res) => {
       createdAt: now(), attachments: [], taskNumber: task_number, taskStatus: status,
     };
     store.messages.push(msg);
+    db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
   }
   res.json({ success: true });
@@ -648,6 +658,7 @@ app.post("/api/messages", (req, res) => {
     attachments: [],
   };
   store.messages.push(msg);
+  db.saveMessage(msg);
 
   // For DMs, deliver only to the target agent; for channels, deliver to all
   if (channelType === "dm" && dmPeer) {
@@ -688,6 +699,7 @@ app.post("/api/channels", (req, res) => {
   const { name, description } = req.body;
   const ch = findOrCreateChannel(name);
   ch.description = description || "";
+  db.saveChannel(ch);
   broadcastToWeb({ type: "channel_created", channel: ch });
   res.json({ channel: ch });
 });
@@ -739,9 +751,11 @@ app.post("/api/agent-configs", (req, res) => {
   } else {
     agentConfigs.push(config);
   }
+  const saved = agentConfigs.find((c) => c.id === config.id);
   saveAgentConfigs(agentConfigs);
+  db.saveAgentConfig(saved);
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
-  res.json({ config: agentConfigs.find((c) => c.id === config.id) });
+  res.json({ config: saved });
 });
 
 // Update agent config
@@ -752,6 +766,7 @@ app.put("/api/agents/:id/config", (req, res) => {
   if (idx < 0) return res.status(404).json({ error: "Config not found" });
   agentConfigs[idx] = { ...agentConfigs[idx], ...updates };
   saveAgentConfigs(agentConfigs);
+  db.saveAgentConfig(agentConfigs[idx]);
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
   res.json({ config: agentConfigs[idx] });
 });
@@ -763,6 +778,7 @@ app.delete("/api/agents/:id", (req, res) => {
   if (idx >= 0) {
     agentConfigs.splice(idx, 1);
     saveAgentConfigs(agentConfigs);
+    db.deleteAgentConfig(id);
   }
   // Also clean up runtime state if agent exists
   if (store.agents[id]) {
@@ -805,6 +821,7 @@ app.post("/api/machine-keys", (req, res) => {
   };
   machineKeys.push(keyRecord);
   saveMachineKeys(machineKeys);
+  db.saveMachineKey(keyRecord);
   console.log(`[keys] Generated machine key "${name}" (${rawKey.substring(0, 18)}...)`);
 
   res.json({
@@ -826,6 +843,7 @@ app.delete("/api/machine-keys/:id", (req, res) => {
   if (!key) return res.status(404).json({ error: "Key not found" });
   key.revokedAt = now();
   saveMachineKeys(machineKeys);
+  db.saveMachineKey(key);
   console.log(`[keys] Revoked machine key "${key.name}"`);
   res.json({ success: true });
 });
@@ -946,6 +964,7 @@ server.on("upgrade", (request, socket, head) => {
     if (keyRecord) {
       keyRecord.lastUsedAt = now();
       saveMachineKeys(machineKeys);
+      db.saveMachineKey(keyRecord);
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
       handleDaemonConnection(ws, apiKey);
@@ -1295,9 +1314,76 @@ if (fs.existsSync(webDir)) {
   });
 }
 
+// ─── DB init + startup ────────────────────────────────────────────
+
+async function initFromDB() {
+  if (!db.enabled) return;
+  try {
+    await db.migrate();
+
+    const [maxSeq, maxTaskNum, msgs, channels, tasks, dbConfigs, dbKeys] = await Promise.all([
+      db.loadMaxSeq(),
+      db.loadMaxTaskNum(),
+      db.loadMessages(),
+      db.loadChannels(),
+      db.loadTasks(),
+      db.loadAgentConfigs(),
+      db.loadMachineKeys(),
+    ]);
+
+    if (maxSeq > store.seq) store.seq = maxSeq;
+    if (maxTaskNum > store.taskSeq) store.taskSeq = maxTaskNum;
+
+    if (msgs.length > 0) {
+      store.messages = msgs;
+      console.log(`[db] Loaded ${msgs.length} messages`);
+    }
+
+    for (const ch of channels) {
+      if (!store.channels.find((c) => c.id === ch.id)) {
+        store.channels.push(ch);
+      } else {
+        const existing = store.channels.find((c) => c.id === ch.id);
+        if (existing) existing.description = ch.description;
+      }
+    }
+    if (channels.length > 0) console.log(`[db] Loaded ${channels.length} channels`);
+
+    if (tasks.length > 0) {
+      store.tasks = tasks;
+      console.log(`[db] Loaded ${tasks.length} tasks`);
+    }
+
+    // Agent configs: DB wins over file when DB has entries
+    if (dbConfigs !== null && dbConfigs.length > 0) {
+      agentConfigs.length = 0;
+      agentConfigs.push(...dbConfigs);
+      console.log(`[db] Loaded ${dbConfigs.length} agent configs`);
+    } else if (dbConfigs !== null && dbConfigs.length === 0 && agentConfigs.length > 0) {
+      // DB is empty but file has configs — seed DB from file
+      for (const cfg of agentConfigs) await db.saveAgentConfig(cfg);
+      console.log(`[db] Seeded ${agentConfigs.length} agent configs to DB`);
+    }
+
+    // Machine keys: DB wins over file when DB has entries
+    if (dbKeys !== null && dbKeys.length > 0) {
+      machineKeys.length = 0;
+      machineKeys.push(...dbKeys);
+      console.log(`[db] Loaded ${dbKeys.length} machine keys`);
+    } else if (dbKeys !== null && dbKeys.length === 0 && machineKeys.length > 0) {
+      // DB is empty but file has keys — seed DB from file
+      for (const k of machineKeys) await db.saveMachineKey(k);
+      console.log(`[db] Seeded ${machineKeys.length} machine keys to DB`);
+    }
+  } catch (e) {
+    console.error("[db] initFromDB error (continuing in-memory):", e.message);
+  }
+}
+
 // ─── Start ────────────────────────────────────────────────────────
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
+  await initFromDB();
   console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);
   console.log(`\n  Daemon endpoint:  ws://localhost:${PORT}/daemon/connect?key=test`);
   console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);

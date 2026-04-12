@@ -21,7 +21,7 @@ function GoogleAuthSync() {
 }
 
 function AppShell() {
-  const { viewMode, sidebarOpen, isLoggedIn } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -33,7 +33,20 @@ function AppShell() {
     <div className="h-screen w-screen flex overflow-hidden bg-nc-black font-body text-nc-text cyber-scanlines">
       <WorkspaceRail />
 
-      <div className={`${sidebarOpen ? 'block' : 'hidden'} lg:block flex-shrink-0`}>
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/40 z-30"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <div className={`
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        lg:translate-x-0 lg:relative lg:z-auto
+        fixed inset-y-0 left-0 z-40
+        transition-transform duration-200 ease-out
+        flex-shrink-0
+      `}>
         <ChannelSidebar />
       </div>
 

@@ -502,10 +502,12 @@ export default function AgentDetail({
   agent,
   onUpdate,
   onStop,
+  onBack,
 }: {
   agent: ServerAgent;
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
+  onBack?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('instructions');
   const activity = agent.activity || 'offline';
@@ -513,7 +515,15 @@ export default function AgentDetail({
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-nc-surface">
-      <div className="flex items-center gap-4 px-5 py-4 border-b border-nc-border">
+      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 border-b border-nc-border">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="cyber-btn lg:hidden w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan transition-colors shrink-0"
+          >
+            <ArrowLeft size={14} />
+          </button>
+        )}
         <div className="w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan">
           {(agent.displayName || agent.name).charAt(0).toUpperCase()}
         </div>
@@ -523,30 +533,30 @@ export default function AgentDetail({
               @{agent.displayName || agent.name}
             </h2>
             <span className={`w-2.5 h-2.5 ${activityColors[activity]}`} />
-            <span className="text-xs text-nc-muted font-mono">{isActive ? activityLabels[activity] : 'INACTIVE'}</span>
+            <span className="text-xs text-nc-muted font-mono hidden sm:inline">{isActive ? activityLabels[activity] : 'INACTIVE'}</span>
           </div>
           {agent.description && (
             <p className="text-xs text-nc-muted truncate mt-0.5 font-mono">{agent.description}</p>
           )}
         </div>
-        <div className="text-xs text-nc-muted shrink-0 font-mono">
+        <div className="text-xs text-nc-muted shrink-0 font-mono hidden sm:block">
           {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime} · {agent.model || '\u2014'}
         </div>
       </div>
 
-      <div className="flex border-b border-nc-border px-5">
+      <div className="flex border-b border-nc-border px-2 sm:px-5">
         {TAB_CONFIG.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold font-mono border-b-2 -mb-[1px] transition-colors tracking-wider ${
+            className={`flex items-center gap-1.5 px-2 sm:px-4 py-2.5 text-sm font-bold font-mono border-b-2 -mb-[1px] transition-colors tracking-wider ${
               tab === key
                 ? 'border-nc-cyan text-nc-cyan'
                 : 'border-transparent text-nc-muted hover:text-nc-text-bright'
             }`}
           >
             <Icon size={14} />
-            {label}
+            <span className="hidden sm:inline">{label}</span>
           </button>
         ))}
       </div>

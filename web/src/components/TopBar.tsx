@@ -1,17 +1,17 @@
-import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff } from 'lucide-react';
+import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, MessageSquare, Bot, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
 
 export default function TopBar() {
   const {
-    activeChannelName, viewMode,
+    activeChannelName, viewMode, setViewMode,
     rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
-    wsConnected, daemonConnected,
+    wsConnected, daemonConnected, setSettingsOpen,
   } = useApp();
 
   return (
-    <div className="h-14 border-b border-nc-border bg-nc-surface flex items-center px-4 gap-3 scanline-overlay">
+    <div className="h-14 border-b border-nc-border bg-nc-surface flex items-center px-2 sm:px-4 gap-2 sm:gap-3 scanline-overlay">
       <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -43,13 +43,47 @@ export default function TopBar() {
       <div className="flex items-center gap-2 text-xs">
         <span className={`status-chip-sm flex items-center gap-1 font-mono ${wsConnected ? 'tone-terminal' : 'tone-critical'}`}>
           {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-          {wsConnected ? 'LINKED' : 'OFFLINE'}
+          <span className="hidden sm:inline">{wsConnected ? 'LINKED' : 'OFFLINE'}</span>
         </span>
         {daemonConnected && (
           <span className="status-chip-sm flex items-center gap-1 font-mono tone-telemetry">
-            DAEMON
+            <span className="hidden sm:inline">DAEMON</span>
+            <span className="sm:hidden">D</span>
           </span>
         )}
+      </div>
+
+      {/* Mobile-only: view mode switches + settings (hidden on desktop where WorkspaceRail provides these) */}
+      <div className="flex lg:hidden items-center gap-1">
+        <button
+          onClick={() => setViewMode('threads')}
+          className={`cyber-btn w-8 h-8 border flex items-center justify-center transition-all
+            ${viewMode === 'threads'
+              ? 'border-nc-cyan bg-nc-cyan/15 text-nc-cyan shadow-nc-cyan'
+              : 'border-nc-border text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan'
+            }`}
+          title="Threads"
+        >
+          <MessageSquare size={14} />
+        </button>
+        <button
+          onClick={() => setViewMode('agents')}
+          className={`cyber-btn w-8 h-8 border flex items-center justify-center transition-all
+            ${viewMode === 'agents'
+              ? 'border-nc-green bg-nc-green/15 text-nc-green shadow-nc-green'
+              : 'border-nc-border text-nc-muted hover:border-nc-green/50 hover:text-nc-green'
+            }`}
+          title="Agents"
+        >
+          <Bot size={14} />
+        </button>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="cyber-btn w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan transition-all"
+          title="Settings"
+        >
+          <Settings size={14} />
+        </button>
       </div>
 
       <div className="flex items-center gap-1">

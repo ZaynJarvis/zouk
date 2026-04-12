@@ -57,7 +57,7 @@ export function useAppStore() {
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [threadMessages, setThreadMessages] = useState<MessageRecord[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -284,6 +284,8 @@ export function useAppStore() {
     setThreadMessages([]);
     setActiveThreadMessage(null);
     if (rightPanel === 'thread') setRightPanel(null);
+    // Auto-close sidebar on mobile
+    if (window.innerWidth < 1024) setSidebarOpen(false);
   }, [rightPanel]);
 
   const sendMessageAction = useCallback(async (content: string, threadTarget?: string) => {
