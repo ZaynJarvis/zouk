@@ -37,41 +37,47 @@ export default function SettingsModal() {
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 animate-fade-in"
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 animate-fade-in p-4"
       onClick={(e) => e.target === e.currentTarget && setSettingsOpen(false)}
     >
       <GlitchTransition active={glitchActive} duration={400} onComplete={handleGlitchComplete} themeAgnostic />
 
-      <div className="cyber-panel w-full max-w-3xl h-[80vh] flex overflow-hidden animate-bounce-in cyber-bevel">
+      <div className="cyber-panel w-full max-w-3xl h-[80vh] flex flex-col sm:flex-row overflow-hidden animate-bounce-in cyber-bevel">
         {(() => { const nc = isNightCity(); return (
-        <div className={`w-48 flex flex-col ${nc ? 'bg-nc-deep border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
-          <div className={`px-4 py-4 ${nc ? 'border-b border-nc-border' : 'border-b-2 border-nc-border'}`}>
+        <div className={`w-full sm:w-48 shrink-0 flex flex-row sm:flex-col ${nc ? 'bg-nc-deep border-b sm:border-b-0 sm:border-r border-nc-border' : 'bg-nc-panel border-b-[3px] sm:border-b-0 sm:border-r-[3px] border-nc-border-bright'}`}>
+          <div className={`hidden sm:block px-4 py-4 ${nc ? 'border-b border-nc-border' : 'border-b-2 border-nc-border'}`}>
             {nc
               ? <h2 className="font-display font-black text-sm text-nc-cyan neon-cyan tracking-wider">SETTINGS</h2>
               : <h2 className="font-display font-black text-lg text-nc-text-bright">Settings</h2>
             }
           </div>
-          <nav className="flex-1 py-2">
+          <nav className="flex flex-row sm:flex-col flex-1 sm:py-2 overflow-x-auto">
             {navItems.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setSection(key)}
-                className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-bold transition-all ${nc ? 'tracking-wider' : ''} ${
+                className={`flex items-center justify-center sm:justify-start gap-2 px-4 py-2.5 text-sm font-bold transition-all flex-1 sm:flex-none sm:w-full ${nc ? 'tracking-wider' : ''} ${
                   section === key
-                    ? (nc ? 'bg-nc-cyan/10 text-nc-cyan border-r-2 border-nc-cyan' : 'bg-nc-yellow border-r-[3px] border-nc-border-bright text-nc-text-bright')
+                    ? (nc ? 'bg-nc-cyan/10 text-nc-cyan sm:border-r-2 border-nc-cyan border-b-2 sm:border-b-0' : 'bg-nc-yellow sm:border-r-[3px] border-nc-border-bright text-nc-text-bright border-b-[3px] sm:border-b-0')
                     : (nc ? 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright')
                 }`}
               >
                 <Icon size={16} />
-                {nc ? label : label.charAt(0) + label.slice(1).toLowerCase()}
+                <span className="hidden sm:inline">{nc ? label : label.charAt(0) + label.slice(1).toLowerCase()}</span>
               </button>
             ))}
+            <button
+              onClick={() => setSettingsOpen(false)}
+              className="flex sm:hidden items-center justify-center px-3 py-2.5 text-nc-muted hover:text-nc-red"
+            >
+              <X size={16} />
+            </button>
           </nav>
         </div>
         ); })()}
 
-        <div className="flex-1 flex flex-col">
-          <div className={`h-14 flex items-center justify-between px-6 ${isNightCity() ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className={`hidden sm:flex h-14 items-center justify-between px-6 ${isNightCity() ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
             <h3 className={`font-display font-bold text-base text-nc-text-bright ${isNightCity() ? 'tracking-wider' : 'capitalize'}`}>
               {isNightCity() ? navItems.find(n => n.key === section)?.label : navItems.find(n => n.key === section)?.label.charAt(0).toUpperCase()! + navItems.find(n => n.key === section)?.label.slice(1).toLowerCase()}
             </h3>

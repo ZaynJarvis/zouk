@@ -113,7 +113,7 @@ function ConfigStartButton({
 }
 
 export default function AgentsView() {
-  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig } = useApp();
+  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, isGuest } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -210,29 +210,35 @@ export default function AgentsView() {
                   Machines ({machines.length})
                 </span>
               </button>
-              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  onClick={() => setShowMachineSetup(true)}
-                  className="cyber-btn w-6 h-6 flex items-center justify-center border border-nc-border hover:border-nc-cyan hover:text-nc-cyan hover:bg-nc-cyan/10 text-nc-muted"
-                  title="Machine Setup & API Keys"
-                >
-                  <Settings size={10} />
-                </button>
-              </ScanlineTear>
+              {!isGuest && (
+                <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                  <button
+                    onClick={() => setShowMachineSetup(true)}
+                    className="cyber-btn w-6 h-6 flex items-center justify-center border border-nc-border hover:border-nc-cyan hover:text-nc-cyan hover:bg-nc-cyan/10 text-nc-muted"
+                    title="Machine Setup & API Keys"
+                  >
+                    <Settings size={10} />
+                  </button>
+                </ScanlineTear>
+              )}
             </div>
             {machinesExpanded && (
               machines.length > 0 ? (
                 machines.map(m => <CompactMachineCard key={m.id} machine={m} />)
               ) : (
                 <div className="px-4 pb-2">
-                  <ScanlineTear className="w-full" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                    <button
-                      onClick={() => setShowMachineSetup(true)}
-                      className="cyber-btn w-full border border-dashed border-nc-border px-3 py-2 text-2xs text-nc-muted text-center hover:border-nc-cyan hover:text-nc-cyan font-mono"
-                    >
-                      + CONNECT_MACHINE
-                    </button>
-                  </ScanlineTear>
+                  {isGuest ? (
+                    <p className="text-2xs text-nc-muted text-center font-mono py-2">NO_MACHINES_CONNECTED</p>
+                  ) : (
+                    <ScanlineTear className="w-full" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        onClick={() => setShowMachineSetup(true)}
+                        className="cyber-btn w-full border border-dashed border-nc-border px-3 py-2 text-2xs text-nc-muted text-center hover:border-nc-cyan hover:text-nc-cyan font-mono"
+                      >
+                        + CONNECT_MACHINE
+                      </button>
+                    </ScanlineTear>
+                  )}
                 </div>
               )
             )}
@@ -286,7 +292,7 @@ export default function AgentsView() {
               <p className="text-sm text-nc-muted font-bold font-mono">
                 {showArchived ? 'NO_ARCHIVED_AGENTS' : 'NO_AGENTS_FOUND'}
               </p>
-              {!showArchived && (
+              {!showArchived && !isGuest && (
                 <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                   <button
                     onClick={() => setShowCreate(true)}
@@ -322,7 +328,7 @@ export default function AgentsView() {
         )}
       </div>
 
-      {showCreate && (
+      {showCreate && !isGuest && (
         <CreateAgentDialog
           machines={machines}
           onClose={() => setShowCreate(false)}
@@ -331,7 +337,7 @@ export default function AgentsView() {
         />
       )}
 
-      {showMachineSetup && (
+      {showMachineSetup && !isGuest && (
         <MachineSetupDialog
           machines={machines}
           onClose={() => setShowMachineSetup(false)}

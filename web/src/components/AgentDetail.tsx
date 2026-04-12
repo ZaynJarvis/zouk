@@ -341,6 +341,7 @@ function SettingsTab({
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
 }) {
+  const { isGuest } = useApp();
   const [displayName, setDisplayName] = useState(agent.displayName || agent.name);
   const [description, setDescription] = useState(agent.description || '');
   const [visibility, setVisibility] = useState<'workspace' | 'private'>(agent.visibility || 'workspace');
@@ -472,28 +473,30 @@ function SettingsTab({
           </div>
         )}
 
-        <div className="flex items-center gap-3 pt-3 border-t border-nc-border">
-          {isDirty && (
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent })}
-                className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-              >
-                <Save size={12} /> SAVE
-              </button>
-            </ScanlineTear>
-          )}
-          {agent.status === 'active' && (
-            <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                onClick={onStop}
-                className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-red bg-nc-red/10 text-sm font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono"
-              >
-                <Square size={12} /> STOP_AGENT
-              </button>
-            </ScanlineTear>
-          )}
-        </div>
+        {!isGuest && (
+          <div className="flex items-center gap-3 pt-3 border-t border-nc-border">
+            {isDirty && (
+              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent })}
+                  className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
+                >
+                  <Save size={12} /> SAVE
+                </button>
+              </ScanlineTear>
+            )}
+            {agent.status === 'active' && (
+              <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={onStop}
+                  className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-red bg-nc-red/10 text-sm font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono"
+                >
+                  <Square size={12} /> STOP_AGENT
+                </button>
+              </ScanlineTear>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

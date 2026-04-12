@@ -3,7 +3,7 @@ import { Send, Bot, User } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest } = useApp();
   const [text, setText] = useState('');
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -117,6 +117,16 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, []);
 
   const channelLabel = viewMode === 'dm' ? `@${activeChannelName}` : `#${activeChannelName}`;
+
+  if (isGuest) {
+    return (
+      <div className="px-5 pb-4 pt-2">
+        <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
+          Sign in with Google to send messages
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-5 pb-4 pt-2 relative">

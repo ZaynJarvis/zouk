@@ -153,7 +153,7 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
             </div>
           )}
 
-          <div className="text-sm text-nc-text leading-relaxed whitespace-pre-wrap break-words">
+          <div className="text-sm text-nc-text leading-relaxed whitespace-pre-wrap break-words" style={{ fontFamily: 'var(--nc-font-message)' }}>
             {message.content ? parseMessageContent(message.content) : ''}
           </div>
 

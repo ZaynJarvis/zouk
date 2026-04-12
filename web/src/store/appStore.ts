@@ -456,6 +456,7 @@ export function useAppStore() {
     workspaceFiles, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
+    isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
   };
 }

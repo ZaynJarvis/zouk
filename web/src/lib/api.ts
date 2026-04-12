@@ -4,6 +4,12 @@ function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
 }
 
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('zouk_auth_token');
+  if (token) return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+  return { 'Content-Type': 'application/json' };
+}
+
 // Server returns camelCase, frontend uses snake_case — normalize here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizeMessage(m: any): MessageRecord {
@@ -62,7 +68,7 @@ export async function sendMessage(content: string, target: string, senderName: s
   const url = `${getBaseUrl()}/api/messages`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ content, target, senderName }),
   });
   if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
@@ -72,7 +78,7 @@ export async function createChannel(name: string): Promise<{ channel: { id: stri
   const url = `${getBaseUrl()}/api/channels`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error(`Failed to create channel: ${res.status}`);
@@ -91,7 +97,7 @@ export async function startAgent(config: {
   const url = `${getBaseUrl()}/api/agents/start`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
   if (!res.ok) throw new Error(`Failed to start agent: ${res.status}`);
@@ -100,13 +106,13 @@ export async function startAgent(config: {
 
 export async function stopAgent(agentId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}/stop`;
-  const res = await fetch(url, { method: 'POST' });
+  const res = await fetch(url, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to stop agent: ${res.status}`);
 }
 
 export async function deleteAgent(agentId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}`;
-  const res = await fetch(url, { method: 'DELETE' });
+  const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to delete agent: ${res.status}`);
 }
 
@@ -114,7 +120,7 @@ export async function updateAgentConfig(agentId: string, updates: Record<string,
   const url = `${getBaseUrl()}/api/agents/${agentId}/config`;
   const res = await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(updates),
   });
   if (!res.ok) throw new Error(`Failed to update agent config: ${res.status}`);
@@ -124,7 +130,7 @@ export async function saveAgentConfig(config: AgentConfig): Promise<void> {
   const url = `${getBaseUrl()}/api/agent-configs`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
   if (!res.ok) throw new Error(`Failed to save agent config: ${res.status}`);
@@ -169,7 +175,7 @@ export async function generateMachineKey(name: string): Promise<{ key: MachineAp
   const url = `${getBaseUrl()}/api/machine-keys`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error(`Failed to generate machine key: ${res.status}`);
@@ -186,6 +192,6 @@ export async function listMachineKeys(): Promise<MachineApiKey[]> {
 
 export async function revokeMachineKey(keyId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/machine-keys/${keyId}`;
-  const res = await fetch(url, { method: 'DELETE' });
+  const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to revoke machine key: ${res.status}`);
 }

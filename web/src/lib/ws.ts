@@ -119,11 +119,13 @@ export class SlockWebSocket {
   private _connected = false;
 
   constructor(serverUrl: string) {
+    const token = localStorage.getItem('zouk_auth_token');
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
     if (serverUrl) {
-      this.url = `${serverUrl.replace(/^http/, 'ws')}/ws`;
+      this.url = `${serverUrl.replace(/^http/, 'ws')}/ws${tokenQuery}`;
     } else {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      this.url = `${proto}//${window.location.host}/ws`;
+      this.url = `${proto}//${window.location.host}/ws${tokenQuery}`;
     }
   }
 
