@@ -14,6 +14,7 @@ export interface MessageRecord {
   task_number?: number;
   task_assignee_id?: string;
   task_assignee_type?: string;
+  dm_parties?: string[];
 }
 
 export interface ServerChannel {

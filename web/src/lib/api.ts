@@ -13,17 +13,15 @@ export function normalizeMessage(m: any): MessageRecord {
   const inferredThread = rawChannelType === 'thread' || !!rawThreadId;
   const parentChannelType = m.parent_channel_type || m.parentChannelType || (inferredThread ? (m.parentChannelType || m.parent_channel_type || 'channel') : undefined);
   const parentChannelNameRaw = m.parent_channel_name || m.parentChannelName || (inferredThread ? rawChannelName : undefined);
-  const normalizeDmName = (name?: string | null) => (name || '').replace(/^dm-/, '');
+  const dmParties: string[] | undefined = m.dmParties || m.dm_parties;
 
   return {
     id: m.id,
     channel_type: inferredThread ? 'thread' : rawChannelType,
     channel_name: inferredThread
       ? (rawThreadId || rawChannelName)
-      : (rawChannelType === 'dm' ? normalizeDmName(rawChannelName) : rawChannelName),
-    parent_channel_name: inferredThread
-      ? (parentChannelType === 'dm' ? normalizeDmName(parentChannelNameRaw) : parentChannelNameRaw)
-      : undefined,
+      : rawChannelName,
+    parent_channel_name: inferredThread ? parentChannelNameRaw : undefined,
     parent_channel_type: inferredThread ? parentChannelType : undefined,
     message_id: m.message_id || m.messageId || m.id,
     timestamp: m.timestamp || m.createdAt,
@@ -35,12 +33,14 @@ export function normalizeMessage(m: any): MessageRecord {
     task_number: m.task_number || m.taskNumber,
     task_assignee_id: m.task_assignee_id || m.taskAssigneeId,
     task_assignee_type: m.task_assignee_type || m.taskAssigneeType,
+    dm_parties: dmParties,
   };
 }
 
-export async function fetchMessages(channelName: string, isDm = false, limit = 200): Promise<MessageRecord[]> {
+export async function fetchMessages(channelName: string, isDm = false, limit = 200, senderName?: string): Promise<MessageRecord[]> {
   const target = isDm ? `dm:@${channelName}` : `#${channelName}`;
-  const url = `${getBaseUrl()}/api/messages?channel=${encodeURIComponent(target)}&limit=${limit}`;
+  let url = `${getBaseUrl()}/api/messages?channel=${encodeURIComponent(target)}&limit=${limit}`;
+  if (senderName) url += `&sender=${encodeURIComponent(senderName)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch messages: ${res.status}`);
   const data = await res.json();
