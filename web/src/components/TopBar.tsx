@@ -17,7 +17,7 @@ export default function TopBar() {
       <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
+          className={`lg:hidden w-11 h-11 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
         >
           <Menu size={16} />
         </button>
@@ -80,7 +80,7 @@ export default function TopBar() {
       <div className="flex lg:hidden items-center gap-1">
         <button
           onClick={() => setViewMode('threads')}
-          className={`cyber-btn w-8 h-8 border flex items-center justify-center transition-all
+          className={`cyber-btn w-11 h-11 border flex items-center justify-center transition-all
             ${viewMode === 'threads'
               ? 'border-nc-cyan bg-nc-cyan/15 text-nc-cyan shadow-nc-cyan'
               : 'border-nc-border text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan'
@@ -91,7 +91,7 @@ export default function TopBar() {
         </button>
         <button
           onClick={() => setViewMode('agents')}
-          className={`cyber-btn w-8 h-8 border flex items-center justify-center transition-all
+          className={`cyber-btn w-11 h-11 border flex items-center justify-center transition-all
             ${viewMode === 'agents'
               ? 'border-nc-green bg-nc-green/15 text-nc-green shadow-nc-green'
               : 'border-nc-border text-nc-muted hover:border-nc-green/50 hover:text-nc-green'
@@ -102,7 +102,7 @@ export default function TopBar() {
         </button>
         <button
           onClick={() => setSettingsOpen(true)}
-          className="cyber-btn w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan transition-all"
+          className="cyber-btn w-11 h-11 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan transition-all"
           title="Settings"
         >
           <Settings size={14} />

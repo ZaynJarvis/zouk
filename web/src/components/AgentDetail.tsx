@@ -520,7 +520,7 @@ export default function AgentDetail({
         {onBack && (
           <button
             onClick={onBack}
-            className="cyber-btn lg:hidden w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan transition-colors shrink-0"
+            className="cyber-btn lg:hidden w-11 h-11 border border-nc-border flex items-center justify-center text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan transition-colors shrink-0"
           >
             <ArrowLeft size={14} />
           </button>
