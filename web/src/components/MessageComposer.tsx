@@ -158,7 +158,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onKeyDown={handleKeyDown}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
-          className="flex-1 px-3 py-2.5 bg-transparent text-sm font-body text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 dark:placeholder:text-dark-muted resize-none focus:outline-none min-h-[46px]"
+          className="flex-1 px-3 py-2.5 bg-transparent text-base lg:text-sm font-body text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 dark:placeholder:text-dark-muted resize-none focus:outline-none min-h-[46px]"
         />
 
         <button

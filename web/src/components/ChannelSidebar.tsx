@@ -26,8 +26,16 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
-    createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast,
+    createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, theme,
+    setSidebarOpen,
   } = useApp();
+
+  const isCyber = theme === 'cyberpunk';
+
+  const handleSelect = (name: string, isDm = false) => {
+    selectChannel(name, isDm);
+    if (window.innerWidth < 1024) setSidebarOpen(false);
+  };
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [dmsCollapsed, setDmsCollapsed] = useState(false);
@@ -54,19 +62,31 @@ export default function ChannelSidebar() {
   };
 
   return (
-    <div className="w-[260px] h-full bg-nb-cream dark:bg-dark-surface border-r-3 border-nb-black dark:border-dark-border flex flex-col overflow-hidden">
-      <div className="px-3 py-3 border-b-3 border-nb-black dark:border-dark-border">
+    <div data-component="channel-sidebar" className={`w-[260px] h-full border-r-3 flex flex-col overflow-hidden ${
+      isCyber
+        ? 'bg-[rgba(10,12,19,0.95)] border-[rgba(94,246,255,0.15)]'
+        : 'bg-nb-cream dark:bg-dark-surface border-nb-black dark:border-dark-border'
+    }`}>
+      <div className={`px-3 py-3 border-b-3 ${isCyber ? 'border-[rgba(94,246,255,0.15)]' : 'border-nb-black dark:border-dark-border'}`}>
         <div className="flex items-center justify-between">
-          <h2 className="font-display font-black text-lg text-nb-black dark:text-dark-text truncate">Zouk</h2>
+          <h2 className={`font-black text-lg truncate ${isCyber ? 'font-cyber-display text-cp-cyan cp-neon-cyan' : 'font-display text-nb-black dark:text-dark-text'}`}>Zouk</h2>
           {totalUnread > 0 && (
-            <span className="bg-nb-pink text-nb-white text-2xs font-black px-1.5 py-0.5 border-2 border-nb-black shadow-nb-sm">
+            <span className={`text-2xs font-black px-1.5 py-0.5 border-2 ${
+              isCyber
+                ? 'bg-cp-red/80 text-white border-cp-red/60 shadow-[0_0_8px_rgba(247,80,73,0.3)]'
+                : 'bg-nb-pink text-nb-white border-nb-black shadow-nb-sm'
+            }`}>
               {totalUnread}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5 mt-1">
-          <span className={`w-2 h-2 border border-nb-black dark:border-dark-border ${wsConnected ? 'bg-nb-green' : 'bg-nb-red'}`} />
-          <span className="text-xs text-nb-gray-500 dark:text-dark-muted truncate">{currentUser}</span>
+          <span className={`w-2 h-2 border ${
+            isCyber
+              ? (wsConnected ? 'bg-cp-green border-cp-green shadow-[0_0_4px_rgba(115,248,85,0.5)]' : 'bg-cp-red border-cp-red')
+              : `border-nb-black dark:border-dark-border ${wsConnected ? 'bg-nb-green' : 'bg-nb-red'}`
+          }`} />
+          <span className={`text-xs truncate ${isCyber ? 'text-white/50 font-cyber-mono' : 'text-nb-gray-500 dark:text-dark-muted'}`}>{currentUser}</span>
         </div>
       </div>
 
@@ -103,7 +123,7 @@ export default function ChannelSidebar() {
             return (
               <button
                 key={ch.id}
-                onClick={() => selectChannel(ch.name)}
+                onClick={() => handleSelect(ch.name)}
                 className={`
                   w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group
                   ${isActive
@@ -139,7 +159,7 @@ export default function ChannelSidebar() {
             return (
               <button
                 key={agent.id}
-                onClick={() => selectChannel(agent.name, true)}
+                onClick={() => handleSelect(agent.name, true)}
                 className={`
                   w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group
                   ${isActive
@@ -191,7 +211,7 @@ export default function ChannelSidebar() {
           {!dmsCollapsed && humans.map(h => (
             <button
               key={h.id}
-              onClick={() => selectChannel(h.name, true)}
+              onClick={() => handleSelect(h.name, true)}
               className={`
                 w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75
                 ${activeChannelName === h.name

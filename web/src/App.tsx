@@ -3,6 +3,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AppProvider, useApp } from './store/AppContext';
 import WorkspaceRail from './components/WorkspaceRail';
 import ChannelSidebar from './components/ChannelSidebar';
+
 import TopBar from './components/TopBar';
 import MessageList from './components/MessageList';
 import MessageComposer from './components/MessageComposer';
@@ -21,7 +22,7 @@ function GoogleAuthSync() {
 }
 
 function AppShell() {
-  const { theme, viewMode, sidebarOpen, isLoggedIn } = useApp();
+  const { theme, viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
   useEffect(() => {
     document.documentElement.classList.remove('dark', 'cyberpunk');
@@ -43,7 +44,21 @@ function AppShell() {
     }`}>
       <WorkspaceRail />
 
-      <div className={`${sidebarOpen ? 'block' : 'hidden'} lg:block flex-shrink-0`}>
+      {/* Mobile backdrop — tapping it closes the sidebar */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar: overlay on mobile, inline on desktop */}
+      <div className={`
+        fixed top-0 left-[72px] z-40 h-full flex-shrink-0
+        transition-transform duration-200 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        lg:relative lg:top-auto lg:left-auto lg:translate-x-0 lg:transition-none
+      `}>
         <ChannelSidebar />
       </div>
 
@@ -60,7 +75,10 @@ function AppShell() {
             {viewMode === 'threads' && <ThreadsView />}
             {viewMode === 'agents' && <AgentsView />}
           </div>
-          <RightPanel />
+          {/* Hide right panel on mobile — too narrow */}
+          <div className="hidden lg:contents">
+            <RightPanel />
+          </div>
         </div>
       </div>
 
