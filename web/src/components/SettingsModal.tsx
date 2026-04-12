@@ -23,13 +23,23 @@ export default function SettingsModal() {
     }
   };
 
+  const isCyber = theme === 'cyberpunk';
+
   return (
-    <div className="fixed inset-0 z-50 bg-nb-black/40 dark:bg-black/60 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSettingsOpen(false)}>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in ${isCyber ? 'bg-black/70' : 'bg-nb-black/40 dark:bg-black/60'}`} onClick={() => setSettingsOpen(false)}>
       <div
-        className="w-full max-w-3xl h-[80vh] bg-nb-white dark:bg-dark-surface border-3 border-nb-black dark:border-dark-border shadow-nb-lg flex animate-bounce-in"
+        className={`w-full max-w-3xl h-[80vh] border-3 flex animate-bounce-in ${
+          isCyber
+            ? 'bg-[rgba(8,10,16,0.98)] border-[rgba(94,246,255,0.2)] shadow-[0_0_60px_rgba(14,14,231,0.2),0_0_30px_rgba(94,246,255,0.1)]'
+            : 'bg-nb-white dark:bg-dark-surface border-nb-black dark:border-dark-border shadow-nb-lg'
+        }`}
         onClick={e => e.stopPropagation()}
       >
-        <div className="w-48 border-r-3 border-nb-black dark:border-dark-border bg-nb-cream dark:bg-dark-bg flex flex-col">
+        <div className={`w-48 border-r-3 flex flex-col ${
+          isCyber
+            ? 'border-[rgba(94,246,255,0.15)] bg-[rgba(5,5,5,0.95)]'
+            : 'border-nb-black dark:border-dark-border bg-nb-cream dark:bg-dark-bg'
+        }`}>
           <div className="px-4 py-4 border-b-2 border-nb-gray-200 dark:border-dark-border">
             <h3 className="font-display font-black text-lg text-nb-black dark:text-dark-text">Settings</h3>
           </div>

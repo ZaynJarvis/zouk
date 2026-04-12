@@ -95,6 +95,7 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
 
   return (
     <div
+      data-component="message-item"
       className={`relative group px-5 transition-colors duration-75 ${hovered ? 'bg-nb-yellow-light/30 dark:bg-dark-elevated/50' : ''}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

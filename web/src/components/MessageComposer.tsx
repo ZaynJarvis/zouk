@@ -125,7 +125,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const channelLabel = viewMode === 'dm' ? `@${activeChannelName}` : `#${activeChannelName}`;
 
   return (
-    <div className="px-5 pb-4 pt-2 relative">
+    <div data-component="message-composer" className="px-5 pb-4 pt-2 relative">
       {/* @ mention autocomplete dropdown */}
       {mentionQuery !== null && mentionMatches.length > 0 && (
         <div className="absolute bottom-full left-5 right-5 mb-1 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb z-20 max-h-[240px] overflow-y-auto">

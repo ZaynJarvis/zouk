@@ -1,7 +1,7 @@
+@import './cyberpunk.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-@import './cyberpunk.css';
 
 @layer base {
   * {

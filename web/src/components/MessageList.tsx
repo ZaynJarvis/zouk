@@ -68,7 +68,7 @@ export default function MessageList() {
   let lastDate = '';
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div data-component="message-list" className="flex-1 overflow-y-auto">
       <div className="pt-4 pb-2">
         {channelMessages.map((msg, i) => {
           const msgDate = msg.timestamp ? formatDate(msg.timestamp) : '';

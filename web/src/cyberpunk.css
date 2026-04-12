@@ -345,3 +345,368 @@
   background: #f75049;
   box-shadow: 0 0 4px rgba(247, 80, 73, 0.6);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   GLOBAL TAILWIND OVERRIDES — cyberpunk theme
+   These override the nb-* / dark:* Tailwind classes across all
+   components so the entire UI reshapes when html.cyberpunk is active.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Background colors ─────────────────────────────────────────── */
+.cyberpunk .bg-nb-white,
+.cyberpunk .bg-nb-cream,
+.cyberpunk .bg-nb-gray-50,
+.cyberpunk .bg-nb-gray-100 {
+  background-color: #050505 !important;
+}
+
+.cyberpunk .bg-nb-gray-200 {
+  background-color: rgba(94, 246, 255, 0.06) !important;
+}
+
+.cyberpunk .bg-nb-gray-800 {
+  background-color: rgba(8, 10, 16, 0.98) !important;
+}
+
+/* Surface backgrounds */
+.cyberpunk .dark\:bg-dark-surface {
+  background-color: rgba(10, 12, 19, 0.92) !important;
+}
+
+.cyberpunk .dark\:bg-dark-elevated,
+.cyberpunk .dark\:bg-dark-bg {
+  background-color: rgba(8, 10, 16, 0.98) !important;
+}
+
+/* ─── Text colors ───────────────────────────────────────────────── */
+.cyberpunk .text-nb-black,
+.cyberpunk .dark\:text-dark-text {
+  color: rgba(255, 255, 255, 0.88) !important;
+}
+
+.cyberpunk .text-nb-gray-400,
+.cyberpunk .text-nb-gray-500,
+.cyberpunk .dark\:text-dark-muted {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+.cyberpunk .text-nb-gray-600 {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.cyberpunk .text-nb-gray-700 {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* ─── Border colors ─────────────────────────────────────────────── */
+.cyberpunk .border-nb-black,
+.cyberpunk .dark\:border-dark-border {
+  border-color: rgba(94, 246, 255, 0.18) !important;
+}
+
+.cyberpunk .border-nb-gray-200,
+.cyberpunk .border-nb-gray-300 {
+  border-color: rgba(94, 246, 255, 0.1) !important;
+}
+
+/* ─── Accent color overrides ────────────────────────────────────── */
+/* Yellow → Cyan */
+.cyberpunk .bg-nb-yellow {
+  background-color: rgba(94, 246, 255, 0.2) !important;
+}
+
+.cyberpunk .bg-nb-yellow-light,
+.cyberpunk .bg-nb-yellow-light\/30 {
+  background-color: rgba(94, 246, 255, 0.06) !important;
+}
+
+/* Blue → Cyan neon */
+.cyberpunk .bg-nb-blue {
+  background: linear-gradient(135deg, rgba(94, 246, 255, 0.3), rgba(14, 14, 231, 0.4)) !important;
+}
+
+.cyberpunk .bg-nb-blue-light {
+  background-color: rgba(94, 246, 255, 0.1) !important;
+}
+
+.cyberpunk .text-nb-blue {
+  color: #5ef6ff !important;
+}
+
+.cyberpunk .border-nb-blue {
+  border-color: rgba(94, 246, 255, 0.4) !important;
+}
+
+/* Green → Acid Lime */
+.cyberpunk .bg-nb-green {
+  background-color: #73f855 !important;
+}
+
+.cyberpunk .bg-nb-green-light {
+  background-color: rgba(115, 248, 85, 0.1) !important;
+}
+
+.cyberpunk .text-nb-green {
+  color: #73f855 !important;
+}
+
+.cyberpunk .border-nb-green {
+  border-color: rgba(115, 248, 85, 0.5) !important;
+}
+
+/* Red → Signal Red */
+.cyberpunk .bg-nb-red {
+  background-color: #f75049 !important;
+}
+
+.cyberpunk .bg-nb-red-light {
+  background-color: rgba(247, 80, 73, 0.1) !important;
+}
+
+.cyberpunk .text-nb-red {
+  color: #f75049 !important;
+}
+
+.cyberpunk .border-nb-red {
+  border-color: rgba(247, 80, 73, 0.5) !important;
+}
+
+/* Pink → Signal Red */
+.cyberpunk .bg-nb-pink {
+  background: linear-gradient(135deg, #f75049, #bb4141) !important;
+  box-shadow: 0 0 8px rgba(247, 80, 73, 0.3);
+}
+
+/* Orange → Amber */
+.cyberpunk .bg-nb-orange {
+  background-color: #ffd84a !important;
+}
+
+.cyberpunk .text-nb-orange {
+  color: #ffd84a !important;
+}
+
+/* ─── Shadow overrides ──────────────────────────────────────────── */
+.cyberpunk .shadow-nb-sm,
+.cyberpunk .shadow-nb,
+.cyberpunk .shadow-nb-lg,
+.cyberpunk .shadow-nb-xl {
+  box-shadow: 0 0 12px rgba(94, 246, 255, 0.08), 0 0 4px rgba(14, 14, 231, 0.1) !important;
+}
+
+/* ─── Font overrides ────────────────────────────────────────────── */
+.cyberpunk .font-display {
+  font-family: 'Orbitron', 'Rajdhani', sans-serif !important;
+}
+
+.cyberpunk .font-body {
+  font-family: 'Rajdhani', 'Inter', sans-serif !important;
+}
+
+.cyberpunk .font-mono {
+  font-family: 'Space Mono', 'JetBrains Mono', monospace !important;
+}
+
+/* ─── Border-radius → sharp ─────────────────────────────────────── */
+.cyberpunk .rounded,
+.cyberpunk .rounded-lg,
+.cyberpunk .rounded-md,
+.cyberpunk .rounded-sm,
+.cyberpunk .rounded-xl,
+.cyberpunk .rounded-full {
+  border-radius: 0 !important;
+}
+
+/* ─── Hover states ──────────────────────────────────────────────── */
+.cyberpunk .hover\:bg-nb-gray-100:hover,
+.cyberpunk .dark\:hover\:bg-dark-elevated:hover {
+  background-color: rgba(94, 246, 255, 0.06) !important;
+}
+
+.cyberpunk .hover\:text-nb-black:hover,
+.cyberpunk .dark\:hover\:text-dark-text:hover {
+  color: #5ef6ff !important;
+}
+
+.cyberpunk .hover\:border-nb-black:hover,
+.cyberpunk .dark\:hover\:border-dark-text:hover {
+  border-color: rgba(94, 246, 255, 0.4) !important;
+}
+
+.cyberpunk .hover\:bg-nb-blue:hover {
+  background: linear-gradient(135deg, rgba(94, 246, 255, 0.3), rgba(14, 14, 231, 0.5)) !important;
+}
+
+.cyberpunk .hover\:text-nb-white:hover {
+  color: #5ef6ff !important;
+}
+
+/* ─── Active channel override (sidebar) ─────────────────────────── */
+.cyberpunk .bg-nb-yellow.border-2.border-nb-black.shadow-nb-sm {
+  background: linear-gradient(90deg, rgba(94, 246, 255, 0.15), rgba(14, 14, 231, 0.1)) !important;
+  border-color: #5ef6ff !important;
+  color: #5ef6ff !important;
+  box-shadow: 0 0 12px rgba(94, 246, 255, 0.12) !important;
+}
+
+/* Active DM */
+.cyberpunk .bg-nb-blue.border-2.border-nb-black.shadow-nb-sm {
+  background: linear-gradient(90deg, rgba(115, 248, 85, 0.15), rgba(14, 14, 231, 0.1)) !important;
+  border-color: #73f855 !important;
+  color: #73f855 !important;
+  box-shadow: 0 0 12px rgba(115, 248, 85, 0.12) !important;
+}
+
+/* ─── Message composer override ─────────────────────────────────── */
+.cyberpunk .border-3.border-nb-black.bg-nb-white.shadow-nb {
+  background: rgba(10, 12, 19, 0.92) !important;
+  border-color: rgba(94, 246, 255, 0.25) !important;
+  box-shadow: 0 0 12px rgba(94, 246, 255, 0.06) !important;
+}
+
+.cyberpunk .border-3.border-nb-black.bg-nb-white.shadow-nb:focus-within {
+  border-color: rgba(94, 246, 255, 0.5) !important;
+  box-shadow: 0 0 20px rgba(94, 246, 255, 0.12) !important;
+}
+
+/* Send button active */
+.cyberpunk .bg-nb-green.text-nb-black.border-l-3 {
+  background: linear-gradient(135deg, rgba(94, 246, 255, 0.2), rgba(14, 14, 231, 0.4)) !important;
+  color: #5ef6ff !important;
+  border-color: rgba(94, 246, 255, 0.3) !important;
+}
+
+.cyberpunk .bg-nb-green.text-nb-black.border-l-3:hover {
+  background: linear-gradient(135deg, rgba(94, 246, 255, 0.35), rgba(14, 14, 231, 0.6)) !important;
+  box-shadow: 0 0 16px rgba(94, 246, 255, 0.3) !important;
+}
+
+/* ─── Code blocks ───────────────────────────────────────────────── */
+.cyberpunk pre.bg-nb-gray-800 {
+  background: rgba(10, 12, 19, 0.95) !important;
+  border-color: rgba(94, 246, 255, 0.2) !important;
+  color: #73f855 !important;
+  box-shadow: 0 0 8px rgba(94, 246, 255, 0.06) !important;
+}
+
+/* ─── Mention highlights ────────────────────────────────────────── */
+.cyberpunk .bg-nb-blue\/10,
+.cyberpunk .dark\:bg-nb-blue\/20 {
+  background-color: rgba(94, 246, 255, 0.1) !important;
+}
+
+.cyberpunk .border-nb-blue\/30 {
+  border-color: rgba(94, 246, 255, 0.25) !important;
+}
+
+/* ─── Placeholder colors ────────────────────────────────────────── */
+.cyberpunk .placeholder\:text-nb-gray-400::placeholder,
+.cyberpunk .dark\:placeholder\:text-dark-muted::placeholder {
+  color: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* ─── Status dot pulse ──────────────────────────────────────────── */
+.cyberpunk .bg-nb-green.animate-pulse,
+.cyberpunk .bg-nb-green:not(.text-nb-black) {
+  box-shadow: 0 0 6px rgba(115, 248, 85, 0.5);
+}
+
+.cyberpunk .bg-nb-orange.animate-pulse {
+  background-color: #ffd84a !important;
+  box-shadow: 0 0 6px rgba(255, 216, 74, 0.5);
+}
+
+.cyberpunk .bg-nb-red:not(.text-nb-white) {
+  box-shadow: 0 0 6px rgba(247, 80, 73, 0.5);
+}
+
+/* ─── Toast cyberpunk override ──────────────────────────────────── */
+.cyberpunk .bg-nb-green-light.border-nb-green,
+.cyberpunk .bg-nb-blue-light.border-nb-blue,
+.cyberpunk .bg-nb-yellow-light.border-nb-yellow,
+.cyberpunk .bg-nb-red-light.border-nb-red {
+  background: rgba(10, 12, 19, 0.95) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.cyberpunk .bg-nb-green-light.border-nb-green {
+  border-color: rgba(115, 248, 85, 0.4) !important;
+  box-shadow: 0 0 20px rgba(115, 248, 85, 0.1) !important;
+}
+
+.cyberpunk .bg-nb-blue-light.border-nb-blue {
+  border-color: rgba(94, 246, 255, 0.4) !important;
+  box-shadow: 0 0 20px rgba(94, 246, 255, 0.1) !important;
+}
+
+.cyberpunk .bg-nb-yellow-light.border-nb-yellow {
+  border-color: rgba(255, 216, 74, 0.4) !important;
+  box-shadow: 0 0 20px rgba(255, 216, 74, 0.1) !important;
+}
+
+.cyberpunk .bg-nb-red-light.border-nb-red {
+  border-color: rgba(247, 80, 73, 0.4) !important;
+  box-shadow: 0 0 20px rgba(247, 80, 73, 0.1) !important;
+}
+
+/* ─── App shell background ──────────────────────────────────────── */
+.cyberpunk .bg-nb-gray-100.font-body {
+  background:
+    radial-gradient(circle at top left, rgba(247, 80, 73, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(94, 246, 255, 0.1), transparent 24%),
+    radial-gradient(circle at 50% 110%, rgba(14, 14, 231, 0.12), transparent 26%),
+    linear-gradient(180deg, #040405 0%, #090b12 40%, #050505 100%) !important;
+}
+
+/* ─── CRT scanline on message area ──────────────────────────────── */
+.cyberpunk .flex-1.overflow-y-auto {
+  position: relative;
+}
+
+.cyberpunk .flex-1.overflow-y-auto::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(94, 246, 255, 0.4), rgba(94, 246, 255, 0.7), rgba(94, 246, 255, 0.4), transparent);
+  box-shadow: 0 0 8px rgba(94, 246, 255, 0.4);
+  animation: cpScanline 8s linear infinite;
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* ─── Grid overlay on app shell ─────────────────────────────────── */
+.cyberpunk .h-screen.w-screen::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at center, black 35%, transparent 100%);
+  opacity: 0.4;
+  z-index: 0;
+}
+
+.cyberpunk .h-screen.w-screen > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Glitch hover on interactive items ─────────────────────────── */
+.cyberpunk button:hover {
+  animation: cpGlitch 340ms steps(4, jump-none);
+}
+
+/* Only top-level nav/channel buttons, not send or tiny icons */
+.cyberpunk .flex-1.overflow-y-auto button:hover,
+.cyberpunk textarea:hover {
+  animation: none;
+}
+
+/* ─── Google fonts link (loaded via index.html) ─────────────────── */
+/* Orbitron, Rajdhani, Space Mono */
