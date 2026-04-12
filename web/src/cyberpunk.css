@@ -1,0 +1,347 @@
+/* ═══════════════════════════════════════════════════════════════════
+   ZOUK CYBERPUNK THEME
+   Inspired by night-city.zaynjarvis.com & glitch-city-transitions
+   Applied when html.cyberpunk is active
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ─── Base overrides ─────────────────────────────────────────────── */
+.cyberpunk body {
+  font-family: 'Rajdhani', sans-serif;
+  background: #050505;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.cyberpunk ::selection {
+  background-color: #5ef6ff;
+  color: #050505;
+}
+
+/* ─── Background layers ──────────────────────────────────────────── */
+.cyberpunk .cp-bg {
+  background:
+    radial-gradient(circle at top left, rgba(247, 80, 73, 0.15), transparent 28%),
+    radial-gradient(circle at top right, rgba(94, 246, 255, 0.12), transparent 24%),
+    radial-gradient(circle at 50% 110%, rgba(14, 14, 231, 0.15), transparent 26%),
+    linear-gradient(180deg, #040405 0%, #090b12 40%, #050505 100%);
+}
+
+/* Scanline grid overlay */
+.cyberpunk .cp-scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at center, black 35%, transparent 100%);
+  opacity: 0.32;
+  z-index: 0;
+}
+
+/* ─── Surface styles ─────────────────────────────────────────────── */
+.cyberpunk .cp-surface {
+  background: rgba(10, 12, 19, 0.92);
+  border: 1px solid rgba(94, 246, 255, 0.15);
+}
+
+.cyberpunk .cp-surface-elevated {
+  background: rgba(15, 17, 28, 0.96);
+  border: 1px solid rgba(94, 246, 255, 0.2);
+}
+
+/* ─── Glow shadows ───────────────────────────────────────────────── */
+.cyberpunk .cp-glow-red {
+  box-shadow: 0 0 30px rgba(247, 80, 73, 0.18);
+}
+
+.cyberpunk .cp-glow-cyan {
+  box-shadow: 0 0 26px rgba(94, 246, 255, 0.14);
+}
+
+.cyberpunk .cp-glow-green {
+  box-shadow: 0 0 26px rgba(115, 248, 85, 0.16);
+}
+
+/* ─── Clip-path geometry ─────────────────────────────────────────── */
+.cyberpunk .cp-clip-lg {
+  clip-path: polygon(0 0, calc(100% - 1.5rem) 0, 100% 1.5rem, 100% 100%, 1.5rem 100%, 0 calc(100% - 1.5rem));
+}
+
+.cyberpunk .cp-clip-md {
+  clip-path: polygon(0 0, calc(100% - 1rem) 0, 100% 1rem, 100% 100%, 1rem 100%, 0 calc(100% - 1rem));
+}
+
+.cyberpunk .cp-clip-sm {
+  clip-path: polygon(0 0, calc(100% - 0.6rem) 0, 100% 0.6rem, 100% 100%, 0.6rem 100%, 0 calc(100% - 0.6rem));
+}
+
+/* ─── Neon text effects ──────────────────────────────────────────── */
+.cyberpunk .cp-neon-cyan {
+  color: #5ef6ff;
+  text-shadow: 0 0 7px rgba(94, 246, 255, 0.7), 0 0 20px rgba(94, 246, 255, 0.4);
+}
+
+.cyberpunk .cp-neon-red {
+  color: #f75049;
+  text-shadow: 0 0 7px rgba(247, 80, 73, 0.7), 0 0 20px rgba(247, 80, 73, 0.4);
+}
+
+.cyberpunk .cp-neon-green {
+  color: #73f855;
+  text-shadow: 0 0 7px rgba(115, 248, 85, 0.7), 0 0 20px rgba(115, 248, 85, 0.4);
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────── */
+.cyberpunk .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgba(94, 246, 255, 0.2);
+  border: 1px solid rgba(94, 246, 255, 0.3);
+}
+
+.cyberpunk .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(94, 246, 255, 0.35);
+}
+
+/* ─── Component overrides (cyberpunk class on html) ──────────────── */
+
+/* Workspace Rail */
+.cyberpunk [data-component="workspace-rail"] {
+  background: rgba(8, 10, 16, 0.98);
+  border-color: rgba(94, 246, 255, 0.2);
+}
+
+/* Channel Sidebar */
+.cyberpunk [data-component="channel-sidebar"] {
+  background: rgba(10, 12, 19, 0.95);
+  border-color: rgba(94, 246, 255, 0.15);
+}
+
+/* Top Bar */
+.cyberpunk [data-component="top-bar"] {
+  background: rgba(10, 12, 19, 0.95);
+  border-color: rgba(94, 246, 255, 0.15);
+}
+
+/* Message area */
+.cyberpunk [data-component="message-list"] {
+  background: rgba(5, 5, 5, 0.95);
+}
+
+/* Message composer */
+.cyberpunk [data-component="message-composer"] .cp-composer-box {
+  background: rgba(10, 12, 19, 0.92);
+  border: 1px solid rgba(94, 246, 255, 0.25);
+  box-shadow: 0 0 12px rgba(94, 246, 255, 0.06);
+}
+
+.cyberpunk [data-component="message-composer"] .cp-composer-box:focus-within {
+  border-color: rgba(94, 246, 255, 0.5);
+  box-shadow: 0 0 20px rgba(94, 246, 255, 0.12);
+}
+
+/* Send button */
+.cyberpunk [data-component="message-composer"] .cp-send-btn {
+  background: linear-gradient(135deg, rgba(94, 246, 255, 0.15), rgba(14, 14, 231, 0.3));
+  border: 1px solid rgba(94, 246, 255, 0.4);
+  color: #5ef6ff;
+  clip-path: polygon(0 0, calc(100% - 0.4rem) 0, 100% 0.4rem, 100% 100%, 0.4rem 100%, 0 calc(100% - 0.4rem));
+}
+
+.cyberpunk [data-component="message-composer"] .cp-send-btn:hover {
+  background: linear-gradient(135deg, rgba(94, 246, 255, 0.25), rgba(14, 14, 231, 0.5));
+  box-shadow: 0 0 16px rgba(94, 246, 255, 0.3);
+}
+
+.cyberpunk [data-component="message-composer"] .cp-send-btn:disabled {
+  background: rgba(15, 17, 28, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Messages */
+.cyberpunk [data-component="message-item"] {
+  border-bottom: 1px solid rgba(94, 246, 255, 0.06);
+}
+
+.cyberpunk [data-component="message-item"]:hover {
+  background: rgba(94, 246, 255, 0.03);
+}
+
+/* Agent mention highlight */
+.cyberpunk .cp-mention {
+  color: #5ef6ff;
+  background: rgba(94, 246, 255, 0.1);
+  padding: 0 4px;
+  border: 1px solid rgba(94, 246, 255, 0.2);
+  font-weight: 600;
+}
+
+/* Sidebar active channel */
+.cyberpunk .cp-active-channel {
+  background: linear-gradient(90deg, rgba(94, 246, 255, 0.15), rgba(14, 14, 231, 0.1));
+  border-left: 2px solid #5ef6ff;
+  color: #5ef6ff;
+  font-weight: 700;
+}
+
+/* Sidebar active DM */
+.cyberpunk .cp-active-dm {
+  background: linear-gradient(90deg, rgba(115, 248, 85, 0.15), rgba(14, 14, 231, 0.1));
+  border-left: 2px solid #73f855;
+  color: #73f855;
+  font-weight: 700;
+}
+
+/* Unread badge */
+.cyberpunk .cp-badge {
+  background: linear-gradient(135deg, #f75049, #bb4141);
+  color: #fff;
+  border: 1px solid rgba(247, 80, 73, 0.6);
+  box-shadow: 0 0 8px rgba(247, 80, 73, 0.3);
+  font-weight: 700;
+}
+
+/* Buttons */
+.cyberpunk .cp-btn-primary {
+  background: linear-gradient(135deg, rgba(115, 248, 85, 0.9), rgba(94, 246, 255, 0.6));
+  color: #050505;
+  border: 1px solid rgba(115, 248, 85, 0.6);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  clip-path: polygon(0 0, calc(100% - 0.6rem) 0, 100% 0.6rem, 100% 100%, 0.6rem 100%, 0 calc(100% - 0.6rem));
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.cyberpunk .cp-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(115, 248, 85, 0.3);
+}
+
+.cyberpunk .cp-btn-secondary {
+  background: rgba(15, 17, 28, 0.8);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  clip-path: polygon(0 0, calc(100% - 0.6rem) 0, 100% 0.6rem, 100% 100%, 0.6rem 100%, 0 calc(100% - 0.6rem));
+  transition: border-color 180ms ease;
+}
+
+.cyberpunk .cp-btn-secondary:hover {
+  border-color: rgba(94, 246, 255, 0.4);
+  color: #5ef6ff;
+}
+
+/* Input fields */
+.cyberpunk .cp-input {
+  background: rgba(10, 12, 19, 0.8);
+  border: 1px solid rgba(94, 246, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  font-family: 'Rajdhani', sans-serif;
+}
+
+.cyberpunk .cp-input:focus {
+  border-color: rgba(94, 246, 255, 0.5);
+  outline: none;
+  box-shadow: 0 0 12px rgba(94, 246, 255, 0.1);
+}
+
+.cyberpunk .cp-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Dialogs/modals */
+.cyberpunk .cp-dialog {
+  background: rgba(8, 10, 16, 0.98);
+  border: 1px solid rgba(94, 246, 255, 0.2);
+  box-shadow:
+    0 0 60px rgba(14, 14, 231, 0.2),
+    0 0 30px rgba(94, 246, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* Status indicators */
+.cyberpunk .cp-status-active {
+  background: #73f855;
+  box-shadow: 0 0 6px rgba(115, 248, 85, 0.5);
+}
+
+.cyberpunk .cp-status-thinking {
+  background: #ffd84a;
+  box-shadow: 0 0 6px rgba(255, 216, 74, 0.5);
+}
+
+.cyberpunk .cp-status-working {
+  background: #f75049;
+  box-shadow: 0 0 6px rgba(247, 80, 73, 0.5);
+}
+
+.cyberpunk .cp-status-offline {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Tabs */
+.cyberpunk .cp-tab-active {
+  color: #5ef6ff;
+  border-bottom: 2px solid #5ef6ff;
+  text-shadow: 0 0 8px rgba(94, 246, 255, 0.4);
+}
+
+/* Toast notifications */
+.cyberpunk .cp-toast {
+  background: rgba(10, 12, 19, 0.95);
+  border: 1px solid rgba(94, 246, 255, 0.3);
+  box-shadow: 0 0 20px rgba(94, 246, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.cyberpunk .cp-toast-success {
+  border-color: rgba(115, 248, 85, 0.4);
+  box-shadow: 0 0 20px rgba(115, 248, 85, 0.1);
+}
+
+.cyberpunk .cp-toast-error {
+  border-color: rgba(247, 80, 73, 0.4);
+  box-shadow: 0 0 20px rgba(247, 80, 73, 0.1);
+}
+
+/* ─── Glitch hover effect ────────────────────────────────────────── */
+.cyberpunk .cp-glitch-hover:hover {
+  animation: cpGlitch 340ms steps(4, jump-none);
+}
+
+/* ─── Holographic scanline bar ───────────────────────────────────── */
+.cyberpunk .cp-holo-scanline::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(94, 246, 255, 0.5), rgba(94, 246, 255, 0.8), rgba(94, 246, 255, 0.5), transparent);
+  box-shadow: 0 0 8px rgba(94, 246, 255, 0.6), 0 0 16px rgba(94, 246, 255, 0.3);
+  animation: cpScanline 8s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ─── Section headers ────────────────────────────────────────────── */
+.cyberpunk .cp-section-header {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(94, 246, 255, 0.6);
+}
+
+/* ─── Connection status indicator ────────────────────────────────── */
+.cyberpunk .cp-connected {
+  background: #73f855;
+  box-shadow: 0 0 4px rgba(115, 248, 85, 0.6);
+  animation: pulse 2s infinite;
+}
+
+.cyberpunk .cp-disconnected {
+  background: #f75049;
+  box-shadow: 0 0 4px rgba(247, 80, 73, 0.6);
+}

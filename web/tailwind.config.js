@@ -42,11 +42,25 @@ export default {
           text: '#E0E0E0',
           muted: '#888888',
         },
+        cp: {
+          black: '#050505',
+          red: '#f75049',
+          'red-deep': '#bb4141',
+          green: '#73f855',
+          cyan: '#5ef6ff',
+          indigo: '#0e0ee7',
+          amber: '#ffd84a',
+          surface: 'rgba(10, 12, 19, 0.92)',
+          'surface-2': 'rgba(15, 17, 28, 0.96)',
+        },
       },
       fontFamily: {
         display: ['Inter', 'system-ui', 'sans-serif'],
         body: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        cyber: ['Rajdhani', 'sans-serif'],
+        'cyber-display': ['Orbitron', 'sans-serif'],
+        'cyber-mono': ['Space Mono', 'monospace'],
       },
       fontSize: {
         '2xs': ['0.625rem', { lineHeight: '0.875rem' }],
@@ -92,6 +106,9 @@ export default {
         'fade-in': 'fadeIn 0.15s ease-out',
         'bounce-in': 'bounceIn 0.3s ease-out',
         'toast-in': 'toastIn 0.3s ease-out',
+        'cp-glitch': 'cpGlitch 340ms steps(4, jump-none)',
+        'cp-hue-strobe': 'cpHueStrobe 420ms linear',
+        'cp-scanline': 'cpScanline 8s linear infinite',
       },
       keyframes: {
         slideInRight: {
@@ -114,6 +131,24 @@ export default {
         toastIn: {
           '0%': { transform: 'translateY(-16px)', opacity: 0 },
           '100%': { transform: 'translateY(0)', opacity: 1 },
+        },
+        cpGlitch: {
+          '0%': { transform: 'translate3d(0,0,0) skewX(0deg)', filter: 'saturate(1)' },
+          '25%': { transform: 'translate3d(-3px,1px,0) skewX(-0.6deg)', filter: 'saturate(1.8) brightness(1.1)' },
+          '50%': { transform: 'translate3d(2px,-1px,0) skewX(0.4deg)', filter: 'saturate(1.4)' },
+          '75%': { transform: 'translate3d(-1px,2px,0) skewX(0.8deg)', filter: 'saturate(2) brightness(1.2)' },
+          '100%': { transform: 'translate3d(0,0,0) skewX(0deg)', filter: 'saturate(1)' },
+        },
+        cpHueStrobe: {
+          '0%': { boxShadow: '0 0 12px rgba(247, 80, 73, 0.3)' },
+          '25%': { boxShadow: '0 0 24px rgba(247, 80, 73, 0.22)' },
+          '50%': { boxShadow: '0 0 26px rgba(94, 246, 255, 0.2)' },
+          '75%': { boxShadow: '0 0 26px rgba(115, 248, 85, 0.2)' },
+          '100%': { boxShadow: '0 0 12px rgba(14, 14, 231, 0.15)' },
+        },
+        cpScanline: {
+          '0%': { transform: 'translateY(-100%)' },
+          '100%': { transform: 'translateY(100vh)' },
         },
       },
     },

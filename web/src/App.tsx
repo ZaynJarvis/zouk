@@ -24,7 +24,9 @@ function AppShell() {
   const { theme, viewMode, sidebarOpen, isLoggedIn } = useApp();
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.remove('dark', 'cyberpunk');
+    if (theme === 'dark') document.documentElement.classList.add('dark');
+    if (theme === 'cyberpunk') document.documentElement.classList.add('cyberpunk');
   }, [theme]);
 
   if (!isLoggedIn) {
@@ -34,7 +36,11 @@ function AppShell() {
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-nb-gray-100 dark:bg-dark-bg font-body text-nb-black dark:text-dark-text">
+    <div className={`h-screen w-screen flex overflow-hidden font-body text-nb-black dark:text-dark-text ${
+      theme === 'cyberpunk'
+        ? 'bg-cp-black text-white/88 font-cyber cp-bg cp-scanlines'
+        : 'bg-nb-gray-100 dark:bg-dark-bg'
+    }`}>
       <WorkspaceRail />
 
       <div className={`${sidebarOpen ? 'block' : 'hidden'} lg:block flex-shrink-0`}>

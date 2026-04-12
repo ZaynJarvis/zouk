@@ -1,4 +1,4 @@
-import { X, Sun, Moon, User, Palette, LogOut } from 'lucide-react';
+import { X, Sun, Moon, Zap, User, Palette, LogOut } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { useState } from 'react';
 
@@ -114,33 +114,47 @@ export default function SettingsModal() {
             {activeSection === 'appearance' && (
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted mb-3">Theme</label>
-                <div className="flex gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     onClick={() => setTheme('light')}
-                    className={`flex-1 flex items-center gap-3 p-4 border-3 transition-all ${
+                    className={`flex flex-col items-center gap-2 p-4 border-3 transition-all ${
                       theme === 'light'
                         ? 'border-nb-black bg-nb-yellow-light shadow-nb'
                         : 'border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text'
                     }`}
                   >
                     <Sun size={24} className="text-nb-yellow" />
-                    <div className="text-left">
+                    <div className="text-center">
                       <div className="font-bold text-sm text-nb-black dark:text-dark-text">Light</div>
-                      <div className="text-2xs text-nb-gray-500 dark:text-dark-muted">Bright and bold</div>
+                      <div className="text-2xs text-nb-gray-500 dark:text-dark-muted">Bright</div>
                     </div>
                   </button>
                   <button
                     onClick={() => setTheme('dark')}
-                    className={`flex-1 flex items-center gap-3 p-4 border-3 transition-all ${
+                    className={`flex flex-col items-center gap-2 p-4 border-3 transition-all ${
                       theme === 'dark'
                         ? 'border-nb-black bg-nb-gray-800 text-nb-white shadow-nb dark:border-dark-text'
                         : 'border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text'
                     }`}
                   >
                     <Moon size={24} className="text-nb-blue" />
-                    <div className="text-left">
+                    <div className="text-center">
                       <div className="font-bold text-sm text-nb-black dark:text-dark-text">Dark</div>
-                      <div className="text-2xs text-nb-gray-500 dark:text-dark-muted">Easy on the eyes</div>
+                      <div className="text-2xs text-nb-gray-500 dark:text-dark-muted">Muted</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setTheme('cyberpunk')}
+                    className={`flex flex-col items-center gap-2 p-4 border-3 transition-all ${
+                      theme === 'cyberpunk'
+                        ? 'border-cp-cyan bg-cp-black text-cp-cyan shadow-nb'
+                        : 'border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text'
+                    }`}
+                  >
+                    <Zap size={24} className="text-cp-cyan" />
+                    <div className="text-center">
+                      <div className={`font-bold text-sm ${theme === 'cyberpunk' ? 'text-cp-cyan' : 'text-nb-black dark:text-dark-text'}`}>Cyber</div>
+                      <div className={`text-2xs ${theme === 'cyberpunk' ? 'text-cp-cyan/60' : 'text-nb-gray-500 dark:text-dark-muted'}`}>Night City</div>
                     </div>
                   </button>
                 </div>
