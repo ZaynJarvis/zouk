@@ -1,4 +1,4 @@
-import type { MessageRecord, AgentConfig } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey } from '../types';
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
@@ -119,4 +119,30 @@ export async function saveAgentConfig(config: AgentConfig): Promise<void> {
 
 export function getAttachmentUrl(attachmentId: string): string {
   return `${getBaseUrl()}/api/attachments/${attachmentId}`;
+}
+
+// Machine API Key management
+export async function generateMachineKey(name: string): Promise<{ key: MachineApiKey; rawKey: string }> {
+  const url = `${getBaseUrl()}/api/machine-keys`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`Failed to generate machine key: ${res.status}`);
+  return res.json();
+}
+
+export async function listMachineKeys(): Promise<MachineApiKey[]> {
+  const url = `${getBaseUrl()}/api/machine-keys`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to list machine keys: ${res.status}`);
+  const data = await res.json();
+  return data.keys || [];
+}
+
+export async function revokeMachineKey(keyId: string): Promise<void> {
+  const url = `${getBaseUrl()}/api/machine-keys/${keyId}`;
+  const res = await fetch(url, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to revoke machine key: ${res.status}`);
 }

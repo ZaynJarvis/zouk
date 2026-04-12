@@ -1,9 +1,10 @@
-import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Play, Loader2 } from 'lucide-react';
+import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Play, Loader2, Settings } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
+import MachineSetupDialog from './MachineSetupDialog';
 
 const activityColors: Record<string, string> = {
   thinking: 'bg-nb-yellow animate-pulse',
@@ -116,6 +117,7 @@ export default function AgentsView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showMachineSetup, setShowMachineSetup] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
   const [machinesExpanded, setMachinesExpanded] = useState(true);
   const [configsExpanded, setConfigsExpanded] = useState(true);
@@ -200,23 +202,41 @@ export default function AgentsView() {
 
         <div className="flex-1 overflow-y-auto">
           {/* Connected Machines */}
-          {machines.length > 0 && (
-            <div>
+          <div>
+            <div className="flex items-center justify-between px-4 py-2">
               <button
                 onClick={() => setMachinesExpanded(!machinesExpanded)}
-                className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                className="flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
               >
                 {machinesExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                 <Monitor size={10} className="text-nb-gray-400" />
                 <span className="text-2xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted">
-                  Servers ({machines.length})
+                  Machines ({machines.length})
                 </span>
               </button>
-              {machinesExpanded && machines.map(m => (
-                <CompactMachineCard key={m.id} machine={m} />
-              ))}
+              <button
+                onClick={() => setShowMachineSetup(true)}
+                className="w-6 h-6 flex items-center justify-center border border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-all"
+                title="Machine Setup & API Keys"
+              >
+                <Settings size={10} className="text-nb-gray-400" />
+              </button>
             </div>
-          )}
+            {machinesExpanded && (
+              machines.length > 0 ? (
+                machines.map(m => <CompactMachineCard key={m.id} machine={m} />)
+              ) : (
+                <div className="px-4 pb-2">
+                  <button
+                    onClick={() => setShowMachineSetup(true)}
+                    className="w-full border-2 border-dashed border-nb-gray-300 dark:border-dark-border px-3 py-2 text-2xs text-nb-gray-400 dark:text-dark-muted text-center hover:border-nb-black dark:hover:border-dark-text hover:text-nb-gray-600 transition-colors"
+                  >
+                    + Connect a machine
+                  </button>
+                </div>
+              )
+            )}
+          </div>
 
           {/* Saved Configs */}
           {configs.length > 0 && (
@@ -315,6 +335,15 @@ export default function AgentsView() {
           machines={machines}
           onClose={() => setShowCreate(false)}
           onCreate={handleCreateAgent}
+          onOpenMachineSetup={() => { setShowCreate(false); setShowMachineSetup(true); }}
+        />
+      )}
+
+      {/* Machine Setup dialog */}
+      {showMachineSetup && (
+        <MachineSetupDialog
+          machines={machines}
+          onClose={() => setShowMachineSetup(false)}
         />
       )}
     </div>

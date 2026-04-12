@@ -73,6 +73,21 @@ export interface AgentTask {
   completedAt?: string;
 }
 
+export interface MachineApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+export interface RuntimeConfig {
+  provider: string;
+  apiKey?: string;
+  serverUrl?: string;
+  envVars?: Record<string, string>;
+}
+
 export type AgentActivity = 'thinking' | 'working' | 'online' | 'offline' | 'error';
 
 export interface AgentEntry {
