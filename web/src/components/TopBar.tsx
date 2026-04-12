@@ -8,16 +8,17 @@ export default function TopBar() {
   const {
     activeChannelName, viewMode,
     rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
-    wsConnected, daemonConnected,
+    wsConnected, daemonConnected, setSettingsOpen, theme,
   } = useApp();
   const nc = isNightCity();
+  const wapo = theme === 'washington-post';
 
   return (
-    <div className={`h-14 bg-nc-surface flex items-center px-2 sm:px-4 gap-2 sm:gap-3 scanline-overlay ${nc ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={`h-14 bg-nc-surface flex items-center px-2 sm:px-4 gap-2 sm:gap-3 scanline-overlay ${nc ? 'border-b border-nc-border' : wapo ? 'bg-[#fffaf2] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
       <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
+          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : wapo ? 'border-nc-border text-[#7c2430] hover:bg-[#f3e7d9]' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
         >
           <Menu size={16} />
         </button>
@@ -29,7 +30,9 @@ export default function TopBar() {
             {viewMode === 'channel' && <Hash size={18} className={`flex-shrink-0 ${nc ? 'text-nc-cyan' : 'text-nc-text-bright font-bold'}`} />}
             {nc
               ? <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright truncate tracking-wider" intensity="low">{activeChannelName}</GlitchText>
-              : <h1 className="font-display font-extrabold text-lg text-nc-text-bright truncate">{activeChannelName}</h1>
+              : wapo
+                ? <h1 className="font-display font-bold text-[1.1rem] text-nc-text-bright truncate">{activeChannelName}</h1>
+                : <h1 className="font-display font-extrabold text-lg text-nc-text-bright truncate">{activeChannelName}</h1>
             }
           </>
         )}
@@ -57,6 +60,18 @@ export default function TopBar() {
             {daemonConnected && (
               <span className="status-chip-sm flex items-center gap-1 font-mono tone-telemetry">
                 DAEMON
+              </span>
+            )}
+          </>
+        ) : wapo ? (
+          <>
+            <span className={`flex items-center gap-1 px-2.5 py-1 border rounded-full font-semibold ${wsConnected ? 'border-[#5b8770] text-[#335c4a] bg-[#f4fbf6]' : 'border-[#b55b60] text-[#8a3239] bg-[#fff4f3]'}`}>
+              {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              {wsConnected ? 'Linked' : 'Offline'}
+            </span>
+            {daemonConnected && (
+              <span className="flex items-center gap-1 px-2.5 py-1 border rounded-full border-[#c1934c] text-[#8a6326] bg-[#fffbf1] font-semibold">
+                Daemon
               </span>
             )}
           </>

@@ -29,7 +29,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
-    createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest,
+    createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -57,17 +57,23 @@ export default function ChannelSidebar() {
   };
 
   const nc = isNightCity();
+  const wapo = theme === 'washington-post';
 
   return (
-    <div className={`w-[260px] h-full flex flex-col overflow-hidden ${nc ? 'bg-nc-surface border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
-      <div className={`px-3 py-3 ${nc ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={`w-[260px] h-full flex flex-col overflow-hidden ${nc ? 'bg-nc-surface border-r border-nc-border' : wapo ? 'bg-nc-surface border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
+      <div className={`px-3 py-3 ${nc ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
         <div className="flex items-center justify-between">
           {nc
             ? <GlitchText as="h2" className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider" intensity="low">ZOUK</GlitchText>
-            : <h2 className="font-display font-black text-lg text-nc-text-bright truncate">Zouk</h2>
+            : wapo
+              ? <div className="truncate">
+                  <div className="text-[10px] uppercase tracking-[0.22em] text-[#7c2430] font-semibold">Editorial Desk</div>
+                  <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk Post</h2>
+                </div>
+              : <h2 className="font-display font-black text-lg text-nc-text-bright truncate">Zouk</h2>
           }
           {totalUnread > 0 && (
-            <span className={`text-2xs font-black px-1.5 py-0.5 border ${nc ? 'bg-nc-red/20 text-nc-red border-nc-red/40' : 'bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
+            <span className={`text-2xs font-black px-1.5 py-0.5 border ${nc ? 'bg-nc-red/20 text-nc-red border-nc-red/40' : wapo ? 'bg-[#7c2430] text-[#fffaf2] border-[#7c2430] rounded-full' : 'bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
               {totalUnread}
             </span>
           )}
@@ -117,10 +123,12 @@ export default function ChannelSidebar() {
                   ${isActive
                     ? (nc
                         ? 'bg-nc-cyan/10 border-l-2 border-nc-cyan text-nc-cyan font-bold'
-                        : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
+                        : wapo
+                          ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
+                          : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
                     : unread > 0
-                      ? (nc ? 'font-semibold text-nc-text-bright hover:bg-nc-elevated' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
-                      : (nc ? 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright')
+                      ? (nc ? 'font-semibold text-nc-text-bright hover:bg-nc-elevated' : wapo ? 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
+                      : (nc ? 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text' : wapo ? 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright')
                   }
                 `}
               >
@@ -155,10 +163,12 @@ export default function ChannelSidebar() {
                   ${isActive
                     ? (nc
                         ? 'bg-nc-green/10 border-l-2 border-nc-green text-nc-green font-bold'
-                        : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
+                        : wapo
+                          ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
+                          : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
                     : unread > 0
-                      ? 'font-semibold text-nc-text-bright hover:bg-nc-elevated'
-                      : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text'
+                      ? (wapo ? 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
+                      : (wapo ? 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text')
                   }
                 `}
               >

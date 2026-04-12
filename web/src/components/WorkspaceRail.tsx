@@ -6,10 +6,40 @@ import { isNightCity, ncStyle } from '../lib/themeUtils';
 const hoverConfig = { trigger: 'hover' as const, minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 };
 
 export default function WorkspaceRail() {
-  const { setViewMode, setSettingsOpen, viewMode } = useApp();
+  const { setViewMode, setSettingsOpen, viewMode, theme } = useApp();
   const nc = isNightCity();
+  const wapo = theme === 'washington-post';
 
   if (!nc) {
+    if (wapo) {
+      return (
+        <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-[#f7f0e6] border-r border-nc-border">
+          <div className="w-10 h-10 border border-[#7c2430] bg-[#fffaf2] font-display font-bold text-lg flex items-center justify-center text-[#7c2430]">
+            Z
+          </div>
+          <div className="w-8 my-1 border-t border-nc-border" />
+
+          <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-[#7c2430] text-[#fffaf2] border-[#7c2430]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Home">
+            <Home size={20} />
+          </button>
+
+          <button onClick={() => setViewMode('threads')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'threads' ? 'bg-[#c1934c] text-[#fffaf2] border-[#c1934c]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Threads">
+            <MessagesSquare size={20} />
+          </button>
+
+          <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-[#405268] text-[#fffaf2] border-[#405268]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Agents">
+            <Cpu size={20} />
+          </button>
+
+          <div className="flex-1" />
+
+          <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border flex items-center justify-center transition-all duration-100 text-[#7c2430] border-nc-border hover:bg-[#efe2d4]" title="Settings">
+            <Settings size={20} />
+          </button>
+        </div>
+      );
+    }
+
     // Neo Brutalism rail — dark bg, yellow active, thick borders
     return (
       <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3" style={{ background: '#2E2A26', borderRight: '3px solid #1A1A1A' }}>
