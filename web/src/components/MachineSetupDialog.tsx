@@ -87,7 +87,7 @@ export default function MachineSetupDialog({
       className="fixed inset-0 bg-nb-black/40 flex items-center justify-center z-50 animate-fade-in"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-nb-white dark:bg-dark-surface border-3 border-nb-black dark:border-dark-border shadow-nb-lg w-[600px] max-h-[90vh] overflow-y-auto animate-bounce-in">
+      <div className="bg-nb-white dark:bg-dark-surface border-3 border-nb-black dark:border-dark-border shadow-nb-lg w-full max-w-[600px] mx-4 max-h-[90vh] overflow-y-auto animate-bounce-in">
         {/* Header */}
         <div className="flex justify-between items-center px-6 pt-5 pb-3 border-b-2 border-nb-gray-200 dark:border-dark-border">
           <div>

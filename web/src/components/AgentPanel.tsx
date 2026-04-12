@@ -122,6 +122,7 @@ export default function AgentsView() {
   const [starting, setStarting] = useState<string | null>(null);
   const [machinesExpanded, setMachinesExpanded] = useState(true);
   const [configsExpanded, setConfigsExpanded] = useState(true);
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
 
   const filteredAgents = useMemo(() =>
     showArchived
@@ -168,10 +169,15 @@ export default function AgentsView() {
     await updateAgentConfig(selected.id, updates);
   };
 
+  const handleSelectAgent = (id: string) => {
+    setSelectedId(id);
+    if (window.innerWidth < 1024) setMobileShowDetail(true);
+  };
+
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
       {/* Left panel — Agent list */}
-      <div className="w-72 shrink-0 border-r-2 border-nb-gray-200 dark:border-dark-border flex flex-col bg-nb-white dark:bg-dark-surface">
+      <div className={`${mobileShowDetail ? 'hidden' : 'flex'} lg:flex w-full lg:w-72 shrink-0 border-r-0 lg:border-r-2 border-nb-gray-200 dark:border-dark-border flex-col bg-nb-white dark:bg-dark-surface`}>
         {/* Header */}
         <div className="flex h-12 items-center justify-between border-b-2 border-nb-gray-200 dark:border-dark-border px-4">
           <h1 className="font-display font-black text-sm text-nb-black dark:text-dark-text">Agents</h1>
@@ -276,7 +282,7 @@ export default function AgentsView() {
                 key={agent.id}
                 agent={agent}
                 isSelected={agent.id === (selected?.id ?? '')}
-                onClick={() => setSelectedId(agent.id)}
+                onClick={() => handleSelectAgent(agent.id)}
               />
             ))
           ) : (
@@ -301,12 +307,13 @@ export default function AgentsView() {
       </div>
 
       {/* Right panel — Agent detail */}
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div className={`${mobileShowDetail ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0 overflow-hidden flex-col`}>
         {selected ? (
           <AgentDetail
             agent={selected}
             onUpdate={handleUpdateAgent}
             onStop={() => stopAgent(selected.id)}
+            onBack={() => setMobileShowDetail(false)}
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center bg-nb-white dark:bg-dark-surface">

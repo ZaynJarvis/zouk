@@ -499,10 +499,12 @@ export default function AgentDetail({
   agent,
   onUpdate,
   onStop,
+  onBack,
 }: {
   agent: ServerAgent;
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
+  onBack?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('instructions');
   const activity = agent.activity || 'offline';
@@ -511,7 +513,15 @@ export default function AgentDetail({
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-nb-white dark:bg-dark-surface">
       {/* Header */}
-      <div className="flex items-center gap-4 px-5 py-4 border-b-2 border-nb-gray-200 dark:border-dark-border">
+      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 border-b-2 border-nb-gray-200 dark:border-dark-border">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="lg:hidden w-8 h-8 border-2 border-nb-black dark:border-dark-border flex items-center justify-center hover:bg-nb-gray-100 dark:hover:bg-dark-elevated transition-colors shrink-0"
+          >
+            <ArrowLeft size={14} />
+          </button>
+        )}
         <div className="w-10 h-10 border-2 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center shrink-0 font-display font-bold text-sm">
           {(agent.displayName || agent.name).charAt(0).toUpperCase()}
         </div>
@@ -521,31 +531,31 @@ export default function AgentDetail({
               @{agent.displayName || agent.name}
             </h2>
             <span className={`w-2.5 h-2.5 border border-nb-black dark:border-dark-border ${activityColors[activity]}`} />
-            <span className="text-xs text-nb-gray-500 dark:text-dark-muted">{isActive ? activityLabels[activity] : 'Inactive'}</span>
+            <span className="text-xs text-nb-gray-500 dark:text-dark-muted hidden sm:inline">{isActive ? activityLabels[activity] : 'Inactive'}</span>
           </div>
           {agent.description && (
             <p className="text-xs text-nb-gray-500 dark:text-dark-muted truncate mt-0.5">{agent.description}</p>
           )}
         </div>
-        <div className="text-xs text-nb-gray-400 dark:text-dark-muted shrink-0 font-mono">
+        <div className="text-xs text-nb-gray-400 dark:text-dark-muted shrink-0 font-mono hidden sm:block">
           {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime} · {agent.model || '\u2014'}
         </div>
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b-2 border-nb-gray-200 dark:border-dark-border px-5">
+      <div className="flex border-b-2 border-nb-gray-200 dark:border-dark-border px-2 sm:px-5">
         {TAB_CONFIG.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold border-b-3 -mb-[2px] transition-colors ${
+            className={`flex items-center gap-1.5 px-2 sm:px-4 py-2.5 text-sm font-bold border-b-3 -mb-[2px] transition-colors ${
               tab === key
                 ? 'border-nb-black dark:border-dark-text text-nb-black dark:text-dark-text'
                 : 'border-transparent text-nb-gray-400 hover:text-nb-black dark:hover:text-dark-text'
             }`}
           >
             <Icon size={14} />
-            {label}
+            <span className="hidden sm:inline">{label}</span>
           </button>
         ))}
       </div>
