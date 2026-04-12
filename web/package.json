@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "screenshots": "node scripts/theme-screenshots.mjs"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.5",
