@@ -15,9 +15,9 @@ const activityColors: Record<string, string> = {
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
+  hermes: 'Hermes',
   claude: 'Claude',
   codex: 'Codex',
-  hermes: 'Hermes',
   opencode: 'OpenCode',
   openclaw: 'OpenClaw',
   kimi: 'Kimi',
@@ -72,7 +72,8 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
   return (
     <div className="flex items-center gap-2 px-4 py-2 border-b border-nb-gray-200 dark:border-dark-border">
       <Server size={12} className="text-nb-gray-400 shrink-0" />
-      <span className="text-2xs font-bold text-nb-black dark:text-dark-text truncate">{machine.hostname}</span>
+      <span className="text-2xs font-bold text-nb-black dark:text-dark-text truncate">{machine.alias || machine.hostname}</span>
+      {machine.alias && <span className="text-2xs text-nb-gray-400 dark:text-dark-muted truncate">{machine.hostname}</span>}
       <span className="w-1.5 h-1.5 border border-nb-black dark:border-dark-border bg-nb-green shrink-0" />
       {machine.runtimes && (
         <span className="text-2xs text-nb-gray-400 dark:text-dark-muted truncate ml-auto">
@@ -148,19 +149,16 @@ export default function AgentsView() {
 
   const handleCreateAgent = async (config: {
     name: string;
-    displayName: string;
     description: string;
     runtime: string;
     model: string;
-    channels: string[];
+    workDir: string;
   }) => {
     await startAgent({
       name: config.name,
-      displayName: config.displayName,
       description: config.description,
       runtime: config.runtime,
       model: config.model,
-      channels: config.channels,
     });
     setShowCreate(false);
   };

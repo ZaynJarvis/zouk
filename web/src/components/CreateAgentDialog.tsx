@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, ChevronDown, Globe, Lock, Server, AlertTriangle } from 'lucide-react';
 import type { ServerMachine } from '../types';
 
@@ -21,9 +21,9 @@ const DEFAULT_MODELS: Record<string, string> = {
 };
 
 const RUNTIME_LABELS: Record<string, string> = {
+  hermes: 'Hermes Agent',
   claude: 'Claude Code',
   codex: 'OpenAI Codex',
-  hermes: 'Hermes Agent',
   opencode: 'OpenCode',
   openclaw: 'OpenClaw',
   kimi: 'Kimi',
@@ -31,15 +31,12 @@ const RUNTIME_LABELS: Record<string, string> = {
 
 export interface CreateAgentConfig {
   name: string;
-  displayName: string;
   description: string;
   runtime: string;
   model: string;
   machineId?: string;
   visibility: 'workspace' | 'private';
-  channels: string[];
-  workDir?: string;
-  systemPrompt?: string;
+  workDir: string;
 }
 
 export default function CreateAgentDialog({
@@ -54,27 +51,23 @@ export default function CreateAgentDialog({
   onOpenMachineSetup?: () => void;
 }) {
   const [name, setName] = useState('');
-  const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id ?? '');
   const [runtime, setRuntime] = useState('');
   const [model, setModel] = useState('');
   const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
-  const [channels, setChannels] = useState('all');
-  const [workDir, setWorkDir] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('');
   const [machineOpen, setMachineOpen] = useState(false);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId);
-  const machineRuntimes = selectedMachine?.runtimes || [];
+  const machineRuntimes = useMemo(() => selectedMachine?.runtimes || [], [selectedMachine]);
 
   // When machine changes, auto-select first available runtime
   useEffect(() => {
     if (machineRuntimes.length > 0 && !machineRuntimes.includes(runtime)) {
       setRuntime(machineRuntimes[0]);
     } else if (machineRuntimes.length === 0 && !runtime) {
-      setRuntime('claude');
+      setRuntime('hermes');
     }
   }, [selectedMachineId, machineRuntimes, runtime]);
 
@@ -86,20 +79,19 @@ export default function CreateAgentDialog({
 
   const models = MODELS_BY_PROVIDER[runtime] || [];
   const canSubmit = name.trim().length > 0 && runtime;
+  const workDir = `~/.zouk/agents/${name.trim().toLowerCase() || '<name>'}`;
 
   const handleSubmit = () => {
     if (!canSubmit) return;
+    const agentName = name.trim().toLowerCase();
     onCreate({
-      name: name.trim().toLowerCase(),
-      displayName: displayName.trim() || name.trim(),
+      name: agentName,
       description: description.trim(),
       runtime,
       model,
       machineId: selectedMachine?.id,
       visibility,
-      channels: channels.split(',').map((c) => c.trim()).filter(Boolean),
-      workDir: workDir.trim() || undefined,
-      systemPrompt: systemPrompt.trim() || undefined,
+      workDir: `~/.zouk/agents/${agentName}`,
     });
   };
 
@@ -145,37 +137,27 @@ export default function CreateAgentDialog({
             </div>
           )}
 
-          {/* Name + Display Name */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Name (identifier)</label>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. bob"
-                className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Display Name</label>
-              <input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="e.g. Bob"
-                className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
-              />
-            </div>
+          {/* Name */}
+          <div>
+            <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. bob"
+              className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
+              autoFocus
+            />
           </div>
 
-          {/* Description */}
+          {/* Description (serves as system prompt / instructions) */}
           <div>
             <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Description</label>
-            <input
+            <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does this agent do?"
-              className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
+              placeholder="What does this agent do? e.g. 'Frontend specialist focused on React and TypeScript.'"
+              className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 resize-none"
+              rows={2}
             />
           </div>
 
@@ -194,7 +176,7 @@ export default function CreateAgentDialog({
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className="w-2 h-2 border border-nb-black dark:border-dark-border bg-nb-green shrink-0" />
                     <span className="font-bold text-nb-black dark:text-dark-text truncate">
-                      {selectedMachine?.hostname || 'Select machine...'}
+                      {selectedMachine?.alias || selectedMachine?.hostname || 'Select machine...'}
                     </span>
                     {selectedMachine && (
                       <span className="text-2xs text-nb-gray-400 dark:text-dark-muted">
@@ -216,7 +198,8 @@ export default function CreateAgentDialog({
                       >
                         <span className="w-2 h-2 border border-nb-black dark:border-dark-border bg-nb-green shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <span className="font-bold text-nb-black dark:text-dark-text">{m.hostname}</span>
+                          <span className="font-bold text-nb-black dark:text-dark-text">{m.alias || m.hostname}</span>
+                          {m.alias && <span className="text-2xs text-nb-gray-400 dark:text-dark-muted ml-1.5">{m.hostname}</span>}
                           <div className="text-2xs text-nb-gray-400 dark:text-dark-muted">
                             {m.os} · Runtimes: {(m.runtimes || []).join(', ') || 'none'}
                           </div>
@@ -336,48 +319,16 @@ export default function CreateAgentDialog({
                     {m}
                   </button>
                 ))}
-                <input
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="flex-1 px-3 py-1.5 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm min-w-[120px] text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
-                  placeholder="custom model"
-                />
               </div>
             </div>
           )}
 
-          {/* Channels */}
+          {/* Working Directory (read-only, auto-derived) */}
           <div>
-            <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Channels</label>
-            <input
-              value={channels}
-              onChange={(e) => setChannels(e.target.value)}
-              placeholder="e.g. all, dev, support"
-              className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
-            />
-          </div>
-
-          {/* Working Directory */}
-          <div>
-            <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Working Directory (optional)</label>
-            <input
-              value={workDir}
-              onChange={(e) => setWorkDir(e.target.value)}
-              placeholder="e.g. /tmp/bob-workspace"
-              className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm font-mono text-nb-black dark:text-dark-text placeholder:text-nb-gray-400"
-            />
-          </div>
-
-          {/* System Prompt */}
-          <div>
-            <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">System Prompt (optional)</label>
-            <textarea
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="Additional instructions for the agent..."
-              className="w-full px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface text-sm font-mono text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 resize-none"
-              rows={3}
-            />
+            <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Working Directory</label>
+            <div className="px-3 py-2 border-2 border-nb-gray-200 dark:border-dark-border bg-nb-gray-50 dark:bg-dark-elevated text-sm font-mono text-nb-gray-600 dark:text-dark-muted">
+              {workDir}
+            </div>
           </div>
 
           {/* Actions */}

@@ -120,6 +120,7 @@ export interface AgentConfig {
 export interface ServerMachine {
   id: string;
   hostname: string;
+  alias?: string;
   os: string;
   runtimes?: string[];
   agentIds?: string[];

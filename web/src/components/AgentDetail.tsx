@@ -12,9 +12,9 @@ const TAB_CONFIG: { key: Tab; label: string; icon: typeof FileText }[] = [
 ];
 
 const PROVIDER_LABELS: Record<string, string> = {
+  hermes: 'Hermes Agent',
   claude: 'Claude Code',
   codex: 'OpenAI Codex',
-  hermes: 'Hermes Agent',
   opencode: 'OpenCode',
   openclaw: 'OpenClaw',
   kimi: 'Kimi',
@@ -311,6 +311,37 @@ function SettingsTab({
             <span className="text-xs text-nb-gray-400 dark:text-dark-muted">/ {agent.model || '—'}</span>
           </div>
         </div>
+
+        {/* Channel Access */}
+        <div>
+          <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Channel Access</label>
+          {agent.channels && agent.channels.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {agent.channels.map((ch) => (
+                <span
+                  key={ch}
+                  className="px-2.5 py-1 border-2 border-nb-gray-200 dark:border-dark-border bg-nb-gray-50 dark:bg-dark-elevated text-xs font-bold text-nb-black dark:text-dark-text"
+                >
+                  #{ch}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="p-3 border-2 border-nb-gray-200 dark:border-dark-border bg-nb-gray-50 dark:bg-dark-elevated text-xs text-nb-gray-400 dark:text-dark-muted">
+              All channels
+            </div>
+          )}
+        </div>
+
+        {/* Working Directory */}
+        {agent.workDir && (
+          <div>
+            <label className="block text-xs font-bold text-nb-gray-600 dark:text-dark-muted mb-1.5">Working Directory</label>
+            <div className="p-3 border-2 border-nb-gray-200 dark:border-dark-border bg-nb-gray-50 dark:bg-dark-elevated text-xs font-mono text-nb-black dark:text-dark-text">
+              {agent.workDir}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 pt-3 border-t-2 border-nb-gray-200 dark:border-dark-border">
           {isDirty && (

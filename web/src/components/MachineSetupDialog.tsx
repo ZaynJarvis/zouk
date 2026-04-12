@@ -213,7 +213,8 @@ export default function MachineSetupDialog({
                     <Server size={14} className="text-nb-gray-400 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-nb-black dark:text-dark-text">{m.hostname}</span>
+                        <span className="font-bold text-sm text-nb-black dark:text-dark-text">{m.alias || m.hostname}</span>
+                        {m.alias && <span className="text-2xs text-nb-gray-400 dark:text-dark-muted">{m.hostname}</span>}
                         <span className="w-2 h-2 border border-nb-black dark:border-dark-border bg-nb-green" />
                       </div>
                       <div className="text-2xs text-nb-gray-500 dark:text-dark-muted">
