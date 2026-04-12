@@ -329,7 +329,7 @@ export function useAppStore() {
   }, [addToast]);
 
   const startAgentAction = useCallback(async (config: {
-    name: string; displayName?: string; description?: string;
+    id?: string; name: string; displayName?: string; description?: string;
     runtime: string; model?: string; channels?: string[];
   }) => {
     try {

@@ -758,12 +758,24 @@ app.post("/api/agent-configs", (req, res) => {
   res.json({ config: saved });
 });
 
-// Update agent config
+// Update agent config (upsert: creates config from running agent if none exists)
 app.put("/api/agents/:id/config", (req, res) => {
   const { id } = req.params;
   const updates = req.body;
-  const idx = agentConfigs.findIndex((c) => c.id === id);
-  if (idx < 0) return res.status(404).json({ error: "Config not found" });
+  let idx = agentConfigs.findIndex((c) => c.id === id);
+  if (idx < 0) {
+    const running = store.agents[id];
+    if (!running) return res.status(404).json({ error: "Agent not found" });
+    agentConfigs.push({
+      id,
+      name: running.name,
+      displayName: running.displayName,
+      runtime: running.runtime,
+      model: running.model,
+      workDir: running.workDir,
+    });
+    idx = agentConfigs.length - 1;
+  }
   agentConfigs[idx] = { ...agentConfigs[idx], ...updates };
   saveAgentConfigs(agentConfigs);
   db.saveAgentConfig(agentConfigs[idx]);

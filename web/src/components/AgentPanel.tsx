@@ -138,6 +138,7 @@ export default function AgentsView() {
     if (!config) return;
     setStarting(configName);
     await startAgent({
+      id: config.id,
       name: config.name,
       displayName: config.displayName,
       description: config.description,
