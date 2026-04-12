@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import { useGlitch } from '../hooks/useGlitch';
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
   const { sendMessage, activeChannelName, viewMode, agents, humans } = useApp();
@@ -8,8 +9,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sendBtnRef = useGlitch<HTMLButtonElement>({ trigger: 'hover', minInterval: 150, maxInterval: 400, minSeverity: 0.2, maxSeverity: 0.5, minDuration: 60, maxDuration: 150 });
 
-  // Build mention candidates from agents + humans
   const allMentionTargets = useMemo(() => {
     const targets: { name: string; type: 'agent' | 'human' }[] = [];
     for (const a of agents) targets.push({ name: a.displayName || a.name, type: 'agent' });
@@ -27,7 +28,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     const el = textareaRef.current;
     if (!el) return;
     const cursorPos = el.selectionStart;
-    // Find the @ that started this mention
     const before = text.slice(0, cursorPos);
     const atIdx = before.lastIndexOf('@');
     if (atIdx < 0) return;
@@ -35,10 +35,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     setText(newText);
     setMentionQuery(null);
     setMentionIndex(0);
-    // Restore focus and cursor
     requestAnimationFrame(() => {
       el.focus();
-      const newPos = atIdx + name.length + 2; // @name + space
+      const newPos = atIdx + name.length + 2;
       el.setSelectionRange(newPos, newPos);
     });
   }, [text]);
@@ -55,7 +54,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, [text, sendMessage, threadTarget]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Handle mention dropdown navigation
     if (mentionQuery !== null && mentionMatches.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -89,14 +87,12 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     const val = e.target.value;
     setText(val);
 
-    // Auto-height
     const el = textareaRef.current;
     if (el) {
       el.style.height = 'auto';
       el.style.height = Math.min(el.scrollHeight, 200) + 'px';
     }
 
-    // Detect @ mention query
     const cursorPos = e.target.selectionStart;
     const before = val.slice(0, cursorPos);
     const atMatch = before.match(/@([\w-]*)$/);
@@ -126,31 +122,30 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   return (
     <div className="px-5 pb-4 pt-2 relative">
-      {/* @ mention autocomplete dropdown */}
       {mentionQuery !== null && mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-5 right-5 mb-1 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb z-20 max-h-[240px] overflow-y-auto">
+        <div className="absolute bottom-full left-5 right-5 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
           {mentionMatches.map((match, i) => (
             <button
               key={match.name}
               onMouseDown={(e) => { e.preventDefault(); insertMention(match.name); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
                 i === mentionIndex
-                  ? 'bg-nb-yellow dark:bg-dark-elevated text-nb-black dark:text-dark-text'
-                  : 'text-nb-gray-700 dark:text-dark-text hover:bg-nb-gray-50 dark:hover:bg-dark-elevated'
+                  ? 'bg-nc-cyan/10 text-nc-cyan'
+                  : 'text-nc-text hover:bg-nc-elevated'
               }`}
             >
               {match.type === 'agent'
-                ? <Bot size={14} className="flex-shrink-0 text-nb-blue" />
-                : <User size={14} className="flex-shrink-0 text-nb-green" />
+                ? <Bot size={14} className="flex-shrink-0 text-nc-green" />
+                : <User size={14} className="flex-shrink-0 text-nc-cyan" />
               }
-              <span className="font-bold">@{match.name}</span>
-              <span className="text-xs text-nb-gray-400 dark:text-dark-muted ml-auto">{match.type}</span>
+              <span className="font-bold font-mono">@{match.name}</span>
+              <span className="text-xs text-nc-muted ml-auto font-mono">{match.type}</span>
             </button>
           ))}
         </div>
       )}
 
-      <div className="flex items-stretch border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb transition-shadow focus-within:shadow-nb-lg overflow-hidden">
+      <div className="flex items-stretch border border-nc-border bg-nc-surface transition-all focus-within:border-nc-cyan focus-within:shadow-nc-cyan overflow-hidden">
         <textarea
           ref={textareaRef}
           value={text}
@@ -158,17 +153,18 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onKeyDown={handleKeyDown}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
-          className="flex-1 px-3 py-2.5 bg-transparent text-sm font-body text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 dark:placeholder:text-dark-muted resize-none focus:outline-none min-h-[46px]"
+          className="flex-1 px-3 py-2.5 bg-transparent text-sm font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[46px]"
         />
 
         <button
+          ref={sendBtnRef}
           onClick={handleSubmit}
           disabled={!text.trim()}
           className={`
-            flex items-center justify-center w-11 border-l-3 border-nb-black dark:border-dark-border transition-all flex-shrink-0 self-stretch
+            flex items-center justify-center w-11 border-l border-nc-border transition-all flex-shrink-0 self-stretch glitch-text
             ${text.trim()
-              ? 'bg-nb-green text-nb-black hover:bg-nb-green/90 active:translate-x-[2px] active:translate-y-[2px]'
-              : 'bg-nb-gray-100 dark:bg-dark-elevated text-nb-gray-400 dark:text-dark-muted cursor-not-allowed'
+              ? 'bg-nc-cyan/15 text-nc-cyan hover:bg-nc-cyan/25'
+              : 'bg-nc-elevated text-nc-muted cursor-not-allowed'
             }
           `}
         >

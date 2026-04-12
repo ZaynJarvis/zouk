@@ -72,7 +72,7 @@ export function useAppStore() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user || null);
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getStoredAuth());
-  const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
+  const [hasGoogleAuth] = useState(false);
 
   const wsRef = useRef<SlockWebSocket | null>(null);
   const activeChannelRef = useRef(activeChannelName);
@@ -451,7 +451,7 @@ export function useAppStore() {
     wsSend,
     workspaceFiles, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
-    authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
+    authUser, isLoggedIn, hasGoogleAuth,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
   };
 }
