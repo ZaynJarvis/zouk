@@ -2,7 +2,7 @@ import { GoogleLogin } from '@react-oauth/google';
 import { useApp } from '../store/AppContext';
 import { useState, useEffect, useCallback } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
-import { useGlitch } from '../hooks/useGlitch';
+import ScanlineTear from './glitch/ScanlineTear';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
 
@@ -47,8 +47,6 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [glitchActive, setGlitchActive] = useState(false);
   const [pendingAction, setPendingAction] = useState<'guest' | 'google' | null>(null);
-  const btnRef = useGlitch<HTMLButtonElement>({ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.6, minDuration: 80, maxDuration: 200 });
-
   const handleGuestLogin = useCallback(() => {
     setLoading(true);
     setPendingAction('guest');
@@ -134,21 +132,22 @@ export default function LoginScreen() {
             </>
           )}
 
-          <button
-            ref={btnRef}
-            onClick={handleGuestLogin}
-            disabled={loading}
-            className="cyber-btn-lg glitch-hover w-full py-3 px-4 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-display font-bold text-sm tracking-[0.15em] uppercase hover:bg-nc-cyan/20 hover:shadow-nc-cyan active:bg-nc-cyan/30 disabled:opacity-50"
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="w-3 h-3 border border-nc-cyan border-t-transparent animate-spin" />
-                Connecting...
-              </span>
-            ) : (
-              'Initialize Guest Session'
-            )}
-          </button>
+          <ScanlineTear className="w-full" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <button
+              onClick={handleGuestLogin}
+              disabled={loading}
+              className="cyber-btn-lg w-full py-3 px-4 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-display font-bold text-sm tracking-[0.15em] uppercase hover:bg-nc-cyan/20 hover:shadow-nc-cyan active:bg-nc-cyan/30 disabled:opacity-50"
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-3 h-3 border border-nc-cyan border-t-transparent animate-spin" />
+                  Connecting...
+                </span>
+              ) : (
+                'Initialize Guest Session'
+              )}
+            </button>
+          </ScanlineTear>
 
           <div className="mt-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-nc-border" />

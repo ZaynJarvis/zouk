@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw } from 'lucide-react';
 import type { ServerAgent, Skill } from '../types';
 import { useApp } from '../store/AppContext';
+import ScanlineTear from './glitch/ScanlineTear';
 
 type Tab = 'instructions' | 'workspace' | 'activity' | 'settings';
 
@@ -76,12 +77,14 @@ function InstructionsTab({
           <p className="text-xs text-nc-muted mt-0.5 font-mono">Instructions that define how this agent behaves.</p>
         </div>
         {isDirty && (
-          <button
-            onClick={() => onUpdate({ instructions })}
-            className="cyber-btn glitch-hover flex items-center gap-1 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-          >
-            <Save size={12} /> SAVE
-          </button>
+          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <button
+              onClick={() => onUpdate({ instructions })}
+              className="cyber-btn flex items-center gap-1 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
+            >
+              <Save size={12} /> SAVE
+            </button>
+          </ScanlineTear>
         )}
       </div>
       <textarea
@@ -96,12 +99,14 @@ function InstructionsTab({
           <h3 className="font-display font-bold text-sm text-nc-text-bright tracking-wider">SKILLS</h3>
           <p className="text-xs text-nc-muted mt-0.5 font-mono">Reusable instructions and tooling for this agent.</p>
         </div>
-        <button
-          onClick={() => setShowPicker(!showPicker)}
-          className="cyber-btn glitch-hover flex items-center gap-1 px-3 py-1.5 border border-nc-yellow bg-nc-yellow/10 text-sm font-bold text-nc-yellow hover:bg-nc-yellow/20 hover:shadow-nc-yellow font-mono"
-        >
-          <Zap size={12} /> ADD_SKILL
-        </button>
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={() => setShowPicker(!showPicker)}
+            className="cyber-btn flex items-center gap-1 px-3 py-1.5 border border-nc-yellow bg-nc-yellow/10 text-sm font-bold text-nc-yellow hover:bg-nc-yellow/20 hover:shadow-nc-yellow font-mono"
+          >
+            <Zap size={12} /> ADD_SKILL
+          </button>
+        </ScanlineTear>
       </div>
 
       {showPicker && availableSkills.length > 0 && (
@@ -464,20 +469,24 @@ function SettingsTab({
 
         <div className="flex items-center gap-3 pt-3 border-t border-nc-border">
           {isDirty && (
-            <button
-              onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent })}
-              className="cyber-btn glitch-hover flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-            >
-              <Save size={12} /> SAVE
-            </button>
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent })}
+                className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
+              >
+                <Save size={12} /> SAVE
+              </button>
+            </ScanlineTear>
           )}
           {agent.status === 'active' && (
-            <button
-              onClick={onStop}
-              className="cyber-btn glitch-hover flex items-center gap-1 px-4 py-2 border border-nc-red bg-nc-red/10 text-sm font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red ml-auto font-mono"
-            >
-              <Square size={12} /> STOP_AGENT
-            </button>
+            <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={onStop}
+                className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-red bg-nc-red/10 text-sm font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono"
+              >
+                <Square size={12} /> STOP_AGENT
+              </button>
+            </ScanlineTear>
           )}
         </div>
       </div>

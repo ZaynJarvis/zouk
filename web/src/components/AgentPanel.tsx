@@ -5,6 +5,7 @@ import type { ServerAgent, ServerMachine } from '../types';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
+import ScanlineTear from './glitch/ScanlineTear';
 
 const activityColors: Record<string, string> = {
   thinking: 'bg-nc-yellow animate-pulse',
@@ -278,12 +279,14 @@ export default function AgentsView() {
                 {showArchived ? 'NO_ARCHIVED_AGENTS' : 'NO_AGENTS_FOUND'}
               </p>
               {!showArchived && (
-                <button
-                  onClick={() => setShowCreate(true)}
-                  className="cyber-btn glitch-hover mt-3 flex items-center gap-1 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-                >
-                  <Plus size={12} /> CREATE_AGENT
-                </button>
+                <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                  <button
+                    onClick={() => setShowCreate(true)}
+                    className="cyber-btn mt-3 flex items-center gap-1 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
+                  >
+                    <Plus size={12} /> CREATE_AGENT
+                  </button>
+                </ScanlineTear>
               )}
             </div>
           )}
@@ -306,12 +309,14 @@ export default function AgentsView() {
             <p className="text-sm text-nc-muted mb-4 font-mono">
               Select an agent from the list or create a new one.
             </p>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="cyber-btn-lg glitch-hover flex items-center gap-1.5 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-            >
-              <Plus size={14} /> CREATE_AGENT
-            </button>
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={() => setShowCreate(true)}
+                className="cyber-btn-lg flex items-center gap-1.5 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
+              >
+                <Plus size={14} /> CREATE_AGENT
+              </button>
+            </ScanlineTear>
           </div>
         )}
       </div>

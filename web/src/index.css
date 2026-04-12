@@ -127,6 +127,37 @@
     transform: translateX(var(--glitch-offset-x, 0px));
   }
 
+  /* ScanlineTear — screen-glitch content clone */
+  .scanline-tear {
+    position: relative;
+    display: inline-block;
+  }
+
+  .scanline-tear__base {
+    position: relative;
+    z-index: 1;
+  }
+
+  .scanline-tear__overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 2;
+    mix-blend-mode: screen;
+    border-left: 1px solid rgba(247, 80, 73, 0.6);
+    border-right: 1px solid rgba(94, 246, 255, 0.6);
+    filter: saturate(1.4) brightness(1.15);
+  }
+
+  .scanline-tear__overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(247, 80, 73, 0.25), transparent 40%, rgba(94, 246, 255, 0.25));
+    pointer-events: none;
+  }
+
   .cyber-bevel {
     clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
   }
@@ -159,9 +190,8 @@
     transition: transform 320ms ease;
   }
 
-  /* Glitch-jump + hue-strobe on hover */
   .cyber-btn:hover {
-    animation: cp-glitch-jump 340ms steps(4, jump-none) 1, cp-hue-strobe 420ms linear 1;
+    animation: cp-hue-strobe 420ms linear 1;
   }
 
   /* Large beveled buttons (CTAs, dialogs) */
@@ -189,7 +219,7 @@
   }
 
   .cyber-btn-lg:hover {
-    animation: cp-glitch-jump 340ms steps(4, jump-none) 1, cp-hue-strobe 420ms linear 1;
+    animation: cp-hue-strobe 420ms linear 1;
     transform: translateY(-2px);
   }
 
@@ -214,7 +244,7 @@
   }
 
   .glitch-hover:hover {
-    animation: cp-glitch-jump 340ms steps(4, jump-none) 1, cp-hue-strobe 420ms linear 1;
+    animation: cp-hue-strobe 420ms linear 1;
   }
 
   .glitch-hover:hover::after {
@@ -251,7 +281,7 @@
 
   .status-chip:hover,
   .status-chip-sm:hover {
-    animation: cp-glitch-jump 340ms steps(4, jump-none) 1, cp-hue-strobe 420ms linear 1;
+    animation: cp-hue-strobe 420ms linear 1;
   }
 
   .tone-critical {

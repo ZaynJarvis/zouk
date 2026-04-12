@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Plus, Copy, Check, Trash2, Key, Server, Terminal } from 'lucide-react';
 import type { MachineApiKey, ServerMachine } from '../types';
 import * as api from '../lib/api';
+import ScanlineTear from './glitch/ScanlineTear';
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -128,13 +129,15 @@ export default function MachineSetupDialog({
                 className="flex-1 px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
                 onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
               />
-              <button
-                onClick={handleGenerate}
-                disabled={!newKeyName.trim() || loading}
-                className="cyber-btn glitch-hover flex items-center gap-1 px-3 py-2 border border-nc-green bg-nc-green/10 text-sm font-bold text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green disabled:opacity-50 disabled:cursor-not-allowed font-mono"
-              >
-                <Plus size={12} /> GENERATE
-              </button>
+              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={handleGenerate}
+                  disabled={!newKeyName.trim() || loading}
+                  className="cyber-btn flex items-center gap-1 px-3 py-2 border border-nc-green bg-nc-green/10 text-sm font-bold text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                >
+                  <Plus size={12} /> GENERATE
+                </button>
+              </ScanlineTear>
             </div>
           </div>
 

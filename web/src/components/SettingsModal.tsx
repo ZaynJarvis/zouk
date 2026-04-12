@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { X, User, Palette, Monitor } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
+import ScanlineTear from './glitch/ScanlineTear';
 
 type Section = 'profile' | 'appearance' | 'about';
 
@@ -99,24 +100,28 @@ export default function SettingsModal() {
                   />
                 </div>
 
-                <button
-                  onClick={() => {
-                    if (displayName.trim() && displayName !== currentUser) {
-                      updateProfile(displayName.trim());
-                    }
-                  }}
-                  className="cyber-btn glitch-hover px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider"
-                >
-                  Update Profile
-                </button>
+                <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                  <button
+                    onClick={() => {
+                      if (displayName.trim() && displayName !== currentUser) {
+                        updateProfile(displayName.trim());
+                      }
+                    }}
+                    className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider"
+                  >
+                    Update Profile
+                  </button>
+                </ScanlineTear>
 
                 <div className="pt-4 border-t border-nc-border">
-                  <button
-                    onClick={() => { setSettingsOpen(false); }}
-                    className="cyber-btn glitch-hover px-4 py-2 bg-nc-red/10 border border-nc-red/50 text-nc-red font-bold text-sm tracking-wider"
-                  >
-                    Disconnect
-                  </button>
+                  <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                    <button
+                      onClick={() => { setSettingsOpen(false); }}
+                      className="cyber-btn px-4 py-2 bg-nc-red/10 border border-nc-red/50 text-nc-red font-bold text-sm tracking-wider"
+                    >
+                      Disconnect
+                    </button>
+                  </ScanlineTear>
                 </div>
               </div>
             )}
@@ -126,39 +131,43 @@ export default function SettingsModal() {
                 <div>
                   <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Theme</label>
                   <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => handleThemeChange('dark')}
-                      className={`cyber-btn glitch-hover flex items-center gap-3 p-4 border ${
-                        theme === 'dark'
-                          ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                          : 'border-nc-border hover:border-nc-cyan/50'
-                      }`}
-                    >
-                      <div className="w-10 h-10 bg-nc-black border border-nc-border flex items-center justify-center">
-                        <span className="text-nc-cyan text-xs font-mono">NC</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-sm text-nc-text-bright">Night City</div>
-                        <div className="text-xs text-nc-muted">Dark cyberpunk</div>
-                      </div>
-                    </button>
+                    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        onClick={() => handleThemeChange('dark')}
+                        className={`cyber-btn flex items-center gap-3 p-4 border ${
+                          theme === 'dark'
+                            ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
+                            : 'border-nc-border hover:border-nc-cyan/50'
+                        }`}
+                      >
+                        <div className="w-10 h-10 bg-nc-black border border-nc-border flex items-center justify-center">
+                          <span className="text-nc-cyan text-xs font-mono">NC</span>
+                        </div>
+                        <div className="text-left">
+                          <div className="font-bold text-sm text-nc-text-bright">Night City</div>
+                          <div className="text-xs text-nc-muted">Dark cyberpunk</div>
+                        </div>
+                      </button>
+                    </ScanlineTear>
 
-                    <button
-                      onClick={() => handleThemeChange('light')}
-                      className={`cyber-btn glitch-hover flex items-center gap-3 p-4 border ${
-                        theme === 'light'
-                          ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                          : 'border-nc-border hover:border-nc-cyan/50'
-                      }`}
-                    >
-                      <div className="w-10 h-10 bg-nc-elevated border border-nc-border flex items-center justify-center">
-                        <span className="text-nc-yellow text-xs font-mono">DY</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-sm text-nc-text-bright">Daylight</div>
-                        <div className="text-xs text-nc-muted">Bright variant</div>
-                      </div>
-                    </button>
+                    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        onClick={() => handleThemeChange('light')}
+                        className={`cyber-btn flex items-center gap-3 p-4 border ${
+                          theme === 'light'
+                            ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
+                            : 'border-nc-border hover:border-nc-cyan/50'
+                        }`}
+                      >
+                        <div className="w-10 h-10 bg-nc-elevated border border-nc-border flex items-center justify-center">
+                          <span className="text-nc-yellow text-xs font-mono">DY</span>
+                        </div>
+                        <div className="text-left">
+                          <div className="font-bold text-sm text-nc-text-bright">Daylight</div>
+                          <div className="text-xs text-nc-muted">Bright variant</div>
+                        </div>
+                      </button>
+                    </ScanlineTear>
                   </div>
                 </div>
               </div>

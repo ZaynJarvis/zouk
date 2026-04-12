@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react';
 
-interface GlitchConfig {
+export interface GlitchConfig {
   minInterval?: number;
   maxInterval?: number;
   minDuration?: number;
@@ -42,10 +42,12 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
     el.style.setProperty('--glitch-clip-bottom', `${clipBottom}%`);
     el.style.setProperty('--glitch-hue', `${hue}deg`);
     el.style.setProperty('--glitch-active', active ? '1' : '0');
+    el.style.setProperty('--glitch-visibility', active ? 'visible' : 'hidden');
   }, []);
 
   const clearVars = useCallback((el: T) => {
     el.style.setProperty('--glitch-active', '0');
+    el.style.setProperty('--glitch-visibility', 'hidden');
     el.style.setProperty('--glitch-severity', '0');
     el.style.setProperty('--glitch-offset-x', '0px');
     el.style.setProperty('--glitch-offset-y', '0px');

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, ChevronDown, Globe, Lock, Server, AlertTriangle } from 'lucide-react';
 import type { ServerMachine } from '../types';
+import ScanlineTear from './glitch/ScanlineTear';
 
 const MODELS_BY_PROVIDER: Record<string, string[]> = {
   claude: ['opus', 'sonnet', 'haiku'],
@@ -321,13 +322,15 @@ export default function CreateAgentDialog({
           </div>
 
           <div className="flex gap-3 pt-3 border-t border-nc-border">
-            <button
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-              className="cyber-btn-lg glitch-hover flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-nc-green bg-nc-green/10 text-sm font-bold text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green disabled:opacity-50 disabled:cursor-not-allowed font-mono"
-            >
-              <Plus size={14} /> CREATE_AND_START
-            </button>
+            <ScanlineTear className="flex-1" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                className="cyber-btn-lg w-full flex items-center justify-center gap-1.5 py-2.5 border border-nc-green bg-nc-green/10 text-sm font-bold text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+              >
+                <Plus size={14} /> CREATE_AND_START
+              </button>
+            </ScanlineTear>
             <button
               onClick={onClose}
               className="cyber-btn px-5 py-2.5 border border-nc-border text-sm font-bold text-nc-muted hover:bg-nc-elevated font-mono"

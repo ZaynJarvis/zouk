@@ -1,15 +1,12 @@
 import { Hop as Home, MessageSquare, Bot, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
-import { useGlitch } from '../hooks/useGlitch';
 
 export default function WorkspaceRail() {
   const {
     setViewMode, setSettingsOpen, viewMode,
     wsConnected, daemonConnected,
   } = useApp();
-  const settingsRef = useGlitch<HTMLButtonElement>({ trigger: 'hover', minInterval: 200, maxInterval: 500, minSeverity: 0.2, maxSeverity: 0.5, minDuration: 80, maxDuration: 180 });
-
   return (
     <div className="w-[72px] h-full bg-nc-deep border-r border-nc-border flex flex-col items-center py-4 gap-3">
       <ScanlineTear>
@@ -75,14 +72,15 @@ export default function WorkspaceRail() {
         />
       </div>
 
-      <button
-        ref={settingsRef}
-        onClick={() => setSettingsOpen(true)}
-        className="cyber-btn w-10 h-10 border border-nc-border flex items-center justify-center text-nc-muted hover:text-nc-yellow hover:border-nc-yellow/50 glitch-text"
-        title="Settings"
-      >
-        <Settings size={20} />
-      </button>
+      <ScanlineTear config={{ trigger: 'hover', minInterval: 300, maxInterval: 800, minSeverity: 0.2, maxSeverity: 0.6 }}>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="cyber-btn w-10 h-10 border border-nc-border flex items-center justify-center text-nc-muted hover:text-nc-yellow hover:border-nc-yellow/50"
+          title="Settings"
+        >
+          <Settings size={20} />
+        </button>
+      </ScanlineTear>
     </div>
   );
 }

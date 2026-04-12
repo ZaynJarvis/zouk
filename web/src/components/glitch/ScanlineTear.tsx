@@ -1,33 +1,36 @@
 import { useGlitch } from '../../hooks/useGlitch';
+import type { GlitchConfig } from '../../hooks/useGlitch';
 import type { ReactNode } from 'react';
 
-interface Props {
+interface ScanlineTearProps {
   children: ReactNode;
   className?: string;
+  config?: GlitchConfig;
+  tearContent?: ReactNode;
 }
 
-export default function ScanlineTear({ children, className = '' }: Props) {
+export default function ScanlineTear({ children, className = '', config, tearContent }: ScanlineTearProps) {
   const ref = useGlitch<HTMLDivElement>({
-    minInterval: 3000,
-    maxInterval: 7000,
-    minDuration: 150,
-    maxDuration: 400,
-    minSeverity: 0.3,
+    minInterval: 2000,
+    maxInterval: 5000,
+    minSeverity: 0.4,
     maxSeverity: 1.0,
+    ...config,
   });
 
   return (
-    <div ref={ref} className={`scanline-tear relative overflow-hidden ${className}`}>
-      {children}
+    <div ref={ref} className={`scanline-tear ${className}`}>
+      <div className="scanline-tear__base">{children}</div>
       <div
-        className="pointer-events-none absolute inset-0 z-10 mix-blend-screen"
+        className="scanline-tear__overlay"
         style={{
           clipPath: 'inset(var(--glitch-clip-top, 100%) 0 var(--glitch-clip-bottom, 100%) 0)',
           transform: 'translateX(var(--glitch-offset-x, 0px))',
-          opacity: 'var(--glitch-active, 0)',
-          background: 'linear-gradient(90deg, rgba(94, 246, 255, 0.15) 0%, transparent 50%, rgba(247, 80, 73, 0.15) 100%)',
+          visibility: 'var(--glitch-visibility, hidden)' as React.CSSProperties['visibility'],
         }}
-      />
+      >
+        {tearContent || children}
+      </div>
     </div>
   );
 }
