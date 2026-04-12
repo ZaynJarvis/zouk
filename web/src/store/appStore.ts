@@ -44,7 +44,7 @@ function getStoredAuth(): { token: string; user: AuthUser } | null {
 export function useAppStore() {
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem('zouk_theme');
-    if (stored === 'night-city' || stored === 'brutalist') return stored;
+    if (stored === 'night-city' || stored === 'brutalist' || stored === 'hermes') return stored;
     return 'night-city';
   });
   const [currentUser, setCurrentUser] = useState(getStoredUser);

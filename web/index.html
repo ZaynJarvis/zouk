@@ -7,13 +7,13 @@
     <title>Zouk - Team Workspace</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Fira+Code:wght@400;500&family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <script>
       (function(){
         var t=localStorage.getItem('zouk_theme');
-        var theme=(t==='night-city'||t==='brutalist')?t:'night-city';
+        var theme=(t==='night-city'||t==='brutalist'||t==='hermes')?t:'night-city';
         document.documentElement.setAttribute('data-theme',theme);
         var favicon=document.querySelector("link[rel='icon']");
         if(favicon) favicon.href=theme==='night-city'?'/zouk-night-city.svg':'/zouk.svg';
