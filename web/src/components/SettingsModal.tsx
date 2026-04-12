@@ -1,177 +1,148 @@
-import { useState, useCallback } from 'react';
-import { X, User, Palette, Monitor } from 'lucide-react';
+import { X, Sun, Moon, User, Palette, LogOut } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import GlitchTransition from './glitch/GlitchTransition';
+import { useState } from 'react';
 
-type Section = 'profile' | 'appearance' | 'about';
+const sections = [
+  { id: 'profile', label: 'Profile', icon: User },
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+] as const;
+
+type SectionId = typeof sections[number]['id'];
 
 export default function SettingsModal() {
-  const { settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateProfile } = useApp();
-  const [section, setSection] = useState<Section>('profile');
-  const [displayName, setDisplayName] = useState(currentUser);
-  const [glitchActive, setGlitchActive] = useState(false);
-  const [pendingTheme, setPendingTheme] = useState<'light' | 'dark' | null>(null);
-
-  const handleThemeChange = useCallback((newTheme: 'light' | 'dark') => {
-    if (newTheme === theme) return;
-    setPendingTheme(newTheme);
-    setGlitchActive(true);
-  }, [theme]);
-
-  const handleGlitchComplete = useCallback(() => {
-    setGlitchActive(false);
-    if (pendingTheme) {
-      setTheme(pendingTheme);
-      setPendingTheme(null);
-    }
-  }, [pendingTheme, setTheme]);
+  const { settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateCurrentUser, authUser, logout } = useApp();
+  const [activeSection, setActiveSection] = useState<SectionId>('profile');
+  const [editName, setEditName] = useState('');
 
   if (!settingsOpen) return null;
 
-  const navItems: { key: Section; label: string; icon: typeof User }[] = [
-    { key: 'profile', label: 'PROFILE', icon: User },
-    { key: 'appearance', label: 'DISPLAY', icon: Palette },
-    { key: 'about', label: 'SYSTEM', icon: Monitor },
-  ];
+  const handleSaveName = () => {
+    const trimmed = editName.trim();
+    if (trimmed && trimmed !== currentUser) {
+      updateCurrentUser(trimmed);
+    }
+  };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 animate-fade-in"
-      onClick={(e) => e.target === e.currentTarget && setSettingsOpen(false)}
-    >
-      <GlitchTransition active={glitchActive} duration={400} onComplete={handleGlitchComplete} />
-
-      <div className="cyber-panel w-full max-w-3xl h-[80vh] flex overflow-hidden animate-bounce-in cyber-bevel">
-        <div className="w-48 bg-nc-deep border-r border-nc-border flex flex-col">
-          <div className="px-4 py-4 border-b border-nc-border">
-            <h2 className="font-display font-black text-sm text-nc-cyan neon-cyan tracking-wider">SETTINGS</h2>
+    <div className="fixed inset-0 z-50 bg-nb-black/40 dark:bg-black/60 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSettingsOpen(false)}>
+      <div
+        className="w-full max-w-3xl h-[80vh] bg-nb-white dark:bg-dark-surface border-3 border-nb-black dark:border-dark-border shadow-nb-lg flex animate-bounce-in"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="w-48 border-r-3 border-nb-black dark:border-dark-border bg-nb-cream dark:bg-dark-bg flex flex-col">
+          <div className="px-4 py-4 border-b-2 border-nb-gray-200 dark:border-dark-border">
+            <h3 className="font-display font-black text-lg text-nb-black dark:text-dark-text">Settings</h3>
           </div>
           <nav className="flex-1 py-2">
-            {navItems.map(({ key, label, icon: Icon }) => (
+            {sections.map(s => (
               <button
-                key={key}
-                onClick={() => setSection(key)}
-                className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-bold transition-all tracking-wider ${
-                  section === key
-                    ? 'bg-nc-cyan/10 text-nc-cyan border-r-2 border-nc-cyan'
-                    : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text'
+                key={s.id}
+                onClick={() => setActiveSection(s.id)}
+                className={`w-full flex items-center gap-2 px-4 py-2 text-sm transition-all ${
+                  activeSection === s.id
+                    ? 'bg-nb-yellow border-r-3 border-nb-black font-bold text-nb-black dark:text-nb-black'
+                    : 'text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated hover:text-nb-black dark:hover:text-dark-text'
                 }`}
               >
-                <Icon size={16} />
-                {label}
+                <s.icon size={16} />
+                {s.label}
               </button>
             ))}
           </nav>
         </div>
 
-        <div className="flex-1 flex flex-col">
-          <div className="h-14 border-b border-nc-border flex items-center justify-between px-6">
-            <h3 className="font-display font-bold text-base text-nc-text-bright tracking-wider">
-              {navItems.find(n => n.key === section)?.label}
-            </h3>
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="h-14 border-b-3 border-nb-black dark:border-dark-border flex items-center justify-between px-6">
+            <h4 className="font-display font-extrabold text-base text-nb-black dark:text-dark-text capitalize">{activeSection}</h4>
             <button
               onClick={() => setSettingsOpen(false)}
-              className="w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-red hover:text-nc-red hover:bg-nc-red/10 transition-all"
+              className="w-8 h-8 border-2 border-nb-gray-200 dark:border-dark-border flex items-center justify-center text-nb-gray-500 hover:border-nb-black dark:hover:border-dark-text hover:text-nb-black dark:hover:text-dark-text hover:bg-nb-gray-100 dark:hover:bg-dark-elevated transition-all"
             >
               <X size={16} />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
-            {section === 'profile' && (
-              <div className="max-w-md space-y-6">
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {activeSection === 'profile' && (
+              <>
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 border border-nc-cyan bg-nc-cyan/10 font-display font-bold text-lg flex items-center justify-center text-nc-cyan">
-                    {currentUser.charAt(0).toUpperCase()}
-                  </div>
+                  {authUser?.picture ? (
+                    <img src={authUser.picture} alt="" className="w-12 h-12 border-2 border-nb-black dark:border-dark-border" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-12 h-12 border-2 border-nb-black dark:border-dark-border font-display font-bold text-lg flex items-center justify-center bg-nb-yellow select-none">
+                      {currentUser.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div>
-                    <p className="font-display font-bold text-nc-text-bright">{currentUser}</p>
-                    <p className="text-xs text-nc-muted font-mono">GUEST_USER</p>
+                    <h5 className="font-display font-bold text-lg text-nb-black dark:text-dark-text">{currentUser}</h5>
+                    <p className="text-sm text-nb-gray-500 dark:text-dark-muted">
+                      {authUser ? authUser.email : 'Guest user'}
+                    </p>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Display Name</label>
-                  <input
-                    value={displayName}
-                    onChange={e => setDisplayName(e.target.value)}
-                    className="cyber-input w-full px-3 py-2 text-sm"
-                  />
-                </div>
+                {!authUser && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted mb-1.5">Display Name</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        defaultValue={currentUser}
+                        onChange={e => setEditName(e.target.value)}
+                        className="flex-1 px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-elevated text-sm font-body text-nb-black dark:text-dark-text focus:outline-none focus:shadow-nb-sm transition-shadow"
+                      />
+                      <button
+                        onClick={handleSaveName}
+                        className="px-4 py-2 border-2 border-nb-black bg-nb-green text-nb-black text-sm font-bold shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <button
-                  onClick={() => {
-                    if (displayName.trim() && displayName !== currentUser) {
-                      updateProfile(displayName.trim());
-                    }
-                  }}
-                  className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider"
+                  onClick={() => { logout(); setSettingsOpen(false); }}
+                  className="flex items-center gap-2 px-4 py-2 border-2 border-nb-black bg-nb-red/10 text-nb-red text-sm font-bold shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                 >
-                  Update Profile
+                  <LogOut size={14} />
+                  {authUser ? 'Sign out' : 'Switch user'}
                 </button>
+              </>
+            )}
 
-                <div className="pt-4 border-t border-nc-border">
+            {activeSection === 'appearance' && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted mb-3">Theme</label>
+                <div className="flex gap-3">
                   <button
-                    onClick={() => { setSettingsOpen(false); }}
-                    className="cyber-btn px-4 py-2 bg-nc-red/10 border border-nc-red/50 text-nc-red font-bold text-sm tracking-wider"
+                    onClick={() => setTheme('light')}
+                    className={`flex-1 flex items-center gap-3 p-4 border-3 transition-all ${
+                      theme === 'light'
+                        ? 'border-nb-black bg-nb-yellow-light shadow-nb'
+                        : 'border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text'
+                    }`}
                   >
-                    Disconnect
+                    <Sun size={24} className="text-nb-yellow" />
+                    <div className="text-left">
+                      <div className="font-bold text-sm text-nb-black dark:text-dark-text">Light</div>
+                      <div className="text-2xs text-nb-gray-500 dark:text-dark-muted">Bright and bold</div>
+                    </div>
                   </button>
-                </div>
-              </div>
-            )}
-
-            {section === 'appearance' && (
-              <div className="max-w-md space-y-6">
-                <div>
-                  <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Theme</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => handleThemeChange('dark')}
-                      className={`flex items-center gap-3 p-4 border transition-all ${
-                        theme === 'dark'
-                          ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                          : 'border-nc-border hover:border-nc-cyan/50'
-                      }`}
-                    >
-                      <div className="w-10 h-10 bg-nc-black border border-nc-border flex items-center justify-center">
-                        <span className="text-nc-cyan text-xs font-mono">NC</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-sm text-nc-text-bright">Night City</div>
-                        <div className="text-xs text-nc-muted">Dark cyberpunk</div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => handleThemeChange('light')}
-                      className={`flex items-center gap-3 p-4 border transition-all ${
-                        theme === 'light'
-                          ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                          : 'border-nc-border hover:border-nc-cyan/50'
-                      }`}
-                    >
-                      <div className="w-10 h-10 bg-nc-elevated border border-nc-border flex items-center justify-center">
-                        <span className="text-nc-yellow text-xs font-mono">DY</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-sm text-nc-text-bright">Daylight</div>
-                        <div className="text-xs text-nc-muted">Bright variant</div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {section === 'about' && (
-              <div className="max-w-md space-y-4">
-                <div className="cyber-panel-elevated p-4">
-                  <div className="text-xs font-mono text-nc-cyan">
-                    <p>ZOUK_PLATFORM v2.0.77</p>
-                    <p className="text-nc-muted mt-1">Night City Interface Protocol</p>
-                    <p className="text-nc-muted mt-1">Cyberpunk 2077 Inspired Theme</p>
-                  </div>
+                  <button
+                    onClick={() => setTheme('dark')}
+                    className={`flex-1 flex items-center gap-3 p-4 border-3 transition-all ${
+                      theme === 'dark'
+                        ? 'border-nb-black bg-nb-gray-800 text-nb-white shadow-nb dark:border-dark-text'
+                        : 'border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text'
+                    }`}
+                  >
+                    <Moon size={24} className="text-nb-blue" />
+                    <div className="text-left">
+                      <div className="font-bold text-sm text-nb-black dark:text-dark-text">Dark</div>
+                      <div className="text-2xs text-nb-gray-500 dark:text-dark-muted">Easy on the eyes</div>
+                    </div>
+                  </button>
                 </div>
               </div>
             )}
