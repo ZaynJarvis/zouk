@@ -11,7 +11,7 @@ export default function WorkspaceRail() {
       <ScanlineTear>
         <div
           className="w-10 h-10 border border-nc-cyan bg-nc-cyan/10 font-display font-black text-lg flex items-center justify-center text-nc-cyan"
-          style={{ textShadow: '0 0 8px rgba(94,246,255,0.5)' }}
+          style={{ textShadow: '0 0 8px rgb(var(--nc-cyan) / 0.5)' }}
         >
           Z
         </div>

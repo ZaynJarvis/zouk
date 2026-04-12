@@ -20,7 +20,7 @@ function parseMessageContent(content: string): React.ReactNode[] {
       parts.push(...parseInlineContent(content.slice(lastIndex, match.index), parts.length));
     }
     parts.push(
-      <pre key={`code-${parts.length}`} className="bg-nc-black border border-nc-green/30 text-nc-green p-3 my-2 font-mono text-xs overflow-x-auto" style={{ textShadow: '0 0 5px rgba(115,248,85,0.3)' }}>
+      <pre key={`code-${parts.length}`} className="bg-nc-black border border-nc-green/30 text-nc-green p-3 my-2 font-mono text-xs overflow-x-auto" style={{ textShadow: '0 0 5px rgb(var(--nc-green) / 0.3)' }}>
         <code>{match[1].trim()}</code>
       </pre>
     );
@@ -79,11 +79,11 @@ function taskStatusIcon(status: string): string {
   }
 }
 
-const senderColors = ['#5EF6FF', '#F75049', '#73F855', '#E040FB', '#FFD84A', '#0E0EE7'];
+const senderColorVars = ['--nc-cyan', '--nc-red', '--nc-green', '--nc-magenta', '--nc-yellow', '--nc-indigo'];
 function getSenderColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return senderColors[Math.abs(hash) % senderColors.length];
+  return `rgb(var(${senderColorVars[Math.abs(hash) % senderColorVars.length]}))`;
 }
 
 export default function MessageItem({ message, isGrouped = false }: { message: MessageRecord; isGrouped?: boolean }) {

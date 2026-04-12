@@ -16,11 +16,12 @@ export default function GlitchTransition({ active, duration = 600, onComplete, c
 
   const generateBars = useCallback(() => {
     const count = 3 + Math.floor(Math.random() * 5);
+    const colorVars = ['--nc-cyan', '--nc-red', '--nc-magenta', '--nc-yellow'];
     return Array.from({ length: count }, () => ({
       top: Math.random() * 100,
       height: 1 + Math.random() * 8,
       offset: (Math.random() - 0.5) * 40,
-      color: ['#5EF6FF', '#F75049', '#E040FB', '#FFD84A'][Math.floor(Math.random() * 4)],
+      colorVar: colorVars[Math.floor(Math.random() * colorVars.length)],
     }));
   }, []);
 
@@ -64,7 +65,7 @@ export default function GlitchTransition({ active, duration = 600, onComplete, c
           className="absolute inset-0"
           style={{
             background: phase === 'glitching'
-              ? 'rgba(10, 10, 15, 0.85)'
+              ? 'rgb(var(--nc-black) / 0.85)'
               : 'transparent',
             transition: 'background 0.2s',
           }}
@@ -78,9 +79,9 @@ export default function GlitchTransition({ active, duration = 600, onComplete, c
               top: `${bar.top}%`,
               height: `${bar.height}%`,
               transform: `translateX(${bar.offset}px)`,
-              background: `${bar.color}22`,
-              borderTop: `1px solid ${bar.color}66`,
-              borderBottom: `1px solid ${bar.color}66`,
+              background: `rgb(var(${bar.colorVar}) / 0.13)`,
+              borderTop: `1px solid rgb(var(${bar.colorVar}) / 0.4)`,
+              borderBottom: `1px solid rgb(var(${bar.colorVar}) / 0.4)`,
               mixBlendMode: 'screen',
             }}
           />
@@ -90,7 +91,7 @@ export default function GlitchTransition({ active, duration = 600, onComplete, c
           <div className="absolute inset-0 flex items-center justify-center">
             <span
               className="font-mono text-nc-cyan text-sm tracking-[0.3em] opacity-40"
-              style={{ textShadow: '-2px 0 #F75049, 2px 0 #5EF6FF' }}
+              style={{ textShadow: '-2px 0 rgb(var(--nc-red)), 2px 0 rgb(var(--nc-cyan))' }}
             >
               {scrambleText}
             </span>
@@ -101,7 +102,7 @@ export default function GlitchTransition({ active, duration = 600, onComplete, c
           <div
             className="absolute inset-0 opacity-[0.03]"
             style={{
-              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(94, 246, 255, 0.1) 2px, rgba(94, 246, 255, 0.1) 4px)',
+              backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgb(var(--nc-cyan) / 0.1) 2px, rgb(var(--nc-cyan) / 0.1) 4px)',
             }}
           />
         )}

@@ -1,0 +1,32 @@
+[data-theme="daylight"] {
+  /* Surfaces */
+  --nc-black: 255 255 255;
+  --nc-deep: 248 249 251;
+  --nc-surface: 243 244 246;
+  --nc-elevated: 255 255 255;
+  --nc-border: 209 213 219;
+  --nc-border-bright: 156 163 175;
+  --nc-panel: 249 250 251;
+
+  /* Accent */
+  --nc-red: 220 38 38;
+  --nc-green: 22 163 74;
+  --nc-cyan: 8 145 178;
+  --nc-yellow: 202 138 4;
+  --nc-magenta: 147 51 234;
+  --nc-indigo: 79 70 229;
+
+  /* Text */
+  --nc-text: 31 41 55;
+  --nc-text-bright: 3 7 18;
+  --nc-muted: 107 114 128;
+
+  /* Selection */
+  --nc-selection-bg: 8 145 178;
+  --nc-selection-text: 255 255 255;
+
+  /* Font stacks */
+  --nc-font-display: 'Orbitron', system-ui, sans-serif;
+  --nc-font-body: 'Rajdhani', system-ui, sans-serif;
+  --nc-font-mono: 'Space Mono', 'JetBrains Mono', monospace;
+}

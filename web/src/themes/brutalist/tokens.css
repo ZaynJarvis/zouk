@@ -1,0 +1,32 @@
+[data-theme="brutalist"] {
+  /* Surfaces */
+  --nc-black: 255 252 245;
+  --nc-deep: 250 248 240;
+  --nc-surface: 255 255 255;
+  --nc-elevated: 255 252 245;
+  --nc-border: 23 23 23;
+  --nc-border-bright: 0 0 0;
+  --nc-panel: 250 248 240;
+
+  /* Accent — punchy primaries */
+  --nc-red: 239 68 68;
+  --nc-green: 34 197 94;
+  --nc-cyan: 59 130 246;
+  --nc-yellow: 250 204 21;
+  --nc-magenta: 168 85 247;
+  --nc-indigo: 99 102 241;
+
+  /* Text */
+  --nc-text: 23 23 23;
+  --nc-text-bright: 0 0 0;
+  --nc-muted: 115 115 115;
+
+  /* Selection */
+  --nc-selection-bg: 250 204 21;
+  --nc-selection-text: 0 0 0;
+
+  /* Font stacks */
+  --nc-font-display: 'Space Grotesk', system-ui, sans-serif;
+  --nc-font-body: 'Space Grotesk', system-ui, sans-serif;
+  --nc-font-mono: 'Space Mono', 'JetBrains Mono', monospace;
+}

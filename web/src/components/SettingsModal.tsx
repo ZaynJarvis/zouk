@@ -3,6 +3,7 @@ import { X, User, Palette, Monitor } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
+import { themes, type ThemeId } from '../themes';
 
 type Section = 'profile' | 'appearance' | 'about';
 
@@ -11,9 +12,9 @@ export default function SettingsModal() {
   const [section, setSection] = useState<Section>('profile');
   const [displayName, setDisplayName] = useState(currentUser);
   const [glitchActive, setGlitchActive] = useState(false);
-  const [pendingTheme, setPendingTheme] = useState<'light' | 'dark' | null>(null);
+  const [pendingTheme, setPendingTheme] = useState<ThemeId | null>(null);
 
-  const handleThemeChange = useCallback((newTheme: 'light' | 'dark') => {
+  const handleThemeChange = useCallback((newTheme: ThemeId) => {
     if (newTheme === theme) return;
     setPendingTheme(newTheme);
     setGlitchActive(true);
@@ -132,44 +133,33 @@ export default function SettingsModal() {
               <div className="max-w-md space-y-6">
                 <div>
                   <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Theme</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                      <button
-                        onClick={() => handleThemeChange('dark')}
-                        className={`cyber-btn flex items-center gap-3 p-4 border ${
-                          theme === 'dark'
-                            ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                            : 'border-nc-border hover:border-nc-cyan/50'
-                        }`}
-                      >
-                        <div className="w-10 h-10 bg-nc-black border border-nc-border flex items-center justify-center">
-                          <span className="text-nc-cyan text-xs font-mono">NC</span>
-                        </div>
-                        <div className="text-left">
-                          <div className="font-bold text-sm text-nc-text-bright">Night City</div>
-                          <div className="text-xs text-nc-muted">Dark cyberpunk</div>
-                        </div>
-                      </button>
-                    </ScanlineTear>
-
-                    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                      <button
-                        onClick={() => handleThemeChange('light')}
-                        className={`cyber-btn flex items-center gap-3 p-4 border ${
-                          theme === 'light'
-                            ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                            : 'border-nc-border hover:border-nc-cyan/50'
-                        }`}
-                      >
-                        <div className="w-10 h-10 bg-nc-elevated border border-nc-border flex items-center justify-center">
-                          <span className="text-nc-yellow text-xs font-mono">DY</span>
-                        </div>
-                        <div className="text-left">
-                          <div className="font-bold text-sm text-nc-text-bright">Daylight</div>
-                          <div className="text-xs text-nc-muted">Bright variant</div>
-                        </div>
-                      </button>
-                    </ScanlineTear>
+                  <div className="grid grid-cols-3 gap-3">
+                    {themes.map((t) => (
+                      <ScanlineTear key={t.id} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                        <button
+                          onClick={() => handleThemeChange(t.id)}
+                          className={`cyber-btn flex flex-col items-center gap-2 p-4 border w-full ${
+                            theme === t.id
+                              ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
+                              : 'border-nc-border hover:border-nc-cyan/50'
+                          }`}
+                        >
+                          <div
+                            className="w-full h-12 border border-nc-border flex items-center justify-center gap-1"
+                            style={{ background: t.preview.bg }}
+                          >
+                            <div className="w-3 h-6 rounded-sm" style={{ background: t.preview.surface }} />
+                            <div className="flex-1 h-6 rounded-sm flex items-center justify-center" style={{ background: t.preview.surface }}>
+                              <div className="w-4 h-1 rounded-full" style={{ background: t.preview.accent }} />
+                            </div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-bold text-sm text-nc-text-bright">{t.name}</div>
+                            <div className="text-2xs text-nc-muted">{t.description}</div>
+                          </div>
+                        </button>
+                      </ScanlineTear>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -180,8 +170,8 @@ export default function SettingsModal() {
                 <div className="cyber-panel-elevated p-4">
                   <div className="text-xs font-mono text-nc-cyan">
                     <p>ZOUK_PLATFORM v2.0.77</p>
-                    <p className="text-nc-muted mt-1">Night City Interface Protocol</p>
-                    <p className="text-nc-muted mt-1">Cyberpunk 2077 Inspired Theme</p>
+                    <p className="text-nc-muted mt-1">Theme: {themes.find(t => t.id === theme)?.name}</p>
+                    <p className="text-nc-muted mt-1">Pluggable theme system — add themes via /themes folder</p>
                   </div>
                 </div>
               </div>

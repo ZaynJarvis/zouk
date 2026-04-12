@@ -180,19 +180,20 @@ export default function AgentsView() {
           <h1 className="font-display font-black text-sm text-nc-text-bright tracking-wider">AGENTS</h1>
           <div className="flex items-center gap-1.5">
             {archivedCount > 0 && (
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                onClick={() => setShowArchived(!showArchived)}
-                className={`cyber-btn px-2 py-0.5 border text-2xs font-bold font-mono transition-all ${
-                  showArchived
-                    ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                    : 'border-nc-border text-nc-muted hover:border-nc-cyan hover:text-nc-cyan'
-                }`}
-              >
-                {showArchived ? 'ACTIVE' : `ARCHIVED (${archivedCount})`}
-              </button>
-            </ScanlineTear>
-          )}
+              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={() => setShowArchived(!showArchived)}
+                  className={`cyber-btn px-2 py-0.5 border text-2xs font-bold font-mono transition-all ${
+                    showArchived
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:border-nc-cyan hover:text-nc-cyan'
+                  }`}
+                >
+                  {showArchived ? 'ACTIVE' : `ARCHIVED (${archivedCount})`}
+                </button>
+              </ScanlineTear>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-thin">

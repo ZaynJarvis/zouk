@@ -34,7 +34,7 @@ function ScrambleTitle() {
   return (
     <h1
       className="font-display font-black text-3xl text-nc-cyan tracking-[0.2em] text-center mb-1"
-      style={{ textShadow: '0 0 20px rgba(94,246,255,0.4), 0 0 60px rgba(94,246,255,0.1)' }}
+      style={{ textShadow: '0 0 20px rgb(var(--nc-cyan) / 0.4), 0 0 60px rgb(var(--nc-cyan) / 0.1)' }}
     >
       {text}
     </h1>
@@ -78,7 +78,7 @@ export default function LoginScreen() {
       <GlitchTransition active={glitchActive} duration={500} onComplete={handleGlitchComplete} />
 
       <div className="absolute inset-0 opacity-[0.03]" style={{
-        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(94,246,255,0.03) 2px, rgba(94,246,255,0.03) 4px)',
+        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgb(var(--nc-cyan) / 0.03) 2px, rgb(var(--nc-cyan) / 0.03) 4px)',
       }} />
 
       <div className="relative z-10 w-full max-w-sm">
