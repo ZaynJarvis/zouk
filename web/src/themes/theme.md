@@ -34,6 +34,7 @@ web/src/themes/
 web/src/themes/my-theme/
   index.ts
   tokens.css
+  ThemeSelectButton.tsx    ← REQUIRED
 ```
 
 ### Step 2: Define tokens (`tokens.css`)
@@ -97,16 +98,51 @@ export const myTheme = {
 
 Preview colors are used in the theme picker cards (Settings > Display and Login screen). Use hex values matching your RGB tokens.
 
+### Step 3b: Create ThemeSelectButton (`ThemeSelectButton.tsx`)
+
+**Every theme MUST provide a `ThemeSelectButton` component.** This is the button rendered in the Login screen and Settings > Display to let users pick the theme. The button must fully represent the theme's visual identity.
+
+```tsx
+import type { CSSProperties } from 'react';
+
+interface Props {
+  selected: boolean;
+  onClick: () => void;
+}
+
+export default function MyThemeSelectButton({ selected, onClick }: Props) {
+  const base: CSSProperties = {
+    all: 'unset',              // ← REQUIRED: reset all inherited/global styles
+    boxSizing: 'border-box',
+    // ... define every visual property inline
+  };
+  return (
+    <button onClick={onClick} aria-pressed={selected} style={base}>
+      {/* Theme name + visual preview */}
+    </button>
+  );
+}
+```
+
+**Key rules:**
+1. **`all: 'unset'`** — The button MUST reset all CSS so it renders correctly regardless of the currently active theme.
+2. **Inline styles only** — No Tailwind classes, no `nc-*` utilities, no global CSS class dependencies. The button may render while a different theme is active.
+3. **Fully represent the theme** — Use the theme's actual colors, fonts, border style, shadows, and characteristic effects (scanlines, rounded corners, thick borders, etc.) so users can preview the theme at a glance.
+
 ### Step 4: Register the theme
 
 **`web/src/themes/index.ts`** — Add to the registry:
 
 ```typescript
 import { myTheme } from './my-theme';
+import MyThemeSelectButton from './my-theme/ThemeSelectButton';
 
 export type ThemeId = 'night-city' | 'daylight' | 'brutalist' | 'my-theme';
 
-export const themes: ThemeDefinition[] = [nightCity, daylight, brutalist, myTheme];
+export const themes: ThemeDefinition[] = [
+  // ...existing themes,
+  { ...myTheme, ThemeSelectButton: MyThemeSelectButton },
+];
 ```
 
 **`web/src/main.tsx`** — Import so Vite bundles the CSS:

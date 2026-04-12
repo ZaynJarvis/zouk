@@ -161,53 +161,20 @@ export default function LoginScreen() {
 
           <div className="mt-3 grid grid-cols-2 gap-3">
             {themes.map((t) => {
-              const active = theme === t.id;
-              const isNight = t.id === 'night-city';
-              const isBrutalist = t.id === 'brutalist';
-
+              const Btn = t.ThemeSelectButton;
               return (
-                <button
+                <Btn
                   key={t.id}
-                  aria-pressed={active}
+                  selected={theme === t.id}
                   onClick={() => {
-                    if (!active) {
+                    if (theme !== t.id) {
                       setPendingAction(null);
                       applyTheme(t.id);
                       setTheme(t.id);
                       setGlitchActive(true);
                     }
                   }}
-                  className={`relative min-h-[88px] overflow-hidden px-4 py-4 text-center transition-all duration-200 ${
-                    isNight
-                      ? 'theme-preview-night-city font-display uppercase tracking-[0.18em]'
-                      : 'theme-preview-brutalist font-display font-black tracking-[0.14em] uppercase'
-                  }`}
-                  style={{
-                    border: isBrutalist ? '3px solid #171717' : `1px solid ${active ? t.preview.accent : `${t.preview.accent}88`}`,
-                    background: isNight
-                      ? (active ? 'rgba(94, 246, 255, 0.18)' : 'rgba(10, 10, 15, 0.96)')
-                      : (active ? '#facc15' : '#fffaf0'),
-                    color: t.preview.text,
-                    boxShadow: isNight
-                      ? (active ? '0 0 18px rgba(94,246,255,0.26), inset 0 0 24px rgba(94,246,255,0.06)' : 'inset 0 1px 0 rgba(94,246,255,0.10)')
-                      : (active ? '5px 5px 0 #171717' : '3px 3px 0 #171717'),
-                  }}
-                >
-                  {isNight && (
-                    <>
-                      <div
-                        className="absolute left-0 right-0 top-0 h-[2px] opacity-90"
-                        style={{ background: t.preview.accent }}
-                      />
-                      <div className="absolute inset-0 opacity-[0.10]" style={{
-                        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgb(var(--nc-cyan) / 0.12) 2px, rgb(var(--nc-cyan) / 0.12) 4px)',
-                      }} />
-                    </>
-                  )}
-                  <span className="theme-preview-label relative flex h-full items-center justify-center text-sm" data-text={t.name}>
-                    {t.name}
-                  </span>
-                </button>
+                />
               );
             })}
           </div>

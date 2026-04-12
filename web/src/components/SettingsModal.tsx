@@ -131,46 +131,13 @@ export default function SettingsModal() {
                   <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Theme</label>
                   <div className="grid grid-cols-2 gap-3">
                     {themes.map((t) => {
-                      const active = theme === t.id;
-                      const isNight = t.id === 'night-city';
-                      const isBrutalist = t.id === 'brutalist';
+                      const Btn = t.ThemeSelectButton;
                       return (
-                        <ScanlineTear key={t.id} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                          <button
-                            aria-pressed={active}
-                            onClick={() => handleThemeChange(t.id)}
-                            className={`relative min-h-[88px] w-full overflow-hidden px-4 py-4 text-center transition-all duration-200 ${
-                              isNight
-                                ? 'theme-preview-night-city font-display uppercase tracking-[0.18em]'
-                                : 'theme-preview-brutalist font-display font-black uppercase tracking-[0.14em]'
-                            }`}
-                            style={{
-                              border: isBrutalist ? '3px solid #171717' : `1px solid ${active ? t.preview.accent : `${t.preview.accent}88`}`,
-                              background: isNight
-                                ? (active ? 'rgba(94, 246, 255, 0.18)' : 'rgba(10, 10, 15, 0.96)')
-                                : (active ? '#facc15' : '#fffaf0'),
-                              color: t.preview.text,
-                              boxShadow: isNight
-                                ? (active ? '0 0 18px rgba(94,246,255,0.26), inset 0 0 24px rgba(94,246,255,0.06)' : 'inset 0 1px 0 rgba(94,246,255,0.10)')
-                                : (active ? '5px 5px 0 #171717' : '3px 3px 0 #171717'),
-                            }}
-                          >
-                            {isNight && (
-                              <>
-                                <div
-                                  className="absolute left-0 right-0 top-0 h-[2px] opacity-90"
-                                  style={{ background: t.preview.accent }}
-                                />
-                                <div className="absolute inset-0 opacity-[0.10]" style={{
-                                  backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgb(var(--nc-cyan) / 0.12) 2px, rgb(var(--nc-cyan) / 0.12) 4px)',
-                                }} />
-                              </>
-                            )}
-                            <span className="theme-preview-label relative flex h-full items-center justify-center text-sm" data-text={t.name}>
-                              {t.name}
-                            </span>
-                          </button>
-                        </ScanlineTear>
+                        <Btn
+                          key={t.id}
+                          selected={theme === t.id}
+                          onClick={() => handleThemeChange(t.id)}
+                        />
                       );
                     })}
                   </div>

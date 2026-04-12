@@ -4,6 +4,7 @@ import App from './App.tsx';
 import './index.css';
 import './themes/night-city';
 import './themes/brutalist';
+import './themes/daylight';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
