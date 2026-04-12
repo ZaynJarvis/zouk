@@ -1485,8 +1485,7 @@ server.listen(PORT, async () => {
   console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);
   console.log(`  REST API:         ${PUBLIC_URL}/internal/agent/{id}/...`);
   console.log(`\nTo connect a daemon:`);
-  console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key 1007`);
-  console.log(`\n  Default debug key "1007" is always accepted.`);
+  console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key <api_key>`);
   console.log(`  Generate additional keys via POST /api/machine-keys or the Machine Setup UI.`);
   if (!process.env.NODE_ENV?.startsWith("prod")) {
     console.log(`  Dev mode: key "test" is also accepted without registration.\n`);
