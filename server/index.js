@@ -542,7 +542,7 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 // Send message from web UI (human user)
 app.post("/api/messages", (req, res) => {
   const { target, content, senderName = "local-user" } = req.body;
-  const { channelName, channelType, threadId } = parseTarget(target);
+  const { channelName, channelType, threadId, dmPeer } = parseTarget(target);
   const ch = findOrCreateChannel(channelName, channelType);
 
   const msg = {
@@ -560,8 +560,18 @@ app.post("/api/messages", (req, res) => {
   };
   store.messages.push(msg);
 
-  // Deliver to all agents
-  deliverToAllAgents(msg);
+  // For DMs, deliver only to the target agent; for channels, deliver to all
+  if (channelType === "dm" && dmPeer) {
+    // Find the agent by name or displayName
+    for (const [agentId, agent] of Object.entries(store.agents)) {
+      if (agent.name === dmPeer || agent.displayName === dmPeer) {
+        deliverToAgent(agentId, msg);
+        break;
+      }
+    }
+  } else {
+    deliverToAllAgents(msg);
+  }
   // Broadcast to web UI
   broadcastToWeb({ type: "message", message: msg });
 

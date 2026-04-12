@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, Toast,
+  WorkspaceFile,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -43,6 +44,9 @@ export function useAppStore() {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [threadedMessageIds, setThreadedMessageIds] = useState<Set<string>>(new Set());
+  // Workspace file trees per agent: agentId -> { dirPath, files }
+  const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { dirPath: string; files: WorkspaceFile[] }>>({});
+  const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
 
   const wsRef = useRef<SlockWebSocket | null>(null);
   const activeChannelRef = useRef(activeChannelName);
@@ -103,10 +107,11 @@ export function useAppStore() {
             });
           }
         } else {
-          // For DM messages, the channel_name is the DM peer name
+          // For DM messages, channel_name is "dm-{peer}" from server
           // For channel messages, it's the channel name
           const isDmMessage = msg.channel_type === 'dm';
-          const conversationKey = msg.channel_name;
+          // Normalize DM channel name to just the peer name for matching
+          const conversationKey = isDmMessage ? msg.channel_name.replace(/^dm-/, '') : msg.channel_name;
 
           // Only add to current view if it matches the active conversation
           const isActiveConversation = conversationKey === activeChannelRef.current
@@ -188,6 +193,16 @@ export function useAppStore() {
       case 'machine:disconnected': {
         const e = event as { machineId: string };
         setMachines(prev => prev.filter(m => m.id !== e.machineId));
+        break;
+      }
+      case 'workspace:file_tree': {
+        const e = event as { agentId: string; dirPath: string; files: WorkspaceFile[] };
+        setWorkspaceFiles(prev => ({ ...prev, [e.agentId]: { dirPath: e.dirPath, files: e.files } }));
+        break;
+      }
+      case 'workspace:file_content': {
+        const e = event as { agentId: string; requestId: string; content: string };
+        setWorkspaceFileContent({ agentId: e.agentId, path: e.requestId, content: e.content });
         break;
       }
     }
@@ -327,6 +342,14 @@ export function useAppStore() {
     wsRef.current?.send(data);
   }, []);
 
+  const requestWorkspaceFiles = useCallback((agentId: string, dirPath?: string) => {
+    wsRef.current?.send({ type: 'workspace:list', agentId, dirPath: dirPath || null });
+  }, []);
+
+  const requestFileContent = useCallback((agentId: string, filePath: string) => {
+    wsRef.current?.send({ type: 'workspace:read', agentId, requestId: filePath, path: filePath });
+  }, []);
+
   return {
     theme, setTheme,
     currentUser, updateCurrentUser,
@@ -350,6 +373,8 @@ export function useAppStore() {
     updateAgentConfig: updateAgentConfigAction,
     saveAgentConfig: saveAgentConfigAction,
     wsSend,
+    workspaceFiles, workspaceFileContent,
+    requestWorkspaceFiles, requestFileContent,
   };
 }
 

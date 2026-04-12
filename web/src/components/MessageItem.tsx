@@ -35,7 +35,7 @@ function parseMessageContent(content: string): React.ReactNode[] {
 }
 
 function parseInlineContent(text: string, keyOffset: number): React.ReactNode[] {
-  const mentionRegex = /@(\w+)/g;
+  const mentionRegex = /@([\w-]+)/g;
   const parts: React.ReactNode[] = [];
   let lastIdx = 0;
   let m;
@@ -45,7 +45,7 @@ function parseInlineContent(text: string, keyOffset: number): React.ReactNode[] 
       parts.push(<span key={`t-${keyOffset}-${lastIdx}`}>{text.slice(lastIdx, m.index)}</span>);
     }
     parts.push(
-      <span key={`m-${keyOffset}-${m.index}`} className="bg-nb-blue-light dark:bg-dark-elevated text-nb-blue dark:text-nb-blue font-semibold border border-nb-blue/30 px-0.5">
+      <span key={`m-${keyOffset}-${m.index}`} className="bg-nb-blue-light dark:bg-dark-elevated text-nb-blue dark:text-nb-blue font-semibold border border-nb-blue/30 px-0.5 rounded-sm">
         @{m[1]}
       </span>
     );
