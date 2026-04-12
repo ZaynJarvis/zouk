@@ -8,18 +8,11 @@ const icons = {
   info: Info,
 };
 
-const colors = {
-  success: 'bg-nb-green-light border-nb-green',
-  warning: 'bg-nb-yellow-light border-nb-yellow',
-  error: 'bg-nb-red-light border-nb-red',
-  info: 'bg-nb-blue-light border-nb-blue',
-};
-
-const iconColors = {
-  success: 'text-nb-green',
-  warning: 'text-nb-yellow',
-  error: 'text-nb-red',
-  info: 'text-nb-blue',
+const styles = {
+  success: 'border-nc-green bg-nc-green/10 text-nc-green',
+  warning: 'border-nc-yellow bg-nc-yellow/10 text-nc-yellow',
+  error: 'border-nc-red bg-nc-red/10 text-nc-red',
+  info: 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan',
 };
 
 export default function ToastContainer() {
@@ -34,10 +27,10 @@ export default function ToastContainer() {
         return (
           <div
             key={toast.id}
-            className={`flex items-center gap-2 px-3 py-2.5 border-3 border-nb-black dark:border-dark-border shadow-nb text-sm font-medium text-nb-black animate-toast-in ${colors[toast.type]}`}
+            className={`flex items-center gap-2 px-3 py-2.5 border text-sm font-medium animate-toast-in ${styles[toast.type]}`}
           >
-            <Icon size={16} className={iconColors[toast.type]} />
-            <span className="flex-1">{toast.message}</span>
+            <Icon size={16} />
+            <span className="flex-1 font-mono text-xs">{toast.message}</span>
           </div>
         );
       })}

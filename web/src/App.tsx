@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react';
-import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AppProvider, useApp } from './store/AppContext';
 import WorkspaceRail from './components/WorkspaceRail';
 import ChannelSidebar from './components/ChannelSidebar';
@@ -12,20 +10,9 @@ import ToastContainer from './components/ToastContainer';
 import ThreadsView from './components/ThreadsView';
 import AgentsView from './components/AgentPanel';
 import LoginScreen from './components/LoginScreen';
-import * as api from './lib/api';
-
-function GoogleAuthSync() {
-  const { setHasGoogleAuth } = useApp();
-  useEffect(() => { setHasGoogleAuth(true); }, [setHasGoogleAuth]);
-  return null;
-}
 
 function AppShell() {
-  const { theme, viewMode, sidebarOpen, isLoggedIn } = useApp();
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
+  const { viewMode, sidebarOpen, isLoggedIn } = useApp();
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -34,7 +21,7 @@ function AppShell() {
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-nb-gray-100 dark:bg-dark-bg font-body text-nb-black dark:text-dark-text">
+    <div className="h-screen w-screen flex overflow-hidden bg-nc-black font-body text-nc-text cyber-scanlines">
       <WorkspaceRail />
 
       <div className={`${sidebarOpen ? 'block' : 'hidden'} lg:block flex-shrink-0`}>
@@ -64,40 +51,10 @@ function AppShell() {
   );
 }
 
-function AppWithAuth() {
-  const [clientId, setClientId] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    api.getAuthConfig()
-      .then(({ googleClientId }) => {
-        setClientId(googleClientId || null);
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, []);
-
-  if (!loaded) return null;
-
-  if (clientId) {
-    return (
-      <GoogleOAuthProvider clientId={clientId}>
-        <AppProvider>
-          <GoogleAuthSync />
-          <AppShell />
-        </AppProvider>
-      </GoogleOAuthProvider>
-    );
-  }
-
-  // No Google client ID configured — skip OAuth wrapper
+export default function App() {
   return (
     <AppProvider>
       <AppShell />
     </AppProvider>
   );
-}
-
-export default function App() {
-  return <AppWithAuth />;
 }
