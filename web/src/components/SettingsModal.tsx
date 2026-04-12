@@ -1,4 +1,4 @@
-import { X, Sun, Moon, User, Palette } from 'lucide-react';
+import { X, Sun, Moon, User, Palette, LogOut } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { useState } from 'react';
 
@@ -10,7 +10,7 @@ const sections = [
 type SectionId = typeof sections[number]['id'];
 
 export default function SettingsModal() {
-  const { settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateCurrentUser } = useApp();
+  const { settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateCurrentUser, authUser, logout } = useApp();
   const [activeSection, setActiveSection] = useState<SectionId>('profile');
   const [editName, setEditName] = useState('');
 
@@ -66,32 +66,48 @@ export default function SettingsModal() {
             {activeSection === 'profile' && (
               <>
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 border-2 border-nb-black dark:border-dark-border font-display font-bold text-lg flex items-center justify-center bg-nb-yellow select-none">
-                    {currentUser.charAt(0).toUpperCase()}
-                  </div>
+                  {authUser?.picture ? (
+                    <img src={authUser.picture} alt="" className="w-12 h-12 border-2 border-nb-black dark:border-dark-border" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-12 h-12 border-2 border-nb-black dark:border-dark-border font-display font-bold text-lg flex items-center justify-center bg-nb-yellow select-none">
+                      {currentUser.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div>
                     <h5 className="font-display font-bold text-lg text-nb-black dark:text-dark-text">{currentUser}</h5>
-                    <p className="text-sm text-nb-gray-500 dark:text-dark-muted">Current identity</p>
+                    <p className="text-sm text-nb-gray-500 dark:text-dark-muted">
+                      {authUser ? authUser.email : 'Guest user'}
+                    </p>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted mb-1.5">Display Name</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      defaultValue={currentUser}
-                      onChange={e => setEditName(e.target.value)}
-                      className="flex-1 px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-elevated text-sm font-body text-nb-black dark:text-dark-text focus:outline-none focus:shadow-nb-sm transition-shadow"
-                    />
-                    <button
-                      onClick={handleSaveName}
-                      className="px-4 py-2 border-2 border-nb-black bg-nb-green text-nb-black text-sm font-bold shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
-                    >
-                      Save
-                    </button>
+                {!authUser && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted mb-1.5">Display Name</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        defaultValue={currentUser}
+                        onChange={e => setEditName(e.target.value)}
+                        className="flex-1 px-3 py-2 border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-elevated text-sm font-body text-nb-black dark:text-dark-text focus:outline-none focus:shadow-nb-sm transition-shadow"
+                      />
+                      <button
+                        onClick={handleSaveName}
+                        className="px-4 py-2 border-2 border-nb-black bg-nb-green text-nb-black text-sm font-bold shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+                      >
+                        Save
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                <button
+                  onClick={() => { logout(); setSettingsOpen(false); }}
+                  className="flex items-center gap-2 px-4 py-2 border-2 border-nb-black bg-nb-red/10 text-nb-red text-sm font-bold shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+                >
+                  <LogOut size={14} />
+                  {authUser ? 'Sign out' : 'Switch user'}
+                </button>
               </>
             )}
 

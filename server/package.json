@@ -2,5 +2,8 @@
   "name": "@zouk/server",
   "version": "0.1.0",
   "private": true,
-  "main": "index.js"
+  "main": "index.js",
+  "dependencies": {
+    "google-auth-library": "^10.6.2"
+  }
 }

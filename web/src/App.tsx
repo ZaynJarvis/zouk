@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AppProvider, useApp } from './store/AppContext';
 import WorkspaceRail from './components/WorkspaceRail';
 import ChannelSidebar from './components/ChannelSidebar';
@@ -10,13 +11,19 @@ import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
 import ThreadsView from './components/ThreadsView';
 import AgentsView from './components/AgentPanel';
+import LoginScreen from './components/LoginScreen';
+import * as api from './lib/api';
 
 function AppShell() {
-  const { theme, viewMode, sidebarOpen } = useApp();
+  const { theme, viewMode, sidebarOpen, isLoggedIn } = useApp();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
+
+  if (!isLoggedIn) {
+    return <LoginScreen />;
+  }
 
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
 
@@ -51,10 +58,39 @@ function AppShell() {
   );
 }
 
-export default function App() {
+function AppWithAuth() {
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api.getAuthConfig()
+      .then(({ googleClientId }) => {
+        setClientId(googleClientId || null);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  if (!loaded) return null;
+
+  if (clientId) {
+    return (
+      <GoogleOAuthProvider clientId={clientId}>
+        <AppProvider>
+          <AppShell />
+        </AppProvider>
+      </GoogleOAuthProvider>
+    );
+  }
+
+  // No Google client ID configured — skip OAuth wrapper
   return (
     <AppProvider>
       <AppShell />
     </AppProvider>
   );
+}
+
+export default function App() {
+  return <AppWithAuth />;
 }

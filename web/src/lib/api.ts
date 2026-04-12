@@ -121,6 +121,36 @@ export function getAttachmentUrl(attachmentId: string): string {
   return `${getBaseUrl()}/api/attachments/${attachmentId}`;
 }
 
+// Auth
+export async function getAuthConfig(): Promise<{ googleClientId: string | null }> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/config`);
+  if (!res.ok) throw new Error('Failed to fetch auth config');
+  return res.json();
+}
+
+export async function googleLogin(credential: string): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential }),
+  });
+  if (!res.ok) throw new Error('Google login failed');
+  return res.json();
+}
+
+export async function logout(token: string): Promise<void> {
+  await fetch(`${getBaseUrl()}/api/auth/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export interface AuthUser {
+  name: string;
+  email: string;
+  picture: string | null;
+}
+
 // Machine API Key management
 export async function generateMachineKey(name: string): Promise<{ key: MachineApiKey; rawKey: string }> {
   const url = `${getBaseUrl()}/api/machine-keys`;

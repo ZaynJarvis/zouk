@@ -8,8 +8,11 @@ const path = require("path");
 const fs = require("fs");
 const { URL } = require("url");
 const crypto = require("crypto");
+const { OAuth2Client } = require("google-auth-library");
 
 const PORT = process.env.PORT || 7777;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const CONFIG_DIR = path.join(__dirname, "..", "data");
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
@@ -1126,6 +1129,60 @@ function handleWebMessage(ws, msg) {
     }
   }
 }
+
+// ─── Auth: Google OAuth ──────────────────────────────────────────
+
+// In-memory session store: token -> { name, email, picture }
+const authSessions = new Map();
+
+app.post("/api/auth/google", async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) return res.status(400).json({ error: "Missing credential" });
+  if (!googleClient) return res.status(501).json({ error: "Google OAuth not configured (set GOOGLE_CLIENT_ID)" });
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    const user = {
+      name: payload.name || payload.email.split("@")[0],
+      email: payload.email,
+      picture: payload.picture || null,
+    };
+    authSessions.set(sessionToken, user);
+
+    // Register as human if not already present
+    if (!store.humans.find((h) => h.name === user.name)) {
+      store.humans.push({ name: user.name });
+    }
+
+    res.json({ token: sessionToken, user });
+  } catch (err) {
+    console.error("[auth] Google token verification failed:", err.message);
+    res.status(401).json({ error: "Invalid Google credential" });
+  }
+});
+
+app.get("/api/auth/me", (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (!token || !authSessions.has(token)) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+  res.json({ user: authSessions.get(token) });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  if (token) authSessions.delete(token);
+  res.json({ ok: true });
+});
+
+app.get("/api/auth/config", (_req, res) => {
+  res.json({ googleClientId: GOOGLE_CLIENT_ID || null });
+});
 
 // ─── Serve static web frontend ────────────────────────────────────
 // Prefer React build (web/dist/) over static HTML (web/public/)

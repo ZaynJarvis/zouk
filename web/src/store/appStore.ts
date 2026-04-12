@@ -8,15 +8,37 @@ import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
 import * as api from '../lib/api';
 import { normalizeMessage } from '../lib/api';
+import type { AuthUser } from '../lib/api';
 
 const CURRENT_USER_KEY = 'zouk_current_user';
+const AUTH_TOKEN_KEY = 'zouk_auth_token';
+const AUTH_USER_KEY = 'zouk_auth_user';
 
 function getStoredUser(): string {
+  // If we have a Google-authenticated user, use their name
+  const authUser = localStorage.getItem(AUTH_USER_KEY);
+  if (authUser) {
+    try {
+      const parsed = JSON.parse(authUser);
+      if (parsed.name) return parsed.name;
+    } catch { /* ignore */ }
+  }
   const stored = localStorage.getItem(CURRENT_USER_KEY);
   if (stored) return stored;
   const name = 'user-' + Math.random().toString(36).slice(2, 6);
   localStorage.setItem(CURRENT_USER_KEY, name);
   return name;
+}
+
+function getStoredAuth(): { token: string; user: AuthUser } | null {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const userStr = localStorage.getItem(AUTH_USER_KEY);
+  if (token && userStr) {
+    try {
+      return { token, user: JSON.parse(userStr) };
+    } catch { /* ignore */ }
+  }
+  return null;
 }
 
 export function useAppStore() {
@@ -47,6 +69,9 @@ export function useAppStore() {
   // Workspace file trees per agent: agentId -> { dirPath, files }
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { dirPath: string; files: WorkspaceFile[] }>>({});
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user || null);
+  const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!getStoredAuth());
 
   const wsRef = useRef<SlockWebSocket | null>(null);
   const activeChannelRef = useRef(activeChannelName);
@@ -338,6 +363,43 @@ export function useAppStore() {
     setCurrentUser(name);
   }, []);
 
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    const { token, user } = await api.googleLogin(credential);
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    localStorage.setItem(CURRENT_USER_KEY, user.name);
+    setAuthToken(token);
+    setAuthUser(user);
+    setIsLoggedIn(true);
+    setCurrentUser(user.name);
+  }, []);
+
+  const loginAsGuest = useCallback(() => {
+    // Clear any existing auth and use the random name
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    setAuthToken(null);
+    setAuthUser(null);
+    setIsLoggedIn(true);
+    // currentUser already has a random name from getStoredUser()
+  }, []);
+
+  const logoutAction = useCallback(async () => {
+    if (authToken) {
+      await api.logout(authToken).catch(() => {});
+    }
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
+    localStorage.removeItem(CURRENT_USER_KEY);
+    setAuthToken(null);
+    setAuthUser(null);
+    setIsLoggedIn(false);
+    // Generate new random name for next guest session
+    const name = 'user-' + Math.random().toString(36).slice(2, 6);
+    localStorage.setItem(CURRENT_USER_KEY, name);
+    setCurrentUser(name);
+  }, [authToken]);
+
   const wsSend = useCallback((data: Record<string, unknown>) => {
     wsRef.current?.send(data);
   }, []);
@@ -375,6 +437,8 @@ export function useAppStore() {
     wsSend,
     workspaceFiles, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
+    authUser, isLoggedIn,
+    loginWithGoogle, loginAsGuest, logout: logoutAction,
   };
 }
 
