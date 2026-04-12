@@ -7,13 +7,25 @@ function getBaseUrl(): string {
 // Server returns camelCase, frontend uses snake_case — normalize here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizeMessage(m: any): MessageRecord {
+  const rawChannelType = m.channel_type || m.channelType || 'channel';
+  const rawChannelName = m.channel_name || m.channelName || '';
+  const rawThreadId = m.thread_id || m.threadId || null;
+  const inferredThread = rawChannelType === 'thread' || !!rawThreadId;
+  const parentChannelType = m.parent_channel_type || m.parentChannelType || (inferredThread ? (m.parentChannelType || m.parent_channel_type || 'channel') : undefined);
+  const parentChannelNameRaw = m.parent_channel_name || m.parentChannelName || (inferredThread ? rawChannelName : undefined);
+  const normalizeDmName = (name?: string | null) => (name || '').replace(/^dm-/, '');
+
   return {
     id: m.id,
-    channel_type: m.channel_type || m.channelType || 'channel',
-    channel_name: m.channel_name || m.channelName || '',
-    parent_channel_name: m.parent_channel_name || m.parentChannelName,
-    parent_channel_type: m.parent_channel_type || m.parentChannelType,
-    message_id: m.message_id || m.id,
+    channel_type: inferredThread ? 'thread' : rawChannelType,
+    channel_name: inferredThread
+      ? (rawThreadId || rawChannelName)
+      : (rawChannelType === 'dm' ? normalizeDmName(rawChannelName) : rawChannelName),
+    parent_channel_name: inferredThread
+      ? (parentChannelType === 'dm' ? normalizeDmName(parentChannelNameRaw) : parentChannelNameRaw)
+      : undefined,
+    parent_channel_type: inferredThread ? parentChannelType : undefined,
+    message_id: m.message_id || m.messageId || m.id,
     timestamp: m.timestamp || m.createdAt,
     sender_type: m.sender_type || m.senderType,
     sender_name: m.sender_name || m.senderName,

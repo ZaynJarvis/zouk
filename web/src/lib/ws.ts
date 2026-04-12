@@ -79,6 +79,20 @@ export interface WsMachineDisconnectedEvent {
   machineId: string;
 }
 
+export interface WsWorkspaceFileTreeEvent {
+  type: 'workspace:file_tree';
+  agentId: string;
+  dirPath: string;
+  files: import('../types').WorkspaceFile[];
+}
+
+export interface WsWorkspaceFileContentEvent {
+  type: 'workspace:file_content';
+  agentId: string;
+  requestId: string;
+  content: string;
+}
+
 export type WsEvent =
   | WsInitEvent
   | WsMessageEvent
@@ -91,6 +105,8 @@ export type WsEvent =
   | WsMachineConnectedEvent
   | WsMachineUpdatedEvent
   | WsMachineDisconnectedEvent
+  | WsWorkspaceFileTreeEvent
+  | WsWorkspaceFileContentEvent
   | { type: string; [key: string]: unknown };
 
 export type WsEventHandler = (event: WsEvent) => void;
