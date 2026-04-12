@@ -1,17 +1,18 @@
-import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Play, Loader2, Settings } from 'lucide-react';
+import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Play, Loader as Loader2, Settings } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
+import ScanlineTear from './glitch/ScanlineTear';
 
 const activityColors: Record<string, string> = {
-  thinking: 'bg-nb-yellow animate-pulse',
-  working: 'bg-nb-orange animate-pulse',
-  online: 'bg-nb-green',
-  offline: 'bg-nb-gray-400',
-  error: 'bg-nb-red',
+  thinking: 'bg-nc-yellow animate-pulse',
+  working: 'bg-nc-red animate-pulse',
+  online: 'bg-nc-green',
+  offline: 'bg-nc-muted/30',
+  error: 'bg-nc-red',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -23,7 +24,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   kimi: 'Kimi',
 };
 
-/* ── Agent List Item ── */
 function AgentListItem({
   agent,
   isSelected,
@@ -38,45 +38,44 @@ function AgentListItem({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-nb-gray-200 dark:border-dark-border ${
+      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all border-b border-nc-border ${
         isSelected
-          ? 'bg-nb-yellow-light dark:bg-dark-elevated'
-          : 'hover:bg-nb-gray-50 dark:hover:bg-dark-elevated'
+          ? 'bg-nc-elevated border-l-2 border-l-nc-cyan'
+          : 'hover:bg-nc-elevated/50'
       }`}
     >
-      <div className="w-8 h-8 border-2 border-nb-black dark:border-dark-border font-display font-bold text-xs flex items-center justify-center bg-nb-yellow-light dark:bg-dark-elevated shrink-0">
+      <div className="w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan shrink-0">
         {(agent.displayName || agent.name).charAt(0).toUpperCase()}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="truncate font-display font-bold text-sm text-nb-black dark:text-dark-text">
+          <span className="truncate font-display font-bold text-sm text-nc-text-bright">
             {agent.displayName || agent.name}
           </span>
-          <span className={`w-2 h-2 border border-nb-black dark:border-dark-border shrink-0 ${activityColors[activity]}`} />
+          <span className={`w-2 h-2 shrink-0 ${activityColors[activity]}`} />
         </div>
-        <div className="text-2xs text-nb-gray-500 dark:text-dark-muted truncate">
+        <div className="text-2xs text-nc-muted truncate font-mono">
           {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime || 'No runtime'} · {agent.model || '—'}
         </div>
       </div>
       {agent.archivedAt && (
-        <span className="text-2xs font-bold text-nb-gray-400 bg-nb-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 border border-nb-gray-200 dark:border-dark-border">
-          archived
+        <span className="status-chip-sm tone-neutral font-mono">
+          ARCHIVED
         </span>
       )}
     </button>
   );
 }
 
-/* ── Compact Machine Card ── */
 function CompactMachineCard({ machine }: { machine: ServerMachine }) {
   return (
-    <div className="flex items-center gap-2 px-4 py-2 border-b border-nb-gray-200 dark:border-dark-border">
-      <Server size={12} className="text-nb-gray-400 shrink-0" />
-      <span className="text-2xs font-bold text-nb-black dark:text-dark-text truncate">{machine.alias || machine.hostname}</span>
-      {machine.alias && <span className="text-2xs text-nb-gray-400 dark:text-dark-muted truncate">{machine.hostname}</span>}
-      <span className="w-1.5 h-1.5 border border-nb-black dark:border-dark-border bg-nb-green shrink-0" />
+    <div className="flex items-center gap-2 px-4 py-2 border-b border-nc-border">
+      <Server size={12} className="text-nc-green shrink-0" />
+      <span className="text-2xs font-bold text-nc-text-bright truncate font-mono">{machine.alias || machine.hostname}</span>
+      {machine.alias && <span className="text-2xs text-nc-muted truncate font-mono">{machine.hostname}</span>}
+      <span className="w-1.5 h-1.5 bg-nc-green shrink-0" />
       {machine.runtimes && (
-        <span className="text-2xs text-nb-gray-400 dark:text-dark-muted truncate ml-auto">
+        <span className="text-2xs text-nc-muted truncate ml-auto font-mono">
           {machine.runtimes.join(', ')}
         </span>
       )}
@@ -84,7 +83,6 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
   );
 }
 
-/* ── Config Start Button ── */
 function ConfigStartButton({
   config,
   isRunning,
@@ -97,22 +95,23 @@ function ConfigStartButton({
   onStart: () => void;
 }) {
   return (
-    <button
-      onClick={() => !isRunning && !isStarting && onStart()}
-      disabled={isRunning || isStarting}
-      className={`flex items-center gap-1 px-2.5 py-1 border-2 text-2xs font-bold transition-all ${
-        isRunning
-          ? 'border-nb-gray-300 dark:border-dark-border bg-nb-gray-100 dark:bg-dark-elevated text-nb-gray-400 cursor-not-allowed'
-          : 'border-nb-black bg-nb-green text-nb-black shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none'
-      }`}
-    >
-      {isStarting ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
-      {config.displayName || config.name}
-    </button>
+    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+      <button
+        onClick={() => !isRunning && !isStarting && onStart()}
+        disabled={isRunning || isStarting}
+        className={`cyber-btn flex items-center gap-1 px-2.5 py-1 border text-2xs font-bold font-mono ${
+          isRunning
+            ? 'border-nc-border bg-nc-elevated text-nc-muted cursor-not-allowed'
+            : 'border-nc-green bg-nc-green/10 text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green'
+        }`}
+      >
+        {isStarting ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
+        {config.displayName || config.name}
+      </button>
+    </ScanlineTear>
   );
 }
 
-/* ── Main AgentsView ── */
 export default function AgentsView() {
   const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -176,81 +175,76 @@ export default function AgentsView() {
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
-      {/* Left panel — Agent list */}
-      <div className={`${mobileShowDetail ? 'hidden' : 'flex'} lg:flex w-full lg:w-72 shrink-0 border-r-0 lg:border-r-2 border-nb-gray-200 dark:border-dark-border flex-col bg-nb-white dark:bg-dark-surface`}>
-        {/* Header */}
-        <div className="flex h-12 items-center justify-between border-b-2 border-nb-gray-200 dark:border-dark-border px-4">
-          <h1 className="font-display font-black text-sm text-nb-black dark:text-dark-text">Agents</h1>
+      <div className={`${mobileShowDetail ? 'hidden' : 'flex'} lg:flex w-full lg:w-72 shrink-0 border-r-0 lg:border-r border-nc-border flex-col bg-nc-surface`}>
+        <div className="flex h-12 items-center justify-between border-b border-nc-border px-4">
+          <h1 className="font-display font-black text-sm text-nc-text-bright tracking-wider">AGENTS</h1>
           <div className="flex items-center gap-1.5">
             {archivedCount > 0 && (
-              <button
-                onClick={() => setShowArchived(!showArchived)}
-                className={`px-2 py-0.5 border-2 text-2xs font-bold transition-all ${
-                  showArchived
-                    ? 'border-nb-black bg-nb-gray-100 dark:bg-dark-elevated text-nb-black dark:text-dark-text'
-                    : 'border-nb-gray-200 dark:border-dark-border text-nb-gray-400 hover:border-nb-black'
-                }`}
-              >
-                {showArchived ? 'Active' : `Archived (${archivedCount})`}
-              </button>
+              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={() => setShowArchived(!showArchived)}
+                  className={`cyber-btn px-2 py-0.5 border text-2xs font-bold font-mono transition-all ${
+                    showArchived
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:border-nc-cyan hover:text-nc-cyan'
+                  }`}
+                >
+                  {showArchived ? 'ACTIVE' : `ARCHIVED (${archivedCount})`}
+                </button>
+              </ScanlineTear>
             )}
-            <button
-              onClick={() => setShowCreate(true)}
-              className="w-7 h-7 flex items-center justify-center border-2 border-nb-black dark:border-dark-border bg-nb-blue text-nb-white shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
-              title="Create agent"
-            >
-              <Plus size={14} />
-            </button>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {/* Connected Machines */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
           <div>
             <div className="flex items-center justify-between px-4 py-2">
               <button
                 onClick={() => setMachinesExpanded(!machinesExpanded)}
                 className="flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
               >
-                {machinesExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                <Monitor size={10} className="text-nb-gray-400" />
-                <span className="text-2xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted">
+                {machinesExpanded ? <ChevronDown size={10} className="text-nc-muted" /> : <ChevronRight size={10} className="text-nc-muted" />}
+                <Monitor size={10} className="text-nc-green" />
+                <span className="text-2xs font-bold uppercase tracking-wider text-nc-muted font-mono">
                   Machines ({machines.length})
                 </span>
               </button>
-              <button
-                onClick={() => setShowMachineSetup(true)}
-                className="w-6 h-6 flex items-center justify-center border border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-all"
-                title="Machine Setup & API Keys"
-              >
-                <Settings size={10} className="text-nb-gray-400" />
-              </button>
+              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={() => setShowMachineSetup(true)}
+                  className="cyber-btn w-6 h-6 flex items-center justify-center border border-nc-border hover:border-nc-cyan hover:text-nc-cyan hover:bg-nc-cyan/10 text-nc-muted"
+                  title="Machine Setup & API Keys"
+                >
+                  <Settings size={10} />
+                </button>
+              </ScanlineTear>
             </div>
             {machinesExpanded && (
               machines.length > 0 ? (
                 machines.map(m => <CompactMachineCard key={m.id} machine={m} />)
               ) : (
                 <div className="px-4 pb-2">
-                  <button
-                    onClick={() => setShowMachineSetup(true)}
-                    className="w-full border-2 border-dashed border-nb-gray-300 dark:border-dark-border px-3 py-2 text-2xs text-nb-gray-400 dark:text-dark-muted text-center hover:border-nb-black dark:hover:border-dark-text hover:text-nb-gray-600 transition-colors"
-                  >
-                    + Connect a machine
-                  </button>
+                  <ScanlineTear className="w-full" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                    <button
+                      onClick={() => setShowMachineSetup(true)}
+                      className="cyber-btn w-full border border-dashed border-nc-border px-3 py-2 text-2xs text-nc-muted text-center hover:border-nc-cyan hover:text-nc-cyan font-mono"
+                    >
+                      + CONNECT_MACHINE
+                    </button>
+                  </ScanlineTear>
                 </div>
               )
             )}
           </div>
 
-          {/* Saved Configs */}
           {configs.length > 0 && (
             <div>
               <button
                 onClick={() => setConfigsExpanded(!configsExpanded)}
-                className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-nc-elevated transition-colors"
               >
-                {configsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                <span className="text-2xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted">
+                {configsExpanded ? <ChevronDown size={10} className="text-nc-muted" /> : <ChevronRight size={10} className="text-nc-muted" />}
+                <span className="text-2xs font-bold uppercase tracking-wider text-nc-muted font-mono">
                   Configs ({configs.length})
                 </span>
               </button>
@@ -270,12 +264,10 @@ export default function AgentsView() {
             </div>
           )}
 
-          {/* Divider */}
           {(machines.length > 0 || configs.length > 0) && (
-            <div className="border-b-2 border-nb-gray-200 dark:border-dark-border" />
+            <div className="cyber-divider mx-4 my-1" />
           )}
 
-          {/* Agent list */}
           {filteredAgents.length > 0 ? (
             filteredAgents.map((agent) => (
               <AgentListItem
@@ -287,26 +279,27 @@ export default function AgentsView() {
             ))
           ) : (
             <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-              <div className="w-12 h-12 border-3 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center mb-3 shadow-nb-sm">
-                <Bot size={20} className="text-nb-orange" />
+              <div className="w-12 h-12 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-3">
+                <Bot size={20} className="text-nc-green" />
               </div>
-              <p className="text-sm text-nb-gray-500 dark:text-dark-muted font-bold">
-                {showArchived ? 'No archived agents' : 'No agents yet'}
+              <p className="text-sm text-nc-muted font-bold font-mono">
+                {showArchived ? 'NO_ARCHIVED_AGENTS' : 'NO_AGENTS_FOUND'}
               </p>
               {!showArchived && (
-                <button
-                  onClick={() => setShowCreate(true)}
-                  className="mt-3 flex items-center gap-1 px-3 py-1.5 border-2 border-nb-black text-sm font-bold bg-nb-blue text-nb-white shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
-                >
-                  <Plus size={12} /> Create Agent
-                </button>
+                <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                  <button
+                    onClick={() => setShowCreate(true)}
+                    className="cyber-btn mt-3 flex items-center gap-1 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
+                  >
+                    <Plus size={12} /> CREATE_AGENT
+                  </button>
+                </ScanlineTear>
               )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Right panel — Agent detail */}
       <div className={`${mobileShowDetail ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0 overflow-hidden flex-col`}>
         {selected ? (
           <AgentDetail
@@ -316,25 +309,18 @@ export default function AgentsView() {
             onBack={() => setMobileShowDetail(false)}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center bg-nb-white dark:bg-dark-surface">
-            <div className="w-16 h-16 border-3 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center shadow-nb-sm mb-4">
-              <Bot size={28} className="text-nb-orange" />
+          <div className="flex h-full flex-col items-center justify-center bg-nc-surface">
+            <div className="w-16 h-16 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-4">
+              <Bot size={28} className="text-nc-green" />
             </div>
-            <h3 className="font-display font-black text-xl text-nb-black dark:text-dark-text mb-2">No Agent Selected</h3>
-            <p className="text-sm text-nb-gray-500 dark:text-dark-muted mb-4">
+            <h3 className="font-display font-black text-xl text-nc-text-bright mb-2 tracking-wider">NO_AGENT_SELECTED</h3>
+            <p className="text-sm text-nc-muted font-mono">
               Select an agent from the list or create a new one.
             </p>
-            <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 px-4 py-2 border-2 border-nb-black text-sm font-bold bg-nb-blue text-nb-white shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
-            >
-              <Plus size={14} /> Create Agent
-            </button>
           </div>
         )}
       </div>
 
-      {/* Create dialog */}
       {showCreate && (
         <CreateAgentDialog
           machines={machines}
@@ -344,7 +330,6 @@ export default function AgentsView() {
         />
       )}
 
-      {/* Machine Setup dialog */}
       {showMachineSetup && (
         <MachineSetupDialog
           machines={machines}

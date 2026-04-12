@@ -1,0 +1,32 @@
+html[data-theme="night-city"] {
+  /* Surfaces */
+  --nc-black: 10 10 15;
+  --nc-deep: 13 13 20;
+  --nc-surface: 18 18 26;
+  --nc-elevated: 26 26 38;
+  --nc-border: 42 42 58;
+  --nc-border-bright: 58 58 82;
+  --nc-panel: 15 15 23;
+
+  /* Accent */
+  --nc-red: 247 80 73;
+  --nc-green: 115 248 85;
+  --nc-cyan: 94 246 255;
+  --nc-yellow: 255 216 74;
+  --nc-magenta: 224 64 251;
+  --nc-indigo: 14 14 231;
+
+  /* Text */
+  --nc-text: 200 214 229;
+  --nc-text-bright: 232 240 248;
+  --nc-muted: 90 100 120;
+
+  /* Selection */
+  --nc-selection-bg: 94 246 255;
+  --nc-selection-text: 232 240 248;
+
+  /* Font stacks */
+  --nc-font-display: 'Orbitron', system-ui, sans-serif;
+  --nc-font-body: 'Rajdhani', system-ui, sans-serif;
+  --nc-font-mono: 'Space Mono', 'JetBrains Mono', monospace;
+}

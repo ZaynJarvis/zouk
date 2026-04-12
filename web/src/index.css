@@ -2,6 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Default token values (night-city as fallback so the app works without data-theme) */
+:root {
+  --nc-black: 10 10 15;
+  --nc-deep: 13 13 20;
+  --nc-surface: 18 18 26;
+  --nc-elevated: 26 26 38;
+  --nc-border: 42 42 58;
+  --nc-border-bright: 58 58 82;
+  --nc-panel: 15 15 23;
+  --nc-red: 247 80 73;
+  --nc-green: 115 248 85;
+  --nc-cyan: 94 246 255;
+  --nc-yellow: 255 216 74;
+  --nc-magenta: 224 64 251;
+  --nc-indigo: 14 14 231;
+  --nc-text: 200 214 229;
+  --nc-text-bright: 232 240 248;
+  --nc-muted: 90 100 120;
+  --nc-selection-bg: 94 246 255;
+  --nc-selection-text: 232 240 248;
+  --nc-font-display: 'Orbitron', system-ui, sans-serif;
+  --nc-font-body: 'Rajdhani', system-ui, sans-serif;
+  --nc-font-mono: 'Space Mono', 'JetBrains Mono', monospace;
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -15,23 +40,25 @@
   body {
     margin: 0;
     padding: 0;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: var(--nc-font-body);
+    background-color: rgb(var(--nc-black));
+    color: rgb(var(--nc-text));
   }
 
   ::selection {
-    background-color: #FFD700;
-    color: #1A1A1A;
-  }
-
-  .dark ::selection {
-    background-color: #0066FF;
-    color: #FAFAF5;
+    background-color: rgb(var(--nc-selection-bg) / 0.3);
+    color: rgb(var(--nc-selection-text));
   }
 }
 
+/* ==========================================================================
+   Base component styles — clean, all themes
+   ========================================================================== */
+
 @layer components {
+  /* Scrollbar */
   .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
+    width: 4px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
@@ -39,18 +66,595 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: #C8C4BA;
-    border: 1px solid #1A1A1A;
-  }
-
-  .dark .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: #3A3A3A;
-    border: 1px solid #3A3A3A;
+    background-color: rgb(var(--nc-border));
+    border-radius: 0;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background-color: #A8A49A;
+    background-color: rgb(var(--nc-border-bright));
   }
+
+  /* Scanlines container — structural only */
+  .cyber-scanlines {
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Panels — flat bg + border, no gradient/glow */
+  .cyber-panel {
+    background: rgb(var(--nc-surface));
+    border: 1px solid rgb(var(--nc-border));
+  }
+
+  .cyber-panel-elevated {
+    background: rgb(var(--nc-elevated));
+    border: 1px solid rgb(var(--nc-border-bright));
+  }
+
+  .cyber-border-glow {
+    border: 1px solid rgb(var(--nc-cyan));
+  }
+
+  /* Neon text — no glow on non-NC themes */
+  .neon-cyan,
+  .neon-red,
+  .neon-green,
+  .neon-yellow,
+  .neon-magenta {
+    text-shadow: none;
+  }
+
+  /* Glitch text — structural only */
+  .glitch-text {
+    position: relative;
+  }
+
+  /* ScanlineTear — structural layout only */
+  .scanline-tear {
+    position: relative;
+    display: inline-block;
+  }
+
+  .scanline-tear__base {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Bevel — no clip-path on non-NC themes */
+  .cyber-bevel,
+  .cyber-bevel-sm {
+    clip-path: none;
+  }
+
+  /* Buttons — clean, no clip-path or sweep */
+  .cyber-btn {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+  }
+
+  .cyber-btn-lg {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+  }
+
+  /* Glitch hover — structural only */
+  .glitch-hover {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Status chips — clean with border-radius instead of clip-path */
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.25rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+
+  .status-chip-sm {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.2rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+
+  /* Tone colors — all themes (colors adapt via CSS vars) */
+  .tone-critical {
+    background: rgb(var(--nc-red) / 0.15);
+    border-color: rgb(var(--nc-red) / 0.46);
+    color: rgb(var(--nc-red));
+  }
+
+  .tone-terminal {
+    background: rgb(var(--nc-green) / 0.15);
+    border-color: rgb(var(--nc-green) / 0.42);
+    color: rgb(var(--nc-green));
+  }
+
+  .tone-telemetry {
+    background: rgb(var(--nc-cyan) / 0.12);
+    border-color: rgb(var(--nc-cyan) / 0.42);
+    color: rgb(var(--nc-cyan));
+  }
+
+  .tone-indigo {
+    background: rgb(var(--nc-indigo) / 0.18);
+    border-color: rgb(var(--nc-cyan) / 0.3);
+    color: rgb(var(--nc-indigo));
+  }
+
+  .tone-warning {
+    background: rgb(var(--nc-yellow) / 0.12);
+    border-color: rgb(var(--nc-yellow) / 0.42);
+    color: rgb(var(--nc-yellow));
+  }
+
+  .tone-neutral {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgb(var(--nc-text-bright));
+  }
+
+  /* Input — clean focus */
+  .cyber-input {
+    background: rgb(var(--nc-panel));
+    border: 1px solid rgb(var(--nc-border));
+    color: rgb(var(--nc-text));
+    font-family: var(--nc-font-body);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .cyber-input:focus {
+    outline: none;
+    border-color: rgb(var(--nc-cyan));
+  }
+
+  .cyber-input::placeholder {
+    color: rgb(var(--nc-muted));
+  }
+
+  /* Divider — simple solid line */
+  .cyber-divider {
+    height: 1px;
+    background: rgb(var(--nc-border));
+  }
+
+  /* Scanline overlay — structural only */
+  .scanline-overlay {
+    position: relative;
+  }
+
+}
+
+/* ==========================================================================
+   Night City theme — cyberpunk decorations
+   Only applied when data-theme="night-city" is set on <html>.
+   ========================================================================== */
+
+/* Neon scrollbar hover */
+html[data-theme="night-city"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--nc-cyan));
+  box-shadow: 0 0 6px rgb(var(--nc-cyan) / 0.3);
+}
+
+/* Scanline overlay on body */
+html[data-theme="night-city"] .cyber-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgb(var(--nc-cyan) / 0.015) 2px,
+    rgb(var(--nc-cyan) / 0.015) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Panel gradient + glow shadow */
+html[data-theme="night-city"] .cyber-panel {
+  background: linear-gradient(180deg, rgb(var(--nc-surface)) 0%, rgb(var(--nc-panel)) 100%);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgb(var(--nc-cyan) / 0.05);
+}
+
+html[data-theme="night-city"] .cyber-panel-elevated {
+  background: linear-gradient(180deg, rgb(var(--nc-elevated)) 0%, rgb(var(--nc-surface)) 100%);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgb(var(--nc-cyan) / 0.08);
+}
+
+html[data-theme="night-city"] .cyber-border-glow {
+  box-shadow: 0 0 8px rgb(var(--nc-cyan) / 0.2), inset 0 0 8px rgb(var(--nc-cyan) / 0.05);
+}
+
+/* Neon text-shadow glow */
+html[data-theme="night-city"] .neon-cyan {
+  text-shadow: 0 0 7px rgb(var(--nc-cyan) / 0.6), 0 0 20px rgb(var(--nc-cyan) / 0.2);
+}
+
+html[data-theme="night-city"] .neon-red {
+  text-shadow: 0 0 7px rgb(var(--nc-red) / 0.6), 0 0 20px rgb(var(--nc-red) / 0.2);
+}
+
+html[data-theme="night-city"] .neon-green {
+  text-shadow: 0 0 7px rgb(var(--nc-green) / 0.6), 0 0 20px rgb(var(--nc-green) / 0.2);
+}
+
+html[data-theme="night-city"] .neon-yellow {
+  text-shadow: 0 0 7px rgb(var(--nc-yellow) / 0.6), 0 0 20px rgb(var(--nc-yellow) / 0.2);
+}
+
+html[data-theme="night-city"] .neon-magenta {
+  text-shadow: 0 0 7px rgb(var(--nc-magenta) / 0.6), 0 0 20px rgb(var(--nc-magenta) / 0.2);
+}
+
+/* Glitch text pseudo-element effects */
+html[data-theme="night-city"] .glitch-text::before,
+html[data-theme="night-city"] .glitch-text::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  opacity: calc(var(--glitch-active, 0) * 0.8);
+  pointer-events: none;
+}
+
+html[data-theme="night-city"] .glitch-text::before {
+  color: rgb(var(--nc-cyan));
+  clip-path: inset(var(--glitch-clip-top, 100%) 0 var(--glitch-clip-bottom, 100%) 0);
+  transform: translateX(calc(var(--glitch-offset-x, 0px) * -1));
+}
+
+html[data-theme="night-city"] .glitch-text::after {
+  color: rgb(var(--nc-red));
+  clip-path: inset(var(--glitch-clip-bottom, 100%) 0 var(--glitch-clip-top, 100%) 0);
+  transform: translateX(var(--glitch-offset-x, 0px));
+}
+
+/* ScanlineTear overlay effects */
+html[data-theme="night-city"] .scanline-tear__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+  mix-blend-mode: screen;
+  border-left: 1px solid rgb(var(--nc-red) / 0.6);
+  border-right: 1px solid rgb(var(--nc-cyan) / 0.6);
+  filter: saturate(1.4) brightness(1.15);
+}
+
+html[data-theme="night-city"] .scanline-tear__overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgb(var(--nc-red) / 0.25), transparent 40%, rgb(var(--nc-cyan) / 0.25));
+  pointer-events: none;
+}
+
+/* Beveled corners */
+html[data-theme="night-city"] .cyber-bevel {
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+html[data-theme="night-city"] .cyber-bevel-sm {
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+}
+
+/* Beveled buttons + glitch-only hover */
+html[data-theme="night-city"] .cyber-btn {
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+}
+
+html[data-theme="night-city"] .cyber-btn:hover,
+html[data-theme="night-city"] .cyber-btn:focus-visible {
+  animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+}
+
+html[data-theme="night-city"] .cyber-btn-lg {
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+html[data-theme="night-city"] .cyber-btn-lg:hover,
+html[data-theme="night-city"] .cyber-btn-lg:focus-visible {
+  animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+}
+
+/* Glitch hover artifact blocks */
+html[data-theme="night-city"] .glitch-hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    rgb(var(--nc-red) / 0.88) left 0 top var(--artifact-a-y, 16%) / var(--artifact-a-w, 18%) var(--artifact-a-h, 0.35rem) no-repeat,
+    rgb(var(--nc-cyan) / 0.84) right 0 top var(--artifact-b-y, 38%) / var(--artifact-b-w, 22%) var(--artifact-b-h, 0.5rem) no-repeat,
+    rgb(var(--nc-green) / 0.82) left 0 bottom var(--artifact-c-y, 14%) / var(--artifact-c-w, 16%) var(--artifact-c-h, 0.4rem) no-repeat;
+  mix-blend-mode: screen;
+  filter: saturate(1.35);
+}
+
+html[data-theme="night-city"] .glitch-hover:hover,
+html[data-theme="night-city"] .glitch-hover:focus-visible {
+  animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+}
+
+html[data-theme="night-city"] .glitch-hover:hover::after {
+  animation: cp-edge-blocks 480ms steps(8, jump-none) 1 30ms;
+}
+
+/* Status chip bevels + hover animation */
+html[data-theme="night-city"] .status-chip {
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 0.55rem) 0, 100% 0.55rem, 100% 100%, 0.55rem 100%, 0 calc(100% - 0.55rem));
+}
+
+html[data-theme="night-city"] .status-chip-sm {
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 0.35rem) 0, 100% 0.35rem, 100% 100%, 0.35rem 100%, 0 calc(100% - 0.35rem));
+}
+
+html[data-theme="night-city"] .status-chip:hover,
+html[data-theme="night-city"] .status-chip-sm:hover {
+  animation: cp-hue-strobe 420ms linear 1;
+}
+
+/* Input glow on focus */
+html[data-theme="night-city"] .cyber-input:focus {
+  box-shadow: 0 0 8px rgb(var(--nc-cyan) / 0.2), inset 0 0 8px rgb(var(--nc-cyan) / 0.05);
+}
+
+/* Divider gradient */
+html[data-theme="night-city"] .cyber-divider {
+  background: linear-gradient(90deg, transparent, rgb(var(--nc-border)), transparent);
+}
+
+/* Scanline overlay animation */
+html[data-theme="night-city"] .scanline-overlay::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgb(var(--nc-cyan) / 0.08), transparent);
+  animation: scanlineMove 8s linear infinite;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ==========================================================================
+   Brutalist theme — neobrutalist decorations
+   Only applied when data-theme="brutalist" is set on <html>.
+   ========================================================================== */
+
+/* Panels — thick border + offset shadow, flat bg */
+html[data-theme="brutalist"] .cyber-panel {
+  border-width: 3px;
+  border-color: rgb(var(--nc-border-bright));
+  box-shadow: 6px 6px 0px 0px rgb(var(--nc-border-bright));
+  background: rgb(var(--nc-surface));
+}
+
+html[data-theme="brutalist"] .cyber-panel-elevated {
+  border-width: 3px;
+  border-color: rgb(var(--nc-border));
+  box-shadow: 4px 4px 0px 0px rgb(var(--nc-border));
+  background: rgb(var(--nc-elevated));
+}
+
+/* Buttons — thick border + offset shadow */
+html[data-theme="brutalist"] .cyber-btn {
+  border-width: 2px !important;
+  border-color: rgb(var(--nc-border));
+  border-radius: 0;
+}
+
+html[data-theme="brutalist"] .cyber-btn:hover,
+html[data-theme="brutalist"] .cyber-btn:focus-visible {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px 0px rgb(var(--nc-border));
+}
+
+html[data-theme="brutalist"] .cyber-btn:active {
+  transform: translate(2px, 2px) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="brutalist"] .cyber-btn-lg {
+  border-width: 3px !important;
+  border-color: rgb(var(--nc-border-bright));
+  box-shadow: 4px 4px 0px 0px rgb(var(--nc-border-bright));
+  border-radius: 0;
+}
+
+html[data-theme="brutalist"] .cyber-btn-lg:hover,
+html[data-theme="brutalist"] .cyber-btn-lg:focus-visible {
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0px 0px rgb(var(--nc-border-bright));
+}
+
+html[data-theme="brutalist"] .cyber-btn-lg:active {
+  transform: translate(2px, 2px) !important;
+  box-shadow: none !important;
+}
+
+/* Input — thick border + offset shadow on focus */
+html[data-theme="brutalist"] .cyber-input {
+  border-width: 2px;
+  border-color: rgb(var(--nc-border));
+}
+
+html[data-theme="brutalist"] .cyber-input:focus {
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: 3px 3px 0px 0px rgb(var(--nc-cyan));
+}
+
+/* Status chips — solid borders, square */
+html[data-theme="brutalist"] .status-chip {
+  border-width: 2px;
+  border-radius: 0;
+}
+
+html[data-theme="brutalist"] .status-chip-sm {
+  border-width: 2px;
+  border-radius: 0;
+}
+
+/* Tone colors — more solid borders */
+html[data-theme="brutalist"] .tone-critical {
+  background: rgb(var(--nc-red) / 0.08);
+  border-color: rgb(var(--nc-red));
+  color: rgb(var(--nc-red));
+}
+
+html[data-theme="brutalist"] .tone-terminal {
+  background: rgb(var(--nc-green) / 0.08);
+  border-color: rgb(var(--nc-green));
+  color: rgb(var(--nc-green));
+}
+
+html[data-theme="brutalist"] .tone-telemetry {
+  background: rgb(var(--nc-cyan) / 0.08);
+  border-color: rgb(var(--nc-cyan));
+  color: rgb(var(--nc-cyan));
+}
+
+html[data-theme="brutalist"] .tone-warning {
+  background: rgb(var(--nc-yellow) / 0.08);
+  border-color: rgb(var(--nc-yellow));
+  color: rgb(var(--nc-yellow));
+}
+
+html[data-theme="brutalist"] .tone-neutral {
+  background: rgb(var(--nc-elevated));
+  border-color: rgb(var(--nc-border));
+  color: rgb(var(--nc-text-bright));
+}
+
+/* Scrollbar — wider, solid */
+html[data-theme="brutalist"] .scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+html[data-theme="brutalist"] .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--nc-border));
+  border: 1px solid rgb(var(--nc-border-bright));
+}
+
+/* Border glow → solid thick border, no glow */
+html[data-theme="brutalist"] .cyber-border-glow {
+  border-width: 2px;
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: none;
+}
+
+/* Divider — solid bar */
+html[data-theme="brutalist"] .cyber-divider {
+  height: 2px;
+  background: rgb(var(--nc-border));
+}
+
+/* Selection — yellow */
+html[data-theme="brutalist"] ::selection {
+  background-color: rgb(var(--nc-selection-bg) / 0.5);
+  color: rgb(var(--nc-selection-text));
+}
+
+/* Message composer — thick border on focus */
+html[data-theme="brutalist"] .focus-within\:border-nc-cyan:focus-within {
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: 3px 3px 0px 0px rgb(var(--nc-cyan));
+}
+
+/* Code blocks — thick border */
+html[data-theme="brutalist"] pre[class*="border"] {
+  border-width: 2px;
+}
+
+/* Ensure no gradient/glow shadows leak — flat offset only */
+html[data-theme="brutalist"] [class*="shadow-nc-"] {
+  box-shadow: 2px 2px 0px 0px rgb(var(--nc-border));
+}
+
+/* ==========================================================================
+   Keyframes — defined globally, only referenced by NC-specific selectors
+   ========================================================================== */
+
+@keyframes scanlineMove {
+  0% { top: -5%; }
+  100% { top: 105%; }
+}
+
+@keyframes cp-glitch-jump {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) skewX(0deg);
+    filter: saturate(1) brightness(1);
+  }
+  9% {
+    transform: translate3d(-1.4px, 0.2px, 0) skewX(-0.6deg);
+    filter: saturate(1.12) brightness(1.04);
+  }
+  18% {
+    transform: translate3d(1.44px, -0.32px, 0) skewX(-0.8deg);
+    filter: saturate(1.22) brightness(1.08);
+  }
+  31% {
+    transform: translate3d(2.4px, -0.8px, 0) skewX(0.8deg);
+    filter: saturate(1.28) brightness(1.1);
+  }
+  43% {
+    transform: translate3d(1.2px, 1px, 0) skewX(-0.3deg);
+    filter: saturate(1.18) brightness(1.05);
+  }
+  57% {
+    transform: translate3d(-1.2px, -0.2px, 0) skewX(-0.28deg);
+    filter: saturate(1.26) brightness(1.11);
+  }
+  74% {
+    transform: translate3d(-0.49px, 0.48px, 0) skewX(-0.12deg);
+    filter: saturate(1.08) brightness(1.03);
+  }
+}
+
+@keyframes cp-hue-strobe {
+  0% { box-shadow: 0 0 0 rgb(var(--nc-red) / 0); }
+  25% { box-shadow: 0 0 24px rgb(var(--nc-red) / 0.22); }
+  50% { box-shadow: 0 0 26px rgb(var(--nc-cyan) / 0.2); }
+  75% { box-shadow: 0 0 26px rgb(var(--nc-green) / 0.2); }
+  100% { box-shadow: 0 0 0 rgb(var(--nc-indigo) / 0); }
+}
+
+@keyframes cp-edge-blocks {
+  0%, 5% { opacity: 0; transform: translate3d(0, 0, 0); }
+  5.1% { opacity: 0.92; transform: translate3d(-4%, 0, 0); }
+  20% { opacity: 0.92; transform: translate3d(-4%, 0, 0); }
+  20.1% { opacity: 0.88; transform: translate3d(2.4%, -2px, 0); }
+  38% { opacity: 0.88; transform: translate3d(2.4%, -2px, 0); }
+  38.1% { opacity: 0.82; transform: translate3d(3%, 1px, 0); }
+  55% { opacity: 0.82; transform: translate3d(3%, 1px, 0); }
+  55.1% { opacity: 0.6; transform: translate3d(-0.9%, 0, 0); }
+  68% { opacity: 0.6; transform: translate3d(-0.9%, 0, 0); }
+  68.1% { opacity: 0.3; transform: translate3d(0, 0, 0); }
+  80% { opacity: 0.3; transform: translate3d(0, 0, 0); }
+  80.1%, 100% { opacity: 0; transform: translate3d(0, 0, 0); }
 }
 
 @layer utilities {

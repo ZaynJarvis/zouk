@@ -44,7 +44,8 @@ function getStoredAuth(): { token: string; user: AuthUser } | null {
 export function useAppStore() {
   const [theme, setTheme] = useState<Theme>(() => {
     const stored = localStorage.getItem('zouk_theme');
-    return (stored === 'dark' ? 'dark' : 'light') as Theme;
+    if (stored === 'night-city' || stored === 'brutalist') return stored;
+    return 'night-city';
   });
   const [currentUser, setCurrentUser] = useState(getStoredUser);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
@@ -86,6 +87,7 @@ export function useAppStore() {
 
   useEffect(() => {
     localStorage.setItem('zouk_theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
@@ -430,7 +432,7 @@ export function useAppStore() {
 
   return {
     theme, setTheme,
-    currentUser, updateCurrentUser,
+    currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
     channels, agents, humans, configs, machines,
     activeChannelName, selectChannel,
     viewMode, setViewMode,

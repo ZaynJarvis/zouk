@@ -3,15 +3,20 @@ import { useApp } from '../store/AppContext';
 import MessageItem from './MessageItem';
 import type { MessageRecord } from '../types';
 import { Loader } from 'lucide-react';
+import { isNightCity } from '../lib/themeUtils';
 
 function DateDivider({ date }: { date: string }) {
+  const nc = isNightCity();
   return (
     <div className="flex items-center gap-3 px-5 py-3">
-      <div className="flex-1 border-t-2 border-nb-gray-200 dark:border-dark-border" />
-      <span className="bg-nb-white dark:bg-dark-surface border-2 border-nb-black dark:border-dark-border px-3 py-1 text-xs font-bold text-nb-black dark:text-dark-text shadow-nb-sm">
+      <div className={`flex-1 ${nc ? 'cyber-divider' : 'border-t-2 border-nc-border'}`} />
+      <span className={nc
+        ? 'bg-nc-elevated border border-nc-border px-3 py-1 text-xs font-bold text-nc-cyan font-mono tracking-wider'
+        : 'bg-nc-surface border-2 border-nc-border-bright px-3 py-1 text-xs font-bold text-nc-text-bright shadow-[2px_2px_0px_0px_#1A1A1A]'
+      }>
         {date}
       </span>
-      <div className="flex-1 border-t-2 border-nb-gray-200 dark:border-dark-border" />
+      <div className={`flex-1 ${nc ? 'cyber-divider' : 'border-t-2 border-nc-border'}`} />
     </div>
   );
 }
@@ -45,22 +50,31 @@ export default function MessageList() {
   if (loadingMessages) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="flex items-center gap-3 border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface px-6 py-4 shadow-nb">
-          <Loader size={20} className="animate-spin text-nb-blue" />
-          <span className="font-display font-bold text-sm text-nb-black dark:text-dark-text">Loading messages...</span>
+        <div className="flex items-center gap-3 cyber-panel px-6 py-4">
+          <Loader size={20} className="animate-spin text-nc-cyan" />
+          <span className="font-display font-bold text-sm text-nc-cyan tracking-wider">Loading messages...</span>
         </div>
       </div>
     );
   }
 
   if (channelMessages.length === 0) {
+    const nc = isNightCity();
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-center border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface p-8 shadow-nb max-w-sm">
-          <div className="text-4xl mb-3">💬</div>
-          <h3 className="font-display font-black text-xl text-nb-black dark:text-dark-text mb-2">No messages yet</h3>
-          <p className="text-sm text-nb-gray-500 dark:text-dark-muted">Be the first to say something in #{activeChannelName}</p>
-        </div>
+        {nc ? (
+          <div className="text-center cyber-panel p-8 max-w-sm cyber-bevel">
+            <div className="text-4xl mb-3 opacity-50"><span className="neon-cyan">&gt;_</span></div>
+            <h3 className="font-display font-black text-xl text-nc-cyan neon-cyan mb-2 tracking-wider">NO_DATA</h3>
+            <p className="text-sm text-nc-muted font-mono">Initialize comms in #{activeChannelName}</p>
+          </div>
+        ) : (
+          <div className="text-center cyber-panel p-8 max-w-sm">
+            <div className="text-4xl mb-3">&#x1F4AC;</div>
+            <h3 className="font-display font-black text-xl text-nc-text-bright mb-2">No messages yet</h3>
+            <p className="text-sm text-nc-muted">Be the first to say something in #{activeChannelName}</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -68,7 +82,7 @@ export default function MessageList() {
   let lastDate = '';
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto scrollbar-thin">
       <div className="pt-4 pb-2">
         {channelMessages.map((msg, i) => {
           const msgDate = msg.timestamp ? formatDate(msg.timestamp) : '';

@@ -21,11 +21,7 @@ function GoogleAuthSync() {
 }
 
 function AppShell() {
-  const { theme, viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -34,7 +30,7 @@ function AppShell() {
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-nb-gray-100 dark:bg-dark-bg font-body text-nb-black dark:text-dark-text">
+    <div className="h-screen w-screen flex overflow-hidden bg-nc-black font-body text-nc-text cyber-scanlines">
       <WorkspaceRail />
 
       {/* Mobile sidebar overlay */}
@@ -103,7 +99,6 @@ function AppWithAuth() {
     );
   }
 
-  // No Google client ID configured — skip OAuth wrapper
   return (
     <AppProvider>
       <AppShell />
