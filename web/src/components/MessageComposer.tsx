@@ -145,7 +145,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         </div>
       )}
 
-      <div className="flex items-end gap-2 border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb transition-shadow focus-within:shadow-nb-lg">
+      <div className="flex items-stretch border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface shadow-nb transition-shadow focus-within:shadow-nb-lg overflow-hidden">
         <textarea
           ref={textareaRef}
           value={text}
@@ -153,17 +153,17 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onKeyDown={handleKeyDown}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
-          className="flex-1 px-3 py-2.5 bg-transparent text-sm font-body text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 dark:placeholder:text-dark-muted resize-none focus:outline-none min-h-[40px]"
+          className="flex-1 px-3 py-2.5 bg-transparent text-sm font-body text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 dark:placeholder:text-dark-muted resize-none focus:outline-none min-h-[46px]"
         />
 
         <button
           onClick={handleSubmit}
           disabled={!text.trim()}
           className={`
-            flex items-center justify-center w-9 h-9 mr-1.5 mb-1.5 border-2 transition-all flex-shrink-0
+            flex items-center justify-center w-11 border-l-3 border-nb-black dark:border-dark-border transition-all flex-shrink-0 self-stretch
             ${text.trim()
-              ? 'border-nb-black bg-nb-green text-nb-black shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none'
-              : 'border-nb-gray-300 dark:border-dark-border bg-nb-gray-100 dark:bg-dark-elevated text-nb-gray-400 dark:text-dark-muted cursor-not-allowed'
+              ? 'bg-nb-green text-nb-black hover:bg-nb-green/90 active:translate-x-[2px] active:translate-y-[2px]'
+              : 'bg-nb-gray-100 dark:bg-dark-elevated text-nb-gray-400 dark:text-dark-muted cursor-not-allowed'
             }
           `}
         >
