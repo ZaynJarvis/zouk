@@ -7,15 +7,15 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 }) {
   return (
     <div className="flex items-center justify-between px-3 py-1.5 group">
-      <button onClick={onToggle} className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted hover:text-nb-black dark:hover:text-dark-text transition-colors">
+      <button onClick={onToggle} className="flex items-center gap-1 text-2xs font-display font-bold uppercase tracking-widest text-cyber-chrome-400 hover:text-cyber-cyan transition-colors">
         {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         <span>{title}</span>
         {count !== undefined && count > 0 && (
-          <span className="ml-1 bg-nb-yellow text-nb-black text-2xs font-black px-1 border border-nb-black dark:border-dark-border">{count}</span>
+          <span className="ml-1 bg-cyber-magenta/15 text-cyber-magenta text-2xs font-bold px-1 border border-cyber-magenta/30">{count}</span>
         )}
       </button>
       {onAdd && (
-        <button onClick={onAdd} className="opacity-0 group-hover:opacity-100 text-nb-gray-400 hover:text-nb-black dark:hover:text-dark-text transition-all">
+        <button onClick={onAdd} className="opacity-0 group-hover:opacity-100 text-cyber-chrome-500 hover:text-cyber-cyan transition-all">
           <Plus size={14} />
         </button>
       )}
@@ -46,27 +46,27 @@ export default function ChannelSidebar() {
   };
 
   const activityColors: Record<string, string> = {
-    thinking: 'bg-nb-yellow animate-pulse',
-    working: 'bg-nb-orange animate-pulse',
-    online: 'bg-nb-green',
-    offline: 'bg-nb-gray-400',
-    error: 'bg-nb-red',
+    thinking: 'bg-cyber-yellow animate-pulse shadow-neon-yellow',
+    working: 'bg-cyber-orange animate-pulse',
+    online: 'bg-cyber-green shadow-neon-green',
+    offline: 'bg-cyber-chrome-600',
+    error: 'bg-cyber-red shadow-neon-red',
   };
 
   return (
-    <div className="w-[260px] h-full bg-nb-cream dark:bg-dark-surface border-r-3 border-nb-black dark:border-dark-border flex flex-col overflow-hidden">
-      <div className="px-3 py-3 border-b-3 border-nb-black dark:border-dark-border">
+    <div className="w-[260px] h-full bg-cyber-surface border-r border-cyber-border flex flex-col overflow-hidden">
+      <div className="px-3 py-3 border-b border-cyber-border">
         <div className="flex items-center justify-between">
-          <h2 className="font-display font-black text-lg text-nb-black dark:text-dark-text truncate">Zouk</h2>
+          <h2 className="font-display font-bold text-lg text-cyber-cyan tracking-wider">ZOUK</h2>
           {totalUnread > 0 && (
-            <span className="bg-nb-pink text-nb-white text-2xs font-black px-1.5 py-0.5 border-2 border-nb-black shadow-nb-sm">
+            <span className="bg-cyber-magenta/15 text-cyber-magenta text-2xs font-bold px-1.5 py-0.5 border border-cyber-magenta/40 shadow-neon-magenta">
               {totalUnread}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5 mt-1">
-          <span className={`w-2 h-2 border border-nb-black dark:border-dark-border ${wsConnected ? 'bg-nb-green' : 'bg-nb-red'}`} />
-          <span className="text-xs text-nb-gray-500 dark:text-dark-muted truncate">{currentUser}</span>
+          <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-cyber-green shadow-neon-green' : 'bg-cyber-red'}`} />
+          <span className="text-xs text-cyber-chrome-300 font-mono truncate">{currentUser}</span>
         </div>
       </div>
 
@@ -82,15 +82,15 @@ export default function ChannelSidebar() {
 
           {showCreateChannel && (
             <div className="px-3 pb-2">
-              <div className="flex items-center border-2 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-elevated">
-                <Hash size={14} className="ml-2 text-nb-gray-400 flex-shrink-0" />
+              <div className="flex items-center border border-cyber-border bg-cyber-void-mid">
+                <Hash size={14} className="ml-2 text-cyber-chrome-500 flex-shrink-0" />
                 <input
                   type="text"
                   value={newChannelName}
                   onChange={e => setNewChannelName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleCreateChannel(); if (e.key === 'Escape') setShowCreateChannel(false); }}
                   placeholder="new-channel"
-                  className="w-full px-1.5 py-1 bg-transparent text-sm text-nb-black dark:text-dark-text placeholder:text-nb-gray-400 focus:outline-none"
+                  className="w-full px-1.5 py-1 bg-transparent text-sm text-cyber-chrome-100 placeholder:text-cyber-chrome-500 focus:outline-none font-mono"
                   autoFocus
                 />
               </div>
@@ -105,19 +105,19 @@ export default function ChannelSidebar() {
                 key={ch.id}
                 onClick={() => selectChannel(ch.name)}
                 className={`
-                  w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group
+                  w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-150 group
                   ${isActive
-                    ? 'bg-nb-yellow border-2 border-nb-black shadow-nb-sm font-bold text-nb-black mx-1 -ml-0'
+                    ? 'bg-cyber-cyan/10 border-l-2 border-cyber-cyan text-cyber-cyan shadow-cyber-sm'
                     : unread > 0
-                      ? 'font-semibold text-nb-black dark:text-dark-text hover:bg-nb-gray-100 dark:hover:bg-dark-elevated'
-                      : 'text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated hover:text-nb-black dark:hover:text-dark-text'
+                      ? 'font-semibold text-cyber-chrome-100 hover:bg-cyber-elevated border-l-2 border-transparent'
+                      : 'text-cyber-chrome-400 hover:bg-cyber-elevated hover:text-cyber-chrome-200 border-l-2 border-transparent'
                   }
                 `}
               >
                 <Hash size={14} className="flex-shrink-0" />
                 <span className="truncate text-sm">{ch.name}</span>
                 {unread > 0 && !isActive && (
-                  <span className="ml-auto bg-nb-pink text-nb-white text-2xs font-black px-1.5 py-0.5 border-2 border-nb-black shadow-nb-sm min-w-[20px] text-center">
+                  <span className="ml-auto bg-cyber-magenta/15 text-cyber-magenta text-2xs font-bold px-1.5 py-0.5 border border-cyber-magenta/30 min-w-[20px] text-center">
                     {unread}
                   </span>
                 )}
@@ -141,12 +141,12 @@ export default function ChannelSidebar() {
                 key={agent.id}
                 onClick={() => selectChannel(agent.name, true)}
                 className={`
-                  w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group
+                  w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-150 group
                   ${isActive
-                    ? 'bg-nb-blue border-2 border-nb-black shadow-nb-sm font-bold text-nb-white mx-1 -ml-0'
+                    ? 'bg-cyber-green/10 border-l-2 border-cyber-green text-cyber-green'
                     : unread > 0
-                      ? 'font-semibold text-nb-black dark:text-dark-text hover:bg-nb-gray-100 dark:hover:bg-dark-elevated'
-                      : 'text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated hover:text-nb-black dark:hover:text-dark-text'
+                      ? 'font-semibold text-cyber-chrome-100 hover:bg-cyber-elevated border-l-2 border-transparent'
+                      : 'text-cyber-chrome-400 hover:bg-cyber-elevated hover:text-cyber-chrome-200 border-l-2 border-transparent'
                   }
                 `}
               >
@@ -161,15 +161,15 @@ export default function ChannelSidebar() {
                         wsSend({ type: 'agent:reset-workspace', agentId: agent.id });
                         addToast(`Resetting ${agent.name}...`, 'info');
                       }}
-                      className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nb-gray-400 hover:text-nb-orange transition-all"
+                      className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-cyber-chrome-500 hover:text-cyber-orange transition-all"
                       title="Reset context"
                     >
                       <RotateCcw size={12} />
                     </span>
                   )}
-                  <span className={`w-2 h-2 border border-nb-black dark:border-dark-border flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
                   {unread > 0 && !isActive && (
-                    <span className="bg-nb-pink text-nb-white text-2xs font-black px-1.5 py-0.5 border-2 border-nb-black shadow-nb-sm min-w-[20px] text-center">
+                    <span className="bg-cyber-magenta/15 text-cyber-magenta text-2xs font-bold px-1.5 py-0.5 border border-cyber-magenta/30 min-w-[20px] text-center">
                       {unread}
                     </span>
                   )}
@@ -178,7 +178,7 @@ export default function ChannelSidebar() {
             );
           })}
           {!agentsCollapsed && agents.length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nb-gray-400 dark:text-dark-muted italic">No agents</div>
+            <div className="px-3 py-1.5 text-xs text-cyber-chrome-500 italic font-mono">No agents</div>
           )}
         </div>
 
@@ -193,24 +193,24 @@ export default function ChannelSidebar() {
               key={h.id}
               onClick={() => selectChannel(h.name, true)}
               className={`
-                w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75
+                w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-150
                 ${activeChannelName === h.name
-                  ? 'bg-nb-blue border-2 border-nb-black shadow-nb-sm font-bold text-nb-white mx-1 -ml-0'
-                  : 'text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated hover:text-nb-black dark:hover:text-dark-text'
+                  ? 'bg-cyber-magenta/10 border-l-2 border-cyber-magenta text-cyber-magenta'
+                  : 'text-cyber-chrome-400 hover:bg-cyber-elevated hover:text-cyber-chrome-200 border-l-2 border-transparent'
                 }
               `}
             >
               <User size={14} className="flex-shrink-0" />
               <span className="truncate text-sm">{h.name}</span>
               {(unreadCounts[h.name] || 0) > 0 && activeChannelName !== h.name && (
-                <span className="ml-auto bg-nb-pink text-nb-white text-2xs font-black px-1.5 py-0.5 border-2 border-nb-black shadow-nb-sm min-w-[20px] text-center">
+                <span className="ml-auto bg-cyber-magenta/15 text-cyber-magenta text-2xs font-bold px-1.5 py-0.5 border border-cyber-magenta/30 min-w-[20px] text-center">
                   {unreadCounts[h.name]}
                 </span>
               )}
             </button>
           ))}
           {!dmsCollapsed && humans.length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nb-gray-400 dark:text-dark-muted italic">No people online</div>
+            <div className="px-3 py-1.5 text-xs text-cyber-chrome-500 italic font-mono">No people online</div>
           )}
         </div>
       </div>

@@ -7,11 +7,11 @@ import { Loader } from 'lucide-react';
 function DateDivider({ date }: { date: string }) {
   return (
     <div className="flex items-center gap-3 px-5 py-3">
-      <div className="flex-1 border-t-2 border-nb-gray-200 dark:border-dark-border" />
-      <span className="bg-nb-white dark:bg-dark-surface border-2 border-nb-black dark:border-dark-border px-3 py-1 text-xs font-bold text-nb-black dark:text-dark-text shadow-nb-sm">
+      <div className="flex-1 border-t border-cyber-border" />
+      <span className="bg-cyber-surface border border-cyber-border px-3 py-1 text-2xs font-mono text-cyber-chrome-300 tracking-wider uppercase">
         {date}
       </span>
-      <div className="flex-1 border-t-2 border-nb-gray-200 dark:border-dark-border" />
+      <div className="flex-1 border-t border-cyber-border" />
     </div>
   );
 }
@@ -45,9 +45,9 @@ export default function MessageList() {
   if (loadingMessages) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="flex items-center gap-3 border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface px-6 py-4 shadow-nb">
-          <Loader size={20} className="animate-spin text-nb-blue" />
-          <span className="font-display font-bold text-sm text-nb-black dark:text-dark-text">Loading messages...</span>
+        <div className="flex items-center gap-3 border border-cyber-border bg-cyber-surface px-6 py-4 shadow-neon-cyan">
+          <Loader size={20} className="animate-spin text-cyber-cyan" />
+          <span className="font-mono font-bold text-sm text-cyber-cyan tracking-wider">LOADING MESSAGES...</span>
         </div>
       </div>
     );
@@ -56,10 +56,10 @@ export default function MessageList() {
   if (channelMessages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-center border-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface p-8 shadow-nb max-w-sm">
-          <div className="text-4xl mb-3">💬</div>
-          <h3 className="font-display font-black text-xl text-nb-black dark:text-dark-text mb-2">No messages yet</h3>
-          <p className="text-sm text-nb-gray-500 dark:text-dark-muted">Be the first to say something in #{activeChannelName}</p>
+        <div className="text-center border border-cyber-border bg-cyber-surface p-8 shadow-neon-cyan max-w-sm">
+          <div className="text-4xl mb-3 opacity-50">///</div>
+          <h3 className="font-display font-bold text-xl text-cyber-cyan mb-2 tracking-wider">NO MESSAGES</h3>
+          <p className="text-sm text-cyber-chrome-400 font-mono">Initiate first transmission in #{activeChannelName}</p>
         </div>
       </div>
     );

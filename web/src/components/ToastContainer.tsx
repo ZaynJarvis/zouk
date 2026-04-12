@@ -1,4 +1,4 @@
-import { CheckCircle, AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { CircleCheck as CheckCircle, TriangleAlert as AlertTriangle, CircleAlert as AlertCircle, Info } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 
 const icons = {
@@ -9,17 +9,17 @@ const icons = {
 };
 
 const colors = {
-  success: 'bg-nb-green-light border-nb-green',
-  warning: 'bg-nb-yellow-light border-nb-yellow',
-  error: 'bg-nb-red-light border-nb-red',
-  info: 'bg-nb-blue-light border-nb-blue',
+  success: 'border-cyber-green/40 bg-cyber-green/10 text-cyber-green',
+  warning: 'border-cyber-yellow/40 bg-cyber-yellow/10 text-cyber-yellow',
+  error: 'border-cyber-red/40 bg-cyber-red/10 text-cyber-red',
+  info: 'border-cyber-cyan/40 bg-cyber-cyan/10 text-cyber-cyan',
 };
 
-const iconColors = {
-  success: 'text-nb-green',
-  warning: 'text-nb-yellow',
-  error: 'text-nb-red',
-  info: 'text-nb-blue',
+const glows = {
+  success: 'shadow-neon-green',
+  warning: 'shadow-neon-yellow',
+  error: 'shadow-neon-red',
+  info: 'shadow-neon-cyan',
 };
 
 export default function ToastContainer() {
@@ -34,9 +34,9 @@ export default function ToastContainer() {
         return (
           <div
             key={toast.id}
-            className={`flex items-center gap-2 px-3 py-2.5 border-3 border-nb-black dark:border-dark-border shadow-nb text-sm font-medium text-nb-black animate-toast-in ${colors[toast.type]}`}
+            className={`flex items-center gap-2 px-3 py-2.5 border text-sm font-mono tracking-wider animate-toast-in ${colors[toast.type]} ${glows[toast.type]}`}
           >
-            <Icon size={16} className={iconColors[toast.type]} />
+            <Icon size={16} />
             <span className="flex-1">{toast.message}</span>
           </div>
         );

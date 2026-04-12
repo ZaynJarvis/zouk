@@ -1,4 +1,4 @@
-import { Home, MessageSquare, Bot, Settings } from 'lucide-react';
+import { Hop as Home, MessageSquare, Bot, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 
 export default function WorkspaceRail() {
@@ -8,20 +8,20 @@ export default function WorkspaceRail() {
   } = useApp();
 
   return (
-    <div className="w-[72px] h-full bg-nb-gray-800 dark:bg-dark-bg border-r-3 border-nb-black dark:border-dark-border flex flex-col items-center py-4 gap-3">
-      <div className="w-10 h-10 border-2 border-nb-yellow bg-nb-yellow font-display font-black text-lg flex items-center justify-center text-nb-black">
-        S
+    <div className="w-[72px] h-full bg-cyber-void-light border-r border-cyber-border flex flex-col items-center py-4 gap-3">
+      <div className="w-10 h-10 bg-cyber-cyan/10 border border-cyber-cyan/40 font-display font-bold text-lg flex items-center justify-center text-cyber-cyan shadow-neon-cyan hex-corner">
+        Z
       </div>
 
-      <div className="w-8 border-t-2 border-nb-gray-600 dark:border-dark-border my-1" />
+      <div className="w-8 border-t border-cyber-border my-1" />
 
       <button
         onClick={() => setViewMode('channel')}
         className={`
-          w-10 h-10 border-2 border-nb-gray-600 flex items-center justify-center
-          transition-all duration-100
-          ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-nb-yellow text-nb-black border-nb-black shadow-nb-sm' : 'text-nb-gray-300 hover:text-nb-white hover:border-nb-gray-400'}
-          dark:border-dark-border
+          w-10 h-10 border flex items-center justify-center transition-all duration-200
+          ${viewMode === 'channel' || viewMode === 'dm'
+            ? 'bg-cyber-cyan/10 text-cyber-cyan border-cyber-cyan/40 shadow-neon-cyan'
+            : 'text-cyber-chrome-400 border-cyber-border hover:text-cyber-cyan hover:border-cyber-cyan/30'}
         `}
         title="Home"
       >
@@ -31,10 +31,10 @@ export default function WorkspaceRail() {
       <button
         onClick={() => setViewMode('threads')}
         className={`
-          w-10 h-10 border-2 border-nb-gray-600 flex items-center justify-center
-          transition-all duration-100
-          ${viewMode === 'threads' ? 'bg-nb-blue text-nb-white border-nb-black shadow-nb-sm' : 'text-nb-gray-300 hover:text-nb-white hover:border-nb-gray-400'}
-          dark:border-dark-border
+          w-10 h-10 border flex items-center justify-center transition-all duration-200
+          ${viewMode === 'threads'
+            ? 'bg-cyber-magenta/10 text-cyber-magenta border-cyber-magenta/40 shadow-neon-magenta'
+            : 'text-cyber-chrome-400 border-cyber-border hover:text-cyber-magenta hover:border-cyber-magenta/30'}
         `}
         title="Threads"
       >
@@ -44,38 +44,32 @@ export default function WorkspaceRail() {
       <button
         onClick={() => setViewMode('agents')}
         className={`
-          w-10 h-10 border-2 border-nb-gray-600 flex items-center justify-center
-          transition-all duration-100
-          ${viewMode === 'agents' ? 'bg-nb-green text-nb-black border-nb-black shadow-nb-sm' : 'text-nb-gray-300 hover:text-nb-white hover:border-nb-gray-400'}
-          dark:border-dark-border
+          w-10 h-10 border flex items-center justify-center transition-all duration-200
+          ${viewMode === 'agents'
+            ? 'bg-cyber-green/10 text-cyber-green border-cyber-green/40 shadow-neon-green'
+            : 'text-cyber-chrome-400 border-cyber-border hover:text-cyber-green hover:border-cyber-green/30'}
         `}
         title="Agents"
       >
         <Bot size={20} />
       </button>
 
-      {/* Saved Items - commented out: no protocol support
-      <button title="Saved Items">
-        <Bookmark size={20} />
-      </button>
-      */}
-
       <div className="flex-1" />
 
       <div className="flex flex-col items-center gap-2 mb-2">
         <div
-          className={`w-3 h-3 border border-nb-black dark:border-dark-border ${daemonConnected ? 'bg-nb-green' : 'bg-nb-gray-400'}`}
+          className={`w-3 h-3 rounded-full ${daemonConnected ? 'bg-cyber-green shadow-neon-green' : 'bg-cyber-chrome-600'}`}
           title={daemonConnected ? 'Daemon connected' : 'Daemon disconnected'}
         />
         <div
-          className={`w-3 h-3 border border-nb-black dark:border-dark-border ${wsConnected ? 'bg-nb-blue' : 'bg-nb-red'}`}
+          className={`w-3 h-3 rounded-full ${wsConnected ? 'bg-cyber-cyan shadow-neon-cyan' : 'bg-cyber-red shadow-neon-red'}`}
           title={wsConnected ? 'WebSocket connected' : 'WebSocket disconnected'}
         />
       </div>
 
       <button
         onClick={() => setSettingsOpen(true)}
-        className="w-10 h-10 border-2 border-nb-gray-600 flex items-center justify-center text-nb-gray-300 hover:text-nb-white hover:border-nb-gray-400 transition-all duration-100 dark:border-dark-border"
+        className="w-10 h-10 border border-cyber-border flex items-center justify-center text-cyber-chrome-400 hover:text-cyber-cyan hover:border-cyber-cyan/30 transition-all duration-200"
         title="Settings"
       >
         <Settings size={20} />

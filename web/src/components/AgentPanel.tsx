@@ -1,4 +1,4 @@
-import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Play, Loader2, Settings } from 'lucide-react';
+import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Play, Loader as Loader2, Settings } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
@@ -7,11 +7,11 @@ import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
 
 const activityColors: Record<string, string> = {
-  thinking: 'bg-nb-yellow animate-pulse',
-  working: 'bg-nb-orange animate-pulse',
-  online: 'bg-nb-green',
-  offline: 'bg-nb-gray-400',
-  error: 'bg-nb-red',
+  thinking: 'bg-cyber-yellow animate-pulse shadow-neon-yellow',
+  working: 'bg-cyber-orange animate-pulse',
+  online: 'bg-cyber-green shadow-neon-green',
+  offline: 'bg-cyber-chrome-600',
+  error: 'bg-cyber-red shadow-neon-red',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -23,7 +23,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   kimi: 'Kimi',
 };
 
-/* ── Agent List Item ── */
 function AgentListItem({
   agent,
   isSelected,
@@ -38,28 +37,28 @@ function AgentListItem({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-nb-gray-200 dark:border-dark-border ${
+      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-cyber-border ${
         isSelected
-          ? 'bg-nb-yellow-light dark:bg-dark-elevated'
-          : 'hover:bg-nb-gray-50 dark:hover:bg-dark-elevated'
+          ? 'bg-cyber-cyan/5 border-l-2 border-l-cyber-cyan'
+          : 'hover:bg-cyber-elevated border-l-2 border-l-transparent'
       }`}
     >
-      <div className="w-8 h-8 border-2 border-nb-black dark:border-dark-border font-display font-bold text-xs flex items-center justify-center bg-nb-yellow-light dark:bg-dark-elevated shrink-0">
+      <div className="w-8 h-8 border border-cyber-cyan/30 bg-cyber-cyan/10 font-display font-bold text-xs flex items-center justify-center text-cyber-cyan shrink-0">
         {(agent.displayName || agent.name).charAt(0).toUpperCase()}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="truncate font-display font-bold text-sm text-nb-black dark:text-dark-text">
+          <span className="truncate font-display font-bold text-sm text-cyber-chrome-100">
             {agent.displayName || agent.name}
           </span>
-          <span className={`w-2 h-2 border border-nb-black dark:border-dark-border shrink-0 ${activityColors[activity]}`} />
+          <span className={`w-2 h-2 rounded-full shrink-0 ${activityColors[activity]}`} />
         </div>
-        <div className="text-2xs text-nb-gray-500 dark:text-dark-muted truncate">
-          {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime || 'No runtime'} · {agent.model || '—'}
+        <div className="text-2xs text-cyber-chrome-400 truncate font-mono">
+          {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime || 'No runtime'} / {agent.model || '\u2014'}
         </div>
       </div>
       {agent.archivedAt && (
-        <span className="text-2xs font-bold text-nb-gray-400 bg-nb-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 border border-nb-gray-200 dark:border-dark-border">
+        <span className="text-2xs font-mono font-bold text-cyber-chrome-500 bg-cyber-elevated px-1.5 py-0.5 border border-cyber-border uppercase tracking-wider">
           archived
         </span>
       )}
@@ -67,16 +66,15 @@ function AgentListItem({
   );
 }
 
-/* ── Compact Machine Card ── */
 function CompactMachineCard({ machine }: { machine: ServerMachine }) {
   return (
-    <div className="flex items-center gap-2 px-4 py-2 border-b border-nb-gray-200 dark:border-dark-border">
-      <Server size={12} className="text-nb-gray-400 shrink-0" />
-      <span className="text-2xs font-bold text-nb-black dark:text-dark-text truncate">{machine.alias || machine.hostname}</span>
-      {machine.alias && <span className="text-2xs text-nb-gray-400 dark:text-dark-muted truncate">{machine.hostname}</span>}
-      <span className="w-1.5 h-1.5 border border-nb-black dark:border-dark-border bg-nb-green shrink-0" />
+    <div className="flex items-center gap-2 px-4 py-2 border-b border-cyber-border">
+      <Server size={12} className="text-cyber-chrome-500 shrink-0" />
+      <span className="text-2xs font-bold text-cyber-chrome-200 truncate font-mono">{machine.alias || machine.hostname}</span>
+      {machine.alias && <span className="text-2xs text-cyber-chrome-500 truncate font-mono">{machine.hostname}</span>}
+      <span className="w-1.5 h-1.5 rounded-full bg-cyber-green shadow-neon-green shrink-0" />
       {machine.runtimes && (
-        <span className="text-2xs text-nb-gray-400 dark:text-dark-muted truncate ml-auto">
+        <span className="text-2xs text-cyber-chrome-500 truncate ml-auto font-mono">
           {machine.runtimes.join(', ')}
         </span>
       )}
@@ -84,7 +82,6 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
   );
 }
 
-/* ── Config Start Button ── */
 function ConfigStartButton({
   config,
   isRunning,
@@ -100,10 +97,10 @@ function ConfigStartButton({
     <button
       onClick={() => !isRunning && !isStarting && onStart()}
       disabled={isRunning || isStarting}
-      className={`flex items-center gap-1 px-2.5 py-1 border-2 text-2xs font-bold transition-all ${
+      className={`flex items-center gap-1 px-2.5 py-1 border text-2xs font-mono font-bold tracking-wider transition-all ${
         isRunning
-          ? 'border-nb-gray-300 dark:border-dark-border bg-nb-gray-100 dark:bg-dark-elevated text-nb-gray-400 cursor-not-allowed'
-          : 'border-nb-black bg-nb-green text-nb-black shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none'
+          ? 'border-cyber-border bg-cyber-elevated text-cyber-chrome-500 cursor-not-allowed'
+          : 'border-cyber-green/40 bg-cyber-green/10 text-cyber-green hover:shadow-neon-green'
       }`}
     >
       {isStarting ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
@@ -112,7 +109,6 @@ function ConfigStartButton({
   );
 }
 
-/* ── Main AgentsView ── */
 export default function AgentsView() {
   const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -170,27 +166,25 @@ export default function AgentsView() {
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
-      {/* Left panel — Agent list */}
-      <div className="w-72 shrink-0 border-r-2 border-nb-gray-200 dark:border-dark-border flex flex-col bg-nb-white dark:bg-dark-surface">
-        {/* Header */}
-        <div className="flex h-12 items-center justify-between border-b-2 border-nb-gray-200 dark:border-dark-border px-4">
-          <h1 className="font-display font-black text-sm text-nb-black dark:text-dark-text">Agents</h1>
+      <div className="w-72 shrink-0 border-r border-cyber-border flex flex-col bg-cyber-surface">
+        <div className="flex h-12 items-center justify-between border-b border-cyber-border px-4">
+          <h1 className="font-display font-bold text-sm text-cyber-chrome-50 tracking-wider">AGENTS</h1>
           <div className="flex items-center gap-1.5">
             {archivedCount > 0 && (
               <button
                 onClick={() => setShowArchived(!showArchived)}
-                className={`px-2 py-0.5 border-2 text-2xs font-bold transition-all ${
+                className={`px-2 py-0.5 border text-2xs font-mono font-bold tracking-wider transition-all ${
                   showArchived
-                    ? 'border-nb-black bg-nb-gray-100 dark:bg-dark-elevated text-nb-black dark:text-dark-text'
-                    : 'border-nb-gray-200 dark:border-dark-border text-nb-gray-400 hover:border-nb-black'
+                    ? 'border-cyber-cyan/30 bg-cyber-cyan/10 text-cyber-cyan'
+                    : 'border-cyber-border text-cyber-chrome-500 hover:border-cyber-cyan/30'
                 }`}
               >
-                {showArchived ? 'Active' : `Archived (${archivedCount})`}
+                {showArchived ? 'ACTIVE' : `ARCHIVED (${archivedCount})`}
               </button>
             )}
             <button
               onClick={() => setShowCreate(true)}
-              className="w-7 h-7 flex items-center justify-center border-2 border-nb-black dark:border-dark-border bg-nb-blue text-nb-white shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+              className="w-7 h-7 flex items-center justify-center border border-cyber-cyan/40 bg-cyber-cyan/10 text-cyber-cyan hover:shadow-neon-cyan transition-all"
               title="Create agent"
             >
               <Plus size={14} />
@@ -199,7 +193,6 @@ export default function AgentsView() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Connected Machines */}
           <div>
             <div className="flex items-center justify-between px-4 py-2">
               <button
@@ -207,17 +200,17 @@ export default function AgentsView() {
                 className="flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
               >
                 {machinesExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                <Monitor size={10} className="text-nb-gray-400" />
-                <span className="text-2xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted">
-                  Machines ({machines.length})
+                <Monitor size={10} className="text-cyber-chrome-500" />
+                <span className="text-2xs font-display font-bold uppercase tracking-widest text-cyber-chrome-400">
+                  MACHINES ({machines.length})
                 </span>
               </button>
               <button
                 onClick={() => setShowMachineSetup(true)}
-                className="w-6 h-6 flex items-center justify-center border border-nb-gray-200 dark:border-dark-border hover:border-nb-black dark:hover:border-dark-text hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-all"
-                title="Machine Setup & API Keys"
+                className="w-6 h-6 flex items-center justify-center border border-cyber-border hover:border-cyber-cyan/30 hover:bg-cyber-elevated transition-all"
+                title="Machine Setup"
               >
-                <Settings size={10} className="text-nb-gray-400" />
+                <Settings size={10} className="text-cyber-chrome-500" />
               </button>
             </div>
             {machinesExpanded && (
@@ -227,7 +220,7 @@ export default function AgentsView() {
                 <div className="px-4 pb-2">
                   <button
                     onClick={() => setShowMachineSetup(true)}
-                    className="w-full border-2 border-dashed border-nb-gray-300 dark:border-dark-border px-3 py-2 text-2xs text-nb-gray-400 dark:text-dark-muted text-center hover:border-nb-black dark:hover:border-dark-text hover:text-nb-gray-600 transition-colors"
+                    className="w-full border border-dashed border-cyber-border px-3 py-2 text-2xs text-cyber-chrome-500 text-center hover:border-cyber-cyan/30 hover:text-cyber-cyan transition-colors font-mono"
                   >
                     + Connect a machine
                   </button>
@@ -236,16 +229,15 @@ export default function AgentsView() {
             )}
           </div>
 
-          {/* Saved Configs */}
           {configs.length > 0 && (
             <div>
               <button
                 onClick={() => setConfigsExpanded(!configsExpanded)}
-                className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-nb-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-cyber-elevated transition-colors"
               >
                 {configsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                <span className="text-2xs font-bold uppercase tracking-wider text-nb-gray-500 dark:text-dark-muted">
-                  Configs ({configs.length})
+                <span className="text-2xs font-display font-bold uppercase tracking-widest text-cyber-chrome-400">
+                  CONFIGS ({configs.length})
                 </span>
               </button>
               {configsExpanded && (
@@ -264,12 +256,10 @@ export default function AgentsView() {
             </div>
           )}
 
-          {/* Divider */}
           {(machines.length > 0 || configs.length > 0) && (
-            <div className="border-b-2 border-nb-gray-200 dark:border-dark-border" />
+            <div className="border-b border-cyber-border" />
           )}
 
-          {/* Agent list */}
           {filteredAgents.length > 0 ? (
             filteredAgents.map((agent) => (
               <AgentListItem
@@ -281,18 +271,18 @@ export default function AgentsView() {
             ))
           ) : (
             <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-              <div className="w-12 h-12 border-3 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center mb-3 shadow-nb-sm">
-                <Bot size={20} className="text-nb-orange" />
+              <div className="w-12 h-12 border border-cyber-green/30 bg-cyber-green/10 flex items-center justify-center mb-3 shadow-neon-green">
+                <Bot size={20} className="text-cyber-green" />
               </div>
-              <p className="text-sm text-nb-gray-500 dark:text-dark-muted font-bold">
+              <p className="text-sm text-cyber-chrome-400 font-mono">
                 {showArchived ? 'No archived agents' : 'No agents yet'}
               </p>
               {!showArchived && (
                 <button
                   onClick={() => setShowCreate(true)}
-                  className="mt-3 flex items-center gap-1 px-3 py-1.5 border-2 border-nb-black text-sm font-bold bg-nb-blue text-nb-white shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+                  className="mt-3 flex items-center gap-1 px-3 py-1.5 cyber-btn-primary text-sm font-display font-bold tracking-wider"
                 >
-                  <Plus size={12} /> Create Agent
+                  <Plus size={12} /> CREATE
                 </button>
               )}
             </div>
@@ -300,7 +290,6 @@ export default function AgentsView() {
         </div>
       </div>
 
-      {/* Right panel — Agent detail */}
       <div className="flex-1 min-w-0 overflow-hidden">
         {selected ? (
           <AgentDetail
@@ -309,25 +298,24 @@ export default function AgentsView() {
             onStop={() => stopAgent(selected.id)}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center bg-nb-white dark:bg-dark-surface">
-            <div className="w-16 h-16 border-3 border-nb-black dark:border-dark-border bg-nb-yellow-light dark:bg-dark-elevated flex items-center justify-center shadow-nb-sm mb-4">
-              <Bot size={28} className="text-nb-orange" />
+          <div className="flex h-full flex-col items-center justify-center bg-cyber-surface">
+            <div className="w-16 h-16 border border-cyber-cyan/30 bg-cyber-cyan/10 flex items-center justify-center shadow-neon-cyan mb-4">
+              <Bot size={28} className="text-cyber-cyan" />
             </div>
-            <h3 className="font-display font-black text-xl text-nb-black dark:text-dark-text mb-2">No Agent Selected</h3>
-            <p className="text-sm text-nb-gray-500 dark:text-dark-muted mb-4">
-              Select an agent from the list or create a new one.
+            <h3 className="font-display font-bold text-xl text-cyber-chrome-50 mb-2 tracking-wider">NO AGENT SELECTED</h3>
+            <p className="text-sm text-cyber-chrome-400 mb-4 font-mono">
+              Select an agent or create a new one.
             </p>
             <button
               onClick={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 px-4 py-2 border-2 border-nb-black text-sm font-bold bg-nb-blue text-nb-white shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+              className="flex items-center gap-1.5 px-4 py-2 cyber-btn-primary text-sm font-display font-bold tracking-wider"
             >
-              <Plus size={14} /> Create Agent
+              <Plus size={14} /> CREATE AGENT
             </button>
           </div>
         )}
       </div>
 
-      {/* Create dialog */}
       {showCreate && (
         <CreateAgentDialog
           machines={machines}
@@ -337,7 +325,6 @@ export default function AgentsView() {
         />
       )}
 
-      {/* Machine Setup dialog */}
       {showMachineSetup && (
         <MachineSetupDialog
           machines={machines}

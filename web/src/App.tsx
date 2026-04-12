@@ -24,7 +24,7 @@ function AppShell() {
   const { theme, viewMode, sidebarOpen, isLoggedIn } = useApp();
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.add('dark');
   }, [theme]);
 
   if (!isLoggedIn) {
@@ -34,13 +34,11 @@ function AppShell() {
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-nb-gray-100 dark:bg-dark-bg font-body text-nb-black dark:text-dark-text">
+    <div className="h-screen w-screen flex overflow-hidden bg-cyber-void font-body text-cyber-chrome-100 scanline-overlay">
       <WorkspaceRail />
-
       <div className={`${sidebarOpen ? 'block' : 'hidden'} lg:block flex-shrink-0`}>
         <ChannelSidebar />
       </div>
-
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar />
         <div className="flex-1 flex min-h-0">
@@ -57,7 +55,6 @@ function AppShell() {
           <RightPanel />
         </div>
       </div>
-
       <SettingsModal />
       <ToastContainer />
     </div>
@@ -90,7 +87,6 @@ function AppWithAuth() {
     );
   }
 
-  // No Google client ID configured — skip OAuth wrapper
   return (
     <AppProvider>
       <AppShell />

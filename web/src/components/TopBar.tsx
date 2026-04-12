@@ -9,10 +9,10 @@ export default function TopBar() {
   } = useApp();
 
   return (
-    <div className="h-14 border-b-3 border-nb-black dark:border-dark-border bg-nb-white dark:bg-dark-surface flex items-center px-4 gap-3">
+    <div className="h-14 border-b border-cyber-border bg-cyber-surface flex items-center px-4 gap-3">
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="lg:hidden w-8 h-8 border-2 border-nb-black dark:border-dark-border flex items-center justify-center hover:bg-nb-gray-100 dark:hover:bg-dark-elevated transition-colors"
+        className="lg:hidden w-8 h-8 border border-cyber-border flex items-center justify-center hover:bg-cyber-elevated hover:text-cyber-cyan transition-colors"
       >
         <Menu size={16} />
       </button>
@@ -20,30 +20,34 @@ export default function TopBar() {
       <div className="flex items-center gap-2 min-w-0">
         {(viewMode === 'channel' || viewMode === 'dm') && (
           <>
-            {viewMode === 'channel' && <Hash size={18} className="flex-shrink-0 text-nb-black dark:text-dark-text font-bold" />}
-            <h1 className="font-display font-extrabold text-lg text-nb-black dark:text-dark-text truncate">
+            {viewMode === 'channel' && <Hash size={18} className="flex-shrink-0 text-cyber-cyan" />}
+            <h1 className="font-display font-bold text-lg text-cyber-chrome-50 truncate tracking-wide">
               {activeChannelName}
             </h1>
           </>
         )}
         {viewMode === 'threads' && (
-          <h1 className="font-display font-extrabold text-lg text-nb-black dark:text-dark-text">Threads</h1>
+          <h1 className="font-display font-bold text-lg text-cyber-chrome-50 tracking-wide">THREADS</h1>
         )}
         {viewMode === 'agents' && (
-          <h1 className="font-display font-extrabold text-lg text-nb-black dark:text-dark-text">Agents</h1>
+          <h1 className="font-display font-bold text-lg text-cyber-chrome-50 tracking-wide">AGENTS</h1>
         )}
       </div>
 
       <div className="flex-1" />
 
       <div className="flex items-center gap-2 text-xs">
-        <span className={`flex items-center gap-1 px-2 py-0.5 border-2 font-semibold ${wsConnected ? 'border-nb-green bg-nb-green-light text-nb-black' : 'border-nb-red bg-nb-red-light text-nb-black'}`}>
+        <span className={`flex items-center gap-1 px-2 py-0.5 border font-mono text-2xs tracking-wider ${
+          wsConnected
+            ? 'border-cyber-green/30 bg-cyber-green/5 text-cyber-green'
+            : 'border-cyber-red/30 bg-cyber-red/5 text-cyber-red'
+        }`}>
           {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-          {wsConnected ? 'Connected' : 'Disconnected'}
+          {wsConnected ? 'ONLINE' : 'OFFLINE'}
         </span>
         {daemonConnected && (
-          <span className="flex items-center gap-1 px-2 py-0.5 border-2 border-nb-blue bg-nb-blue-light text-nb-black font-semibold">
-            Daemon
+          <span className="flex items-center gap-1 px-2 py-0.5 border border-cyber-cyan/30 bg-cyber-cyan/5 text-cyber-cyan font-mono text-2xs tracking-wider">
+            DAEMON
           </span>
         )}
       </div>
@@ -51,10 +55,10 @@ export default function TopBar() {
       <div className="flex items-center gap-1">
         <button
           onClick={() => rightPanel === 'members' ? closeRightPanel() : setRightPanel('members')}
-          className={`w-8 h-8 border-2 flex items-center justify-center transition-all
+          className={`w-8 h-8 border flex items-center justify-center transition-all duration-200
             ${rightPanel === 'members'
-              ? 'border-nb-black bg-nb-blue text-nb-white shadow-nb-sm dark:border-dark-border'
-              : 'border-nb-gray-200 dark:border-dark-border text-nb-gray-500 dark:text-dark-muted hover:border-nb-black dark:hover:border-dark-text hover:text-nb-black dark:hover:text-dark-text'
+              ? 'border-cyber-cyan/40 bg-cyber-cyan/10 text-cyber-cyan shadow-neon-cyan'
+              : 'border-cyber-border text-cyber-chrome-400 hover:border-cyber-cyan/30 hover:text-cyber-cyan'
             }`}
           title="Members"
         >
@@ -63,10 +67,10 @@ export default function TopBar() {
 
         <button
           onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}
-          className={`w-8 h-8 border-2 flex items-center justify-center transition-all
+          className={`w-8 h-8 border flex items-center justify-center transition-all duration-200
             ${rightPanel
-              ? 'border-nb-black bg-nb-orange text-nb-black shadow-nb-sm dark:border-dark-border'
-              : 'border-nb-gray-200 dark:border-dark-border text-nb-gray-500 dark:text-dark-muted hover:border-nb-black dark:hover:border-dark-text hover:text-nb-black dark:hover:text-dark-text'
+              ? 'border-cyber-magenta/40 bg-cyber-magenta/10 text-cyber-magenta shadow-neon-magenta'
+              : 'border-cyber-border text-cyber-chrome-400 hover:border-cyber-magenta/30 hover:text-cyber-magenta'
             }`}
           title={rightPanel ? 'Close Panel' : 'Open Panel'}
         >
