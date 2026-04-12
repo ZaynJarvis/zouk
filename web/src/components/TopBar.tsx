@@ -1,5 +1,6 @@
 import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import GlitchText from './glitch/GlitchText';
 
 export default function TopBar() {
   const {
@@ -21,16 +22,16 @@ export default function TopBar() {
         {(viewMode === 'channel' || viewMode === 'dm') && (
           <>
             {viewMode === 'channel' && <Hash size={18} className="flex-shrink-0 text-nc-cyan" />}
-            <h1 className="font-display font-extrabold text-lg text-nc-text-bright truncate tracking-wider">
+            <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright truncate tracking-wider" intensity="low">
               {activeChannelName}
-            </h1>
+            </GlitchText>
           </>
         )}
         {viewMode === 'threads' && (
-          <h1 className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider">Threads</h1>
+          <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider" intensity="low">Threads</GlitchText>
         )}
         {viewMode === 'agents' && (
-          <h1 className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider">Agents</h1>
+          <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider" intensity="low">Agents</GlitchText>
         )}
       </div>
 

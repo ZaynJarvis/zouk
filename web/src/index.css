@@ -190,8 +190,13 @@
     background: linear-gradient(90deg, transparent, rgba(94, 246, 255, 0.08), transparent);
     animation: scanlineMove 8s linear infinite;
     pointer-events: none;
-    z-index: 50;
+    z-index: 10;
   }
+}
+
+@keyframes scanlineMove {
+  0% { top: -5%; }
+  100% { top: 105%; }
 }
 
 @layer utilities {

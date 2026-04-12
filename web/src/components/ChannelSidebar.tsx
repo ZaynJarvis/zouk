@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import GlitchText from './glitch/GlitchText';
 
 function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
   title: string; count?: number; collapsed: boolean; onToggle: () => void; onAdd?: () => void;
@@ -57,7 +58,7 @@ export default function ChannelSidebar() {
     <div className="w-[260px] h-full bg-nc-surface border-r border-nc-border flex flex-col overflow-hidden">
       <div className="px-3 py-3 border-b border-nc-border">
         <div className="flex items-center justify-between">
-          <h2 className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider">ZOUK</h2>
+          <GlitchText as="h2" className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider" intensity="low">ZOUK</GlitchText>
           {totalUnread > 0 && (
             <span className="bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40">
               {totalUnread}

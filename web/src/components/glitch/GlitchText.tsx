@@ -16,9 +16,10 @@ export default function GlitchText({ children, className = '', as: Tag = 'span',
     : { minInterval: 2000, maxInterval: 5000, minSeverity: 0.3, maxSeverity: 0.8 };
 
   const ref = useGlitch<HTMLElement>(config);
+  const textContent = typeof children === 'string' ? children : undefined;
 
   return (
-    <Tag ref={ref as never} className={`glitch-text relative ${className}`}>
+    <Tag ref={ref as never} className={`glitch-text relative ${className}`} data-text={textContent}>
       {children}
     </Tag>
   );

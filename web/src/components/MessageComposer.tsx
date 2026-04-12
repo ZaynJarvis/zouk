@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import { useGlitch } from '../hooks/useGlitch';
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
   const { sendMessage, activeChannelName, viewMode, agents, humans } = useApp();
@@ -8,6 +9,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sendBtnRef = useGlitch<HTMLButtonElement>({ trigger: 'hover', minInterval: 150, maxInterval: 400, minSeverity: 0.2, maxSeverity: 0.5, minDuration: 60, maxDuration: 150 });
 
   const allMentionTargets = useMemo(() => {
     const targets: { name: string; type: 'agent' | 'human' }[] = [];
@@ -155,10 +157,11 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         />
 
         <button
+          ref={sendBtnRef}
           onClick={handleSubmit}
           disabled={!text.trim()}
           className={`
-            flex items-center justify-center w-11 border-l border-nc-border transition-all flex-shrink-0 self-stretch
+            flex items-center justify-center w-11 border-l border-nc-border transition-all flex-shrink-0 self-stretch glitch-text
             ${text.trim()
               ? 'bg-nc-cyan/15 text-nc-cyan hover:bg-nc-cyan/25'
               : 'bg-nc-elevated text-nc-muted cursor-not-allowed'
