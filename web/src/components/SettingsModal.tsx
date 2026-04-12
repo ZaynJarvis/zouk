@@ -8,7 +8,7 @@ import { themes, type ThemeId } from '../themes';
 type Section = 'profile' | 'appearance' | 'about';
 
 export default function SettingsModal() {
-  const { settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateProfile } = useApp();
+  const { settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateProfile, logout } = useApp();
   const [section, setSection] = useState<Section>('profile');
   const nc = theme === 'night-city';
   const [displayName, setDisplayName] = useState(currentUser);
@@ -126,7 +126,7 @@ export default function SettingsModal() {
                 <div className="pt-4 border-t border-nc-border">
                   <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                     <button
-                      onClick={() => { setSettingsOpen(false); }}
+                      onClick={() => { setSettingsOpen(false); logout(); }}
                       className="cyber-btn px-4 py-2 bg-nc-red/10 border border-nc-red/50 text-nc-red font-bold text-sm tracking-wider"
                     >
                       Disconnect
