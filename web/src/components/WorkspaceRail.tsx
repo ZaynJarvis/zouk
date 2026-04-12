@@ -1,6 +1,8 @@
-import { Hop as Home, MessageSquare, Bot, Settings } from 'lucide-react';
+import { MessagesSquare, GitBranch, Cpu, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
+
+const hoverConfig = { trigger: 'hover' as const, minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 };
 
 export default function WorkspaceRail() {
   const {
@@ -20,44 +22,50 @@ export default function WorkspaceRail() {
 
       <div className="w-8 cyber-divider my-1" />
 
-      <button
-        onClick={() => setViewMode('channel')}
-        className={`
-          cyber-btn w-10 h-10 border flex items-center justify-center
-          ${viewMode === 'channel' || viewMode === 'dm'
-            ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan shadow-nc-cyan'
-            : 'text-nc-muted border-nc-border hover:text-nc-cyan hover:border-nc-cyan/50'}
-        `}
-        title="Home"
-      >
-        <Home size={20} />
-      </button>
+      <ScanlineTear config={hoverConfig}>
+        <button
+          onClick={() => setViewMode('channel')}
+          className={`
+            cyber-btn w-10 h-10 border flex items-center justify-center
+            ${viewMode === 'channel' || viewMode === 'dm'
+              ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan shadow-nc-cyan'
+              : 'text-nc-muted border-nc-border hover:text-nc-cyan hover:border-nc-cyan/50'}
+          `}
+          title="Chat"
+        >
+          <MessagesSquare size={20} />
+        </button>
+      </ScanlineTear>
 
-      <button
-        onClick={() => setViewMode('threads')}
-        className={`
-          cyber-btn w-10 h-10 border flex items-center justify-center
-          ${viewMode === 'threads'
-            ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta shadow-nc-magenta'
-            : 'text-nc-muted border-nc-border hover:text-nc-magenta hover:border-nc-magenta/50'}
-        `}
-        title="Threads"
-      >
-        <MessageSquare size={20} />
-      </button>
+      <ScanlineTear config={hoverConfig}>
+        <button
+          onClick={() => setViewMode('threads')}
+          className={`
+            cyber-btn w-10 h-10 border flex items-center justify-center
+            ${viewMode === 'threads'
+              ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta shadow-nc-magenta'
+              : 'text-nc-muted border-nc-border hover:text-nc-magenta hover:border-nc-magenta/50'}
+          `}
+          title="Threads"
+        >
+          <GitBranch size={20} />
+        </button>
+      </ScanlineTear>
 
-      <button
-        onClick={() => setViewMode('agents')}
-        className={`
-          cyber-btn w-10 h-10 border flex items-center justify-center
-          ${viewMode === 'agents'
-            ? 'bg-nc-green/15 text-nc-green border-nc-green shadow-nc-green'
-            : 'text-nc-muted border-nc-border hover:text-nc-green hover:border-nc-green/50'}
-        `}
-        title="Agents"
-      >
-        <Bot size={20} />
-      </button>
+      <ScanlineTear config={hoverConfig}>
+        <button
+          onClick={() => setViewMode('agents')}
+          className={`
+            cyber-btn w-10 h-10 border flex items-center justify-center
+            ${viewMode === 'agents'
+              ? 'bg-nc-green/15 text-nc-green border-nc-green shadow-nc-green'
+              : 'text-nc-muted border-nc-border hover:text-nc-green hover:border-nc-green/50'}
+          `}
+          title="Agents"
+        >
+          <Cpu size={20} />
+        </button>
+      </ScanlineTear>
 
       <div className="flex-1" />
 

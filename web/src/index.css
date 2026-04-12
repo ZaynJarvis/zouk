@@ -220,7 +220,6 @@
 
   .cyber-btn-lg:hover {
     animation: cp-hue-strobe 420ms linear 1;
-    transform: translateY(-2px);
   }
 
   /* Glitch-hover with artifact blocks (for key interactive elements) */

@@ -306,17 +306,9 @@ export default function AgentsView() {
               <Bot size={28} className="text-nc-magenta" />
             </div>
             <h3 className="font-display font-black text-xl text-nc-text-bright mb-2 tracking-wider">NO_AGENT_SELECTED</h3>
-            <p className="text-sm text-nc-muted mb-4 font-mono">
+            <p className="text-sm text-nc-muted font-mono">
               Select an agent from the list or create a new one.
             </p>
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                onClick={() => setShowCreate(true)}
-                className="cyber-btn-lg flex items-center gap-1.5 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-              >
-                <Plus size={14} /> CREATE_AGENT
-              </button>
-            </ScanlineTear>
           </div>
         )}
       </div>
