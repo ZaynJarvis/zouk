@@ -601,121 +601,296 @@ html[data-theme="brutalist"] [class*="shadow-nc-"] {
 }
 
 /* ==========================================================================
-   Hermes theme — luxury refinement
+   Hermès theme — luxury maison
    Only applied when data-theme="hermes" is set on <html>.
+   Inspired by Hermès packaging (orange ribbon, brown trim, parchment),
+   hand-drawn editorial illustration, and artisanal craftsmanship.
    ========================================================================== */
 
-/* Panels — subtle warm shadow, clean background */
-html[data-theme="hermes"] .cyber-panel {
-  background: rgb(var(--nc-surface));
-  box-shadow: 0 1px 3px rgba(44,24,16,0.06), 0 4px 16px rgba(44,24,16,0.03);
-  border-radius: 3px;
+/* --- Global luxury typography --- */
+html[data-theme="hermes"] body {
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
-html[data-theme="hermes"] .cyber-panel-elevated {
-  background: rgb(var(--nc-elevated));
-  box-shadow: 0 2px 8px rgba(44,24,16,0.06);
-  border-radius: 3px;
+/* --- Selection — warm orange highlight --- */
+html[data-theme="hermes"] ::selection {
+  background-color: rgb(var(--nc-selection-bg) / 0.18);
+  color: rgb(38 22 12);
 }
 
-/* Buttons — refined, warm hover with orange accent */
-html[data-theme="hermes"] .cyber-btn {
-  border-radius: 2px;
-  font-family: 'Inter', system-ui, sans-serif;
+/* --- Scrollbar — thin, warm, elegant --- */
+html[data-theme="hermes"] .scrollbar-thin::-webkit-scrollbar {
+  width: 3px;
 }
 
-html[data-theme="hermes"] .cyber-btn:hover,
-html[data-theme="hermes"] .cyber-btn:focus-visible {
-  box-shadow: 0 1px 4px rgba(243,112,34,0.12);
-  border-color: rgb(var(--nc-cyan));
+html[data-theme="hermes"] .scrollbar-thin::-webkit-scrollbar-track {
+  background: rgb(var(--nc-deep));
 }
 
-html[data-theme="hermes"] .cyber-btn-lg {
-  border-radius: 2px;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-
-html[data-theme="hermes"] .cyber-btn-lg:hover,
-html[data-theme="hermes"] .cyber-btn-lg:focus-visible {
-  box-shadow: 0 2px 8px rgba(243,112,34,0.12);
-  border-color: rgb(var(--nc-cyan));
-}
-
-/* Input — warm focus border */
-html[data-theme="hermes"] .cyber-input {
-  border-radius: 2px;
-}
-
-html[data-theme="hermes"] .cyber-input:focus {
-  border-color: rgb(var(--nc-cyan));
-  box-shadow: 0 0 0 2px rgba(243,112,34,0.08);
-}
-
-/* Status chips — rounded, warm */
-html[data-theme="hermes"] .status-chip {
-  border-radius: 2px;
-}
-
-html[data-theme="hermes"] .status-chip-sm {
-  border-radius: 2px;
-}
-
-/* Tone colors — softer, muted luxury palette */
-html[data-theme="hermes"] .tone-critical {
-  background: rgb(var(--nc-red) / 0.06);
-  border-color: rgb(var(--nc-red) / 0.25);
-}
-
-html[data-theme="hermes"] .tone-terminal {
-  background: rgb(var(--nc-green) / 0.06);
-  border-color: rgb(var(--nc-green) / 0.25);
-}
-
-html[data-theme="hermes"] .tone-telemetry {
-  background: rgb(var(--nc-cyan) / 0.06);
-  border-color: rgb(var(--nc-cyan) / 0.25);
-}
-
-html[data-theme="hermes"] .tone-warning {
-  background: rgb(var(--nc-yellow) / 0.06);
-  border-color: rgb(var(--nc-yellow) / 0.25);
-}
-
-html[data-theme="hermes"] .tone-neutral {
-  background: rgb(var(--nc-elevated));
-  border-color: rgb(var(--nc-border));
-  color: rgb(var(--nc-text-bright));
-}
-
-/* Scrollbar — warm, subtle */
 html[data-theme="hermes"] .scrollbar-thin::-webkit-scrollbar-thumb {
   background-color: rgb(var(--nc-border));
-  border-radius: 2px;
+  border-radius: 99px;
 }
 
 html[data-theme="hermes"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background-color: rgb(var(--nc-cyan));
 }
 
-/* Border glow — subtle warm accent */
+/* --- Panels — signature orange ribbon top-border (Hermès box) --- */
+html[data-theme="hermes"] .cyber-panel {
+  background: rgb(var(--nc-surface));
+  border: 1px solid rgb(var(--nc-border));
+  border-top: 2px solid rgb(var(--nc-cyan));
+  border-radius: 2px;
+  box-shadow: 0 1px 2px rgba(38,22,12,0.04);
+}
+
+html[data-theme="hermes"] .cyber-panel-elevated {
+  background: rgb(var(--nc-elevated));
+  border: 1px solid rgb(var(--nc-border));
+  border-left: 3px solid rgb(var(--nc-yellow));
+  border-radius: 2px;
+  box-shadow: 0 1px 4px rgba(38,22,12,0.05);
+}
+
+/* --- Border glow → refined gold frame --- */
 html[data-theme="hermes"] .cyber-border-glow {
-  box-shadow: 0 0 0 1px rgb(var(--nc-cyan) / 0.15);
+  border: 1px solid rgb(var(--nc-yellow));
+  box-shadow: none;
 }
 
-/* Divider — warm gradient */
+/* --- Neon text → elegant serif emphasis, no glow --- */
+html[data-theme="hermes"] .neon-cyan {
+  text-shadow: none;
+  font-family: var(--nc-font-display);
+  font-weight: 600;
+}
+
+html[data-theme="hermes"] .neon-red {
+  text-shadow: none;
+  font-weight: 600;
+}
+
+html[data-theme="hermes"] .neon-green {
+  text-shadow: none;
+  font-weight: 600;
+}
+
+html[data-theme="hermes"] .neon-yellow {
+  text-shadow: none;
+  font-weight: 600;
+}
+
+html[data-theme="hermes"] .neon-magenta {
+  text-shadow: none;
+  font-weight: 600;
+}
+
+/* --- Buttons — refined with orange underline accent --- */
+html[data-theme="hermes"] .cyber-btn {
+  border-radius: 2px;
+  font-family: var(--nc-font-body);
+  letter-spacing: 0.04em;
+  transition: all 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+html[data-theme="hermes"] .cyber-btn::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  right: 50%;
+  height: 2px;
+  background: rgb(var(--nc-cyan));
+  transition: left 280ms cubic-bezier(0.4, 0, 0.2, 1), right 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-theme="hermes"] .cyber-btn:hover::after,
+html[data-theme="hermes"] .cyber-btn:focus-visible::after {
+  left: 20%;
+  right: 20%;
+}
+
+html[data-theme="hermes"] .cyber-btn:hover,
+html[data-theme="hermes"] .cyber-btn:focus-visible {
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: 0 2px 8px rgba(243,112,34,0.08);
+}
+
+html[data-theme="hermes"] .cyber-btn:active {
+  transform: translateY(1px);
+}
+
+html[data-theme="hermes"] .cyber-btn-lg {
+  border-radius: 2px;
+  font-family: var(--nc-font-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 500;
+  transition: all 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  border-width: 1px;
+  border-color: rgb(var(--nc-cyan));
+}
+
+html[data-theme="hermes"] .cyber-btn-lg:hover,
+html[data-theme="hermes"] .cyber-btn-lg:focus-visible {
+  background: rgb(var(--nc-cyan));
+  color: white;
+  box-shadow: 0 2px 12px rgba(243,112,34,0.15);
+}
+
+html[data-theme="hermes"] .cyber-btn-lg:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 4px rgba(243,112,34,0.1);
+}
+
+/* --- Input — warm focus with double-line ring --- */
+html[data-theme="hermes"] .cyber-input {
+  border-radius: 2px;
+  border-width: 1px;
+  transition: all 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-theme="hermes"] .cyber-input:focus {
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: 0 0 0 3px rgba(243,112,34,0.08), 0 0 0 1px rgba(243,112,34,0.2);
+}
+
+/* --- Status chips — elegant pills --- */
+html[data-theme="hermes"] .status-chip {
+  border-radius: 99px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  font-size: 0.7rem;
+  padding: 0.3rem 0.8rem;
+  border-width: 1px;
+  transition: all 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-theme="hermes"] .status-chip:hover {
+  box-shadow: 0 1px 4px rgba(38,22,12,0.08);
+  transform: translateY(-1px);
+}
+
+html[data-theme="hermes"] .status-chip-sm {
+  border-radius: 99px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-size: 0.6rem;
+  padding: 0.12rem 0.55rem;
+  border-width: 1px;
+}
+
+/* --- Tone colors — restrained, muted luxury --- */
+html[data-theme="hermes"] .tone-critical {
+  background: rgb(var(--nc-red) / 0.05);
+  border-color: rgb(var(--nc-red) / 0.2);
+  color: rgb(var(--nc-red));
+}
+
+html[data-theme="hermes"] .tone-terminal {
+  background: rgb(var(--nc-green) / 0.05);
+  border-color: rgb(var(--nc-green) / 0.2);
+  color: rgb(var(--nc-green));
+}
+
+html[data-theme="hermes"] .tone-telemetry {
+  background: rgb(var(--nc-cyan) / 0.06);
+  border-color: rgb(var(--nc-cyan) / 0.2);
+  color: rgb(var(--nc-cyan));
+}
+
+html[data-theme="hermes"] .tone-indigo {
+  background: rgb(var(--nc-indigo) / 0.06);
+  border-color: rgb(var(--nc-indigo) / 0.2);
+  color: rgb(var(--nc-indigo));
+}
+
+html[data-theme="hermes"] .tone-warning {
+  background: rgb(var(--nc-yellow) / 0.06);
+  border-color: rgb(var(--nc-yellow) / 0.2);
+  color: rgb(var(--nc-yellow));
+}
+
+html[data-theme="hermes"] .tone-neutral {
+  background: rgb(var(--nc-deep));
+  border-color: rgb(var(--nc-border));
+  color: rgb(var(--nc-text-bright));
+}
+
+/* --- Divider — thin orange center accent --- */
 html[data-theme="hermes"] .cyber-divider {
-  background: linear-gradient(90deg, transparent, rgb(var(--nc-border)), transparent);
+  height: 1px;
+  background: rgb(var(--nc-border));
+  position: relative;
 }
 
-/* Selection — orange highlight */
-html[data-theme="hermes"] ::selection {
-  background-color: rgb(var(--nc-selection-bg) / 0.15);
-  color: rgb(var(--nc-selection-text));
+html[data-theme="hermes"] .cyber-divider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -0.5px;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 2px;
+  background: rgb(var(--nc-cyan));
+  border-radius: 1px;
 }
 
-/* Code blocks — warm background */
+/* --- Message composer — warm focus with orange accent --- */
+html[data-theme="hermes"] .focus-within\:border-nc-cyan:focus-within {
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: 0 0 0 2px rgba(243,112,34,0.06);
+}
+
+/* --- Code blocks — parchment style --- */
 html[data-theme="hermes"] pre[class*="border"] {
-  border-radius: 3px;
+  border-radius: 2px;
+  border-left: 3px solid rgb(var(--nc-yellow));
+  background: rgb(var(--nc-deep));
+}
+
+/* --- Glitch hover → smooth luxury lift (no glitch) --- */
+html[data-theme="hermes"] .glitch-hover {
+  transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-theme="hermes"] .glitch-hover:hover,
+html[data-theme="hermes"] .glitch-hover:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(38,22,12,0.06);
+}
+
+/* --- Scanline overlay → warm paper grain texture --- */
+html[data-theme="hermes"] .scanline-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* --- Scanlines container → subtle paper texture --- */
+html[data-theme="hermes"] .cyber-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.012;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* --- Shadow utility → warm, refined --- */
+html[data-theme="hermes"] [class*="shadow-nc-"] {
+  box-shadow: 0 1px 3px rgba(38,22,12,0.06);
 }
 
 /* ==========================================================================

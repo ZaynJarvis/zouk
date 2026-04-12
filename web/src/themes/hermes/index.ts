@@ -2,12 +2,12 @@ import './tokens.css';
 
 export const hermes = {
   id: 'hermes' as const,
-  name: 'Hermes',
-  description: 'Luxury warmth — Hermes orange, serif type, refined details',
+  name: 'Hermès',
+  description: 'Maison luxury — Hermès orange, Cormorant serif, artisanal warmth',
   preview: {
-    bg: '#FAF7F2',
-    surface: '#FFFFFF',
+    bg: '#F7F3EC',
+    surface: '#FCFAF6',
     accent: '#F37022',
-    text: '#2C1810',
+    text: '#261610',
   },
 };
