@@ -156,9 +156,32 @@ If your theme uses non-system fonts, add them to the Google Fonts link in `web/i
 
 Tailwind opacity modifiers work on all color tokens: `bg-nc-cyan/20`, `border-nc-red/50`, etc.
 
-## Glitch Components
+## Cyberpunk Effects & Glitch Components
 
-The `components/glitch/` folder contains `ScanlineTear`, `GlitchText`, and `GlitchTransition`. These are **shared components**, not theme-specific — they use CSS custom properties so their colors adapt per theme. They remain in `components/glitch/` rather than in theme folders because they contain JS logic (RAF loops, hooks) and are used across 8+ components.
+All cyberpunk visual effects are **scoped to the Night City theme only**. On other themes, the UI renders clean — no clip-path bevels, no neon glows, no scanlines, no glitch artifacts.
+
+### CSS scoping (`index.css`)
+
+- **Base styles** (all themes): structural properties — `position`, `border`, `background`, `transition`, `display`. Buttons are flat rectangles, panels are plain bordered boxes, no gradients or shadows.
+- **Night City overrides** (`html[data-theme="night-city"] .class`): adds clip-path bevels, gradient backgrounds, neon box-shadows, scanline pseudo-elements, hue-strobe hover animations. These only apply when `data-theme="night-city"`.
+
+### React components (`components/glitch/`)
+
+- **ScanlineTear** — On Night City: renders overlay div with glitch effect via `useGlitch` hook. On other themes: renders `<div>{children}</div>` directly — no overlay, no hook attachment, no RAF cycles.
+- **GlitchText** — On Night City: renders with `glitch-text` class and `data-text` attribute for pseudo-element effects. On other themes: renders plain `<Tag>{children}</Tag>`.
+- **GlitchTransition** — On Night City: full-screen glitch transition with bars and scramble text. On other themes: calls `onComplete` immediately with no visual effect.
+
+### Inline styles (`ncStyle` helper)
+
+For inline `textShadow` neon glows, use the `ncStyle()` helper from `lib/themeUtils.ts`:
+
+```tsx
+import { ncStyle } from '../lib/themeUtils';
+
+<div style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
+```
+
+`ncStyle()` returns the style object on Night City, empty object `{}` on other themes.
 
 ## Existing Themes
 
