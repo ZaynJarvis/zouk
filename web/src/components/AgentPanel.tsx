@@ -271,8 +271,8 @@ export default function AgentsView() {
             ))
           ) : (
             <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-              <div className="w-12 h-12 border border-nc-magenta/30 bg-nc-magenta/10 flex items-center justify-center mb-3">
-                <Bot size={20} className="text-nc-magenta" />
+              <div className="w-12 h-12 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-3">
+                <Bot size={20} className="text-nc-green" />
               </div>
               <p className="text-sm text-nc-muted font-bold font-mono">
                 {showArchived ? 'NO_ARCHIVED_AGENTS' : 'NO_AGENTS_FOUND'}
@@ -301,8 +301,8 @@ export default function AgentsView() {
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center bg-nc-surface">
-            <div className="w-16 h-16 border border-nc-magenta/30 bg-nc-magenta/10 flex items-center justify-center mb-4">
-              <Bot size={28} className="text-nc-magenta" />
+            <div className="w-16 h-16 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-4">
+              <Bot size={28} className="text-nc-green" />
             </div>
             <h3 className="font-display font-black text-xl text-nc-text-bright mb-2 tracking-wider">NO_AGENT_SELECTED</h3>
             <p className="text-sm text-nc-muted font-mono">
