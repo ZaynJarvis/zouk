@@ -285,6 +285,38 @@ async function loadMachineKeys() {
   }));
 }
 
+// ─── Auth sessions ────────────────────────────────────────────────
+
+async function saveSession(token, user) {
+  if (!db) return;
+  const { error } = await db.from('sessions').upsert({
+    token,
+    name: user.name,
+    email: user.email,
+    picture: user.picture || null,
+  }, { onConflict: 'token' });
+  if (error) console.error('[db] saveSession error:', error.message);
+}
+
+async function deleteSession(token) {
+  if (!db) return;
+  const { error } = await db.from('sessions').delete().eq('token', token);
+  if (error) console.error('[db] deleteSession error:', error.message);
+}
+
+async function loadSessions() {
+  if (!db) return null;
+  const { data, error } = await db.from('sessions').select('token,name,email,picture');
+  if (error) {
+    console.error('[db] loadSessions error:', error.message);
+    return null;
+  }
+  return (data || []).map(row => ({
+    token: row.token,
+    user: { name: row.name, email: row.email, picture: row.picture || null },
+  }));
+}
+
 module.exports = {
   enabled,
   migrate,
@@ -301,4 +333,7 @@ module.exports = {
   loadAgentConfigs,
   saveMachineKey,
   loadMachineKeys,
+  saveSession,
+  deleteSession,
+  loadSessions,
 };

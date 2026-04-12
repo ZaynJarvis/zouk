@@ -58,6 +58,18 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   config_json  JSONB NOT NULL DEFAULT '{}'
 );
 
+-- Auth sessions table (survives server restarts and deploys)
+CREATE TABLE IF NOT EXISTS sessions (
+  token      TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  email      TEXT NOT NULL,
+  picture    TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service role all" ON sessions FOR ALL USING (true);
+
 -- Machine API keys table (replaces data/machine-keys.json for Railway)
 CREATE TABLE IF NOT EXISTS machine_keys (
   id          TEXT PRIMARY KEY,

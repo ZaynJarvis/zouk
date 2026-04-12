@@ -18,6 +18,7 @@ const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const CONFIG_DIR = path.join(__dirname, "..", "data");
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
 const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
+const SESSIONS_FILE = path.join(CONFIG_DIR, "sessions.json");
 
 // ─── Agent config persistence ────────────────────────────────────
 
@@ -1286,8 +1287,60 @@ function handleWebMessage(ws, msg) {
 
 // ─── Auth: Google OAuth ──────────────────────────────────────────
 
-// In-memory session store: token -> { name, email, picture }
+// Session store: token -> { name, email, picture }
+// Persisted to data/sessions.json so sessions survive server restarts.
 const authSessions = new Map();
+
+// Load sessions from Supabase (when available) or local file fallback.
+// Called at startup — must be awaited before server accepts requests.
+async function loadAuthSessions() {
+  if (db.enabled) {
+    try {
+      const rows = await db.loadSessions();
+      if (rows) {
+        for (const { token, user } of rows) authSessions.set(token, user);
+        console.log(`[auth] Loaded ${authSessions.size} session(s) from Supabase`);
+        return;
+      }
+    } catch (e) {
+      console.warn("[auth] Supabase session load failed, falling back to disk:", e.message);
+    }
+  }
+  // Local file fallback (local dev without Supabase)
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const entries = JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8"));
+      for (const [token, user] of entries) authSessions.set(token, user);
+      console.log(`[auth] Loaded ${authSessions.size} session(s) from disk`);
+    }
+  } catch (e) {
+    console.warn("[auth] Failed to load sessions from disk:", e.message);
+  }
+}
+
+async function persistSession(token, user) {
+  if (db.enabled) {
+    await db.saveSession(token, user);
+  } else {
+    try {
+      fs.writeFileSync(SESSIONS_FILE, JSON.stringify([...authSessions.entries()]), "utf8");
+    } catch (e) {
+      console.warn("[auth] Failed to save sessions to disk:", e.message);
+    }
+  }
+}
+
+async function removeSession(token) {
+  if (db.enabled) {
+    await db.deleteSession(token);
+  } else {
+    try {
+      fs.writeFileSync(SESSIONS_FILE, JSON.stringify([...authSessions.entries()]), "utf8");
+    } catch (e) {
+      console.warn("[auth] Failed to save sessions to disk:", e.message);
+    }
+  }
+}
 
 app.post("/api/auth/google", async (req, res) => {
   const { credential } = req.body;
@@ -1307,6 +1360,7 @@ app.post("/api/auth/google", async (req, res) => {
       picture: payload.picture || null,
     };
     authSessions.set(sessionToken, user);
+    persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
 
     // Register as human if not already present
     if (!store.humans.find((h) => h.name === user.name)) {
@@ -1330,7 +1384,10 @@ app.get("/api/auth/me", (req, res) => {
 
 app.post("/api/auth/logout", (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (token) authSessions.delete(token);
+  if (token) {
+    authSessions.delete(token);
+    removeSession(token).catch(e => console.warn("[auth] removeSession error:", e.message));
+  }
   res.json({ ok: true });
 });
 
@@ -1422,6 +1479,7 @@ async function initFromDB() {
 
 server.listen(PORT, async () => {
   await initFromDB();
+  await loadAuthSessions();
   console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);
   console.log(`\n  Daemon endpoint:  ws://localhost:${PORT}/daemon/connect?key=test`);
   console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);
