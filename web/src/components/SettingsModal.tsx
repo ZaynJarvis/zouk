@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { X, User, Palette, Monitor } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
+import { getAllThemes } from '../themes';
 
 type Section = 'profile' | 'appearance' | 'about';
 
@@ -126,39 +127,16 @@ export default function SettingsModal() {
                 <div>
                   <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Theme</label>
                   <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => handleThemeChange('dark')}
-                      className={`flex items-center gap-3 p-4 border transition-all ${
-                        theme === 'dark'
-                          ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                          : 'border-nc-border hover:border-nc-cyan/50'
-                      }`}
-                    >
-                      <div className="w-10 h-10 bg-nc-black border border-nc-border flex items-center justify-center">
-                        <span className="text-nc-cyan text-xs font-mono">NC</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-sm text-nc-text-bright">Night City</div>
-                        <div className="text-xs text-nc-muted">Dark cyberpunk</div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => handleThemeChange('light')}
-                      className={`flex items-center gap-3 p-4 border transition-all ${
-                        theme === 'light'
-                          ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                          : 'border-nc-border hover:border-nc-cyan/50'
-                      }`}
-                    >
-                      <div className="w-10 h-10 bg-nc-elevated border border-nc-border flex items-center justify-center">
-                        <span className="text-nc-yellow text-xs font-mono">DY</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-sm text-nc-text-bright">Daylight</div>
-                        <div className="text-xs text-nc-muted">Bright variant</div>
-                      </div>
-                    </button>
+                    {getAllThemes().map(({ id, entry }) => {
+                      const Btn = entry.ThemeSelectButton;
+                      return (
+                        <Btn
+                          key={id}
+                          selected={theme === id}
+                          onClick={() => handleThemeChange(id)}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               </div>

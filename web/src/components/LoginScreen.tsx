@@ -2,6 +2,7 @@ import { useApp } from '../store/AppContext';
 import { useState, useEffect, useCallback } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
 import { useGlitch } from '../hooks/useGlitch';
+import { getAllThemes } from '../themes';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
 
@@ -41,7 +42,7 @@ function ScrambleTitle() {
 }
 
 export default function LoginScreen() {
-  const { loginAsGuest } = useApp();
+  const { loginAsGuest, theme, setTheme } = useApp();
   const [loading, setLoading] = useState(false);
   const [glitchActive, setGlitchActive] = useState(false);
   const btnRef = useGlitch<HTMLButtonElement>({ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.6, minDuration: 80, maxDuration: 200 });
@@ -103,6 +104,13 @@ export default function LoginScreen() {
             <div className="h-px flex-1 bg-nc-border" />
             <span className="text-2xs text-nc-muted/60 font-mono">v2.0.77</span>
             <div className="h-px flex-1 bg-nc-border" />
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {getAllThemes().map(({ id, entry }) => {
+              const Btn = entry.ThemeSelectButton;
+              return <Btn key={id} selected={theme === id} onClick={() => setTheme(id)} />;
+            })}
           </div>
 
           <p className="mt-3 text-2xs text-nc-muted/50 text-center font-mono tracking-wider">
