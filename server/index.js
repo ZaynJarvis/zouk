@@ -784,7 +784,7 @@ function startAgentOnDaemon(id, config) {
   }));
 
   daemonSockets.set(id, targetWs);
-  broadcastToWeb({ type: "agent_status", agentId: id, status: "starting" });
+  broadcastToWeb({ type: "agent_started", agent: { id, ...store.agents[id] } });
   console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
   return { agentId: id, status: "starting" };
 }
@@ -933,11 +933,16 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         for (const agentId of msg.runningAgents) {
           connectedAgents.add(agentId);
           daemonSockets.set(agentId, ws);
-          if (!store.agents[agentId]) {
+          const isNew = !store.agents[agentId];
+          if (isNew) {
             store.agents[agentId] = { name: agentId, displayName: agentId, runtime: "claude", model: "unknown", status: "active" };
           }
           store.agents[agentId].status = "active";
-          broadcastToWeb({ type: "agent_status", agentId, status: "active" });
+          if (isNew) {
+            broadcastToWeb({ type: "agent_started", agent: { id: agentId, ...store.agents[agentId] } });
+          } else {
+            broadcastToWeb({ type: "agent_status", agentId, status: "active" });
+          }
         }
       }
       break;
@@ -946,7 +951,8 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       const { agentId, status } = msg;
       connectedAgents.add(agentId);
       daemonSockets.set(agentId, ws);
-      if (!store.agents[agentId]) {
+      const isNew = !store.agents[agentId];
+      if (isNew) {
         store.agents[agentId] = { name: agentId, displayName: agentId, runtime: "claude", model: "unknown", status, machineId: ws._machineId };
       }
       store.agents[agentId].status = status;
@@ -956,7 +962,11 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       if (machine && !machine.agentIds.includes(agentId)) {
         machine.agentIds.push(agentId);
       }
-      broadcastToWeb({ type: "agent_status", agentId, status });
+      if (isNew) {
+        broadcastToWeb({ type: "agent_started", agent: { id: agentId, ...store.agents[agentId] } });
+      } else {
+        broadcastToWeb({ type: "agent_status", agentId, status });
+      }
       console.log(`[agent:${agentId}] Status: ${status}`);
       break;
     }
