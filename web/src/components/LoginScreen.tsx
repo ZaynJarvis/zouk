@@ -162,6 +162,10 @@ export default function LoginScreen() {
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
             {themes.map((t) => {
               const active = theme === t.id;
+              const isNight = t.id === 'night-city';
+              const isDaylight = t.id === 'daylight';
+              const isBrutalist = t.id === 'brutalist';
+
               return (
                 <button
                   key={t.id}
@@ -173,44 +177,39 @@ export default function LoginScreen() {
                       setGlitchActive(true);
                     }
                   }}
-                  className="group relative overflow-hidden border px-3 py-3 text-left transition-all duration-200"
+                  className={`relative overflow-hidden px-3 py-3 text-center transition-all duration-200 ${
+                    isNight
+                      ? 'cyber-btn cyber-bevel-sm uppercase font-display tracking-[0.18em]'
+                      : isDaylight
+                        ? 'rounded-md font-body font-semibold tracking-[0.12em]'
+                        : 'font-display font-black tracking-[0.14em] uppercase'
+                  }`}
                   style={{
-                    borderColor: active ? t.preview.accent : 'rgb(var(--nc-border))',
-                    background: active ? `${t.preview.accent}18` : 'rgb(var(--nc-panel) / 0.45)',
-                    boxShadow: active ? `0 0 0 1px ${t.preview.accent}30` : 'none',
+                    border: isBrutalist ? '3px solid #171717' : `1px solid ${active ? t.preview.accent : `${t.preview.accent}88`}`,
+                    background: isNight
+                      ? (active ? 'rgba(94, 246, 255, 0.16)' : 'rgba(10, 10, 15, 0.92)')
+                      : isDaylight
+                        ? (active ? 'linear-gradient(180deg, #ffffff 0%, #f3f4f6 100%)' : 'linear-gradient(180deg, #f9fafb 0%, #eef2f7 100%)')
+                        : (active ? '#facc15' : '#fffaf0'),
+                    color: isDaylight ? '#111827' : t.preview.text,
+                    boxShadow: isNight
+                      ? (active ? '0 0 14px rgba(94,246,255,0.22)' : 'inset 0 1px 0 rgba(94,246,255,0.08)')
+                      : isDaylight
+                        ? (active ? '0 8px 20px rgba(15,23,42,0.10)' : '0 4px 14px rgba(15,23,42,0.06)')
+                        : (active ? '4px 4px 0 #171717' : '3px 3px 0 #171717'),
+                    textTransform: isDaylight ? 'none' : 'uppercase',
                   }}
                 >
-                  <div
-                    className="absolute left-0 right-0 top-0 h-1 opacity-90"
-                    style={{ background: t.preview.accent }}
-                  />
-                  <div
-                    className="absolute inset-0 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                    style={{ background: `${t.preview.accent}10` }}
-                  />
-                  <div className="relative flex items-start justify-between gap-3">
-                    <div>
-                      <div
-                        className="text-xs font-bold font-mono tracking-[0.18em]"
-                        style={{ color: active ? t.preview.accent : t.preview.text }}
-                      >
-                        {t.name.toUpperCase()}
-                      </div>
-                      <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-nc-muted">
-                        {t.description}
-                      </div>
-                    </div>
-                    <span
-                      className="status-chip-sm"
-                      style={{
-                        color: active ? t.preview.accent : t.preview.text,
-                        borderColor: `${t.preview.accent}55`,
-                        background: active ? `${t.preview.accent}18` : `${t.preview.accent}10`,
-                      }}
-                    >
-                      {active ? 'ACTIVE' : 'SWITCH'}
-                    </span>
-                  </div>
+                  {isNight && (
+                    <div
+                      className="absolute left-0 right-0 top-0 h-[2px] opacity-90"
+                      style={{ background: t.preview.accent }}
+                    />
+                  )}
+                  <span className="relative block text-xs">
+                    {t.name}
+                    {active ? ' / ACTIVE' : ''}
+                  </span>
                 </button>
               );
             })}
