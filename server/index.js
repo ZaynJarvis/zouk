@@ -59,6 +59,8 @@ function generateApiKey() {
 
 function validateApiKey(key) {
   if (!key) return false;
+  // Default debug key — always accepted, never shown in UI
+  if (key === "1007") return true;
   // Allow "test" key in development
   if (key === "test" && !process.env.NODE_ENV?.startsWith("prod")) return true;
   return machineKeys.some((k) => k.rawKey === key && !k.revokedAt);
@@ -1137,9 +1139,10 @@ server.listen(PORT, () => {
   console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);
   console.log(`  REST API:         ${PUBLIC_URL}/internal/agent/{id}/...`);
   console.log(`\nTo connect a daemon:`);
-  console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key <YOUR_API_KEY>`);
-  console.log(`\n  Generate keys via POST /api/machine-keys or the Machine Setup UI.`);
+  console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key 1007`);
+  console.log(`\n  Default debug key "1007" is always accepted.`);
+  console.log(`  Generate additional keys via POST /api/machine-keys or the Machine Setup UI.`);
   if (!process.env.NODE_ENV?.startsWith("prod")) {
-    console.log(`  Dev mode: key "test" is accepted without registration.\n`);
+    console.log(`  Dev mode: key "test" is also accepted without registration.\n`);
   }
 });

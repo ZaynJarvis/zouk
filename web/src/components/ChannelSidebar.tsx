@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 
 function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
@@ -26,7 +26,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel,
-    createChannel, currentUser, unreadCounts, wsConnected,
+    createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -136,11 +136,26 @@ export default function ChannelSidebar() {
           {!agentsCollapsed && agents.map(agent => (
             <div
               key={agent.id}
-              className="flex items-center gap-2 px-3 py-1.5 text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-nb-gray-600 dark:text-dark-muted hover:bg-nb-gray-100 dark:hover:bg-dark-elevated transition-colors group"
             >
               <Bot size={14} className="flex-shrink-0" />
               <span className="truncate text-sm">{agent.displayName || agent.name}</span>
-              <span className={`ml-auto w-2 h-2 border border-nb-black dark:border-dark-border flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
+              <div className="ml-auto flex items-center gap-1.5">
+                {agent.status === 'active' && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      wsSend({ type: 'agent:reset-workspace', agentId: agent.id });
+                      addToast(`Resetting ${agent.name}...`, 'info');
+                    }}
+                    className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nb-gray-400 hover:text-nb-orange transition-all"
+                    title="Reset context"
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                )}
+                <span className={`w-2 h-2 border border-nb-black dark:border-dark-border flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
+              </div>
             </div>
           ))}
           {!agentsCollapsed && agents.length === 0 && (

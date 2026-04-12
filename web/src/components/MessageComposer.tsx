@@ -51,7 +51,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onClick={handleSubmit}
           disabled={!text.trim()}
           className={`
-            flex items-center justify-center w-9 h-9 mr-1 mb-1 border-2 transition-all flex-shrink-0
+            flex items-center justify-center w-9 h-9 mr-1.5 mb-1.5 border-2 transition-all flex-shrink-0
             ${text.trim()
               ? 'border-nb-black bg-nb-green text-nb-black shadow-nb-sm hover:shadow-nb active:translate-x-[2px] active:translate-y-[2px] active:shadow-none'
               : 'border-nb-gray-300 dark:border-dark-border bg-nb-gray-100 dark:bg-dark-elevated text-nb-gray-400 dark:text-dark-muted cursor-not-allowed'
