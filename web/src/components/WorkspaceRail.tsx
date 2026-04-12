@@ -5,10 +5,7 @@ import ScanlineTear from './glitch/ScanlineTear';
 const hoverConfig = { trigger: 'hover' as const, minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 };
 
 export default function WorkspaceRail() {
-  const {
-    setViewMode, setSettingsOpen, viewMode,
-    wsConnected, daemonConnected,
-  } = useApp();
+  const { setViewMode, setSettingsOpen, viewMode } = useApp();
   return (
     <div className="w-[72px] h-full bg-nc-deep border-r border-nc-border flex flex-col items-center py-4 gap-3">
       <ScanlineTear>
@@ -68,17 +65,6 @@ export default function WorkspaceRail() {
       </ScanlineTear>
 
       <div className="flex-1" />
-
-      <div className="flex flex-col items-center gap-2 mb-2">
-        <div
-          className={`w-3 h-3 ${daemonConnected ? 'bg-nc-green shadow-nc-green' : 'bg-nc-muted/30'}`}
-          title={daemonConnected ? 'Daemon connected' : 'Daemon disconnected'}
-        />
-        <div
-          className={`w-3 h-3 ${wsConnected ? 'bg-nc-cyan shadow-nc-cyan' : 'bg-nc-red shadow-nc-red'}`}
-          title={wsConnected ? 'WebSocket connected' : 'WebSocket disconnected'}
-        />
-      </div>
 
       <ScanlineTear config={{ trigger: 'hover', minInterval: 300, maxInterval: 800, minSeverity: 0.2, maxSeverity: 0.6 }}>
         <button
