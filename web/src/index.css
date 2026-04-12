@@ -25,6 +25,7 @@
   --nc-font-display: 'Orbitron', system-ui, sans-serif;
   --nc-font-body: 'Rajdhani', system-ui, sans-serif;
   --nc-font-mono: 'Space Mono', 'JetBrains Mono', monospace;
+  --nc-font-message: inherit;
 }
 
 @layer base {
@@ -247,6 +248,11 @@
    Night City theme — cyberpunk decorations
    Only applied when data-theme="night-city" is set on <html>.
    ========================================================================== */
+
+/* Message text font — Fira Code for wider, monospaced readability */
+html[data-theme="night-city"] {
+  --nc-font-message: 'Fira Code', 'JetBrains Mono', monospace;
+}
 
 /* Neon scrollbar hover */
 html[data-theme="night-city"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
