@@ -7,7 +7,7 @@ import { ncStyle } from '../lib/themeUtils';
 const MODELS_BY_PROVIDER: Record<string, string[]> = {
   claude: ['opus', 'sonnet', 'haiku'],
   codex: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex'],
-  hermes: ['gpt-5.4', 'gemini-2.5-flash', 'claude-sonnet-4-5'],
+  hermes: ['gpt-5.4', 'seed-code'],
   opencode: ['gpt-5.4', 'o3'],
   openclaw: ['gpt-5.4'],
   kimi: ['kimi-latest'],
@@ -16,7 +16,7 @@ const MODELS_BY_PROVIDER: Record<string, string[]> = {
 const DEFAULT_MODELS: Record<string, string> = {
   claude: 'sonnet',
   codex: 'gpt-5.4',
-  hermes: 'gpt-5.4',
+  hermes: 'seed-code',
   opencode: 'gpt-5.4',
   openclaw: 'gpt-5.4',
   kimi: 'kimi-latest',
