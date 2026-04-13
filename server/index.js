@@ -1384,8 +1384,9 @@ app.post("/api/auth/google", async (req, res) => {
     });
     const payload = ticket.getPayload();
     const sessionToken = crypto.randomBytes(32).toString("hex");
+    const rawName = payload.name || payload.email.split("@")[0];
     const user = {
-      name: payload.name || payload.email.split("@")[0],
+      name: rawName.replace(/\s+/g, "-"),
       email: payload.email,
       picture: payload.picture || null,
     };

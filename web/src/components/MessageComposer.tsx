@@ -80,7 +80,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         setMentionIndex(i => (i - 1 + mentionMatches.length) % mentionMatches.length);
         return;
       }
-      if (e.key === 'Enter' || e.key === 'Tab') {
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.nativeEvent.isComposing) {
         e.preventDefault();
         insertMention(mentionMatches[mentionIndex].mention);
         return;
@@ -92,7 +92,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSubmit();
     }
