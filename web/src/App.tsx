@@ -30,7 +30,7 @@ function AppShell() {
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-nc-black font-body text-nc-text cyber-scanlines">
+    <div className="app-shell flex overflow-hidden bg-nc-black font-body text-nc-text cyber-scanlines">
       <WorkspaceRail />
 
       {/* Mobile sidebar overlay */}

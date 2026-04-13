@@ -40,6 +40,11 @@ export function applyTheme(id: ThemeId) {
   if (favicon) {
     favicon.href = id === 'night-city' ? '/zouk-night-city.svg' : '/zouk.svg';
   }
+  const themeMeta = document.querySelector("meta[name='theme-color']") as HTMLMetaElement | null;
+  const theme = getTheme(id);
+  if (themeMeta && theme) {
+    themeMeta.content = theme.preview.bg;
+  }
 }
 
 export function getTheme(id: ThemeId): ThemeDefinition | undefined {

@@ -86,7 +86,7 @@ export default function LoginScreen() {
   const nc = theme === 'night-city';
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-nc-black font-body cyber-scanlines">
+    <div className="login-shell flex items-center justify-center bg-nc-black font-body cyber-scanlines">
       <GlitchTransition
         active={glitchActive}
         duration={500}
