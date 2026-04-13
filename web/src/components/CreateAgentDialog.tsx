@@ -6,19 +6,19 @@ import { ncStyle } from '../lib/themeUtils';
 
 const MODELS_BY_PROVIDER: Record<string, string[]> = {
   claude: ['opus', 'sonnet', 'haiku'],
-  codex: ['gpt-4.1', 'o3', 'o4-mini'],
+  codex: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex'],
   hermes: ['gpt-5.4', 'gemini-2.5-flash', 'claude-sonnet-4-5'],
-  opencode: ['gpt-4.1', 'o3'],
-  openclaw: ['gpt-4.1'],
+  opencode: ['gpt-5.4', 'o3'],
+  openclaw: ['gpt-5.4'],
   kimi: ['kimi-latest'],
 };
 
 const DEFAULT_MODELS: Record<string, string> = {
   claude: 'sonnet',
-  codex: 'gpt-4.1',
+  codex: 'gpt-5.4',
   hermes: 'gpt-5.4',
-  opencode: 'gpt-4.1',
-  openclaw: 'gpt-4.1',
+  opencode: 'gpt-5.4',
+  openclaw: 'gpt-5.4',
   kimi: 'kimi-latest',
 };
 
