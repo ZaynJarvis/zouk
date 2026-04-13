@@ -77,8 +77,11 @@ CREATE TABLE IF NOT EXISTS machine_keys (
   raw_key     TEXT UNIQUE NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_used_at TIMESTAMPTZ,
-  revoked_at  TIMESTAMPTZ
+  revoked_at  TIMESTAMPTZ,
+  bound_fingerprint TEXT
 );
+-- Migration: add bound_fingerprint to existing deployments
+ALTER TABLE machine_keys ADD COLUMN IF NOT EXISTS bound_fingerprint TEXT;
 
 -- Disable RLS for service-role access (server uses service key)
 ALTER TABLE messages      ENABLE ROW LEVEL SECURITY;

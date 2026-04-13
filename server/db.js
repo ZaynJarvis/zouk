@@ -261,6 +261,7 @@ async function saveMachineKey(key) {
     created_at: key.createdAt,
     last_used_at: key.lastUsedAt || null,
     revoked_at: key.revokedAt || null,
+    bound_fingerprint: key.boundFingerprint || null,
   }, { onConflict: 'id' });
   if (error) console.error('[db] saveMachineKey error:', error.message);
 }
@@ -282,6 +283,7 @@ async function loadMachineKeys() {
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at || null,
     revokedAt: row.revoked_at || null,
+    boundFingerprint: row.bound_fingerprint || null,
   }));
 }
 

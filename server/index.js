@@ -71,6 +71,17 @@ function validateApiKey(key) {
   return machineKeys.some((k) => k.rawKey === key && !k.revokedAt);
 }
 
+// Stable fingerprint for machine binding: SHA-256(hostname:os)
+function computeMachineFingerprint(hostname, os) {
+  const input = [hostname, os].filter(Boolean).join(':').toLowerCase();
+  return crypto.createHash('sha256').update(input).digest('hex');
+}
+
+// Whether this is a debug/dev key (not subject to machine binding)
+function isDebugKey(key) {
+  return key === "1007" || key === "test";
+}
+
 const machineKeys = loadMachineKeys(); // persistent machine API keys
 
 // ─── In-memory store ──────────────────────────────────────────────
@@ -843,7 +854,7 @@ app.get("/api/machine-keys", requireAuth, (req, res) => {
 });
 
 // Generate a new machine API key
-app.post("/api/machine-keys", requireAuth, (req, res) => {
+app.post("/api/machine-keys", requireAuth, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
 
@@ -855,10 +866,11 @@ app.post("/api/machine-keys", requireAuth, (req, res) => {
     createdAt: now(),
     lastUsedAt: null,
     revokedAt: null,
+    boundFingerprint: null,
   };
   machineKeys.push(keyRecord);
   saveMachineKeys(machineKeys);
-  db.saveMachineKey(keyRecord);
+  await db.saveMachineKey(keyRecord);
   console.log(`[keys] Generated machine key "${name}" (${rawKey.substring(0, 18)}...)`);
 
   res.json({
@@ -874,13 +886,13 @@ app.post("/api/machine-keys", requireAuth, (req, res) => {
 });
 
 // Revoke a machine API key
-app.delete("/api/machine-keys/:id", requireAuth, (req, res) => {
+app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const key = machineKeys.find((k) => k.id === id);
   if (!key) return res.status(404).json({ error: "Key not found" });
   key.revokedAt = now();
   saveMachineKeys(machineKeys);
-  db.saveMachineKey(key);
+  await db.saveMachineKey(key);
   console.log(`[keys] Revoked machine key "${key.name}"`);
   res.json({ success: true });
 });
@@ -1035,6 +1047,7 @@ function handleDaemonConnection(ws, apiKey) {
   console.log(`[daemon] Connected with key: ${apiKey?.substring(0, 8)}...`);
   let connectedAgents = new Set();
   daemonConnections.add(ws);
+  ws._apiKey = apiKey;
   ws._runtimes = []; // store runtimes reported by this daemon
   const machineId = uuidv4();
   ws._machineId = machineId;
@@ -1086,6 +1099,25 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         machine.runtimes = msg.runtimes || [];
         machine.capabilities = msg.capabilities || [];
         broadcastToWeb({ type: 'machine:updated', machine });
+      }
+      // Machine binding: silently bind or reject based on hostname:os fingerprint
+      if (!isDebugKey(ws._apiKey)) {
+        const keyRecord = machineKeys.find((k) => k.rawKey === ws._apiKey);
+        if (keyRecord) {
+          const fingerprint = computeMachineFingerprint(msg.hostname, msg.os);
+          if (!keyRecord.boundFingerprint) {
+            // First-time bind: record the fingerprint
+            keyRecord.boundFingerprint = fingerprint;
+            saveMachineKeys(machineKeys);
+            db.saveMachineKey(keyRecord);
+            console.log(`[daemon] Key "${keyRecord.name}" bound to machine fingerprint ${fingerprint.substring(0, 12)}...`);
+          } else if (keyRecord.boundFingerprint !== fingerprint) {
+            // Fingerprint mismatch: reject silently
+            console.log(`[daemon] Key "${keyRecord.name}" rejected — fingerprint mismatch (expected ${keyRecord.boundFingerprint.substring(0, 12)}..., got ${fingerprint.substring(0, 12)}...)`);
+            ws.close(1008, 'machine binding mismatch');
+            return;
+          }
+        }
       }
       // Auto-start configured agents after a short delay
       setTimeout(() => autoStartAgents(), 1000);
