@@ -27,6 +27,6 @@ html[data-theme="night-city"] {
 
   /* Font stacks */
   --nc-font-display: 'Orbitron', system-ui, sans-serif;
-  --nc-font-body: 'Rajdhani', system-ui, sans-serif;
+  --nc-font-body: 'Fira Code', 'Space Mono', monospace;
   --nc-font-mono: 'Fira Code', 'Space Mono', monospace;
 }
