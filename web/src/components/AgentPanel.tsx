@@ -113,7 +113,7 @@ function ConfigStartButton({
 }
 
 export default function AgentsView() {
-  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, isGuest } = useApp();
+  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -174,6 +174,16 @@ export default function AgentsView() {
     if (window.innerWidth < 1024) setMobileShowDetail(true);
   };
 
+  const handleDeleteAgent = async () => {
+    if (!selected) return;
+    const label = selected.displayName || selected.name;
+    const confirmed = window.confirm(`Delete agent ${label}? This removes the saved config and disconnects the running agent.`);
+    if (!confirmed) return;
+    await deleteAgent(selected.id);
+    setSelectedId((current) => (current === selected.id ? null : current));
+    if (window.innerWidth < 1024) setMobileShowDetail(false);
+  };
+
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
       <div className={`${mobileShowDetail ? 'hidden' : 'flex'} lg:flex w-full lg:w-72 shrink-0 border-r-0 lg:border-r border-nc-border flex-col bg-nc-surface`}>
@@ -191,6 +201,18 @@ export default function AgentsView() {
                   }`}
                 >
                   {showArchived ? 'ACTIVE' : `ARCHIVED (${archivedCount})`}
+                </button>
+              </ScanlineTear>
+            )}
+            {!isGuest && (
+              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={() => setShowCreate(true)}
+                  className="cyber-btn flex items-center gap-1.5 px-3 h-8 border border-nc-cyan bg-nc-cyan/10 text-xs font-bold font-mono text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan"
+                  title="Add agent"
+                >
+                  <Plus size={14} />
+                  ADD_AGENT
                 </button>
               </ScanlineTear>
             )}
@@ -313,6 +335,7 @@ export default function AgentsView() {
             agent={selected}
             onUpdate={handleUpdateAgent}
             onStop={() => stopAgent(selected.id)}
+            onDelete={handleDeleteAgent}
             onBack={() => setMobileShowDetail(false)}
           />
         ) : (

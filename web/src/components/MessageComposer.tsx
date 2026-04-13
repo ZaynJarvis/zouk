@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import { buildMentionSearchTerms, MENTION_QUERY_REGEX, toMentionHandle } from '../lib/mentions';
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
   const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest } = useApp();
@@ -10,32 +11,48 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const allMentionTargets = useMemo(() => {
-    const targets: { name: string; type: 'agent' | 'human' }[] = [];
-    for (const a of agents) targets.push({ name: a.displayName || a.name, type: 'agent' });
-    for (const h of humans) targets.push({ name: h.name, type: 'human' });
+    const targets: { label: string; mention: string; type: 'agent' | 'human'; searchTerms: string[] }[] = [];
+    for (const a of agents) {
+      const label = a.displayName || a.name;
+      targets.push({
+        label,
+        mention: a.name,
+        type: 'agent',
+        searchTerms: buildMentionSearchTerms(a.name, a.displayName),
+      });
+    }
+    for (const h of humans) {
+      const label = h.name;
+      targets.push({
+        label,
+        mention: toMentionHandle(h.name),
+        type: 'human',
+        searchTerms: buildMentionSearchTerms(h.name),
+      });
+    }
     return targets;
   }, [agents, humans]);
 
   const mentionMatches = useMemo(() => {
     if (mentionQuery === null) return [];
     const q = mentionQuery.toLowerCase();
-    return allMentionTargets.filter(t => t.name.toLowerCase().startsWith(q)).slice(0, 8);
+    return allMentionTargets.filter(t => t.searchTerms.some(term => term.startsWith(q))).slice(0, 8);
   }, [mentionQuery, allMentionTargets]);
 
-  const insertMention = useCallback((name: string) => {
+  const insertMention = useCallback((mention: string) => {
     const el = textareaRef.current;
     if (!el) return;
     const cursorPos = el.selectionStart;
     const before = text.slice(0, cursorPos);
     const atIdx = before.lastIndexOf('@');
     if (atIdx < 0) return;
-    const newText = text.slice(0, atIdx) + `@${name} ` + text.slice(cursorPos);
+    const newText = text.slice(0, atIdx) + `@${mention} ` + text.slice(cursorPos);
     setText(newText);
     setMentionQuery(null);
     setMentionIndex(0);
     requestAnimationFrame(() => {
       el.focus();
-      const newPos = atIdx + name.length + 2;
+      const newPos = atIdx + mention.length + 2;
       el.setSelectionRange(newPos, newPos);
     });
   }, [text]);
@@ -65,7 +82,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        insertMention(mentionMatches[mentionIndex].name);
+        insertMention(mentionMatches[mentionIndex].mention);
         return;
       }
       if (e.key === 'Escape') {
@@ -93,7 +110,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
     const cursorPos = e.target.selectionStart;
     const before = val.slice(0, cursorPos);
-    const atMatch = before.match(/@([\w-]*)$/);
+    const atMatch = before.match(MENTION_QUERY_REGEX);
     if (atMatch) {
       setMentionQuery(atMatch[1]);
       setMentionIndex(0);
@@ -134,8 +151,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         <div className="absolute bottom-full left-5 right-5 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
           {mentionMatches.map((match, i) => (
             <button
-              key={match.name}
-              onMouseDown={(e) => { e.preventDefault(); insertMention(match.name); }}
+              key={`${match.type}:${match.mention}`}
+              onMouseDown={(e) => { e.preventDefault(); insertMention(match.mention); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
                 i === mentionIndex
                   ? 'bg-nc-cyan/10 text-nc-cyan'
@@ -146,7 +163,12 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                 ? <Bot size={14} className="flex-shrink-0 text-nc-green" />
                 : <User size={14} className="flex-shrink-0 text-nc-cyan" />
               }
-              <span className="font-bold font-mono">@{match.name}</span>
+              <div className="min-w-0 flex flex-col">
+                <span className="font-bold font-mono truncate">@{match.mention}</span>
+                {match.label !== match.mention && (
+                  <span className="text-xs text-nc-muted truncate">{match.label}</span>
+                )}
+              </div>
               <span className="text-xs text-nc-muted ml-auto font-mono">{match.type}</span>
             </button>
           ))}
