@@ -6,7 +6,7 @@ function normalizeWhitespace(value: string): string {
 }
 
 export function toMentionHandle(value: string): string {
-  return normalizeWhitespace(value).replace(/\s+/g, '_');
+  return normalizeWhitespace(value).toLowerCase().replace(/\s+/g, '_');
 }
 
 export function buildMentionSearchTerms(...values: Array<string | undefined>): string[] {
