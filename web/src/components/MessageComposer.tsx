@@ -9,6 +9,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
 
   const allMentionTargets = useMemo(() => {
     const targets: { label: string; mention: string; type: 'agent' | 'human'; searchTerms: string[] }[] = [];
@@ -93,6 +94,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
+      // Don't send while IME composition is active (e.g. Chinese/Japanese input)
+      if (isComposingRef.current) return;
       e.preventDefault();
       handleSubmit();
     }
@@ -181,9 +184,11 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onCompositionStart={() => { isComposingRef.current = true; }}
+          onCompositionEnd={() => { isComposingRef.current = false; }}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
-          className="flex-1 px-3 py-2.5 bg-transparent text-sm font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[46px]"
+          className="flex-1 px-3 py-2.5 bg-transparent text-base sm:text-sm font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[46px]"
         />
 
         <button
