@@ -81,7 +81,7 @@ export default function ChannelSidebar() {
         </div>
       </div>
 
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${!nc && !wapo ? 'px-1' : ''}`}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${!nc && !wapo ? 'px-2' : ''}`}>
         <div>
           <SectionHeader
             title="Channels"
