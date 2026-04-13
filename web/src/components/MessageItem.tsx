@@ -3,6 +3,7 @@ import { MessageSquare, Bot, Paperclip } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
+import { MENTION_TOKEN_REGEX } from '../lib/mentions';
 import { ncStyle } from '../lib/themeUtils';
 
 function formatTime(dateStr: string): string {
@@ -36,7 +37,7 @@ function parseMessageContent(content: string): React.ReactNode[] {
 }
 
 function parseInlineContent(text: string, keyOffset: number): React.ReactNode[] {
-  const mentionRegex = /@([\w-]+)/g;
+  const mentionRegex = new RegExp(MENTION_TOKEN_REGEX);
   const parts: React.ReactNode[] = [];
   let lastIdx = 0;
   let m;

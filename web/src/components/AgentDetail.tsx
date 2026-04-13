@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Server } from 'lucide-react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Server, Trash2 } from 'lucide-react';
 import type { ServerAgent, ServerMachine, Skill } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -337,11 +337,13 @@ function SettingsTab({
   machines,
   onUpdate,
   onStop,
+  onDelete,
 }: {
   agent: ServerAgent;
   machines?: ServerMachine[];
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
+  onDelete: () => void;
 }) {
   const { isGuest } = useApp();
   const [displayName, setDisplayName] = useState(agent.displayName || agent.name);
@@ -498,7 +500,7 @@ function SettingsTab({
         )}
 
         {!isGuest && (
-          <div className="flex items-center gap-3 pt-3 border-t border-nc-border">
+          <div className="flex items-center gap-3 pt-3 border-t border-nc-border flex-wrap">
             {isDirty && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
@@ -509,6 +511,14 @@ function SettingsTab({
                 </button>
               </ScanlineTear>
             )}
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={onDelete}
+                className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-red bg-nc-red/10 text-sm font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono"
+              >
+                <Trash2 size={12} /> DELETE_AGENT
+              </button>
+            </ScanlineTear>
             {agent.status === 'active' && (
               <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
@@ -531,12 +541,14 @@ export default function AgentDetail({
   machines,
   onUpdate,
   onStop,
+  onDelete,
   onBack,
 }: {
   agent: ServerAgent;
   machines?: ServerMachine[];
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
+  onDelete: () => void;
   onBack?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('instructions');
@@ -602,7 +614,7 @@ export default function AgentDetail({
         {tab === 'instructions' && <InstructionsTab agent={agent} onUpdate={onUpdate} />}
         {tab === 'workspace' && <WorkspaceTab agent={agent} />}
         {tab === 'activity' && <ActivityTab agent={agent} />}
-        {tab === 'settings' && <SettingsTab agent={agent} machines={machines} onUpdate={onUpdate} onStop={onStop} />}
+        {tab === 'settings' && <SettingsTab agent={agent} machines={machines} onUpdate={onUpdate} onStop={onStop} onDelete={onDelete} />}
       </div>
     </div>
   );

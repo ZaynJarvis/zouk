@@ -269,12 +269,29 @@ function deliverToAgent(agentId, message) {
   }
 }
 
+function mentionAliases(...values) {
+  const aliases = new Set();
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) continue;
+    aliases.add(trimmed);
+    aliases.add(trimmed.replace(/\s+/g, "_"));
+  }
+  return [...aliases].map((alias) => alias.toLowerCase());
+}
+
+function agentMatchesMention(agent, mention) {
+  const normalizedMention = String(mention || "").trim().toLowerCase();
+  if (!normalizedMention) return false;
+  return mentionAliases(agent?.name, agent?.displayName).includes(normalizedMention);
+}
+
 function extractMentions(content) {
   const mentions = [];
-  const regex = /@([\w-]+)/g;
+  const regex = /@([\p{L}\p{N}_-]+)/gu;
   let match;
   while ((match = regex.exec(content)) !== null) {
-    mentions.push(match[1]);
+    mentions.push(match[1].toLowerCase());
   }
   return mentions;
 }
@@ -282,7 +299,7 @@ function extractMentions(content) {
 function deliverToAllAgents(message, excludeAgent = null) {
   const mentions = extractMentions(message.content || "");
   const hasSpecificMention = mentions.some((m) =>
-    Object.values(store.agents).some((a) => a.name === m || a.displayName === m)
+    Object.values(store.agents).some((a) => agentMatchesMention(a, m))
   );
   const dmPeer = message.channelType === "dm" ? message.channelName.replace(/^dm-/, "") : null;
 
@@ -298,7 +315,7 @@ function deliverToAllAgents(message, excludeAgent = null) {
 
     // If message mentions specific agent(s), only deliver to them
     if (hasSpecificMention) {
-      const isTargeted = mentions.includes(agent.name) || mentions.includes(agent.displayName);
+      const isTargeted = mentions.some((mention) => agentMatchesMention(agent, mention));
       if (!isTargeted) continue;
     }
 
