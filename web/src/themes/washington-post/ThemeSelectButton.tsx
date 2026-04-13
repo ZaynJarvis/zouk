@@ -63,6 +63,7 @@ const css = `
   line-height: 1;
   font-weight: 700;
   letter-spacing: -0.03em;
+  color: #7c2430;
 }
 .wp-theme-btn__note {
   position: relative;
@@ -102,9 +103,7 @@ export default function WashingtonPostThemeSelectButton({ selected, onClick }: P
       onClick={handleClick}
       aria-pressed={selected}
     >
-      <span className="wp-theme-btn__kicker">Editorial Theme</span>
-      <span className="wp-theme-btn__title">Post Script</span>
-      <span className="wp-theme-btn__note">hand-marked notes</span>
+      <span className="wp-theme-btn__title">Washington Post</span>
     </button>
   );
 }

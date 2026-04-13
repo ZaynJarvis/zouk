@@ -16,6 +16,7 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
   const ref = useRef<T>(null);
   const intervalRef = useRef<ReturnType<typeof setTimeout>>();
   const burstRef = useRef<ReturnType<typeof setTimeout>>();
+  const hoverStartTimeRef = useRef<number | null>(null);
 
   const {
     minInterval = 2000,
@@ -58,8 +59,15 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
     // Clear any in-flight burst to prevent orphaned timers
     if (burstRef.current) clearTimeout(burstRef.current);
 
-    const severity = rand(minSeverity, maxSeverity);
-    const duration = rand(minDuration, maxDuration);
+    let severityMultiplier = 1;
+    if (trigger === 'hover' && hoverStartTimeRef.current !== null) {
+      const elapsedHoverTime = Date.now() - hoverStartTimeRef.current;
+      // Almost disappear after 2 seconds
+      severityMultiplier = Math.max(0.05, 1 - (elapsedHoverTime / 2000));
+    }
+
+    const severity = rand(minSeverity, maxSeverity) * severityMultiplier;
+    const duration = rand(minDuration, maxDuration) * severityMultiplier;
     let elapsed = 0;
     const step = 50;
 
@@ -73,11 +81,20 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
       burstRef.current = setTimeout(tick, step);
     };
     tick();
-  }, [minSeverity, maxSeverity, minDuration, maxDuration, setVars, clearVars]);
+  }, [minSeverity, maxSeverity, minDuration, maxDuration, setVars, clearVars, trigger]);
 
   const scheduleNext = useCallback(() => {
-    const baseMin = trigger === 'hover' ? minInterval * 0.3 : minInterval;
-    const baseMax = trigger === 'hover' ? maxInterval * 0.4 : maxInterval;
+    let baseMin = trigger === 'hover' ? minInterval * 0.3 : minInterval;
+    let baseMax = trigger === 'hover' ? maxInterval * 0.4 : maxInterval;
+    
+    if (trigger === 'hover' && hoverStartTimeRef.current !== null) {
+      const elapsedHoverTime = Date.now() - hoverStartTimeRef.current;
+      // Scale interval up very quickly after 2 seconds
+      const intervalMultiplier = Math.min(10, 1 + (elapsedHoverTime / 500));
+      baseMin *= intervalMultiplier;
+      baseMax *= intervalMultiplier;
+    }
+
     intervalRef.current = setTimeout(() => {
       startBurst();
       scheduleNext();
@@ -92,10 +109,12 @@ export function useGlitch<T extends HTMLElement>(config: GlitchConfig = {}) {
       scheduleNext();
     } else {
       const onEnter = () => {
+        hoverStartTimeRef.current = Date.now();
         startBurst();
         scheduleNext();
       };
       const onLeave = () => {
+        hoverStartTimeRef.current = null;
         if (intervalRef.current) clearTimeout(intervalRef.current);
         if (burstRef.current) clearTimeout(burstRef.current);
         clearVars(el);

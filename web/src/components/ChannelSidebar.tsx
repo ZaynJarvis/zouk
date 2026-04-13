@@ -66,7 +66,7 @@ export default function ChannelSidebar() {
           {nc
             ? <GlitchText as="h2" className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider" intensity="low">ZOUK</GlitchText>
             : wapo
-              ? <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk Post</h2>
+              ? <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk</h2>
               : <h2 className="font-display font-black text-lg text-nc-text-bright truncate">Zouk</h2>
           }
           {totalUnread > 0 && (
