@@ -106,6 +106,7 @@ export interface ServerHuman {
 }
 
 export interface AgentConfig {
+  id?: string;
   name: string;
   displayName?: string;
   description?: string;

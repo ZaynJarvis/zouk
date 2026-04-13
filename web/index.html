@@ -3,7 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/zouk.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0A0A0F" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Zouk" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <title>Zouk - Team Workspace</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,9 +21,16 @@
       (function(){
         var t=localStorage.getItem('zouk_theme');
         var theme=(t==='night-city'||t==='brutalist'||t==='washington-post')?t:'night-city';
+        var themeColors={
+          'night-city':'#0a0a0f',
+          'brutalist':'#fffcf5',
+          'washington-post':'#f4eee3'
+        };
         document.documentElement.setAttribute('data-theme',theme);
         var favicon=document.querySelector("link[rel='icon']");
         if(favicon) favicon.href=theme==='night-city'?'/zouk-night-city.svg':'/zouk.svg';
+        var themeMeta=document.querySelector("meta[name='theme-color']");
+        if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#0a0a0f');
       })();
     </script>
     <div id="root"></div>
