@@ -34,6 +34,7 @@ export interface ServerAgent {
   entries?: AgentEntry[];
   runtime?: string;
   model?: string;
+  machineId?: string;
   visibility?: 'workspace' | 'private';
   maxConcurrentTasks?: number;
   skills?: AgentSkill[];

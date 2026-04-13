@@ -92,6 +92,7 @@ export async function startAgent(config: {
   description?: string;
   runtime: string;
   model?: string;
+  machineId?: string;
   channels?: string[];
 }): Promise<{ agent: { id: string; name: string } }> {
   const url = `${getBaseUrl()}/api/agents/start`;

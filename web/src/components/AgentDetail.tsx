@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Trash2 } from 'lucide-react';
-import type { ServerAgent, Skill } from '../types';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Server, Trash2 } from 'lucide-react';
+import type { ServerAgent, ServerMachine, Skill } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
@@ -334,11 +334,13 @@ function ActivityTab({ agent }: { agent: ServerAgent }) {
 
 function SettingsTab({
   agent,
+  machines,
   onUpdate,
   onStop,
   onDelete,
 }: {
   agent: ServerAgent;
+  machines?: ServerMachine[];
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
   onDelete: () => void;
@@ -446,6 +448,28 @@ function SettingsTab({
           </div>
         </div>
 
+        {agent.machineId && (
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
+              <Server size={12} className="text-nc-green" /> MACHINE
+            </label>
+            <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
+              <span className="w-2 h-2 bg-nc-green shrink-0" />
+              <span className="font-bold text-sm text-nc-text-bright font-mono">
+                {machines?.find(m => m.id === agent.machineId)?.alias ||
+                 machines?.find(m => m.id === agent.machineId)?.hostname ||
+                 agent.machineId}
+              </span>
+              {machines?.find(m => m.id === agent.machineId)?.hostname &&
+               machines?.find(m => m.id === agent.machineId)?.alias && (
+                <span className="text-xs text-nc-muted font-mono">
+                  {machines?.find(m => m.id === agent.machineId)?.hostname}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div>
           <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CHANNEL_ACCESS</label>
           {agent.channels && agent.channels.length > 0 ? (
@@ -514,12 +538,14 @@ function SettingsTab({
 
 export default function AgentDetail({
   agent,
+  machines,
   onUpdate,
   onStop,
   onDelete,
   onBack,
 }: {
   agent: ServerAgent;
+  machines?: ServerMachine[];
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
   onDelete: () => void;
@@ -557,6 +583,13 @@ export default function AgentDetail({
         </div>
         <div className="text-xs text-nc-muted shrink-0 font-mono hidden sm:block">
           {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime} · {agent.model || '\u2014'}
+          {agent.machineId && (
+            <span className="ml-2 text-nc-green">
+              · {machines?.find(m => m.id === agent.machineId)?.alias ||
+                 machines?.find(m => m.id === agent.machineId)?.hostname ||
+                 agent.machineId}
+            </span>
+          )}
         </div>
       </div>
 
@@ -581,7 +614,7 @@ export default function AgentDetail({
         {tab === 'instructions' && <InstructionsTab agent={agent} onUpdate={onUpdate} />}
         {tab === 'workspace' && <WorkspaceTab agent={agent} />}
         {tab === 'activity' && <ActivityTab agent={agent} />}
-        {tab === 'settings' && <SettingsTab agent={agent} onUpdate={onUpdate} onStop={onStop} onDelete={onDelete} />}
+        {tab === 'settings' && <SettingsTab agent={agent} machines={machines} onUpdate={onUpdate} onStop={onStop} onDelete={onDelete} />}
       </div>
     </div>
   );

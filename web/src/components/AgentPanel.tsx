@@ -153,6 +153,7 @@ export default function AgentsView() {
     description: string;
     runtime: string;
     model: string;
+    machineId?: string;
     workDir: string;
   }) => {
     await startAgent({
@@ -160,6 +161,7 @@ export default function AgentsView() {
       description: config.description,
       runtime: config.runtime,
       model: config.model,
+      machineId: config.machineId,
     });
     setShowCreate(false);
   };
@@ -333,6 +335,7 @@ export default function AgentsView() {
         {selected ? (
           <AgentDetail
             agent={selected}
+            machines={machines}
             onUpdate={handleUpdateAgent}
             onStop={() => stopAgent(selected.id)}
             onDelete={handleDeleteAgent}

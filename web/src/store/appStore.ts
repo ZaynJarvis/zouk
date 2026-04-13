@@ -331,7 +331,7 @@ export function useAppStore() {
 
   const startAgentAction = useCallback(async (config: {
     id?: string; name: string; displayName?: string; description?: string;
-    runtime: string; model?: string; channels?: string[];
+    runtime: string; model?: string; machineId?: string; channels?: string[];
   }) => {
     try {
       await api.startAgent(config);

@@ -889,13 +889,25 @@ app.delete("/api/machine-keys/:id", requireAuth, (req, res) => {
 
 function startAgentOnDaemon(id, config) {
   const runtime = config.runtime || "claude";
+  const requestedMachineId = config.machineId;
 
-  // Find a daemon that supports the requested runtime
+  // Find the target daemon: prefer the one matching machineId, fall back to first with runtime
   let targetWs = null;
   for (const ws of daemonConnections) {
     if (ws.readyState === 1 && ws._runtimes?.includes(runtime)) {
-      targetWs = ws;
-      break;
+      if (!requestedMachineId || ws._machineId === requestedMachineId) {
+        targetWs = ws;
+        break;
+      }
+    }
+  }
+  // If a specific machine was requested but not found, fall back to any daemon with the runtime
+  if (!targetWs && requestedMachineId) {
+    for (const ws of daemonConnections) {
+      if (ws.readyState === 1 && ws._runtimes?.includes(runtime)) {
+        targetWs = ws;
+        break;
+      }
     }
   }
   if (!targetWs) return { error: "No daemon connected with the requested runtime" };
@@ -908,6 +920,7 @@ function startAgentOnDaemon(id, config) {
     model: config.model || (runtime === "claude" ? "claude-sonnet-4-20250514" : "default"),
     status: "starting",
     workDir: config.workDir || process.cwd(),
+    machineId: targetWs._machineId,
   };
 
   // Send agent:start to daemon

@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../store/AppContext';
 import MessageItem from './MessageItem';
 import type { MessageRecord } from '../types';
@@ -41,11 +41,38 @@ function formatDate(dateStr: string): string {
 export default function MessageList() {
   const { messages, activeChannelName, loadingMessages } = useApp();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // true after a loading transition — signals we need an instant scroll
+  const pendingInitialScrollRef = useRef(true);
   const channelMessages = messages.filter(m => m.channel_type !== 'thread');
 
+  // When loading starts (channel switch or page load), mark pending initial scroll
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [channelMessages.length]);
+    if (loadingMessages) {
+      pendingInitialScrollRef.current = true;
+    }
+  }, [loadingMessages]);
+
+  const scrollToBottom = useCallback((instant: boolean) => {
+    if (instant) {
+      const container = containerRef.current;
+      if (container) container.scrollTop = container.scrollHeight;
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (channelMessages.length === 0) return;
+    if (pendingInitialScrollRef.current) {
+      // Initial load or channel switch — scroll instantly so users land at the bottom
+      scrollToBottom(true);
+      pendingInitialScrollRef.current = false;
+    } else {
+      // New message arrived after initial load — smooth scroll
+      scrollToBottom(false);
+    }
+  }, [channelMessages.length, scrollToBottom]);
 
   if (loadingMessages) {
     return (
@@ -82,7 +109,7 @@ export default function MessageList() {
   let lastDate = '';
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin">
+    <div ref={containerRef} className="flex-1 overflow-y-auto scrollbar-thin">
       <div className="pt-4 pb-2">
         {channelMessages.map((msg, i) => {
           const msgDate = msg.timestamp ? formatDate(msg.timestamp) : '';
