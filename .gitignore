@@ -6,5 +6,4 @@ data/
 *.log
 .DS_Store
 
-CLAUDE.md
 tmp/
