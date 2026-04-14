@@ -21,6 +21,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   opencode: 'OpenCode',
   openclaw: 'OpenClaw',
   kimi: 'Kimi',
+  vikingbot: 'VikingBot',
 };
 
 const activityColors: Record<string, string> = {

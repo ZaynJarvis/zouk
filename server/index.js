@@ -933,7 +933,7 @@ function startAgentOnDaemon(id, config) {
     name: config.name || id,
     displayName: config.displayName || config.name || id,
     runtime,
-    model: config.model || (runtime === "claude" ? "claude-sonnet-4-20250514" : "default"),
+    model: config.model || (runtime === "claude" ? "claude-sonnet-4-20250514" : runtime === "vikingbot" ? "" : "default"),
     status: "starting",
     workDir: config.workDir || process.cwd(),
     machineId: targetWs._machineId,

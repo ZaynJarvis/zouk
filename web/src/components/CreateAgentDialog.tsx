@@ -11,6 +11,7 @@ const MODELS_BY_PROVIDER: Record<string, string[]> = {
   opencode: ['gpt-5.4', 'o3'],
   openclaw: ['gpt-5.4'],
   kimi: ['kimi-latest'],
+  vikingbot: [],
 };
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -20,6 +21,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   opencode: 'gpt-5.4',
   openclaw: 'gpt-5.4',
   kimi: 'kimi-latest',
+  vikingbot: '',
 };
 
 const RUNTIME_LABELS: Record<string, string> = {
@@ -29,6 +31,7 @@ const RUNTIME_LABELS: Record<string, string> = {
   opencode: 'OpenCode',
   openclaw: 'OpenClaw',
   kimi: 'Kimi',
+  vikingbot: 'VikingBot',
 };
 
 export interface CreateAgentConfig {
