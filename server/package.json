@@ -5,6 +5,7 @@
   "main": "index.js",
   "dependencies": {
     "google-auth-library": "^10.6.2",
-    "@supabase/supabase-js": "^2.49.4"
+    "@supabase/supabase-js": "^2.49.4",
+    "pg": "^8.13.1"
   }
 }

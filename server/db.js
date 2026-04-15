@@ -9,9 +9,13 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const { Client } = require('pg');
+const fs = require('fs');
+const path = require('path');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+const DATABASE_URL = process.env.DATABASE_URL || '';
 
 const enabled = Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
 const db = enabled
@@ -30,23 +34,22 @@ if (enabled) {
 
 async function migrate() {
   if (!db) return;
-  try {
-    // Use raw SQL via RPC for DDL — Supabase JS client doesn't have DDL helpers
-    const { error } = await db.rpc('run_migrations', {}).maybeSingle();
-    // If the RPC doesn't exist, create tables via the REST API workaround below
-    if (error && error.code === '42883') {
-      await createTablesViaInsert();
-    }
-  } catch (e) {
-    await createTablesViaInsert();
+  if (!DATABASE_URL) {
+    console.warn('[db] DATABASE_URL not set — skipping auto-migration (tables must exist)');
+    return;
   }
-}
-
-// Create tables by trying to insert and catching "table doesn't exist" errors.
-// The real DDL must be run in the Supabase SQL editor (see SUPABASE_SETUP.md).
-async function createTablesViaInsert() {
-  // No-op: tables must be created via Supabase SQL editor.
-  // This function is intentionally empty — see SUPABASE_SETUP.md.
+  const pg = new Client({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  try {
+    await pg.connect();
+    const sqlPath = path.join(__dirname, '..', 'SUPABASE_SETUP.sql');
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+    await pg.query(sql);
+    console.log('[db] Auto-migration complete — all tables verified');
+  } catch (e) {
+    console.error('[db] Auto-migration error:', e.message);
+  } finally {
+    await pg.end().catch(() => {});
+  }
 }
 
 // ─── Messages ─────────────────────────────────────────────────────

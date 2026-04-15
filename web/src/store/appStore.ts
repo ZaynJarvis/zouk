@@ -172,10 +172,14 @@ export function useAppStore() {
         break;
       }
       case 'agent_status': {
-        const e = event as { agentId: string; status: 'active' | 'inactive' };
-        setAgents(prev => prev.map(a =>
-          a.id === e.agentId ? { ...a, status: e.status } : a
-        ));
+        const e = event as { agentId: string; status: string };
+        if (e.status === 'deleted') {
+          setAgents(prev => prev.filter(a => a.id !== e.agentId));
+        } else {
+          setAgents(prev => prev.map(a =>
+            a.id === e.agentId ? { ...a, status: e.status as 'active' | 'inactive' } : a
+          ));
+        }
         break;
       }
       case 'agent_activity': {

@@ -837,6 +837,7 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
     delete store.agents[id];
     daemonSockets.delete(id);
   }
+  broadcastToWeb({ type: "agent_status", agentId: id, status: "deleted" });
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
   res.json({ success: true });
 });
