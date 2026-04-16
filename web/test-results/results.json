@@ -1,0 +1,38 @@
+{
+  "passed": 8,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "Agents view accessible",
+      "status": "PASS"
+    },
+    {
+      "name": "WorkspaceTestAgent visible in AgentPanel list (injected agent rendered)",
+      "status": "PASS"
+    },
+    {
+      "name": "FILES tab found and clicked in AgentDetail",
+      "status": "PASS"
+    },
+    {
+      "name": "\"notes\" is visible in workspace tree",
+      "status": "PASS"
+    },
+    {
+      "name": "\"notes\" row has expand chevron (rendered as directory, not flat file)",
+      "status": "PASS"
+    },
+    {
+      "name": "\"MEMORY.md\" is visible in workspace tree as a file entry",
+      "status": "PASS"
+    },
+    {
+      "name": "\"notes\" folder expanded — children (channels.md, work-log.md, etc.) visible",
+      "status": "PASS"
+    },
+    {
+      "name": "\"sub-notes\" nested directory visible inside expanded \"notes\"",
+      "status": "PASS"
+    }
+  ]
+}
