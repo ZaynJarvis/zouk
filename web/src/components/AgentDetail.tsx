@@ -4,6 +4,7 @@ import type { ServerAgent, ServerMachine, Skill } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
+import { formatRuntime } from '../lib/runtimeLabels';
 
 type Tab = 'instructions' | 'workspace' | 'activity' | 'settings';
 
@@ -13,16 +14,6 @@ const TAB_CONFIG: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: 'activity', label: 'ACTIVITY', icon: Activity },
   { key: 'settings', label: 'CONFIG', icon: Settings },
 ];
-
-const PROVIDER_LABELS: Record<string, string> = {
-  hermes: 'Hermes Agent',
-  claude: 'Claude Code',
-  codex: 'OpenAI Codex',
-  opencode: 'OpenCode',
-  openclaw: 'OpenClaw',
-  kimi: 'Kimi',
-  vikingbot: 'VikingBot',
-};
 
 const activityColors: Record<string, string> = {
   thinking: 'bg-nc-yellow animate-pulse',
@@ -443,7 +434,7 @@ function SettingsTab({
           <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">RUNTIME</label>
           <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
             <span className="font-bold text-sm text-nc-text-bright font-mono">
-              {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime || 'Unknown'}
+              {formatRuntime(agent.runtime) || 'Unknown'}
             </span>
             <span className="text-xs text-nc-muted font-mono">/ {agent.model || '\u2014'}</span>
           </div>
@@ -583,7 +574,7 @@ export default function AgentDetail({
           )}
         </div>
         <div className="text-xs text-nc-muted shrink-0 font-mono hidden sm:block">
-          {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime} · {agent.model || '\u2014'}
+          {formatRuntime(agent.runtime)} · {agent.model || '\u2014'}
           {agent.machineId && (
             <span className="ml-2 text-nc-green">
               · {machines?.find(m => m.id === agent.machineId)?.alias ||

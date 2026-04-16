@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Plus, ChevronDown, Globe, Lock, Server, AlertTriangle } from 'lucide-react';
-import type { RuntimeMeta, ServerMachine } from '../types';
+import type { ServerMachine } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
+import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 
 export interface CreateAgentConfig {
   name: string;
@@ -30,47 +31,28 @@ export default function CreateAgentDialog({
   const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id ?? '');
   const [runtime, setRuntime] = useState('');
   const [model, setModel] = useState('');
-  const [customModel, setCustomModel] = useState(false);
   const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
   const [machineOpen, setMachineOpen] = useState(false);
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId);
-  // Build a runtime catalog from the selected machine. Fall back to deriving entries
-  // from `runtimes` so older daemons (no catalog) still produce something usable.
-  const runtimeCatalog: RuntimeMeta[] = useMemo(() => {
-    if (!selectedMachine) return [];
-    if (selectedMachine.runtimeCatalog && selectedMachine.runtimeCatalog.length) {
-      return selectedMachine.runtimeCatalog;
-    }
-    return (selectedMachine.runtimes || []).map((id) => ({ id, displayName: id, models: [] }));
-  }, [selectedMachine]);
-  const runtimeIds = useMemo(() => runtimeCatalog.map(r => r.id), [runtimeCatalog]);
-  const currentRuntimeMeta = useMemo(
-    () => runtimeCatalog.find(r => r.id === runtime),
-    [runtimeCatalog, runtime],
-  );
-  const suggestedModels = useMemo(
-    () => currentRuntimeMeta?.models ?? [],
-    [currentRuntimeMeta],
-  );
+  const machineRuntimes = useMemo(() => selectedMachine?.runtimes || [], [selectedMachine]);
 
   // Keep `runtime` in sync with what the selected machine actually offers.
   useEffect(() => {
-    if (runtimeIds.length === 0) {
+    if (machineRuntimes.length === 0) {
       if (runtime) setRuntime('');
       return;
     }
-    if (!runtimeIds.includes(runtime)) {
-      setRuntime(runtimeIds[0]);
+    if (!machineRuntimes.includes(runtime)) {
+      setRuntime(machineRuntimes[0]);
     }
-  }, [runtimeIds, runtime]);
+  }, [machineRuntimes, runtime]);
 
-  // When runtime changes, reset model to its default suggestion (or empty for free-form).
+  // The daemon doesn't push a model catalog yet, so the user always types it
+  // manually. Reset on runtime change so a stale model doesn't carry over.
   useEffect(() => {
-    const next = currentRuntimeMeta?.defaultModel || suggestedModels[0] || '';
-    setModel(next);
-    setCustomModel(false);
-  }, [currentRuntimeMeta, suggestedModels]);
+    setModel('');
+  }, [runtime]);
 
   const canSubmit = name.trim().length > 0 && runtime.length > 0;
   const workDir = `~/.zouk/agents/${name.trim().toLowerCase() || '<name>'}`;
@@ -194,7 +176,7 @@ export default function CreateAgentDialog({
                           <span className="font-bold text-nc-text-bright font-mono">{m.alias || m.hostname}</span>
                           {m.alias && <span className="text-2xs text-nc-muted ml-1.5 font-mono">{m.hostname}</span>}
                           <div className="text-2xs text-nc-muted font-mono">
-                            {m.os} · Runtimes: {(m.runtimes || []).join(', ') || 'none'}
+                            {m.os} · Runtimes: {formatRuntimes(m.runtimes) || 'none'}
                           </div>
                         </div>
                       </button>
@@ -207,21 +189,20 @@ export default function CreateAgentDialog({
 
           <div>
             <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">RUNTIME</label>
-            {runtimeCatalog.length > 0 ? (
+            {machineRuntimes.length > 0 ? (
               <div className="flex gap-2 flex-wrap">
-                {runtimeCatalog.map((rt) => (
-                  <ScanlineTear key={rt.id} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                {machineRuntimes.map((rt) => (
+                  <ScanlineTear key={rt} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                     <button
                       type="button"
-                      onClick={() => setRuntime(rt.id)}
+                      onClick={() => setRuntime(rt)}
                       className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
-                        runtime === rt.id
+                        runtime === rt
                           ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
                           : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
                       }`}
-                      title={rt.version ? `${rt.displayName} (${rt.version})` : rt.displayName}
                     >
-                      {rt.displayName || rt.id}
+                      {formatRuntime(rt)}
                     </button>
                   </ScanlineTear>
                 ))}
@@ -278,46 +259,12 @@ export default function CreateAgentDialog({
           {runtime && (
             <div>
               <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">MODEL</label>
-              {suggestedModels.length > 0 && (
-                <div className="flex gap-2 flex-wrap mb-2">
-                  {suggestedModels.map((m) => (
-                    <ScanlineTear key={m} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                      <button
-                        type="button"
-                        onClick={() => { setModel(m); setCustomModel(false); }}
-                        className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
-                          !customModel && model === m
-                            ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
-                            : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                        }`}
-                      >
-                        {m}
-                      </button>
-                    </ScanlineTear>
-                  ))}
-                  <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                    <button
-                      type="button"
-                      onClick={() => { setCustomModel(true); setModel(''); }}
-                      className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
-                        customModel
-                          ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
-                          : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                      }`}
-                    >
-                      CUSTOM
-                    </button>
-                  </ScanlineTear>
-                </div>
-              )}
-              {(customModel || suggestedModels.length === 0) && (
-                <input
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder={suggestedModels.length === 0 ? 'Optional model identifier' : 'Custom model identifier'}
-                  className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-                />
-              )}
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="Optional model identifier (leave blank for runtime default)"
+                className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
+              />
             </div>
           )}
 
