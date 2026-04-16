@@ -12,15 +12,14 @@ function formatTime(dateStr: string): string {
 
 // ── Inline renderer: bold, italic, inline-code, @mentions ──────────────────
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
-  const mentionRegex = new RegExp(MENTION_TOKEN_REGEX);
-  const inlineRegex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_)/g;
-
   // Tokenise the string into mention tokens and inline-markdown tokens
   const segments: { raw: string; start: number }[] = [];
   let m: RegExpExecArray | null;
 
-  // collect mentions
-  const mentionRegexG = new RegExp(MENTION_TOKEN_REGEX, 'g');
+  // collect mentions. `new RegExp(source, flags)` replaces the pattern's
+  // flags entirely, so we must re-specify `u` — otherwise `\p{L}`/`\p{N}`
+  // become invalid escapes and the regex never matches.
+  const mentionRegexG = new RegExp(MENTION_TOKEN_REGEX.source, 'gu');
   while ((m = mentionRegexG.exec(text)) !== null) {
     segments.push({ raw: m[0], start: m.index });
   }
