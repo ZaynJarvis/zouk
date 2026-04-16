@@ -6,6 +6,7 @@ import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
 import ScanlineTear from './glitch/ScanlineTear';
+import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 
 const activityColors: Record<string, string> = {
   thinking: 'bg-nc-yellow animate-pulse',
@@ -13,16 +14,6 @@ const activityColors: Record<string, string> = {
   online: 'bg-nc-green',
   offline: 'bg-nc-muted/30',
   error: 'bg-nc-red',
-};
-
-const PROVIDER_LABELS: Record<string, string> = {
-  hermes: 'Hermes',
-  claude: 'Claude',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-  openclaw: 'OpenClaw',
-  kimi: 'Kimi',
-  vikingbot: 'VikingBot',
 };
 
 function AgentListItem({
@@ -56,7 +47,7 @@ function AgentListItem({
           <span className={`w-2 h-2 shrink-0 ${activityColors[activity]}`} />
         </div>
         <div className="text-2xs text-nc-muted truncate font-mono">
-          {PROVIDER_LABELS[agent.runtime || ''] || agent.runtime || 'No runtime'} · {agent.model || '—'}
+          {formatRuntime(agent.runtime) || 'No runtime'} · {agent.model || '—'}
         </div>
       </div>
       {agent.archivedAt && (
@@ -77,7 +68,7 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
       <span className="w-1.5 h-1.5 bg-nc-green shrink-0" />
       {machine.runtimes && (
         <span className="text-2xs text-nc-muted truncate ml-auto font-mono">
-          {machine.runtimes.join(', ')}
+          {formatRuntimes(machine.runtimes)}
         </span>
       )}
     </div>

@@ -256,7 +256,7 @@ function formatMessageForAgent(msg, recipientAgentId) {
 const daemonSockets = new Map(); // agentId -> ws
 const daemonConnections = new Set(); // all daemon ws connections (for sending agent:start before any agent is registered)
 const webSockets = new Set(); // web UI connections
-const machines = new Map(); // machineId -> { id, hostname, os, runtimes, runtimeCatalog, capabilities, connectedAt, agentIds }
+const machines = new Map(); // machineId -> { id, hostname, os, runtimes, capabilities, connectedAt, agentIds }
 
 function broadcastToWeb(event) {
   const data = JSON.stringify(event);
@@ -1056,7 +1056,7 @@ function handleDaemonConnection(ws, apiKey) {
   ws._runtimes = []; // store runtimes reported by this daemon
   const machineId = uuidv4();
   ws._machineId = machineId;
-  machines.set(machineId, { id: machineId, hostname: 'unknown', os: 'unknown', runtimes: [], runtimeCatalog: [], capabilities: [], connectedAt: now(), agentIds: [] });
+  machines.set(machineId, { id: machineId, hostname: 'unknown', os: 'unknown', runtimes: [], capabilities: [], connectedAt: now(), agentIds: [] });
   broadcastToWeb({ type: 'machine:connected', machine: machines.get(machineId) });
 
   ws.on("message", (data) => {
@@ -1096,18 +1096,12 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     case "ready": {
       console.log(`[daemon] Ready. Runtimes: ${msg.runtimes?.join(", ")}. Agents: ${msg.runningAgents?.join(", ") || "none"}`);
       ws._runtimes = msg.runtimes || [];
-      // Derive a runtime catalog. Prefer daemon-supplied catalog; fall back to runtime ids
-      // so older daemons still produce a sensible (model-less) catalog for the UI.
-      const runtimeCatalog = Array.isArray(msg.runtimeCatalog) && msg.runtimeCatalog.length
-        ? msg.runtimeCatalog
-        : (msg.runtimes || []).map((id) => ({ id, displayName: id, models: [] }));
       // Update machine record with real info from daemon
       const machine = machines.get(ws._machineId);
       if (machine) {
         machine.hostname = msg.hostname || 'unknown';
         machine.os = msg.os || 'unknown';
         machine.runtimes = msg.runtimes || [];
-        machine.runtimeCatalog = runtimeCatalog;
         machine.capabilities = msg.capabilities || [];
         broadcastToWeb({ type: 'machine:updated', machine });
       }
