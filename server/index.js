@@ -961,6 +961,29 @@ function startAgentOnDaemon(id, config) {
   daemonSockets.set(id, targetWs);
   broadcastToWeb({ type: "agent_started", agent: { id, ...store.agents[id] } });
   console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
+
+  // Upsert into agentConfigs so this agent survives a daemon restart. New
+  // agents default to autoStart:true (restart when the daemon reconnects);
+  // existing configs keep whatever autoStart the user set via the UI toggle.
+  const existingIdx = agentConfigs.findIndex((c) => c.id === id);
+  if (existingIdx < 0) {
+    const persisted = {
+      id,
+      name: store.agents[id].name,
+      displayName: store.agents[id].displayName,
+      description: config.description || "",
+      systemPrompt: config.systemPrompt || config.description || "",
+      runtime,
+      model: store.agents[id].model,
+      workDir: store.agents[id].workDir,
+      machineId: targetWs._machineId,
+      autoStart: true,
+    };
+    agentConfigs.push(persisted);
+    saveAgentConfigs(agentConfigs);
+    db.saveAgentConfig(persisted);
+    broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  }
   return { agentId: id, status: "starting" };
 }
 

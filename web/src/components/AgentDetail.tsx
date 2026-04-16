@@ -337,17 +337,25 @@ function SettingsTab({
   onStop: () => void;
   onDelete: () => void;
 }) {
-  const { isGuest } = useApp();
+  const { isGuest, configs } = useApp();
+  // autoStart lives on the saved config, not on the live agent record — pull
+  // it from configs so the toggle reflects what the server will do on daemon
+  // restart, not the transient agent runtime state.
+  const savedConfig = configs.find((c) => c.id === agent.id);
+  const savedAutoStart = savedConfig?.autoStart ?? true;
+
   const [displayName, setDisplayName] = useState(agent.displayName || agent.name);
   const [description, setDescription] = useState(agent.description || '');
   const [visibility, setVisibility] = useState<'workspace' | 'private'>(agent.visibility || 'workspace');
   const [maxConcurrent, setMaxConcurrent] = useState(agent.maxConcurrentTasks ?? 6);
+  const [autoStart, setAutoStart] = useState<boolean>(savedAutoStart);
 
   const isDirty =
     displayName !== (agent.displayName || agent.name) ||
     description !== (agent.description || '') ||
     visibility !== (agent.visibility || 'workspace') ||
-    maxConcurrent !== (agent.maxConcurrentTasks ?? 6);
+    maxConcurrent !== (agent.maxConcurrentTasks ?? 6) ||
+    autoStart !== savedAutoStart;
 
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
@@ -406,6 +414,44 @@ function SettingsTab({
                 <div>
                   <div className="font-bold text-sm text-nc-text-bright">Private</div>
                   <div className="text-xs text-nc-muted font-mono">Only you</div>
+                </div>
+              </button>
+            </ScanlineTear>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">AUTO_RESTART</label>
+          <div className="grid grid-cols-2 gap-3">
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                type="button"
+                onClick={() => setAutoStart(true)}
+                className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
+                  autoStart
+                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
+                    : 'border-nc-border hover:bg-nc-elevated'
+                }`}
+              >
+                <div>
+                  <div className="font-bold text-sm text-nc-text-bright">ON</div>
+                  <div className="text-xs text-nc-muted font-mono">Restart on daemon reconnect</div>
+                </div>
+              </button>
+            </ScanlineTear>
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                type="button"
+                onClick={() => setAutoStart(false)}
+                className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
+                  !autoStart
+                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
+                    : 'border-nc-border hover:bg-nc-elevated'
+                }`}
+              >
+                <div>
+                  <div className="font-bold text-sm text-nc-text-bright">OFF</div>
+                  <div className="text-xs text-nc-muted font-mono">Manual start only</div>
                 </div>
               </button>
             </ScanlineTear>
@@ -496,7 +542,7 @@ function SettingsTab({
             {isDirty && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
-                  onClick={() => onUpdate({ displayName, description, systemPrompt: description, visibility, maxConcurrentTasks: maxConcurrent })}
+                  onClick={() => onUpdate({ displayName, description, systemPrompt: description, visibility, maxConcurrentTasks: maxConcurrent, autoStart })}
                   className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
                 >
                   <Save size={12} /> SAVE
