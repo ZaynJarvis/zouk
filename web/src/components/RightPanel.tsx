@@ -2,6 +2,7 @@ import { useApp } from '../store/AppContext';
 import ThreadPanel from './ThreadPanel';
 import DetailsPanel from './DetailsPanel';
 import MembersPanel from './MembersPanel';
+import WorkspacePanel from './WorkspacePanel';
 
 export default function RightPanel() {
   const { rightPanel } = useApp();
@@ -15,6 +16,8 @@ export default function RightPanel() {
       return <DetailsPanel />;
     case 'members':
       return <MembersPanel />;
+    case 'workspace':
+      return <WorkspacePanel />;
     default:
       return null;
   }

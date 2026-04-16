@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Search, X } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -37,8 +37,23 @@ export default function ChannelSidebar() {
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+
+  const query = searchQuery.toLowerCase().trim();
+  const filteredChannels = useMemo(() =>
+    query ? channels.filter(c => c.name.toLowerCase().includes(query)) : channels,
+    [channels, query]
+  );
+  const filteredAgents = useMemo(() =>
+    query ? agents.filter(a => (a.displayName || a.name).toLowerCase().includes(query)) : agents,
+    [agents, query]
+  );
+  const filteredHumans = useMemo(() =>
+    query ? humans.filter(h => h.name !== currentUser && h.name.toLowerCase().includes(query)) : humans.filter(h => h.name !== currentUser),
+    [humans, currentUser, query]
+  );
 
   const handleCreateChannel = () => {
     const name = newChannelName.trim().replace(/[^a-z0-9-_]/gi, '-').toLowerCase();
@@ -81,11 +96,29 @@ export default function ChannelSidebar() {
         </div>
       </div>
 
+      <div className={`px-3 py-2 ${nc ? 'border-b border-nc-border' : wapo ? 'border-b border-nc-border' : 'border-b-[2px] border-nc-border-bright'}`}>
+        <div className={`flex items-center gap-1.5 px-2 py-1.5 ${nc ? 'bg-nc-panel border border-nc-border' : wapo ? 'bg-[#fffaf2] border border-nc-border rounded' : 'bg-nc-surface border-2 border-nc-border'}`}>
+          <Search size={14} className="text-nc-muted flex-shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search..."
+            className="w-full bg-transparent text-sm text-nc-text placeholder:text-nc-muted focus:outline-none font-mono"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-nc-muted hover:text-nc-text flex-shrink-0">
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${!nc && !wapo ? 'px-2' : ''}`}>
         <div>
           <SectionHeader
             title="Channels"
-            count={channels.reduce((sum, c) => sum + (unreadCounts[c.name] || 0), 0)}
+            count={filteredChannels.reduce((sum, c) => sum + (unreadCounts[c.name] || 0), 0)}
             collapsed={channelsCollapsed}
             onToggle={() => setChannelsCollapsed(!channelsCollapsed)}
             onAdd={isGuest ? undefined : () => setShowCreateChannel(!showCreateChannel)}
@@ -108,7 +141,7 @@ export default function ChannelSidebar() {
             </div>
           )}
 
-          {!channelsCollapsed && channels.map(ch => {
+          {!channelsCollapsed && filteredChannels.map(ch => {
             const unread = unreadCounts[ch.name] || 0;
             const isActive = activeChannelName === ch.name;
             return (
@@ -144,11 +177,11 @@ export default function ChannelSidebar() {
         <div>
           <SectionHeader
             title="Agents"
-            count={agents.filter(a => a.status === 'active').length}
+            count={filteredAgents.filter(a => a.status === 'active').length}
             collapsed={agentsCollapsed}
             onToggle={() => setAgentsCollapsed(!agentsCollapsed)}
           />
-          {!agentsCollapsed && agents.map(agent => {
+          {!agentsCollapsed && filteredAgents.map(agent => {
             const isActive = activeChannelName === agent.name && viewMode === 'dm';
             const unread = unreadCounts[agent.name] || 0;
             return (
@@ -196,8 +229,8 @@ export default function ChannelSidebar() {
               </button>
             );
           })}
-          {!agentsCollapsed && agents.length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No agents</div>
+          {!agentsCollapsed && filteredAgents.length === 0 && (
+            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">{query ? 'No matching agents' : 'No agents'}</div>
           )}
         </div>
 
@@ -207,7 +240,7 @@ export default function ChannelSidebar() {
             collapsed={dmsCollapsed}
             onToggle={() => setDmsCollapsed(!dmsCollapsed)}
           />
-          {!dmsCollapsed && humans.filter(h => h.name !== currentUser).map(h => (
+          {!dmsCollapsed && filteredHumans.map(h => (
             <button
               key={h.id}
               onClick={() => selectChannel(h.name, true)}
@@ -228,8 +261,8 @@ export default function ChannelSidebar() {
               )}
             </button>
           ))}
-          {!dmsCollapsed && humans.filter(h => h.name !== currentUser).length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No people online</div>
+          {!dmsCollapsed && filteredHumans.length === 0 && (
+            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">{query ? 'No matching people' : 'No people online'}</div>
           )}
         </div>
       </div>

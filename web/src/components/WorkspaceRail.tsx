@@ -1,4 +1,4 @@
-import { Home, MessagesSquare, GitBranch, Cpu, Settings } from 'lucide-react';
+import { Home, MessagesSquare, FolderOpen, Cpu, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { isNightCity, ncStyle } from '../lib/themeUtils';
@@ -6,9 +6,11 @@ import { isNightCity, ncStyle } from '../lib/themeUtils';
 const hoverConfig = { trigger: 'hover' as const, minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 };
 
 export default function WorkspaceRail() {
-  const { setViewMode, setSettingsOpen, viewMode, theme } = useApp();
+  const { setViewMode, setSettingsOpen, viewMode, theme, rightPanel, setRightPanel } = useApp();
   const nc = isNightCity();
   const wapo = theme === 'washington-post';
+  const wsOpen = rightPanel === 'workspace';
+  const toggleWorkspace = () => setRightPanel(wsOpen ? null : 'workspace');
 
   if (!nc) {
     if (wapo) {
@@ -23,12 +25,12 @@ export default function WorkspaceRail() {
             <Home size={20} />
           </button>
 
-          <button onClick={() => setViewMode('threads')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'threads' ? 'bg-[#c1934c] text-[#fffaf2] border-[#c1934c]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Threads">
-            <MessagesSquare size={20} />
-          </button>
-
           <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-[#405268] text-[#fffaf2] border-[#405268]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Agents">
             <Cpu size={20} />
+          </button>
+
+          <button onClick={toggleWorkspace} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${wsOpen ? 'bg-[#c1934c] text-[#fffaf2] border-[#c1934c]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Workspace">
+            <FolderOpen size={20} />
           </button>
 
           <div className="flex-1" />
@@ -52,12 +54,12 @@ export default function WorkspaceRail() {
           <Home size={20} />
         </button>
 
-        <button onClick={() => setViewMode('threads')} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${viewMode === 'threads' ? 'shadow-[2px_2px_0px_0px_#1A1A1A]' : ''}`} style={viewMode === 'threads' ? { background: '#0066FF', color: '#FAFAF5', borderColor: '#1A1A1A' } : { color: '#C8C4BA', borderColor: '#68645A' }} title="Threads">
-          <MessagesSquare size={20} />
-        </button>
-
         <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'shadow-[2px_2px_0px_0px_#1A1A1A]' : ''}`} style={viewMode === 'agents' ? { background: '#00CC66', color: '#1A1A1A', borderColor: '#1A1A1A' } : { color: '#C8C4BA', borderColor: '#68645A' }} title="Agents">
           <Cpu size={20} />
+        </button>
+
+        <button onClick={toggleWorkspace} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${wsOpen ? 'shadow-[2px_2px_0px_0px_#1A1A1A]' : ''}`} style={wsOpen ? { background: '#0066FF', color: '#FAFAF5', borderColor: '#1A1A1A' } : { color: '#C8C4BA', borderColor: '#68645A' }} title="Workspace">
+          <FolderOpen size={20} />
         </button>
 
         <div className="flex-1" />
@@ -100,21 +102,6 @@ export default function WorkspaceRail() {
 
       <ScanlineTear config={hoverConfig}>
         <button
-          onClick={() => setViewMode('threads')}
-          className={`
-            cyber-btn w-10 h-10 border flex items-center justify-center
-            ${viewMode === 'threads'
-              ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta shadow-nc-magenta'
-              : 'text-nc-muted border-nc-border hover:text-nc-magenta hover:border-nc-magenta/50'}
-          `}
-          title="Threads"
-        >
-          <GitBranch size={20} />
-        </button>
-      </ScanlineTear>
-
-      <ScanlineTear config={hoverConfig}>
-        <button
           onClick={() => setViewMode('agents')}
           className={`
             cyber-btn w-10 h-10 border flex items-center justify-center
@@ -125,6 +112,21 @@ export default function WorkspaceRail() {
           title="Agents"
         >
           <Cpu size={20} />
+        </button>
+      </ScanlineTear>
+
+      <ScanlineTear config={hoverConfig}>
+        <button
+          onClick={toggleWorkspace}
+          className={`
+            cyber-btn w-10 h-10 border flex items-center justify-center
+            ${wsOpen
+              ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta shadow-nc-magenta'
+              : 'text-nc-muted border-nc-border hover:text-nc-magenta hover:border-nc-magenta/50'}
+          `}
+          title="Workspace"
+        >
+          <FolderOpen size={20} />
         </button>
       </ScanlineTear>
 

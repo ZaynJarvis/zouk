@@ -150,8 +150,8 @@ export interface WorkspaceState {
   fileContent?: { path: string; content: string; requestId: string } | null;
 }
 
-export type ViewMode = 'channel' | 'dm' | 'threads' | 'agents';
-export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | null;
+export type ViewMode = 'channel' | 'dm' | 'agents';
+export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | null;
 export type Theme = 'night-city' | 'brutalist' | 'washington-post';
 
 export interface Toast {

@@ -36,11 +36,6 @@ export default function TopBar() {
             }
           </>
         )}
-        {viewMode === 'threads' && (
-          nc
-            ? <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider" intensity="low">Threads</GlitchText>
-            : <h1 className="font-display font-extrabold text-lg text-nc-text-bright">Threads</h1>
-        )}
         {viewMode === 'agents' && (
           nc
             ? <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider" intensity="low">Agents</GlitchText>

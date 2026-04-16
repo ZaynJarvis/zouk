@@ -9,7 +9,6 @@ import MessageComposer from './components/MessageComposer';
 import RightPanel from './components/RightPanel';
 import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
-import ThreadsView from './components/ThreadsView';
 import AgentsView from './components/AgentPanel';
 import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
@@ -60,7 +59,6 @@ function AppShell() {
                 <MessageComposer />
               </>
             )}
-            {viewMode === 'threads' && <ThreadsView />}
             {viewMode === 'agents' && <AgentsView />}
           </div>
           <RightPanel />
