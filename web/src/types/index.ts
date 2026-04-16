@@ -140,7 +140,7 @@ export interface InitPayload {
 export interface WorkspaceFile {
   name: string;
   path?: string;
-  type: 'file' | 'directory';
+  isDirectory: boolean;
   size?: number;
   modifiedAt?: string;
 }

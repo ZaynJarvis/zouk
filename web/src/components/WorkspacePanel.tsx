@@ -80,7 +80,7 @@ const TreeNode = memo(function TreeNode({
   onViewFile: (path: string) => void;
 }) {
   const dirPath = file.path || file.name;
-  const isDir = file.type === 'directory';
+  const isDir = file.isDirectory;
   const isExpanded = isDir && expandedDirs.has(dirPath);
   const children = isDir ? treeCache[dirPath] : undefined;
 
