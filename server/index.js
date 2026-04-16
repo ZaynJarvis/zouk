@@ -1661,19 +1661,55 @@ async function initFromDB() {
   }
 }
 
+// Reapply the loaded agent configs on top of any already-registered runtime
+// entries. This is a belt-and-suspenders for the race where a daemon reconnects
+// between `server.listen` starting and `initFromDB` finishing — without this,
+// `store.agents[id]` would freeze with the fallback defaults (name=id,
+// runtime="claude", model="unknown") and never pick up the real config.
+function reconcileAgentsWithConfigs() {
+  for (const agentId of Object.keys(store.agents)) {
+    const cfg = agentConfigs.find((c) => c.id === agentId);
+    if (!cfg) continue;
+    const a = store.agents[agentId];
+    const before = { name: a.name, displayName: a.displayName, runtime: a.runtime, model: a.model };
+    if (cfg.name) a.name = cfg.name;
+    if (cfg.displayName) a.displayName = cfg.displayName;
+    else if (cfg.name) a.displayName = cfg.name;
+    if (cfg.runtime) a.runtime = cfg.runtime;
+    if (cfg.model) a.model = cfg.model;
+    if (cfg.workDir) a.workDir = cfg.workDir;
+    const changed =
+      before.name !== a.name ||
+      before.displayName !== a.displayName ||
+      before.runtime !== a.runtime ||
+      before.model !== a.model;
+    if (changed) {
+      broadcastToWeb({ type: "agent_started", agent: { id: agentId, ...a } });
+    }
+  }
+}
+
 // ─── Start ────────────────────────────────────────────────────────
 
-server.listen(PORT, async () => {
+(async () => {
+  // Load persistent state before accepting any connections — otherwise a daemon
+  // reconnecting mid-init races with `initFromDB` and lands on fallback
+  // name/runtime/model for every running agent (see reconcileAgentsWithConfigs
+  // above for the backstop).
   await initFromDB();
   await loadAuthSessions();
-  console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);
-  console.log(`\n  Daemon endpoint:  ws://localhost:${PORT}/daemon/connect?key=test`);
-  console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);
-  console.log(`  REST API:         ${PUBLIC_URL}/internal/agent/{id}/...`);
-  console.log(`\nTo connect a daemon:`);
-  console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key <api_key>`);
-  console.log(`  Generate additional keys via POST /api/machine-keys or the Machine Setup UI.`);
-  if (!process.env.NODE_ENV?.startsWith("prod")) {
-    console.log(`  Dev mode: key "test" is also accepted without registration.\n`);
-  }
-});
+  reconcileAgentsWithConfigs();
+
+  server.listen(PORT, () => {
+    console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);
+    console.log(`\n  Daemon endpoint:  ws://localhost:${PORT}/daemon/connect?key=test`);
+    console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);
+    console.log(`  REST API:         ${PUBLIC_URL}/internal/agent/{id}/...`);
+    console.log(`\nTo connect a daemon:`);
+    console.log(`  npx @slock-ai/daemon@latest --server-url ${PUBLIC_URL} --api-key <api_key>`);
+    console.log(`  Generate additional keys via POST /api/machine-keys or the Machine Setup UI.`);
+    if (!process.env.NODE_ENV?.startsWith("prod")) {
+      console.log(`  Dev mode: key "test" is also accepted without registration.\n`);
+    }
+  });
+})();
