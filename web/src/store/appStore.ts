@@ -70,6 +70,8 @@ export function useAppStore() {
   const [threadedMessageIds, setThreadedMessageIds] = useState<Set<string>>(new Set());
   // Workspace file trees per agent: agentId -> { dirPath, files }
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { dirPath: string; files: WorkspaceFile[] }>>({});
+  // Tree cache: agentId -> dirPath -> files (for recursive tree rendering)
+  const [wsTreeCache, setWsTreeCache] = useState<Record<string, Record<string, WorkspaceFile[]>>>({});
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user || null);
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
@@ -244,6 +246,10 @@ export function useAppStore() {
       case 'workspace:file_tree': {
         const e = event as { agentId: string; dirPath: string; files: WorkspaceFile[] };
         setWorkspaceFiles(prev => ({ ...prev, [e.agentId]: { dirPath: e.dirPath, files: e.files } }));
+        setWsTreeCache(prev => ({
+          ...prev,
+          [e.agentId]: { ...(prev[e.agentId] || {}), [e.dirPath || '']: e.files },
+        }));
         break;
       }
       case 'workspace:file_content': {
@@ -472,7 +478,7 @@ export function useAppStore() {
     updateAgentConfig: updateAgentConfigAction,
     saveAgentConfig: saveAgentConfigAction,
     wsSend,
-    workspaceFiles, workspaceFileContent,
+    workspaceFiles, wsTreeCache, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
     isGuest: isLoggedIn && !authUser,

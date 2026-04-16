@@ -139,6 +139,7 @@ export interface InitPayload {
 
 export interface WorkspaceFile {
   name: string;
+  path?: string;
   type: 'file' | 'directory';
   size?: number;
   modifiedAt?: string;

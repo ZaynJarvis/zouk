@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import {
-  FolderOpen, File, Folder, ChevronRight, ArrowLeft, RefreshCw, X,
+  FolderOpen, File, Folder, ChevronRight, RefreshCw, X,
   ChevronDown, Eye,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import type { ServerAgent } from '../types';
+import type { ServerAgent, WorkspaceFile } from '../types';
 import { isNightCity, ncStyle } from '../lib/themeUtils';
 
 function AgentAvatarStrip({
@@ -62,6 +62,99 @@ function AgentAvatarStrip({
   );
 }
 
+const TreeNode = memo(function TreeNode({
+  file,
+  agentId,
+  level,
+  expandedDirs,
+  treeCache,
+  onToggleDir,
+  onViewFile,
+}: {
+  file: WorkspaceFile;
+  agentId: string;
+  level: number;
+  expandedDirs: Set<string>;
+  treeCache: Record<string, WorkspaceFile[]>;
+  onToggleDir: (dirPath: string) => void;
+  onViewFile: (path: string) => void;
+}) {
+  const dirPath = file.path || file.name;
+  const isDir = file.type === 'directory';
+  const isExpanded = isDir && expandedDirs.has(dirPath);
+  const children = isDir ? treeCache[dirPath] : undefined;
+
+  return (
+    <>
+      <button
+        onClick={() => isDir ? onToggleDir(dirPath) : onViewFile(dirPath)}
+        className="w-full flex items-center gap-1.5 py-1 text-left hover:bg-nc-elevated transition-colors"
+        style={{ paddingLeft: `${12 + level * 16}px`, paddingRight: '12px' }}
+      >
+        {isDir ? (
+          <ChevronRight
+            size={12}
+            className={`flex-shrink-0 text-nc-muted transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+          />
+        ) : (
+          <span className="w-3 flex-shrink-0" />
+        )}
+        {isDir
+          ? (isExpanded
+            ? <FolderOpen size={12} className="flex-shrink-0 text-nc-yellow" />
+            : <Folder size={12} className="flex-shrink-0 text-nc-yellow" />)
+          : <File size={12} className="flex-shrink-0 text-nc-muted" />
+        }
+        <span className="flex-1 text-xs font-mono text-nc-text truncate">{file.name}</span>
+        {!isDir && file.size !== undefined && (
+          <span className="text-2xs text-nc-muted flex-shrink-0 font-mono">
+            {file.size < 1024 ? `${file.size}B` : `${(file.size / 1024).toFixed(1)}K`}
+          </span>
+        )}
+      </button>
+      {isDir && isExpanded && (
+        <div
+          className="overflow-hidden transition-[grid-template-rows] duration-200"
+          style={{ display: 'grid', gridTemplateRows: '1fr' }}
+        >
+          <div className="min-h-0">
+            {children ? (
+              children.length > 0 ? (
+                children.map((child) => (
+                  <TreeNode
+                    key={child.path || child.name}
+                    file={child}
+                    agentId={agentId}
+                    level={level + 1}
+                    expandedDirs={expandedDirs}
+                    treeCache={treeCache}
+                    onToggleDir={onToggleDir}
+                    onViewFile={onViewFile}
+                  />
+                ))
+              ) : (
+                <div
+                  className="text-2xs text-nc-muted font-mono py-1"
+                  style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}
+                >
+                  (empty)
+                </div>
+              )
+            ) : (
+              <div
+                className="text-2xs text-nc-muted font-mono py-1 animate-pulse"
+                style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}
+              >
+                loading...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
 function FileTree({
   agent,
   onViewFile,
@@ -69,8 +162,10 @@ function FileTree({
   agent: ServerAgent;
   onViewFile: (path: string) => void;
 }) {
-  const { workspaceFiles, requestWorkspaceFiles } = useApp();
-  const ws = workspaceFiles[agent.id];
+  const { wsTreeCache, requestWorkspaceFiles } = useApp();
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const agentCache = wsTreeCache[agent.id] || {};
+  const rootFiles = agentCache[''] || [];
 
   useEffect(() => {
     if (agent.status === 'active') {
@@ -78,22 +173,26 @@ function FileTree({
     }
   }, [agent.id, agent.status, requestWorkspaceFiles]);
 
-  const handleFileClick = (name: string, type: string) => {
-    if (type === 'directory') {
-      const newPath = ws?.dirPath ? `${ws.dirPath}/${name}` : name;
-      requestWorkspaceFiles(agent.id, newPath);
-    } else {
-      const filePath = ws?.dirPath ? `${ws.dirPath}/${name}` : name;
-      onViewFile(filePath);
-    }
-  };
+  const handleToggleDir = useCallback((dirPath: string) => {
+    setExpandedDirs(prev => {
+      const next = new Set(prev);
+      if (next.has(dirPath)) {
+        next.delete(dirPath);
+      } else {
+        next.add(dirPath);
+        // Request children if not cached
+        if (!agentCache[dirPath]) {
+          requestWorkspaceFiles(agent.id, dirPath);
+        }
+      }
+      return next;
+    });
+  }, [agent.id, agentCache, requestWorkspaceFiles]);
 
-  const handleBack = () => {
-    if (ws?.dirPath) {
-      const parent = ws.dirPath.split('/').slice(0, -1).join('/') || undefined;
-      requestWorkspaceFiles(agent.id, parent);
-    }
-  };
+  const handleRefresh = useCallback(() => {
+    requestWorkspaceFiles(agent.id);
+    setExpandedDirs(new Set());
+  }, [agent.id, requestWorkspaceFiles]);
 
   if (agent.status !== 'active') {
     return (
@@ -107,19 +206,11 @@ function FileTree({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nc-border">
-        {ws?.dirPath && (
-          <button
-            onClick={handleBack}
-            className="w-6 h-6 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan transition-colors"
-          >
-            <ArrowLeft size={12} />
-          </button>
-        )}
         <span className="flex-1 text-xs font-mono text-nc-muted truncate">
-          {ws?.dirPath || agent.workDir || '/'}
+          {agent.workDir || '/'}
         </span>
         <button
-          onClick={() => requestWorkspaceFiles(agent.id, ws?.dirPath)}
+          onClick={handleRefresh}
           className="w-6 h-6 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan transition-colors"
           title="Refresh"
         >
@@ -128,26 +219,19 @@ function FileTree({
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {ws?.files && ws.files.length > 0 ? (
-          <div>
-            {ws.files.map((f) => (
-              <button
-                key={f.name}
-                onClick={() => handleFileClick(f.name, f.type)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-nc-elevated transition-colors border-b border-nc-border/50 last:border-b-0"
-              >
-                {f.type === 'directory'
-                  ? <Folder size={12} className="flex-shrink-0 text-nc-yellow" />
-                  : <File size={12} className="flex-shrink-0 text-nc-muted" />
-                }
-                <span className="flex-1 text-xs font-mono text-nc-text truncate">{f.name}</span>
-                {f.type === 'directory' && <ChevronRight size={12} className="text-nc-muted flex-shrink-0" />}
-                {f.size !== undefined && f.type !== 'directory' && (
-                  <span className="text-2xs text-nc-muted flex-shrink-0 font-mono">
-                    {f.size < 1024 ? `${f.size}B` : `${(f.size / 1024).toFixed(1)}K`}
-                  </span>
-                )}
-              </button>
+        {rootFiles.length > 0 ? (
+          <div className="py-0.5">
+            {rootFiles.map((f) => (
+              <TreeNode
+                key={f.path || f.name}
+                file={f}
+                agentId={agent.id}
+                level={0}
+                expandedDirs={expandedDirs}
+                treeCache={agentCache}
+                onToggleDir={handleToggleDir}
+                onViewFile={onViewFile}
+              />
             ))}
           </div>
         ) : (
