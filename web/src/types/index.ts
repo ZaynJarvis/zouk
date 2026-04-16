@@ -41,6 +41,7 @@ export interface ServerAgent {
   channels?: string[];
   workDir?: string;
   archivedAt?: string;
+  autoStart?: boolean;
 }
 
 export interface AgentSkill {
@@ -118,6 +119,7 @@ export interface AgentConfig {
   authToken?: string;
   envVars?: Record<string, string>;
   reasoningEffort?: string;
+  autoStart?: boolean;
 }
 
 export interface ServerMachine {
