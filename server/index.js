@@ -257,6 +257,7 @@ const daemonSockets = new Map(); // agentId -> ws
 const daemonConnections = new Set(); // all daemon ws connections (for sending agent:start before any agent is registered)
 const webSockets = new Set(); // web UI connections
 const machines = new Map(); // machineId -> { id, hostname, os, runtimes, capabilities, connectedAt, agentIds }
+const pendingRuntimeModelRequests = new Map(); // requestId -> { resolve, timer }
 
 function broadcastToWeb(event) {
   const data = JSON.stringify(event);
@@ -756,6 +757,48 @@ app.get("/api/machines", (req, res) => {
   res.json({ machines: machineList });
 });
 
+// Ask a daemon to enumerate installed models for a given runtime.
+// Daemons that don't implement the protocol (old zouk-daemon) will stay silent,
+// so we always fall back via the 5s timeout. Clients can treat
+// {models: []} and a timeout identically — both mean "free-form input please".
+app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
+  const { id, runtime } = req.params;
+  if (!machines.has(id)) {
+    return res.status(404).json({ error: "machine_not_found" });
+  }
+  let targetWs = null;
+  for (const dws of daemonConnections) {
+    if (dws.readyState === 1 && dws._machineId === id) { targetWs = dws; break; }
+  }
+  if (!targetWs) {
+    return res.status(502).json({ error: "daemon_not_connected" });
+  }
+  const requestId = uuidv4();
+  const timeout = new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingRuntimeModelRequests.delete(requestId);
+      resolve({ models: [], default: null, error: "timeout" });
+    }, 5000);
+    pendingRuntimeModelRequests.set(requestId, {
+      resolve: (value) => resolve(value),
+      timer,
+    });
+  });
+  try {
+    targetWs.send(JSON.stringify({ type: "machine:runtime_models:detect", runtime, requestId }));
+  } catch (e) {
+    const pending = pendingRuntimeModelRequests.get(requestId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingRuntimeModelRequests.delete(requestId);
+    }
+    return res.status(502).json({ error: "send_failed", message: e.message });
+  }
+  timeout.then((result) => {
+    res.json({ models: result.models, default: result.default, error: result.error });
+  });
+});
+
 // Get agents (running + configs)
 app.get("/api/agents", (req, res) => {
   const agents = Object.entries(store.agents).map(([id, a]) => ({
@@ -1221,6 +1264,19 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     }
     case "machine:workspace:delete_result": {
       broadcastToWeb({ type: "machine:workspace:delete_result", machineId: ws._machineId, directoryName: msg.directoryName, success: msg.success });
+      break;
+    }
+    case "machine:runtime_models:result": {
+      const pending = pendingRuntimeModelRequests.get(msg.requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingRuntimeModelRequests.delete(msg.requestId);
+        pending.resolve({
+          models: Array.isArray(msg.models) ? msg.models : [],
+          default: typeof msg.default === "string" ? msg.default : null,
+          error: typeof msg.error === "string" ? msg.error : null,
+        });
+      }
       break;
     }
     case "pong": {

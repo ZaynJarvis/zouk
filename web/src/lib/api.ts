@@ -117,6 +117,31 @@ export async function deleteAgent(agentId: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to delete agent: ${res.status}`);
 }
 
+export interface RuntimeModel {
+  id: string;
+  label: string;
+}
+
+// Ask the daemon behind the given machine to enumerate installed models for a
+// runtime. Old daemons / runtimes without detectModels() will surface as
+// {models: [], error} — caller should fall back to free-form input.
+export async function fetchRuntimeModels(
+  machineId: string,
+  runtime: string
+): Promise<{ models: RuntimeModel[]; default: string | null; error: string | null }> {
+  const url = `${getBaseUrl()}/api/machines/${encodeURIComponent(machineId)}/runtimes/${encodeURIComponent(runtime)}/models`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    return { models: [], default: null, error: `http_${res.status}` };
+  }
+  const data = await res.json();
+  return {
+    models: Array.isArray(data.models) ? data.models : [],
+    default: data.default ?? null,
+    error: data.error ?? null,
+  };
+}
+
 export async function updateAgentConfig(agentId: string, updates: Record<string, unknown>): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}/config`;
   const res = await fetch(url, {

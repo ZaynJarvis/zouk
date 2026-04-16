@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, ChevronDown, Globe, Lock, Server, AlertTriangle } from 'lucide-react';
+import { X, Plus, ChevronDown, Globe, Lock, Server, AlertTriangle, Loader as Loader2 } from 'lucide-react';
 import type { ServerMachine } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
+import { fetchRuntimeModels, type RuntimeModel } from '../lib/api';
 
 export interface CreateAgentConfig {
   name: string;
@@ -33,6 +34,11 @@ export default function CreateAgentDialog({
   const [model, setModel] = useState('');
   const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
   const [machineOpen, setMachineOpen] = useState(false);
+  const [modelOptions, setModelOptions] = useState<RuntimeModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  // When true, the user opted into typing a custom model even though the
+  // daemon offered a list. Default picks the first suggested model.
+  const [customModel, setCustomModel] = useState(false);
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId);
   const machineRuntimes = useMemo(() => selectedMachine?.runtimes || [], [selectedMachine]);
@@ -48,11 +54,30 @@ export default function CreateAgentDialog({
     }
   }, [machineRuntimes, runtime]);
 
-  // The daemon doesn't push a model catalog yet, so the user always types it
-  // manually. Reset on runtime change so a stale model doesn't carry over.
+  // Pull the model catalog from the daemon when the selection changes. If the
+  // daemon can't provide one (old daemon, unsupported runtime, timeout) we
+  // silently fall back to the free-form input.
   useEffect(() => {
     setModel('');
-  }, [runtime]);
+    setCustomModel(false);
+    setModelOptions([]);
+    if (!runtime || !selectedMachine) return;
+    let cancelled = false;
+    setModelsLoading(true);
+    fetchRuntimeModels(selectedMachine.id, runtime)
+      .then((result) => {
+        if (cancelled) return;
+        setModelOptions(result.models);
+        if (result.models.length > 0) {
+          const preferred = result.default && result.models.some((m) => m.id === result.default)
+            ? result.default
+            : result.models[0].id;
+          setModel(preferred);
+        }
+      })
+      .finally(() => { if (!cancelled) setModelsLoading(false); });
+    return () => { cancelled = true; };
+  }, [runtime, selectedMachine]);
 
   const canSubmit = name.trim().length > 0 && runtime.length > 0;
   const workDir = `~/.zouk/agents/${name.trim().toLowerCase() || '<name>'}`;
@@ -258,13 +283,57 @@ export default function CreateAgentDialog({
 
           {runtime && (
             <div>
-              <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">MODEL</label>
-              <input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="Optional model identifier (leave blank for runtime default)"
-                className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-              />
+              <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
+                <span>MODEL</span>
+                {modelsLoading && <Loader2 size={10} className="animate-spin text-nc-cyan" />}
+              </label>
+              {modelOptions.length > 0 && !customModel ? (
+                <>
+                  <div className="flex gap-2 flex-wrap">
+                    {modelOptions.map((m) => (
+                      <ScanlineTear key={m.id} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setModel(m.id)}
+                          className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
+                            model === m.id
+                              ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
+                              : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                          }`}
+                          title={m.id}
+                        >
+                          {m.label}
+                        </button>
+                      </ScanlineTear>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setCustomModel(true); setModel(''); }}
+                    className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
+                  >
+                    Use custom model ID
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="Optional model identifier (leave blank for runtime default)"
+                    className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
+                  />
+                  {modelOptions.length > 0 && customModel && (
+                    <button
+                      type="button"
+                      onClick={() => { setCustomModel(false); setModel(modelOptions[0].id); }}
+                      className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
+                    >
+                      Back to suggested models
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
