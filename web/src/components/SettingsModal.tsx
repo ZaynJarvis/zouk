@@ -32,6 +32,7 @@ export default function SettingsModal() {
   } = useApp();
   const [section, setSection] = useState<Section>('profile');
   const nc = theme === 'night-city';
+  const brutalist = theme === 'brutalist';
   const [displayName, setDisplayName] = useState(currentUser);
   const [glitchActive, setGlitchActive] = useState(false);
   const [prefs, setPrefs] = useState<Preferences>(loadPrefs);
@@ -66,6 +67,11 @@ export default function SettingsModal() {
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
 
+  // Thick border variant only for brutalist
+  const borderStyle = brutalist ? 'border-[3px] border-nc-border-bright' : 'border border-nc-border';
+  const borderB = brutalist ? 'border-b-[3px] border-nc-border-bright' : 'border-b border-nc-border';
+  const borderR = brutalist ? 'border-r-[3px] border-nc-border-bright' : 'border-r border-nc-border';
+
   return (
     <div
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 animate-fade-in p-4"
@@ -73,12 +79,12 @@ export default function SettingsModal() {
     >
       <GlitchTransition active={glitchActive} duration={400} onComplete={handleGlitchComplete} themeAgnostic />
 
-      <div className="cyber-panel w-full max-w-3xl h-[80vh] flex flex-col sm:flex-row overflow-hidden animate-bounce-in cyber-bevel">
-        <div className={`w-full sm:w-48 shrink-0 flex flex-row sm:flex-col ${nc ? 'bg-nc-deep border-b sm:border-b-0 sm:border-r border-nc-border' : 'bg-nc-panel border-b-[3px] sm:border-b-0 sm:border-r-[3px] border-nc-border-bright'}`}>
-          <div className={`hidden sm:block px-4 py-4 ${nc ? 'border-b border-nc-border' : 'border-b-2 border-nc-border'}`}>
+      <div className={`cyber-panel w-full max-w-3xl h-[80vh] flex flex-col sm:flex-row overflow-hidden animate-bounce-in ${nc ? 'cyber-bevel' : ''}`}>
+        <div className={`w-full sm:w-48 shrink-0 flex flex-row sm:flex-col bg-nc-deep ${brutalist ? 'border-b-[3px] sm:border-b-0 sm:border-r-[3px] border-nc-border-bright' : 'border-b sm:border-b-0 sm:border-r border-nc-border'}`}>
+          <div className={`hidden sm:block px-4 py-4 ${borderB}`}>
             {nc
               ? <h2 className="font-display font-black text-sm text-nc-cyan neon-cyan tracking-wider">SETTINGS</h2>
-              : <h2 className="font-display font-black text-lg text-nc-text-bright">Settings</h2>
+              : <h2 className="font-display font-bold text-base text-nc-text-bright">{nc ? 'SETTINGS' : 'Settings'}</h2>
             }
           </div>
           <nav className="flex flex-row sm:flex-col flex-1 sm:py-2 overflow-x-auto">
@@ -88,8 +94,8 @@ export default function SettingsModal() {
                 onClick={() => setSection(key)}
                 className={`flex items-center justify-center sm:justify-start gap-2 px-4 py-2.5 text-sm font-bold transition-all flex-1 sm:flex-none sm:w-full ${nc ? 'tracking-wider' : ''} ${
                   section === key
-                    ? (nc ? 'bg-nc-cyan/10 text-nc-cyan sm:border-r-2 border-nc-cyan border-b-2 sm:border-b-0' : 'bg-nc-yellow sm:border-r-[3px] border-nc-border-bright text-nc-text-bright border-b-[3px] sm:border-b-0')
-                    : (nc ? 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright')
+                    ? `bg-nc-cyan/10 text-nc-cyan sm:border-r-2 border-nc-cyan border-b-2 sm:border-b-0`
+                    : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text'
                 }`}
               >
                 <Icon size={16} />
@@ -106,7 +112,7 @@ export default function SettingsModal() {
         </div>
 
         <div className="flex-1 flex flex-col min-h-0">
-          <div className={`hidden sm:flex h-14 items-center justify-between px-6 ${nc ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+          <div className={`hidden sm:flex h-14 items-center justify-between px-6 ${borderB}`}>
             <h3 className={`font-display font-bold text-base text-nc-text-bright ${nc ? 'tracking-wider' : 'capitalize'}`}>
               {nc ? navItems.find(n => n.key === section)?.label : navItems.find(n => n.key === section)?.label.charAt(0).toUpperCase()! + navItems.find(n => n.key === section)?.label.slice(1).toLowerCase()}
             </h3>
@@ -202,7 +208,7 @@ export default function SettingsModal() {
                             <p className="text-sm font-bold text-nc-text-bright">{cfg.displayName || cfg.name}</p>
                             <p className="text-xs text-nc-muted font-mono mt-0.5">{cfg.runtime}{cfg.model ? ` · ${cfg.model}` : ''}</p>
                           </div>
-                          <span className={`text-2xs font-bold px-1.5 py-0.5 border ${nc ? 'border-nc-cyan/30 text-nc-cyan bg-nc-cyan/10' : 'border-nc-border-bright text-nc-text-bright bg-nc-elevated'}`}>
+                          <span className="text-2xs font-bold px-1.5 py-0.5 border border-nc-cyan/30 text-nc-cyan bg-nc-cyan/10">
                             {cfg.runtime}
                           </span>
                         </div>
@@ -248,8 +254,8 @@ export default function SettingsModal() {
                         onClick={() => savePrefs({ fontSize: size })}
                         className={`flex-1 py-2 text-sm font-bold border transition-all ${
                           prefs.fontSize === size
-                            ? (nc ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan' : 'bg-nc-yellow text-nc-text-bright border-nc-border-bright')
-                            : (nc ? 'text-nc-muted border-nc-border hover:border-nc-cyan/50' : 'text-nc-muted border-nc-border hover:border-nc-border-bright')
+                            ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan'
+                            : 'text-nc-muted border-nc-border hover:border-nc-cyan/50'
                         }`}
                       >
                         {size.charAt(0).toUpperCase() + size.slice(1)}
@@ -264,18 +270,18 @@ export default function SettingsModal() {
                     onClick={() => savePrefs({ notifications: !prefs.notifications })}
                     className={`flex items-center gap-3 px-4 py-2.5 border w-full text-left transition-all ${
                       prefs.notifications
-                        ? (nc ? 'border-nc-green/50 bg-nc-green/10 text-nc-green' : 'border-nc-border-bright bg-nc-elevated text-nc-text-bright')
-                        : (nc ? 'border-nc-border bg-nc-panel text-nc-muted' : 'border-nc-border bg-nc-panel text-nc-muted')
+                        ? 'border-nc-green/50 bg-nc-green/10 text-nc-green'
+                        : 'border-nc-border bg-nc-panel text-nc-muted'
                     }`}
                   >
                     <span className={`w-8 h-4 border relative transition-all ${
                       prefs.notifications
-                        ? (nc ? 'border-nc-green bg-nc-green/20' : 'border-nc-border-bright bg-nc-yellow')
+                        ? 'border-nc-green bg-nc-green/20'
                         : 'border-nc-border bg-nc-panel'
                     }`}>
                       <span className={`absolute top-0.5 w-2.5 h-2.5 transition-all ${
                         prefs.notifications
-                          ? (nc ? 'right-0.5 bg-nc-green' : 'right-0.5 bg-nc-text-bright')
+                          ? 'right-0.5 bg-nc-green'
                           : 'left-0.5 bg-nc-muted'
                       }`} />
                     </span>
@@ -292,8 +298,8 @@ export default function SettingsModal() {
                         onClick={() => savePrefs({ language: code as Preferences['language'] })}
                         className={`flex-1 py-2 text-sm font-bold border transition-all ${
                           prefs.language === code
-                            ? (nc ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan' : 'bg-nc-yellow text-nc-text-bright border-nc-border-bright')
-                            : (nc ? 'text-nc-muted border-nc-border hover:border-nc-cyan/50' : 'text-nc-muted border-nc-border hover:border-nc-border-bright')
+                            ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan'
+                            : 'text-nc-muted border-nc-border hover:border-nc-cyan/50'
                         }`}
                       >
                         {label}

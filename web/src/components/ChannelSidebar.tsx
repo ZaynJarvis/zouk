@@ -14,7 +14,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
         {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         <span>{title}</span>
         {count !== undefined && count > 0 && (
-          <span className={`ml-1 text-2xs font-black px-1 border ${nc ? 'bg-nc-cyan/20 text-nc-cyan border-nc-cyan/30' : 'bg-nc-yellow text-nc-text-bright border-nc-border-bright'}`}>{count}</span>
+          <span className="ml-1 text-2xs font-black px-1 border bg-nc-cyan/20 text-nc-cyan border-nc-cyan/30">{count}</span>
         )}
       </button>
       {onAdd && (
