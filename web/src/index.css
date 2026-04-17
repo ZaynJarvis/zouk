@@ -304,6 +304,36 @@ html[data-theme="washington-post"] .cyber-btn-lg {
 }
 
 /* ==========================================================================
+   Carbon theme — refined dark, clean lines
+   ========================================================================== */
+
+html[data-theme="carbon"] body {
+  background: rgb(var(--nc-black));
+}
+
+html[data-theme="carbon"] .cyber-panel,
+html[data-theme="carbon"] .cyber-panel-elevated {
+  box-shadow: none;
+}
+
+html[data-theme="carbon"] .cyber-divider {
+  background: none;
+  border-top: 1px solid rgb(var(--nc-border) / 0.5);
+}
+
+html[data-theme="carbon"] .status-chip,
+html[data-theme="carbon"] .status-chip-sm {
+  border-radius: 999px;
+  letter-spacing: 0.08em;
+  font-family: 'Libre Franklin', system-ui, sans-serif;
+}
+
+html[data-theme="carbon"] .cyber-btn,
+html[data-theme="carbon"] .cyber-btn-lg {
+  box-shadow: none;
+}
+
+/* ==========================================================================
    Night City theme — cyberpunk decorations
    Only applied when data-theme="night-city" is set on <html>.
    ========================================================================== */

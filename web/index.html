@@ -20,11 +20,12 @@
     <script>
       (function(){
         var t=localStorage.getItem('zouk_theme');
-        var theme=(t==='night-city'||t==='brutalist'||t==='washington-post')?t:'night-city';
+        var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon')?t:'night-city';
         var themeColors={
           'night-city':'#0a0a0f',
           'brutalist':'#fffcf5',
-          'washington-post':'#f4eee3'
+          'washington-post':'#f4eee3',
+          'carbon':'#151515'
         };
         document.documentElement.setAttribute('data-theme',theme);
         var favicon=document.querySelector("link[rel='icon']");

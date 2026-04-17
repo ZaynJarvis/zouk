@@ -5,6 +5,7 @@ import './index.css';
 import './themes/night-city';
 import './themes/brutalist';
 import './themes/washington-post';
+import './themes/carbon';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {

@@ -2,11 +2,13 @@ import type { ComponentType } from 'react';
 import { nightCity } from './night-city';
 import { brutalist } from './brutalist';
 import { washingtonPost } from './washington-post';
+import { carbon } from './carbon';
 import NightCityThemeSelectButton from './night-city/ThemeSelectButton';
 import BrutalistThemeSelectButton from './brutalist/ThemeSelectButton';
 import WashingtonPostThemeSelectButton from './washington-post/ThemeSelectButton';
+import CarbonThemeSelectButton from './carbon/ThemeSelectButton';
 
-export type ThemeId = 'night-city' | 'brutalist' | 'washington-post';
+export type ThemeId = 'night-city' | 'brutalist' | 'washington-post' | 'carbon';
 
 export interface ThemeSelectButtonProps {
   selected: boolean;
@@ -30,6 +32,7 @@ export const themes: ThemeDefinition[] = [
   { ...nightCity, ThemeSelectButton: NightCityThemeSelectButton },
   { ...brutalist, ThemeSelectButton: BrutalistThemeSelectButton },
   { ...washingtonPost, ThemeSelectButton: WashingtonPostThemeSelectButton },
+  { ...carbon, ThemeSelectButton: CarbonThemeSelectButton },
 ];
 
 export const DEFAULT_THEME: ThemeId = 'night-city';
