@@ -715,14 +715,22 @@ app.post("/api/messages", requireAuth, (req, res) => {
 });
 
 // Get messages for a channel
-app.get("/api/messages", (req, res) => {
-  const { channel = "#all", limit = 100, sender } = req.query;
+// Two routes: path-based (proxy-safe) and query-based (backward compat).
+// Some enterprise proxies / browser extensions (SiteMinder, etc.) strip query
+// parameters during 307 redirect chains, so the primary client route puts the
+// channel target in the URL path where it survives rewrites.
+function handleGetMessages(req, res) {
+  const channel = req.params.channelTarget
+    ? decodeURIComponent(req.params.channelTarget)
+    : (req.query.channel || "#all");
+  const { limit = 100, sender } = req.query;
   const msgs = store.messages
     .filter((m) => matchesTarget(m, channel, sender || null))
     .slice(-parseInt(limit));
-  // For DMs with a known viewer, format with peer name; otherwise include dmParties
   res.json({ messages: msgs.map((m) => formatMessageForClient(m, sender || null)) });
-});
+}
+app.get("/api/messages/c/:channelTarget", handleGetMessages);
+app.get("/api/messages", handleGetMessages);
 
 // Get channels
 app.get("/api/channels", (req, res) => {
@@ -1225,11 +1233,19 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       // Register any running agents
       if (msg.runningAgents) {
         for (const agentId of msg.runningAgents) {
+          const cfg = agentConfigs.find((c) => c.id === agentId);
+          // If the config was deleted while the daemon was disconnected,
+          // this agent is orphaned — tell the daemon to stop it instead of
+          // resurrecting it with fallback metadata.
+          if (!cfg && !store.agents[agentId]) {
+            console.log(`[daemon] Orphan agent ${agentId} — no config, sending stop`);
+            ws.send(JSON.stringify({ type: "agent:stop", agentId }));
+            continue;
+          }
           connectedAgents.add(agentId);
           daemonSockets.set(agentId, ws);
           const isNew = !store.agents[agentId];
           if (isNew) {
-            const cfg = agentConfigs.find((c) => c.id === agentId);
             store.agents[agentId] = {
               name: cfg?.name || agentId,
               displayName: cfg?.displayName || cfg?.name || agentId,
@@ -1251,21 +1267,27 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     }
     case "agent:status": {
       const { agentId, status } = msg;
-      connectedAgents.add(agentId);
-      daemonSockets.set(agentId, ws);
       const isNew = !store.agents[agentId];
       if (isNew) {
         const cfg = agentConfigs.find((c) => c.id === agentId);
+        // Orphan: config deleted while daemon was away — stop it.
+        if (!cfg) {
+          console.log(`[daemon] Orphan agent ${agentId} reported status=${status} — no config, sending stop`);
+          ws.send(JSON.stringify({ type: "agent:stop", agentId }));
+          break;
+        }
         store.agents[agentId] = {
-          name: cfg?.name || agentId,
-          displayName: cfg?.displayName || cfg?.name || agentId,
-          runtime: cfg?.runtime || "claude",
-          model: cfg?.model || "unknown",
-          workDir: cfg?.workDir,
+          name: cfg.name || agentId,
+          displayName: cfg.displayName || cfg.name || agentId,
+          runtime: cfg.runtime || "claude",
+          model: cfg.model || "unknown",
+          workDir: cfg.workDir,
           status,
           machineId: ws._machineId,
         };
       }
+      connectedAgents.add(agentId);
+      daemonSockets.set(agentId, ws);
       store.agents[agentId].status = status;
       store.agents[agentId].machineId = ws._machineId;
       // Track agent in machine record
@@ -1699,7 +1721,18 @@ async function initFromDB() {
 function reconcileAgentsWithConfigs() {
   for (const agentId of Object.keys(store.agents)) {
     const cfg = agentConfigs.find((c) => c.id === agentId);
-    if (!cfg) continue;
+    if (!cfg) {
+      // Agent has no config — it was deleted. Remove the orphan entry and
+      // tell the daemon to stop the process if it's still tracked.
+      const ws = daemonSockets.get(agentId);
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "agent:stop", agentId }));
+      }
+      delete store.agents[agentId];
+      daemonSockets.delete(agentId);
+      broadcastToWeb({ type: "agent_status", agentId, status: "deleted" });
+      continue;
+    }
     const a = store.agents[agentId];
     const before = { name: a.name, displayName: a.displayName, runtime: a.runtime, model: a.model };
     if (cfg.name) a.name = cfg.name;
