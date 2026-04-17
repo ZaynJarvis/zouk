@@ -889,21 +889,20 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
 });
 
 // Delete agent config
-app.delete("/api/agents/:id", requireAuth, (req, res) => {
+app.delete("/api/agents/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
-  // Tell the daemon to stop the process and drop any idle-restart cache for
-  // this agent. Without this, the daemon keeps the process (or the
-  // idleAgentConfigs entry) and re-announces the agent on its next reconnect,
-  // which rebuilds an orphan store.agents[id] with fallback metadata.
-  const ws = daemonSockets.get(id);
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
+  // Tell ALL connected daemons to stop this agent — the agent may be mapped to
+  // a different socket than daemonSockets thinks (e.g. after a reconnect).
+  for (const ws of daemonConnections) {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
+    }
   }
   const idx = agentConfigs.findIndex((c) => c.id === id);
   if (idx >= 0) {
     agentConfigs.splice(idx, 1);
     saveAgentConfigs(agentConfigs);
-    db.deleteAgentConfig(id);
+    await db.deleteAgentConfig(id);
   }
   // Also clean up runtime state if agent exists
   if (store.agents[id]) {
@@ -1222,14 +1221,21 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       }
       // Auto-start configured agents after a short delay
       setTimeout(() => autoStartAgents(), 1000);
-      // Register any running agents
+      // Register any running agents — skip orphans whose config was deleted
       if (msg.runningAgents) {
         for (const agentId of msg.runningAgents) {
+          const cfg = agentConfigs.find((c) => c.id === agentId);
+          if (!cfg && !store.agents[agentId]) {
+            // Ghost agent — config was deleted but daemon still has it running.
+            // Tell daemon to stop it and skip registration.
+            console.log(`[daemon] Skipping orphan agent ${agentId} (no config)`);
+            ws.send(JSON.stringify({ type: "agent:stop", agentId }));
+            continue;
+          }
           connectedAgents.add(agentId);
           daemonSockets.set(agentId, ws);
           const isNew = !store.agents[agentId];
           if (isNew) {
-            const cfg = agentConfigs.find((c) => c.id === agentId);
             store.agents[agentId] = {
               name: cfg?.name || agentId,
               displayName: cfg?.displayName || cfg?.name || agentId,
@@ -1251,11 +1257,17 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     }
     case "agent:status": {
       const { agentId, status } = msg;
+      const cfg = agentConfigs.find((c) => c.id === agentId);
+      if (!cfg && !store.agents[agentId]) {
+        // Orphan agent — config deleted, daemon still reports it. Stop it.
+        console.log(`[daemon] Ignoring status for orphan agent ${agentId}`);
+        ws.send(JSON.stringify({ type: "agent:stop", agentId }));
+        break;
+      }
       connectedAgents.add(agentId);
       daemonSockets.set(agentId, ws);
       const isNew = !store.agents[agentId];
       if (isNew) {
-        const cfg = agentConfigs.find((c) => c.id === agentId);
         store.agents[agentId] = {
           name: cfg?.name || agentId,
           displayName: cfg?.displayName || cfg?.name || agentId,
