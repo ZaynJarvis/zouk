@@ -45,11 +45,11 @@ export function normalizeMessage(m: any): MessageRecord {
 
 export async function fetchMessages(channelName: string, isDm = false, limit = 200, senderName?: string): Promise<MessageRecord[]> {
   const target = isDm ? `dm:@${channelName}` : `#${channelName}`;
-  let url = `${getBaseUrl()}/api/messages?channel=${encodeURIComponent(target)}&limit=${limit}`;
+  // Channel goes in the URL *path* (not query string) so that enterprise
+  // proxies / extensions that strip query params during 307 redirects
+  // can't lose it.
+  let url = `${getBaseUrl()}/api/messages/c/${encodeURIComponent(target)}?limit=${limit}`;
   if (senderName) url += `&sender=${encodeURIComponent(senderName)}`;
-  // `no-store` skips both the HTTP cache and ETag conditional requests so
-  // intermediaries (corporate proxies, extensions) can't serve a stale 304
-  // response that makes one channel's payload appear on another.
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Failed to fetch messages: ${res.status}`);
   const data = await res.json();
@@ -60,7 +60,7 @@ export async function fetchThreadMessages(channelName: string, messageId: string
   const shortId = messageId.slice(0, 8);
   const parentTarget = isDm ? `dm:@${channelName}` : `#${channelName}`;
   const threadTarget = `${parentTarget}:${shortId}`;
-  const url = `${getBaseUrl()}/api/messages?channel=${encodeURIComponent(threadTarget)}&limit=${limit}`;
+  const url = `${getBaseUrl()}/api/messages/c/${encodeURIComponent(threadTarget)}?limit=${limit}`;
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Failed to fetch thread messages: ${res.status}`);
   const data = await res.json();

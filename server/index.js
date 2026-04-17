@@ -715,14 +715,22 @@ app.post("/api/messages", requireAuth, (req, res) => {
 });
 
 // Get messages for a channel
-app.get("/api/messages", (req, res) => {
-  const { channel = "#all", limit = 100, sender } = req.query;
+// Two routes: path-based (proxy-safe) and query-based (backward compat).
+// Some enterprise proxies / browser extensions (SiteMinder, etc.) strip query
+// parameters during 307 redirect chains, so the primary client route puts the
+// channel target in the URL path where it survives rewrites.
+function handleGetMessages(req, res) {
+  const channel = req.params.channelTarget
+    ? decodeURIComponent(req.params.channelTarget)
+    : (req.query.channel || "#all");
+  const { limit = 100, sender } = req.query;
   const msgs = store.messages
     .filter((m) => matchesTarget(m, channel, sender || null))
     .slice(-parseInt(limit));
-  // For DMs with a known viewer, format with peer name; otherwise include dmParties
   res.json({ messages: msgs.map((m) => formatMessageForClient(m, sender || null)) });
-});
+}
+app.get("/api/messages/c/:channelTarget", handleGetMessages);
+app.get("/api/messages", handleGetMessages);
 
 // Get channels
 app.get("/api/channels", (req, res) => {
