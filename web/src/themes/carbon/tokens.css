@@ -1,0 +1,32 @@
+html[data-theme="carbon"] {
+  /* Surfaces — derived from palette: dominant #151515 → dark #262626 → muted #373c41 */
+  --nc-black: 21 21 21;
+  --nc-deep: 30 30 30;
+  --nc-surface: 38 38 38;
+  --nc-elevated: 48 50 53;
+  --nc-border: 55 60 65;
+  --nc-border-bright: 103 106 105;
+  --nc-panel: 26 26 26;
+
+  /* Accent palette — cool steel tones to complement neutral grays */
+  --nc-red: 201 107 100;
+  --nc-green: 122 173 132;
+  --nc-cyan: 136 181 196;
+  --nc-yellow: 196 166 94;
+  --nc-magenta: 168 130 181;
+  --nc-indigo: 90 110 148;
+
+  /* Text — muted3 #abb1b8 for body, light #f4f5f5 for emphasis */
+  --nc-text: 171 177 184;
+  --nc-text-bright: 244 245 245;
+  --nc-muted: 103 106 105;
+
+  /* Selection */
+  --nc-selection-bg: 136 181 196;
+  --nc-selection-text: 244 245 245;
+
+  /* Font stacks — reused from Washington Post */
+  --nc-font-display: 'Newsreader', Georgia, serif;
+  --nc-font-body: 'Libre Franklin', system-ui, sans-serif;
+  --nc-font-mono: 'IBM Plex Mono', 'Space Mono', monospace;
+}

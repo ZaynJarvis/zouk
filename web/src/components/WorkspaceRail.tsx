@@ -12,7 +12,38 @@ export default function WorkspaceRail() {
   const wsOpen = rightPanel === 'workspace';
   const toggleWorkspace = () => setRightPanel(wsOpen ? null : 'workspace');
 
+  const carbon = theme === 'carbon';
+
   if (!nc) {
+    if (carbon) {
+      return (
+        <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-nc-deep border-r border-nc-border">
+          <div className="w-10 h-10 border border-nc-border bg-nc-cyan/10 font-display font-semibold text-lg flex items-center justify-center text-nc-text-bright">
+            Z
+          </div>
+          <div className="w-8 my-1 border-t border-nc-border" />
+
+          <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Home">
+            <Home size={20} />
+          </button>
+
+          <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-nc-green/15 text-nc-green border-nc-green' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Agents">
+            <Cpu size={20} />
+          </button>
+
+          <button onClick={toggleWorkspace} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${wsOpen ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Workspace">
+            <FolderOpen size={20} />
+          </button>
+
+          <div className="flex-1" />
+
+          <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border flex items-center justify-center transition-all duration-100 text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright" title="Settings">
+            <Settings size={20} />
+          </button>
+        </div>
+      );
+    }
+
     if (wapo) {
       return (
         <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-[#f7f0e6] border-r border-nc-border">

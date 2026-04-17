@@ -12,13 +12,14 @@ export default function TopBar() {
   } = useApp();
   const nc = isNightCity();
   const wapo = theme === 'washington-post';
+  const carbon = theme === 'carbon';
 
   return (
-    <div className={`h-14 bg-nc-surface flex items-center px-2 sm:px-4 gap-2 sm:gap-3 scanline-overlay ${nc ? 'border-b border-nc-border' : wapo ? 'bg-[#fffaf2] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={`h-14 bg-nc-surface flex items-center px-2 sm:px-4 gap-2 sm:gap-3 scanline-overlay ${nc ? 'border-b border-nc-border' : (wapo || carbon) ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
       <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : wapo ? 'border-nc-border text-[#7c2430] hover:bg-[#f3e7d9]' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
+          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-[#7c2430] hover:bg-[#f3e7d9]' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
         >
           <Menu size={16} />
         </button>
@@ -66,6 +67,18 @@ export default function TopBar() {
             </span>
             {daemonConnected && (
               <span className="flex items-center gap-1 px-2.5 py-1 border rounded-full border-[#c1934c] text-[#8a6326] bg-[#fffbf1] font-semibold">
+                Daemon
+              </span>
+            )}
+          </>
+        ) : carbon ? (
+          <>
+            <span className={`flex items-center gap-1 px-2.5 py-1 border rounded-full font-semibold ${wsConnected ? 'border-nc-green/40 bg-nc-green/10 text-nc-green' : 'border-nc-red/40 bg-nc-red/10 text-nc-red'}`}>
+              {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              {wsConnected ? 'Linked' : 'Offline'}
+            </span>
+            {daemonConnected && (
+              <span className="flex items-center gap-1 px-2.5 py-1 border rounded-full border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan font-semibold">
                 Daemon
               </span>
             )}
