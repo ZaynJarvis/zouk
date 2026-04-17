@@ -391,7 +391,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 app.post("/internal/agent/:agentId/send", (req, res) => {
   const { agentId } = req.params;
   const { target, content, attachmentIds } = req.body;
-  const senderName = store.agents[agentId]?.name || agentId;
+  // Use config-derived name (agentPayload overlays config on runtime).
+  // store.agents[agentId].name may still be the raw ID for agents that
+  // were already running before configs were loaded/fixed.
+  const senderName = agentPayload(agentId)?.name || agentId;
   const { channelName, channelType, threadId } = parseTarget(target, senderName);
   const ch = findOrCreateChannel(channelName, channelType);
 
@@ -402,7 +405,7 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
     channelName,
     channelType,
     threadId: threadId || null,
-    senderName: store.agents[agentId]?.name || agentId,
+    senderName,
     senderType: "agent",
     content,
     createdAt: now(),
@@ -425,7 +428,7 @@ app.get("/internal/agent/:agentId/receive", (req, res) => {
   const lastRead = store.agentReadSeq[agentId] || 0;
   // Return only messages after the agent's last read seq, excluding agent's own messages
   const unread = store.messages
-    .filter((m) => m.seq > lastRead && m.senderName !== (store.agents[agentId]?.name || agentId))
+    .filter((m) => m.seq > lastRead && m.senderName !== (agentPayload(agentId)?.name || agentId))
     .map((m) => formatMessageForAgent(m, agentId));
   // Update read position
   if (store.messages.length > 0) {
@@ -1260,13 +1263,14 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           const isNew = !store.agents[agentId];
           if (isNew) {
             store.agents[agentId] = buildRuntimeAgent(agentId, { status: "active" });
+          } else {
+            // Refresh config fields on existing agents — they may still
+            // have stale/fallback values from before configs were loaded.
+            const cfg = agentConfigs.find((c) => c.id === agentId);
+            if (cfg) syncRuntimeAgentFromConfig(agentId, cfg);
           }
           store.agents[agentId].status = "active";
-          if (isNew) {
-            broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
-          } else {
-            broadcastToWeb({ type: "agent_status", agentId, status: "active" });
-          }
+          broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
         }
       }
       break;
@@ -1279,6 +1283,9 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           status,
           machineId: ws._machineId,
         });
+      } else {
+        const cfg = agentConfigs.find((c) => c.id === agentId);
+        if (cfg) syncRuntimeAgentFromConfig(agentId, cfg);
       }
       connectedAgents.add(agentId);
       daemonSockets.set(agentId, ws);
