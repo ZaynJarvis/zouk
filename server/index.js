@@ -74,7 +74,7 @@ function agentPayload(agentId) {
   return {
     ...base,
     name: cfg.name || a.name,
-    displayName: cfg.displayName || a.displayName,
+    displayName: cfg.displayName || cfg.name || a.displayName,
     runtime: cfg.runtime || a.runtime,
     model: cfg.model || a.model,
     workDir: cfg.workDir || a.workDir,
@@ -443,10 +443,10 @@ app.get("/internal/agent/:agentId/server", (req, res) => {
       description: ch.description || "",
       joined: true,
     }));
-  const agents = Object.entries(store.agents).map(([id, a]) => ({
-    name: a.name || id,
-    status: a.status || "inactive",
-  }));
+  const agents = Object.keys(store.agents).map((id) => {
+    const p = agentPayload(id);
+    return { name: p?.name || id, status: p?.status || "inactive" };
+  });
   res.json({ channels, agents, humans: store.humans });
 });
 
@@ -790,14 +790,7 @@ app.post("/api/channels", requireAuth, (req, res) => {
 app.get("/api/machines", (req, res) => {
   const machineList = Array.from(machines.values()).map((m) => ({
     ...m,
-    agents: m.agentIds.map((id) => ({ id, ...(store.agents[id] || {}) })).filter((a) => a.name).map((a) => ({
-      id: a.id,
-      name: a.name,
-      displayName: a.displayName,
-      runtime: a.runtime,
-      model: a.model,
-      status: a.status,
-    })),
+    agents: m.agentIds.map((id) => agentPayload(id)).filter(Boolean),
   }));
   res.json({ machines: machineList });
 });
@@ -846,15 +839,7 @@ app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
 
 // Get agents (running + configs)
 app.get("/api/agents", (req, res) => {
-  const agents = Object.entries(store.agents).map(([id, a]) => ({
-    id,
-    name: a.name,
-    displayName: a.displayName,
-    runtime: a.runtime,
-    model: a.model,
-    status: a.status,
-    machineId: a.machineId,
-  }));
+  const agents = Object.keys(store.agents).map((id) => agentPayload(id));
   res.json({ agents, configs: agentConfigs });
 });
 
@@ -1057,32 +1042,29 @@ function startAgentOnDaemon(id, config) {
     machineId: targetWs._machineId,
   });
 
-  // Send agent:start to daemon
+  // Send agent:start to daemon — read from config (source of truth),
+  // not store.agents (which may have fallback values).
   targetWs.send(JSON.stringify({
     type: "agent:start",
     agentId: id,
     launchId: uuidv4(),
     config: {
       runtime,
-      model: store.agents[id].model,
-      workDir: store.agents[id].workDir,
+      model: config.model,
+      workDir: config.workDir || store.agents[id].workDir,
       systemPrompt: config.systemPrompt || config.description || "",
       serverUrl: PUBLIC_URL,
       authToken: "test",
-      name: store.agents[id].name,
-      displayName: store.agents[id].displayName,
+      name: config.name || id,
+      displayName: config.displayName || config.name || id,
       description: config.description || "",
     },
   }));
 
   daemonSockets.set(id, targetWs);
-  broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
-  console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
 
-  // Upsert into agentConfigs so this agent survives a daemon restart. New
-  // agents default to autoStart:true (restart when the daemon reconnects);
-  // existing configs keep whatever autoStart the user set via the UI toggle.
-  // Use original config.* values — NOT store.agents[id].* which has fallbacks.
+  // Upsert into agentConfigs BEFORE broadcasting so that agentPayload()
+  // can overlay the authoritative config onto the runtime entry.
   const existingIdx = agentConfigs.findIndex((c) => c.id === id);
   if (existingIdx < 0) {
     const persisted = {
@@ -1100,8 +1082,11 @@ function startAgentOnDaemon(id, config) {
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
     db.saveAgentConfig(persisted);
-    broadcastToWeb({ type: "config_updated", configs: agentConfigs });
   }
+
+  broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
+  broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
   return { agentId: id, status: "starting" };
 }
 
