@@ -41,10 +41,45 @@ function saveAgentConfigs(configs) {
 
 const agentConfigs = loadAgentConfigs(); // persistent agent configurations
 
-// Track explicitly deleted agent IDs so we can reject them when the daemon
-// re-reports them on reconnect. We can't just check "no config" — configs may
-// not have loaded yet, or the agent may be daemon-side idle-restarted.
-const deletedAgentIds = new Set();
+// ─── Agent state helpers ─────────────────────────────────────────
+// `agentConfigs` is the single source of truth for configuration fields
+// (name, displayName, runtime, model, workDir).  `store.agents` only holds
+// runtime state (status, machineId, sessionId).  These helpers ensure that
+// every code path builds agent objects consistently.
+
+/** Build a store.agents entry, always preferring agentConfigs values. */
+function buildRuntimeAgent(agentId, runtimeOverrides = {}) {
+  const cfg = agentConfigs.find((c) => c.id === agentId);
+  return {
+    name: cfg?.name || agentId,
+    displayName: cfg?.displayName || cfg?.name || agentId,
+    runtime: cfg?.runtime || runtimeOverrides.runtime || "unknown",
+    model: cfg?.model || runtimeOverrides.model || "unknown",
+    workDir: cfg?.workDir || runtimeOverrides.workDir,
+    status: runtimeOverrides.status || "inactive",
+    machineId: runtimeOverrides.machineId,
+    sessionId: runtimeOverrides.sessionId,
+  };
+}
+
+/** Build a full agent payload for broadcasting to the frontend.
+ *  Always overlays config fields on top of runtime state so config
+ *  edits are never masked by stale runtime copies. */
+function agentPayload(agentId) {
+  const a = store.agents[agentId];
+  if (!a) return null;
+  const cfg = agentConfigs.find((c) => c.id === agentId);
+  const base = { id: agentId, ...a };
+  if (!cfg) return base;
+  return {
+    ...base,
+    name: cfg.name || a.name,
+    displayName: cfg.displayName || a.displayName,
+    runtime: cfg.runtime || a.runtime,
+    model: cfg.model || a.model,
+    workDir: cfg.workDir || a.workDir,
+  };
+}
 
 // ─── Machine API key persistence ─────────────────────────────────
 
@@ -860,7 +895,7 @@ app.post("/api/agent-configs", requireAuth, (req, res) => {
   saveAgentConfigs(agentConfigs);
   db.saveAgentConfig(saved);
   if (syncRuntimeAgentFromConfig(saved.id, saved)) {
-    broadcastToWeb({ type: "agent_started", agent: { id: saved.id, ...store.agents[saved.id] } });
+    broadcastToWeb({ type: "agent_started", agent: agentPayload(saved.id) });
   }
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
   res.json({ config: saved });
@@ -892,7 +927,7 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
   saveAgentConfigs(agentConfigs);
   db.saveAgentConfig(agentConfigs[idx]);
   if (syncRuntimeAgentFromConfig(id, agentConfigs[idx])) {
-    broadcastToWeb({ type: "agent_started", agent: { id, ...store.agents[id] } });
+    broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
   }
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
   res.json({ config: agentConfigs[idx] });
@@ -920,7 +955,6 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
     delete store.agents[id];
     daemonSockets.delete(id);
   }
-  deletedAgentIds.add(id);
   broadcastToWeb({ type: "agent_status", agentId: id, status: "deleted" });
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
   res.json({ success: true });
@@ -1013,16 +1047,15 @@ function startAgentOnDaemon(id, config) {
   }
   if (!targetWs) return { error: "No daemon connected with the requested runtime" };
 
-  // Register agent in store
-  store.agents[id] = {
-    name: config.name || id,
-    displayName: config.displayName || config.name || id,
+  // Register agent in store — buildRuntimeAgent reads from agentConfigs first,
+  // then falls back to the request payload for fields not yet persisted.
+  store.agents[id] = buildRuntimeAgent(id, {
     runtime,
-    model: config.model || (runtime === "claude" ? "claude-sonnet-4-20250514" : runtime === "vikingbot" ? "" : "default"),
-    status: "starting",
+    model: config.model,
     workDir: config.workDir || process.cwd(),
+    status: "starting",
     machineId: targetWs._machineId,
-  };
+  });
 
   // Send agent:start to daemon
   targetWs.send(JSON.stringify({
@@ -1043,23 +1076,24 @@ function startAgentOnDaemon(id, config) {
   }));
 
   daemonSockets.set(id, targetWs);
-  broadcastToWeb({ type: "agent_started", agent: { id, ...store.agents[id] } });
+  broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
   console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
 
   // Upsert into agentConfigs so this agent survives a daemon restart. New
   // agents default to autoStart:true (restart when the daemon reconnects);
   // existing configs keep whatever autoStart the user set via the UI toggle.
+  // Use original config.* values — NOT store.agents[id].* which has fallbacks.
   const existingIdx = agentConfigs.findIndex((c) => c.id === id);
   if (existingIdx < 0) {
     const persisted = {
       id,
-      name: store.agents[id].name,
-      displayName: store.agents[id].displayName,
+      name: config.name || id,
+      displayName: config.displayName || config.name || id,
       description: config.description || "",
       systemPrompt: config.systemPrompt || config.description || "",
       runtime,
-      model: store.agents[id].model,
-      workDir: store.agents[id].workDir,
+      model: config.model,
+      workDir: config.workDir || store.agents[id].workDir,
       machineId: targetWs._machineId,
       autoStart: true,
     };
@@ -1236,31 +1270,15 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       // Register any running agents
       if (msg.runningAgents) {
         for (const agentId of msg.runningAgents) {
-          // Only reject agents that were explicitly deleted via the API.
-          // Missing config alone is NOT sufficient — configs may still be
-          // loading from DB, or the agent may be daemon-side idle-restarted.
-          if (deletedAgentIds.has(agentId)) {
-            console.log(`[daemon] Deleted agent ${agentId} re-reported — sending stop`);
-            ws.send(JSON.stringify({ type: "agent:stop", agentId }));
-            continue;
-          }
-          const cfg = agentConfigs.find((c) => c.id === agentId);
           connectedAgents.add(agentId);
           daemonSockets.set(agentId, ws);
           const isNew = !store.agents[agentId];
           if (isNew) {
-            store.agents[agentId] = {
-              name: cfg?.name || agentId,
-              displayName: cfg?.displayName || cfg?.name || agentId,
-              runtime: cfg?.runtime || "claude",
-              model: cfg?.model || "unknown",
-              workDir: cfg?.workDir,
-              status: "active",
-            };
+            store.agents[agentId] = buildRuntimeAgent(agentId, { status: "active" });
           }
           store.agents[agentId].status = "active";
           if (isNew) {
-            broadcastToWeb({ type: "agent_started", agent: { id: agentId, ...store.agents[agentId] } });
+            broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
           } else {
             broadcastToWeb({ type: "agent_status", agentId, status: "active" });
           }
@@ -1270,23 +1288,12 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     }
     case "agent:status": {
       const { agentId, status } = msg;
-      if (deletedAgentIds.has(agentId)) {
-        console.log(`[daemon] Deleted agent ${agentId} reported status=${status} — sending stop`);
-        ws.send(JSON.stringify({ type: "agent:stop", agentId }));
-        break;
-      }
       const isNew = !store.agents[agentId];
       if (isNew) {
-        const cfg = agentConfigs.find((c) => c.id === agentId);
-        store.agents[agentId] = {
-          name: cfg.name || agentId,
-          displayName: cfg.displayName || cfg.name || agentId,
-          runtime: cfg.runtime || "claude",
-          model: cfg.model || "unknown",
-          workDir: cfg.workDir,
+        store.agents[agentId] = buildRuntimeAgent(agentId, {
           status,
           machineId: ws._machineId,
-        };
+        });
       }
       connectedAgents.add(agentId);
       daemonSockets.set(agentId, ws);
@@ -1298,7 +1305,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         machine.agentIds.push(agentId);
       }
       if (isNew) {
-        broadcastToWeb({ type: "agent_started", agent: { id: agentId, ...store.agents[agentId] } });
+        broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
       } else {
         broadcastToWeb({ type: "agent_status", agentId, status });
       }
@@ -1384,7 +1391,7 @@ function handleWebConnection(ws, authenticated) {
   ws.send(JSON.stringify({
     type: "init",
     channels: store.channels.filter((ch) => (ch.type || "channel") === "channel"),
-    agents: Object.entries(store.agents).map(([id, a]) => ({ id, ...a })),
+    agents: Object.keys(store.agents).map((id) => agentPayload(id)),
     humans: store.humans,
     configs: agentConfigs,
     machines: Array.from(machines.values()),
@@ -1738,7 +1745,7 @@ function reconcileAgentsWithConfigs() {
       before.runtime !== a.runtime ||
       before.model !== a.model;
     if (changed) {
-      broadcastToWeb({ type: "agent_started", agent: { id: agentId, ...a } });
+      broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
     }
   }
 }
