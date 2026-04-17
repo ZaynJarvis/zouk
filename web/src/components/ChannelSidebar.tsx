@@ -73,19 +73,22 @@ export default function ChannelSidebar() {
 
   const nc = isNightCity();
   const wapo = theme === 'washington-post';
+  const carbon = theme === 'carbon';
 
   return (
-    <div className={`w-[260px] h-full flex flex-col overflow-hidden ${nc ? 'bg-nc-surface border-r border-nc-border' : wapo ? 'bg-nc-surface border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
-      <div className={`px-3 h-14 flex flex-col justify-center ${nc ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={`w-[260px] h-full flex flex-col overflow-hidden ${nc || carbon ? 'bg-nc-surface border-r border-nc-border' : wapo ? 'bg-nc-surface border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
+      <div className={`px-3 h-14 flex flex-col justify-center ${nc || carbon ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
         <div className="flex items-center justify-between">
           {nc
             ? <GlitchText as="h2" className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider" intensity="low">ZOUK</GlitchText>
-            : wapo
-              ? <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk</h2>
-              : <h2 className="font-display font-black text-lg text-nc-text-bright truncate">Zouk</h2>
+            : carbon
+              ? <h2 className="font-display font-semibold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk</h2>
+              : wapo
+                ? <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk</h2>
+                : <h2 className="font-display font-black text-lg text-nc-text-bright truncate">Zouk</h2>
           }
           {totalUnread > 0 && (
-            <span className={`text-2xs font-black px-1.5 py-0.5 border ${nc ? 'bg-nc-red/20 text-nc-red border-nc-red/40' : wapo ? 'bg-[#7c2430] text-[#fffaf2] border-[#7c2430] rounded-full' : 'bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
+            <span className={`text-2xs font-black px-1.5 py-0.5 border ${nc ? 'bg-nc-red/20 text-nc-red border-nc-red/40' : (carbon || wapo) ? 'bg-nc-red/20 text-nc-red border-nc-red/40 rounded-full' : 'bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
               {totalUnread}
             </span>
           )}
@@ -96,8 +99,8 @@ export default function ChannelSidebar() {
         </div>
       </div>
 
-      <div className={`px-3 py-2 ${nc ? 'border-b border-nc-border' : wapo ? 'border-b border-nc-border' : 'border-b-[2px] border-nc-border-bright'}`}>
-        <div className={`flex items-center gap-1.5 px-2 py-1.5 ${nc ? 'bg-nc-panel border border-nc-border' : wapo ? 'bg-[#fffaf2] border border-nc-border rounded' : 'bg-nc-surface border-2 border-nc-border'}`}>
+      <div className={`px-3 py-2 ${nc || carbon ? 'border-b border-nc-border' : wapo ? 'border-b border-nc-border' : 'border-b-[2px] border-nc-border-bright'}`}>
+        <div className={`flex items-center gap-1.5 px-2 py-1.5 ${nc || carbon ? 'bg-nc-panel border border-nc-border' : wapo ? 'bg-[#fffaf2] border border-nc-border rounded' : 'bg-nc-surface border-2 border-nc-border'}`}>
           <Search size={14} className="text-nc-muted flex-shrink-0" />
           <input
             type="text"
@@ -114,7 +117,7 @@ export default function ChannelSidebar() {
         </div>
       </div>
 
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${!nc && !wapo ? 'px-2' : ''}`}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${!nc && !wapo && !carbon ? 'px-2' : ''}`}>
         <div>
           <SectionHeader
             title="Channels"
@@ -153,12 +156,14 @@ export default function ChannelSidebar() {
                   ${isActive
                     ? (nc
                         ? 'bg-nc-cyan/10 border-l-2 border-nc-cyan text-nc-cyan font-bold'
-                        : wapo
-                          ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
-                          : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
+                        : carbon
+                          ? 'bg-nc-cyan/10 border-l-2 border-nc-cyan text-nc-text-bright font-semibold'
+                          : wapo
+                            ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
+                            : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
                     : unread > 0
-                      ? (nc ? 'font-semibold text-nc-text-bright hover:bg-nc-elevated' : wapo ? 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
-                      : (nc ? 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text' : wapo ? 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright')
+                      ? (nc || carbon ? 'font-semibold text-nc-text-bright hover:bg-nc-elevated' : wapo ? 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
+                      : (nc || carbon ? 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text' : wapo ? 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright')
                   }
                 `}
               >
@@ -193,9 +198,11 @@ export default function ChannelSidebar() {
                   ${isActive
                     ? (nc
                         ? 'bg-nc-green/10 border-l-2 border-nc-green text-nc-green font-bold'
-                        : wapo
-                          ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
-                          : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
+                        : carbon
+                          ? 'bg-nc-green/10 border-l-2 border-nc-green text-nc-text-bright font-semibold'
+                          : wapo
+                            ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
+                            : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
                     : unread > 0
                       ? (wapo ? 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
                       : (wapo ? 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text')
