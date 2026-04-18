@@ -1,4 +1,4 @@
-import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff } from 'lucide-react';
+import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -8,7 +8,7 @@ export default function TopBar() {
   const {
     activeChannelName, viewMode,
     rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
-    wsConnected, daemonConnected, theme,
+    wsConnected, daemonConnected, theme, setSettingsOpen,
   } = useApp();
   const nc = isNightCity();
   const wapo = theme === 'washington-post';
@@ -122,6 +122,19 @@ export default function TopBar() {
             title={rightPanel ? 'Close Panel' : 'Open Panel'}
           >
             {rightPanel ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+          </button>
+        </ScanlineTear>
+
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className={nc
+              ? 'cyber-btn w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan'
+              : 'w-8 h-8 border-2 border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-border-bright hover:text-nc-text-bright transition-all'
+            }
+            title="Settings"
+          >
+            <Settings size={16} />
           </button>
         </ScanlineTear>
       </div>

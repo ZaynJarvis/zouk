@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, memo } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Server, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback, memo, useRef } from 'react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Server, Trash2, Camera } from 'lucide-react';
 import type { ServerAgent, ServerMachine, Skill, WorkspaceFile } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -442,17 +442,72 @@ function SettingsTab({
   const [visibility, setVisibility] = useState<'workspace' | 'private'>(persistedVisibility);
   const [maxConcurrent, setMaxConcurrent] = useState(persistedMaxConcurrent);
   const [autoStart, setAutoStart] = useState<boolean>(persistedAutoStart);
+  const [picture, setPicture] = useState<string | undefined>(agent.picture);
+  const pictureInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d')!;
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, 128, 128);
+      for (const q of [0.8, 0.6, 0.4, 0.2]) {
+        const dataUrl = canvas.toDataURL('image/webp', q);
+        if (dataUrl.length <= 14000) {
+          setPicture(dataUrl);
+          return;
+        }
+      }
+    };
+    img.src = URL.createObjectURL(file);
+    e.target.value = '';
+  }, []);
 
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
     visibility !== persistedVisibility ||
     maxConcurrent !== persistedMaxConcurrent ||
-    autoStart !== persistedAutoStart;
+    autoStart !== persistedAutoStart ||
+    picture !== agent.picture;
 
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
       <div className="max-w-lg space-y-5">
+        <div>
+          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">PROFILE_PICTURE</label>
+          <div className="flex items-center gap-4">
+            <div
+              className="relative w-16 h-16 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center cursor-pointer group overflow-hidden font-display font-bold text-xl text-nc-cyan"
+              onClick={() => pictureInputRef.current?.click()}
+            >
+              {picture ? (
+                <img src={picture} alt="" className="w-full h-full object-cover" />
+              ) : (
+                (agent.displayName || agent.name).charAt(0).toUpperCase()
+              )}
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <Camera size={18} className="text-white" />
+              </div>
+              <input
+                ref={pictureInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handlePictureUpload}
+              />
+            </div>
+            <p className="text-xs text-nc-muted font-mono">Click to upload (128x128 webp)</p>
+          </div>
+        </div>
+
         <div>
           <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">DISPLAY_NAME</label>
           <input
@@ -642,7 +697,7 @@ function SettingsTab({
             {isDirty && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
-                  onClick={() => onUpdate({ displayName, description, systemPrompt: description, visibility, maxConcurrentTasks: maxConcurrent, autoStart })}
+                  onClick={() => onUpdate({ displayName, description, systemPrompt: description, visibility, maxConcurrentTasks: maxConcurrent, autoStart, picture })}
                   className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
                 >
                   <Save size={12} /> SAVE
@@ -704,8 +759,12 @@ export default function AgentDetail({
             <ArrowLeft size={14} />
           </button>
         )}
-        <div className="w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan">
-          {(agent.displayName || agent.name).charAt(0).toUpperCase()}
+        <div className="w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan overflow-hidden">
+          {agent.picture ? (
+            <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+          ) : (
+            (agent.displayName || agent.name).charAt(0).toUpperCase()
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">

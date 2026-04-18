@@ -84,6 +84,7 @@ function agentPayload(agentId) {
     runtime: cfg.runtime || a.runtime,
     model: cfg.model || a.model,
     workDir: cfg.workDir || a.workDir,
+    picture: cfg.picture || a.picture || undefined,
   };
 }
 
@@ -1636,10 +1637,10 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
   if (picture !== undefined) {
     if (picture === null || picture === "") {
       user.picture = null;
-    } else if (typeof picture === "string" && picture.length <= 70000) {
+    } else if (typeof picture === "string" && picture.length <= 14000) {
       user.picture = picture;
     } else {
-      return res.status(400).json({ error: "picture too large (max ~50KB base64)" });
+      return res.status(400).json({ error: "picture too large (max 10KB)" });
     }
   }
   authSessions.set(token, user);

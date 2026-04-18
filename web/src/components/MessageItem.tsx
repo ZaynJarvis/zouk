@@ -87,7 +87,7 @@ function parseMarkdown(content: string): React.ReactNode[] {
     const lang = match[1] || '';
     const code = match[2].trim();
     nodes.push(
-      <pre key={`cb-${key++}`} className="relative bg-nc-black border border-nc-green/25 rounded-sm my-3 overflow-x-auto group">
+      <pre key={`cb-${key++}`} className="relative bg-nc-black border border-nc-green/25 rounded-sm my-3 overflow-x-auto max-w-full group">
         {lang && (
           <div className="px-3 pt-1.5 pb-0 text-2xs font-mono text-nc-green/50 border-b border-nc-green/15 uppercase tracking-widest">
             {lang}
@@ -265,12 +265,13 @@ function getSenderColor(name: string): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function MessageItem({ message, isGrouped = false }: { message: MessageRecord; isGrouped?: boolean }) {
-  const { humans } = useApp();
+  const { humans, agents } = useApp();
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
   const senderHuman = !isAgent && !isSystem ? humans.find(h => h.name === senderName) : undefined;
-  const senderPicture = senderHuman?.picture || senderHuman?.gravatarUrl;
+  const senderAgent = isAgent ? agents.find(a => a.name === senderName || a.displayName === senderName) : undefined;
+  const senderPicture = senderHuman?.picture || senderHuman?.gravatarUrl || senderAgent?.picture;
   const timestamp = message.timestamp || '';
   const color = getSenderColor(senderName);
 
@@ -288,7 +289,7 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
   }
 
   return (
-    <div className="group relative px-4 sm:px-6 hover:bg-nc-elevated/40 transition-colors duration-100">
+    <div className="group relative px-4 sm:px-6 hover:bg-nc-elevated/40 transition-colors duration-100 overflow-hidden">
       <div className={`flex gap-3 sm:gap-4 ${isGrouped ? 'py-0.5' : 'pt-4 pb-1'}`}>
         {/* Avatar column */}
         {isGrouped ? (

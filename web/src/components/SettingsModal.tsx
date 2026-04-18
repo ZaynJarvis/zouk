@@ -38,18 +38,15 @@ function resizeAndEncode(file: File, maxSize: number): Promise<string> {
       const sx = (img.width - min) / 2;
       const sy = (img.height - min) / 2;
       ctx.drawImage(img, sx, sy, min, min, 0, 0, maxSize, maxSize);
-      const dataUrl = canvas.toDataURL('image/webp', 0.8);
-      // Strip to just base64 if under ~50KB, otherwise try lower quality
-      if (dataUrl.length > 70000) {
-        const lowQ = canvas.toDataURL('image/webp', 0.5);
-        if (lowQ.length > 70000) {
-          reject(new Error('Image too large even after compression'));
+      // Try quality levels to stay under 10KB
+      for (const q of [0.8, 0.6, 0.4, 0.2]) {
+        const dataUrl = canvas.toDataURL('image/webp', q);
+        if (dataUrl.length <= 14000) {
+          resolve(dataUrl);
           return;
         }
-        resolve(lowQ);
-      } else {
-        resolve(dataUrl);
       }
+      reject(new Error('Image too large even after compression (max 10KB)'));
     };
     img.onerror = () => reject(new Error('Failed to load image'));
     img.src = URL.createObjectURL(file);
