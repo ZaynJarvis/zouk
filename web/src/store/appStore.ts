@@ -70,6 +70,8 @@ export function useAppStore() {
   const [daemonConnected, setDaemonConnected] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [threadedMessageIds, setThreadedMessageIds] = useState<Set<string>>(new Set());
   // Workspace file trees per agent: agentId -> { dirPath, files }
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { dirPath: string; files: WorkspaceFile[] }>>({});
@@ -89,6 +91,8 @@ export function useAppStore() {
   viewModeRef.current = viewMode;
   const currentUserRef = useRef(currentUser);
   currentUserRef.current = currentUser;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
@@ -367,11 +371,13 @@ export function useAppStore() {
     // returns a cached 304 for a different URL), the previous channel's
     // messages don't linger while the new title is already shown.
     setMessages([]);
+    setHasMoreMessages(false);
     setLoadingMessages(true);
     const isDm = viewModeRef.current === 'dm';
-    api.fetchMessages(activeChannelName, isDm, 200, isDm ? currentUserRef.current : undefined).then(msgs => {
+    api.fetchMessages(activeChannelName, isDm, 50, isDm ? currentUserRef.current : undefined).then(res => {
       if (!cancelled) {
-        setMessages(msgs);
+        setMessages(res.messages);
+        setHasMoreMessages(res.hasMore);
         setLoadingMessages(false);
         setUnreadCounts(prev => {
           const copy = { ...prev };
@@ -382,11 +388,35 @@ export function useAppStore() {
     }).catch(() => {
       if (!cancelled) {
         setMessages([]);
+        setHasMoreMessages(false);
         setLoadingMessages(false);
       }
     });
     return () => { cancelled = true; };
   }, [activeChannelName, viewMode]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingOlderMessages) return;
+    if (!hasMoreMessages) return;
+    const oldest = messagesRef.current[0];
+    if (!oldest) return;
+    setLoadingOlderMessages(true);
+    try {
+      const isDm = viewModeRef.current === 'dm';
+      const sender = isDm ? currentUserRef.current : undefined;
+      const res = await api.fetchMessages(activeChannelRef.current, isDm, 50, sender, oldest.id);
+      setMessages(prev => {
+        const known = new Set(prev.map(m => m.id));
+        const fresh = res.messages.filter(m => !known.has(m.id));
+        return [...fresh, ...prev];
+      });
+      setHasMoreMessages(res.hasMore);
+    } catch {
+      // surface nothing — user can scroll again to retry
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  }, [loadingOlderMessages, hasMoreMessages]);
 
   const selectChannel = useCallback((name: string, isDm = false) => {
     setActiveChannelName(name);
@@ -642,6 +672,9 @@ export function useAppStore() {
     wsConnected, daemonConnected,
     unreadCounts,
     loadingMessages,
+    hasMoreMessages,
+    loadingOlderMessages,
+    loadOlderMessages,
     sendMessage: sendMessageAction,
     createChannel: createChannelAction,
     deleteChannel: deleteChannelAction,

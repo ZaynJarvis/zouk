@@ -1,9 +1,11 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import MessageItem from './MessageItem';
 import type { MessageRecord } from '../types';
 import { Loader } from 'lucide-react';
 import { isNightCity } from '../lib/themeUtils';
+
+const OLDER_LOAD_TRIGGER_PX = 120;
 
 function DateDivider({ date }: { date: string }) {
   const nc = isNightCity();
@@ -39,11 +41,21 @@ function formatDate(dateStr: string): string {
 }
 
 export default function MessageList() {
-  const { messages, activeChannelName, loadingMessages } = useApp();
+  const {
+    messages,
+    activeChannelName,
+    loadingMessages,
+    hasMoreMessages,
+    loadingOlderMessages,
+    loadOlderMessages,
+  } = useApp();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // true after a loading transition — signals we need an instant scroll
   const pendingInitialScrollRef = useRef(true);
+  // Snapshot scrollHeight right before an older-page prepends, so we can
+  // preserve the user's visual position after React rerenders with taller content.
+  const preservedScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const channelMessages = messages.filter(m => m.channel_type !== 'thread');
 
   // When loading starts (channel switch or page load), mark pending initial scroll
@@ -62,7 +74,32 @@ export default function MessageList() {
     }
   }, []);
 
+  // Snapshot scroll position just before an older-page prepend, then
+  // restore visual position after the new content lays out.
+  useLayoutEffect(() => {
+    if (loadingOlderMessages && containerRef.current && !preservedScrollRef.current) {
+      preservedScrollRef.current = {
+        scrollHeight: containerRef.current.scrollHeight,
+        scrollTop: containerRef.current.scrollTop,
+      };
+    }
+  }, [loadingOlderMessages]);
+
+  useLayoutEffect(() => {
+    const snap = preservedScrollRef.current;
+    if (!snap) return;
+    const container = containerRef.current;
+    if (container) {
+      const delta = container.scrollHeight - snap.scrollHeight;
+      container.scrollTop = snap.scrollTop + delta;
+    }
+    preservedScrollRef.current = null;
+  }, [channelMessages.length]);
+
   useEffect(() => {
+    // Skip bottom-scroll when the length change was from an older-page prepend —
+    // the snapshot restore effect above handles position preservation instead.
+    if (preservedScrollRef.current) return;
     if (channelMessages.length === 0) return;
     if (pendingInitialScrollRef.current) {
       // Initial load or channel switch — scroll instantly so users land at the bottom
@@ -73,6 +110,17 @@ export default function MessageList() {
       scrollToBottom(false);
     }
   }, [channelMessages.length, scrollToBottom]);
+
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (pendingInitialScrollRef.current) return;
+    if (loadingMessages || loadingOlderMessages) return;
+    if (!hasMoreMessages) return;
+    if (container.scrollTop <= OLDER_LOAD_TRIGGER_PX) {
+      loadOlderMessages();
+    }
+  }, [loadingMessages, loadingOlderMessages, hasMoreMessages, loadOlderMessages]);
 
   if (loadingMessages) {
     return (
@@ -109,8 +157,23 @@ export default function MessageList() {
   let lastDate = '';
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin"
+    >
       <div className="pt-4 pb-2 max-w-4xl mx-auto w-full min-w-0">
+        {loadingOlderMessages && (
+          <div className="flex items-center justify-center py-3">
+            <Loader size={16} className="animate-spin text-nc-cyan" />
+            <span className="ml-2 text-xs font-mono text-nc-muted tracking-wider">Loading older messages…</span>
+          </div>
+        )}
+        {!hasMoreMessages && channelMessages.length > 0 && !loadingOlderMessages && (
+          <div className="flex items-center justify-center py-3">
+            <span className="text-xs font-mono text-nc-muted tracking-wider opacity-60">— start of conversation —</span>
+          </div>
+        )}
         {channelMessages.map((msg, i) => {
           const msgDate = msg.timestamp ? formatDate(msg.timestamp) : '';
           const showDate = msgDate && msgDate !== lastDate;

@@ -43,9 +43,20 @@ export function normalizeMessage(m: any): MessageRecord {
   };
 }
 
-export async function fetchMessages(channelName: string, isDm = false, limit = 200, senderName?: string): Promise<MessageRecord[]> {
+export interface FetchMessagesResult {
+  messages: MessageRecord[];
+  hasMore: boolean;
+}
+
+export async function fetchMessages(
+  channelName: string,
+  isDm = false,
+  limit = 50,
+  senderName?: string,
+  beforeId?: string,
+): Promise<FetchMessagesResult> {
   const target = isDm ? `dm:@${channelName}` : `#${channelName}`;
-  // Pass channel/limit/sender as request headers — the Cloudflare proxy
+  // Pass channel/limit/sender/before as request headers — the Cloudflare proxy
   // rewrites both query strings and path segments during its 307 redirect
   // chain but leaves headers untouched.
   const headers: Record<string, string> = {
@@ -53,10 +64,14 @@ export async function fetchMessages(channelName: string, isDm = false, limit = 2
     'X-Limit': String(limit),
   };
   if (senderName) headers['X-Sender'] = senderName;
+  if (beforeId) headers['X-Before'] = beforeId;
   const res = await fetch(`${getBaseUrl()}/api/messages`, { cache: 'no-store', headers });
   if (!res.ok) throw new Error(`Failed to fetch messages: ${res.status}`);
   const data = await res.json();
-  return (data.messages || []).map(normalizeMessage);
+  return {
+    messages: (data.messages || []).map(normalizeMessage),
+    hasMore: !!data.hasMore,
+  };
 }
 
 export async function fetchThreadMessages(

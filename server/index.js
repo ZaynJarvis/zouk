@@ -1017,12 +1017,22 @@ app.post("/api/messages", requireAuth, (req, res) => {
 // Query-string fallback kept for backward compat (curl, daemon internal API).
 app.get("/api/messages", (req, res) => {
   const channel = req.headers["x-channel"] || req.query.channel || "#all";
-  const limit = req.headers["x-limit"] || req.query.limit || 100;
+  const limit = parseInt(req.headers["x-limit"] || req.query.limit || 100);
   const sender = req.headers["x-sender"] || req.query.sender || null;
-  const msgs = store.messages
-    .filter((m) => matchesTarget(m, channel, sender))
-    .slice(-parseInt(limit));
-  res.json({ messages: msgs.map((m) => formatMessageForClient(m, sender)) });
+  const before = req.headers["x-before"] || req.query.before || null;
+
+  const filtered = store.messages.filter((m) => matchesTarget(m, channel, sender));
+  let windowEnd = filtered.length;
+  if (before) {
+    const idx = filtered.findIndex((m) => m.id === before);
+    if (idx >= 0) windowEnd = idx;
+  }
+  const windowStart = Math.max(0, windowEnd - limit);
+  const msgs = filtered.slice(windowStart, windowEnd);
+  res.json({
+    messages: msgs.map((m) => formatMessageForClient(m, sender)),
+    hasMore: windowStart > 0,
+  });
 });
 
 // Get channels
