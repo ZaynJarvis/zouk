@@ -1,11 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { X, User, Palette, Monitor, Server, SlidersHorizontal, Camera } from 'lucide-react';
+import { X, User, Palette, Monitor, Server, SlidersHorizontal, Camera, Smile, Plus, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
 import { themes, type ThemeId } from '../themes';
+import { resizeAndEncode } from '../lib/imageEncode';
 
-type Section = 'profile' | 'appearance' | 'providers' | 'preferences' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'preferences' | 'about';
+
+const PROFILE_PRESET_MAX = 30;
 
 const PREFS_KEY = 'zouk_preferences';
 
@@ -31,38 +34,11 @@ function applyFontSizePreference(fontSize: Preferences['fontSize']) {
   document.documentElement.setAttribute('data-font-size', fontSize);
 }
 
-function resizeAndEncode(file: File, maxSize: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = maxSize;
-      canvas.height = maxSize;
-      const ctx = canvas.getContext('2d')!;
-      // Crop to center square
-      const min = Math.min(img.width, img.height);
-      const sx = (img.width - min) / 2;
-      const sy = (img.height - min) / 2;
-      ctx.drawImage(img, sx, sy, min, min, 0, 0, maxSize, maxSize);
-      // Try quality levels to stay under 10KB
-      for (const q of [0.8, 0.6, 0.4, 0.2]) {
-        const dataUrl = canvas.toDataURL('image/webp', q);
-        if (dataUrl.length <= 14000) {
-          resolve(dataUrl);
-          return;
-        }
-      }
-      reject(new Error('Image too large even after compression (max 10KB)'));
-    };
-    img.onerror = () => reject(new Error('Failed to load image'));
-    img.src = URL.createObjectURL(file);
-  });
-}
-
 export default function SettingsModal() {
   const {
     settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateProfile, logout,
     wsConnected, daemonConnected, agents, machines, configs, authUser,
+    profilePresets, addProfilePreset, removeProfilePreset,
   } = useApp();
   const [section, setSection] = useState<Section>('profile');
   const nc = theme === 'night-city';
@@ -70,6 +46,8 @@ export default function SettingsModal() {
   const [displayName, setDisplayName] = useState(currentUser);
   const [glitchActive, setGlitchActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const presetInputRef = useRef<HTMLInputElement>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<Preferences>(loadPrefs);
 
   useEffect(() => {
@@ -104,6 +82,19 @@ export default function SettingsModal() {
     e.target.value = '';
   }, [updateProfile, displayName, currentUser]);
 
+  const handlePresetUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPresetError(null);
+    try {
+      const dataUrl = await resizeAndEncode(file, 128);
+      await addProfilePreset(dataUrl);
+    } catch (err) {
+      setPresetError(err instanceof Error ? err.message : 'Upload failed');
+    }
+  }, [addProfilePreset]);
+
   const handleGlitchComplete = useCallback(() => {
     setGlitchActive(false);
   }, []);
@@ -113,10 +104,14 @@ export default function SettingsModal() {
   const navItems: { key: Section; label: string; icon: typeof User }[] = [
     { key: 'profile', label: 'PROFILE', icon: User },
     { key: 'appearance', label: 'DISPLAY', icon: Palette },
+    { key: 'avatars', label: 'AVATARS', icon: Smile },
     { key: 'providers', label: 'PROVIDERS', icon: Server },
     { key: 'preferences', label: 'PREFERENCES', icon: SlidersHorizontal },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
+
+  const presetCount = profilePresets.length;
+  const atPresetLimit = presetCount >= PROFILE_PRESET_MAX;
 
   // Thick border variant only for brutalist
   const borderB = brutalist ? 'border-b-[3px] border-nc-border-bright' : 'border-b border-nc-border';
@@ -268,6 +263,66 @@ export default function SettingsModal() {
                       );
                     })}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {section === 'avatars' && (
+              <div className="max-w-xl space-y-5">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="text-sm font-bold text-nc-text-bright tracking-wider">AGENT_PRESETS</p>
+                      <p className="text-xs text-nc-muted font-mono mt-0.5">
+                        New agents are hashed into this pool for their starter avatar. Empty pool falls back to initials.
+                      </p>
+                    </div>
+                    <span className="text-xs font-mono text-nc-muted">
+                      {presetCount}{atPresetLimit ? ` / ${PROFILE_PRESET_MAX}` : ''}
+                    </span>
+                  </div>
+
+                  {presetError && (
+                    <p className="text-2xs font-mono text-nc-red mb-2">{presetError}</p>
+                  )}
+
+                  <div className="grid grid-cols-6 gap-2">
+                    {profilePresets.map(p => (
+                      <div key={p.id} className="relative group aspect-square border border-nc-border bg-nc-panel overflow-hidden">
+                        <img src={p.image} alt="" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeProfilePreset(p.id)}
+                          className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-nc-red"
+                          title="Remove preset"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                    {!atPresetLimit && (
+                      <button
+                        type="button"
+                        onClick={() => presetInputRef.current?.click()}
+                        className="aspect-square border border-dashed border-nc-border hover:border-nc-cyan hover:text-nc-cyan text-nc-muted flex items-center justify-center transition-colors"
+                        title="Upload avatar preset"
+                      >
+                        <Plus size={18} />
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    ref={presetInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePresetUpload}
+                  />
+                  {atPresetLimit && (
+                    <p className="text-2xs font-mono text-nc-yellow mt-2">
+                      Preset pool is full ({PROFILE_PRESET_MAX} max). Remove one to upload more.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

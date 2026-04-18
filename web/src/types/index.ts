@@ -150,12 +150,18 @@ export interface ServerMachine {
   agentIds?: string[];
 }
 
+export interface AgentProfilePreset {
+  id: string;
+  image: string;
+}
+
 export interface InitPayload {
   channels: ServerChannel[];
   agents: ServerAgent[];
   humans: ServerHuman[];
   configs: AgentConfig[];
   machines: ServerMachine[];
+  profilePresets?: AgentProfilePreset[];
 }
 
 export interface WorkspaceFile {

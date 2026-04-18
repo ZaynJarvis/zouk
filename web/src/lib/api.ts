@@ -1,4 +1,4 @@
-import type { MessageRecord, AgentConfig, MachineApiKey } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset } from '../types';
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
@@ -267,4 +267,33 @@ export async function revokeMachineKey(keyId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/machine-keys/${keyId}`;
   const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to revoke machine key: ${res.status}`);
+}
+
+// ─── Agent profile presets ───────────────────────────────────────
+
+export async function listProfilePresets(): Promise<{ presets: AgentProfilePreset[]; max: number }> {
+  const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`);
+  if (!res.ok) throw new Error(`Failed to list profile presets: ${res.status}`);
+  return res.json();
+}
+
+export async function createProfilePreset(image: string): Promise<{ preset: AgentProfilePreset; count: number; max: number }> {
+  const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ image }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to create preset: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteProfilePreset(id: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to delete preset: ${res.status}`);
 }

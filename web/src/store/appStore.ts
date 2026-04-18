@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, Toast,
-  WorkspaceFile,
+  WorkspaceFile, AgentProfilePreset,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -75,6 +75,7 @@ export function useAppStore() {
   // Tree cache: agentId -> dirPath -> files (for recursive tree rendering)
   const [wsTreeCache, setWsTreeCache] = useState<Record<string, Record<string, WorkspaceFile[]>>>({});
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
+  const [profilePresets, setProfilePresets] = useState<AgentProfilePreset[]>([]);
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user || null);
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getStoredAuth());
@@ -112,12 +113,13 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
+        const e = event as { channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
         setChannels(e.channels || []);
         setAgents(e.agents || []);
         setHumans(e.humans || []);
         setConfigs(e.configs || []);
         setMachines(e.machines || []);
+        setProfilePresets(e.profilePresets || []);
         if (e.channels?.length && !e.channels.find(c => c.name === activeChannelRef.current)) {
           setActiveChannelName(e.channels[0].name);
         }
@@ -268,6 +270,11 @@ export function useAppStore() {
       case 'humans_updated': {
         const e = event as { humans: ServerHuman[] };
         setHumans(e.humans || []);
+        break;
+      }
+      case 'agent_profile_presets_updated': {
+        const e = event as { presets: AgentProfilePreset[] };
+        setProfilePresets(e.presets || []);
         break;
       }
       case 'machine:connected': {
@@ -468,6 +475,26 @@ export function useAppStore() {
     }
   }, [addToast]);
 
+  const addProfilePresetAction = useCallback(async (image: string) => {
+    try {
+      const { preset } = await api.createProfilePreset(image);
+      setProfilePresets(prev => (prev.find(p => p.id === preset.id) ? prev : [...prev, preset]));
+      addToast('Avatar preset added', 'success');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to add preset';
+      addToast(msg, 'error');
+    }
+  }, [addToast]);
+
+  const removeProfilePresetAction = useCallback(async (id: string) => {
+    try {
+      await api.deleteProfilePreset(id);
+      setProfilePresets(prev => prev.filter(p => p.id !== id));
+    } catch {
+      addToast('Failed to remove preset', 'error');
+    }
+  }, [addToast]);
+
   const saveAgentConfigAction = useCallback(async (config: AgentConfig) => {
     try {
       await api.saveAgentConfig(config);
@@ -610,6 +637,9 @@ export function useAppStore() {
     wsSend,
     workspaceFiles, wsTreeCache, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
+    profilePresets,
+    addProfilePreset: addProfilePresetAction,
+    removeProfilePreset: removeProfilePresetAction,
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,

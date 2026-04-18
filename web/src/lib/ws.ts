@@ -1,6 +1,6 @@
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
-  AgentConfig, ServerMachine, AgentActivity, AgentEntry,
+  AgentConfig, ServerMachine, AgentActivity, AgentEntry, AgentProfilePreset,
 } from '../types';
 
 export type WsEventType =
@@ -13,6 +13,7 @@ export type WsEventType =
   | 'agent_started'
   | 'config_updated'
   | 'humans_updated'
+  | 'agent_profile_presets_updated'
   | 'machine:connected' | 'machine:disconnected' | 'machine:updated'
   | 'workspace:file_tree' | 'workspace:file_content'
   | 'skills:list_result'
@@ -25,6 +26,12 @@ export interface WsInitEvent {
   humans: ServerHuman[];
   configs: AgentConfig[];
   machines: ServerMachine[];
+  profilePresets?: AgentProfilePreset[];
+}
+
+export interface WsProfilePresetsUpdatedEvent {
+  type: 'agent_profile_presets_updated';
+  presets: AgentProfilePreset[];
 }
 
 export interface WsMessageEvent {
@@ -115,6 +122,7 @@ export type WsEvent =
   | WsMachineDisconnectedEvent
   | WsWorkspaceFileTreeEvent
   | WsWorkspaceFileContentEvent
+  | WsProfilePresetsUpdatedEvent
   | { type: string; [key: string]: unknown };
 
 export type WsEventHandler = (event: WsEvent) => void;

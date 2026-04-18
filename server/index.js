@@ -10,6 +10,7 @@ const { URL } = require("url");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const db = require("./db");
+const { createStore: createProfilePresetsStore, MAX_PRESETS: PROFILE_PRESET_MAX } = require("./profilePresets");
 
 function gravatarUrl(email) {
   if (!email) return null;
@@ -25,6 +26,7 @@ const CONFIG_DIR = path.join(__dirname, "..", "data");
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
 const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
 const SESSIONS_FILE = path.join(CONFIG_DIR, "sessions.json");
+const AGENT_PROFILE_PRESETS_FILE = path.join(CONFIG_DIR, "agent-profile-presets.json");
 
 // ─── Agent config persistence ────────────────────────────────────
 
@@ -421,6 +423,15 @@ function broadcastToWeb(event) {
     if (ws.readyState === 1) ws.send(data);
   }
 }
+
+// Profile preset pool. Avatar assignment for brand-new agents flows through
+// pickProfilePresetForAgent() in startAgentOnDaemon; the CRUD endpoints below
+// let users manage the pool from the settings popup.
+const profilePresets = createProfilePresetsStore({
+  filePath: AGENT_PROFILE_PRESETS_FILE,
+  db,
+  broadcast: broadcastToWeb,
+});
 
 function humanId(name) {
   return `human:${String(name || "").trim().toLowerCase()}`;
@@ -1192,6 +1203,25 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// ─── Profile preset pool ────────────────────────────────────────
+
+app.get("/api/agent-profile-presets", (req, res) => {
+  res.json({ presets: profilePresets.list(), max: PROFILE_PRESET_MAX });
+});
+
+app.post("/api/agent-profile-presets", requireAuth, async (req, res) => {
+  const { image } = req.body || {};
+  const result = await profilePresets.add(image);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ preset: result.preset, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+});
+
+app.delete("/api/agent-profile-presets/:id", requireAuth, async (req, res) => {
+  const result = await profilePresets.remove(req.params.id);
+  if (result.error) return res.status(404).json({ error: result.error });
+  res.json({ success: true, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+});
+
 // ─── Machine API key management ─────────────────────────────────
 
 // List machine API keys (masked)
@@ -1331,6 +1361,9 @@ function startAgentOnDaemon(id, config) {
       autoStart: true,
     };
     if (requestedWorkDir) persisted.workDir = requestedWorkDir;
+    const usedImages = new Set(agentConfigs.map((c) => c.picture).filter(Boolean));
+    const shardedPicture = profilePresets.pickForAgent(id, usedImages);
+    if (shardedPicture) persisted.picture = shardedPicture;
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
     db.saveAgentConfig(persisted);
@@ -1682,6 +1715,7 @@ function handleWebConnection(ws, authenticated, token = null) {
     humans: currentHumans(),
     configs: agentConfigs,
     machines: Array.from(machines.values()),
+    profilePresets: profilePresets.list(),
   }));
 
   ws.on("message", (data) => {
@@ -2062,6 +2096,8 @@ async function initFromDB() {
       for (const cfg of agentConfigs) await db.saveAgentConfig(cfg);
       console.log(`[db] Seeded ${agentConfigs.length} agent configs to DB`);
     }
+
+    await profilePresets.hydrateFromDb();
 
     // Machine keys: DB wins over file when DB has entries
     if (dbKeys !== null && dbKeys.length > 0) {

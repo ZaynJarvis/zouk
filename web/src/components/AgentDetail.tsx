@@ -5,6 +5,7 @@ import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
+import { resizeAndEncode } from '../lib/imageEncode';
 
 type Tab = 'instructions' | 'workspace' | 'activity' | 'settings';
 
@@ -425,7 +426,7 @@ function SettingsTab({
   onStop: () => void;
   onDelete: () => void;
 }) {
-  const { isGuest, configs } = useApp();
+  const { isGuest, configs, profilePresets } = useApp();
   // description / visibility / maxConcurrentTasks / autoStart only round-trip
   // through the saved config — the live ServerAgent payload doesn't carry
   // them. Reading from `agent.X` would wipe the user's saved value every time
@@ -447,28 +448,20 @@ function SettingsTab({
 
   const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 128;
-      const ctx = canvas.getContext('2d')!;
-      const min = Math.min(img.width, img.height);
-      const sx = (img.width - min) / 2;
-      const sy = (img.height - min) / 2;
-      ctx.drawImage(img, sx, sy, min, min, 0, 0, 128, 128);
-      for (const q of [0.8, 0.6, 0.4, 0.2]) {
-        const dataUrl = canvas.toDataURL('image/webp', q);
-        if (dataUrl.length <= 14000) {
-          setPicture(dataUrl);
-          onUpdate({ picture: dataUrl });
-          return;
-        }
-      }
-    };
-    img.src = URL.createObjectURL(file);
     e.target.value = '';
+    if (!file) return;
+    try {
+      const dataUrl = await resizeAndEncode(file, 128);
+      setPicture(dataUrl);
+      onUpdate({ picture: dataUrl });
+    } catch {
+      // silently fail — oversized/invalid image
+    }
+  }, [onUpdate]);
+
+  const handlePresetSelect = useCallback((image: string) => {
+    setPicture(image);
+    onUpdate({ picture: image });
   }, [onUpdate]);
 
   const isDirty =
@@ -506,6 +499,31 @@ function SettingsTab({
             </div>
             <p className="text-xs text-nc-muted font-mono">Click to upload (128x128 webp)</p>
           </div>
+          {profilePresets.length > 0 && (
+            <div className="mt-3">
+              <p className="text-2xs text-nc-muted font-mono mb-1.5 tracking-wider">OR_PICK_A_PRESET</p>
+              <div className="flex flex-wrap gap-1.5">
+                {profilePresets.map((p) => {
+                  const active = picture === p.image;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handlePresetSelect(p.image)}
+                      className={`w-10 h-10 border overflow-hidden transition-all ${
+                        active
+                          ? 'border-nc-cyan shadow-nc-cyan'
+                          : 'border-nc-border hover:border-nc-cyan/60'
+                      }`}
+                      title="Apply preset"
+                    >
+                      <img src={p.image} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div>

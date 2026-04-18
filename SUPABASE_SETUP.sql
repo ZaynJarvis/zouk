@@ -73,6 +73,19 @@ CREATE TABLE IF NOT EXISTS sessions (
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service role all" ON sessions FOR ALL USING (true);
 
+-- Agent profile presets — a pool of reusable avatars that the server hashes
+-- new agents into on first boot. Image is stored as a data URL (base64 webp).
+CREATE TABLE IF NOT EXISTS agent_profile_presets (
+  id         TEXT PRIMARY KEY,
+  image      TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS agent_profile_presets_sort_idx ON agent_profile_presets (sort_order, created_at);
+
+ALTER TABLE agent_profile_presets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service role all" ON agent_profile_presets FOR ALL USING (true);
+
 -- Machine API keys table (replaces data/machine-keys.json for Railway)
 CREATE TABLE IF NOT EXISTS machine_keys (
   id          TEXT PRIMARY KEY,
