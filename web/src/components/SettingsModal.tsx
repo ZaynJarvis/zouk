@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { X, User, Palette, Monitor, Server, SlidersHorizontal, Camera, Smile, Plus, Trash2 } from 'lucide-react';
+import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
 import { themes, type ThemeId } from '../themes';
 import { resizeAndEncode } from '../lib/imageEncode';
 
-type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'preferences' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'about';
 
 const PROFILE_PRESET_MAX = 30;
 
@@ -135,7 +135,6 @@ export default function SettingsModal() {
     { key: 'appearance', label: 'DISPLAY', icon: Palette },
     { key: 'avatars', label: 'AVATARS', icon: Smile },
     { key: 'providers', label: 'PROVIDERS', icon: Server },
-    { key: 'preferences', label: 'PREFERENCES', icon: SlidersHorizontal },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
 
@@ -262,6 +261,25 @@ export default function SettingsModal() {
                     Update Profile
                   </button>
                 </ScanlineTear>
+
+                <div className="pt-4 border-t border-nc-border">
+                  <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Font Size</label>
+                  <div className="flex gap-2">
+                    {(['small', 'medium', 'large'] as const).map(size => (
+                      <button
+                        key={size}
+                        onClick={() => savePrefs({ fontSize: size })}
+                        className={`flex-1 py-2 text-sm font-bold border transition-all ${
+                          prefs.fontSize === size
+                            ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan'
+                            : 'text-nc-muted border-nc-border hover:border-nc-cyan/50'
+                        }`}
+                      >
+                        {size.charAt(0).toUpperCase() + size.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 <div className="pt-4 border-t border-nc-border">
                   <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
@@ -416,30 +434,6 @@ export default function SettingsModal() {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
-
-            {section === 'preferences' && (
-              <div className="max-w-md space-y-6">
-                <div>
-                  <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Font Size</label>
-                  <div className="flex gap-2">
-                    {(['small', 'medium', 'large'] as const).map(size => (
-                      <button
-                        key={size}
-                        onClick={() => savePrefs({ fontSize: size })}
-                        className={`flex-1 py-2 text-sm font-bold border transition-all ${
-                          prefs.fontSize === size
-                            ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan'
-                            : 'text-nc-muted border-nc-border hover:border-nc-cyan/50'
-                        }`}
-                      >
-                        {size.charAt(0).toUpperCase() + size.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
               </div>
             )}
 
