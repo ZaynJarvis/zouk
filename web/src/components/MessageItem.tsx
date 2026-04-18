@@ -274,13 +274,15 @@ function getSenderColor(name: string): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function MessageItem({ message, isGrouped = false }: { message: MessageRecord; isGrouped?: boolean }) {
-  const { humans, agents } = useApp();
+  const { humans, agents, currentUser, authUser } = useApp();
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
   const senderHuman = !isAgent && !isSystem ? humans.find(h => h.name === senderName) : undefined;
   const senderAgent = isAgent ? agents.find(a => a.name === senderName || a.displayName === senderName) : undefined;
-  const senderPicture = senderHuman?.picture || senderHuman?.gravatarUrl || senderAgent?.picture;
+  const isSelf = !isAgent && !isSystem && senderName === currentUser;
+  const selfPicture = isSelf ? authUser?.picture || authUser?.gravatarUrl : undefined;
+  const senderPicture = senderHuman?.picture || senderHuman?.gravatarUrl || senderAgent?.picture || selfPicture;
   const timestamp = message.timestamp || '';
   const color = getSenderColor(senderName);
 

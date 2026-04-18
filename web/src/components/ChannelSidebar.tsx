@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Search, X, Settings } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Search, X } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -30,7 +30,7 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
-    authUser, setSettingsOpen,
+    authUser,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -276,20 +276,18 @@ export default function ChannelSidebar() {
         currentUser={currentUser}
         wsConnected={wsConnected}
         isGuest={isGuest}
-        onOpenSettings={() => setSettingsOpen(true)}
       />
     </div>
   );
 }
 
 function SelfProfileFooter({
-  authUser, currentUser, wsConnected, isGuest, onOpenSettings,
+  authUser, currentUser, wsConnected, isGuest,
 }: {
   authUser: { name: string; picture: string | null; gravatarUrl?: string | null } | null;
   currentUser: string;
   wsConnected: boolean;
   isGuest: boolean;
-  onOpenSettings: () => void;
 }) {
   const nc = isNightCity();
   const displayName = authUser?.name || currentUser || 'Guest';
@@ -315,14 +313,6 @@ function SelfProfileFooter({
           {isGuest ? 'guest' : wsConnected ? 'online' : 'offline'}
         </div>
       </div>
-      <button
-        onClick={onOpenSettings}
-        className={`w-7 h-7 flex-shrink-0 flex items-center justify-center border transition-colors ${nc ? 'border-nc-border text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan' : 'border-nc-border text-nc-muted hover:border-nc-border-bright hover:text-nc-text-bright'}`}
-        title="Settings"
-        aria-label="Open settings"
-      >
-        <Settings size={14} />
-      </button>
     </div>
   );
 }
