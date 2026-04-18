@@ -444,7 +444,6 @@ function SettingsTab({
   const [autoStart, setAutoStart] = useState<boolean>(persistedAutoStart);
   const [picture, setPicture] = useState<string | undefined>(agent.picture);
   const pictureInputRef = useRef<HTMLInputElement>(null);
-  const headerPictureInputRef = useRef<HTMLInputElement>(null);
 
   const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -698,7 +697,7 @@ function SettingsTab({
             {isDirty && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
-                  onClick={() => onUpdate({ displayName, description, systemPrompt: description, visibility, maxConcurrentTasks: maxConcurrent, autoStart, picture })}
+                  onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent, autoStart, picture })}
                   className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
                 >
                   <Save size={12} /> SAVE
@@ -761,24 +760,13 @@ export default function AgentDetail({
           </button>
         )}
         <div
-          className="relative w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan overflow-hidden cursor-pointer group"
-          onClick={() => headerPictureInputRef.current?.click()}
+          className="relative w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan overflow-hidden"
         >
-          {picture ? (
-            <img src={picture} alt="" className="w-full h-full object-cover" />
+          {agent.picture ? (
+            <img src={agent.picture} alt="" className="w-full h-full object-cover" />
           ) : (
             (agent.displayName || agent.name).charAt(0).toUpperCase()
           )}
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <Camera size={12} className="text-white" />
-          </div>
-          <input
-            ref={headerPictureInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handlePictureUpload}
-          />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
