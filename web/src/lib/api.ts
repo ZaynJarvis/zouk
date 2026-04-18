@@ -59,14 +59,21 @@ export async function fetchMessages(channelName: string, isDm = false, limit = 2
   return (data.messages || []).map(normalizeMessage);
 }
 
-export async function fetchThreadMessages(channelName: string, messageId: string, isDm = false, limit = 200): Promise<MessageRecord[]> {
+export async function fetchThreadMessages(
+  channelName: string,
+  messageId: string,
+  isDm = false,
+  limit = 200,
+  senderName?: string,
+): Promise<MessageRecord[]> {
   const shortId = messageId.slice(0, 8);
   const parentTarget = isDm ? `dm:@${channelName}` : `#${channelName}`;
   const threadTarget = `${parentTarget}:${shortId}`;
-  const res = await fetch(`${getBaseUrl()}/api/messages`, {
-    cache: 'no-store',
-    headers: { 'X-Channel': threadTarget, 'X-Limit': String(limit) },
-  });
+  const headers: Record<string, string> = { 'X-Channel': threadTarget, 'X-Limit': String(limit) };
+  // Without X-Sender the server can't canonicalize dm:<peer> to dm:<a>,<b>
+  // and falls into a name-overlap match that can leak cross-DM rows.
+  if (isDm && senderName) headers['X-Sender'] = senderName;
+  const res = await fetch(`${getBaseUrl()}/api/messages`, { cache: 'no-store', headers });
   if (!res.ok) throw new Error(`Failed to fetch thread messages: ${res.status}`);
   const data = await res.json();
   return (data.messages || []).map(normalizeMessage);

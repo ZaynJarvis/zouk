@@ -340,7 +340,8 @@ export function useAppStore() {
     setThreadMessages([]);
     // Fetch existing thread replies
     const isDm = message.channel_type === 'dm';
-    api.fetchThreadMessages(message.channel_name, message.id, isDm).then(msgs => {
+    const sender = isDm ? currentUserRef.current : undefined;
+    api.fetchThreadMessages(message.channel_name, message.id, isDm, 200, sender).then(msgs => {
       setThreadMessages(msgs);
     }).catch(() => {
       // Thread may have no history yet, that's fine
