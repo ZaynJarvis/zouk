@@ -88,6 +88,37 @@ function agentPayload(agentId) {
   };
 }
 
+function hasWorkspaceFsCapability(ws) {
+  const capabilities = Array.isArray(ws?._capabilities) ? ws._capabilities : [];
+  return capabilities.some((cap) => (
+    cap === "workspace_fs"
+    || cap === "workdir_fs"
+    || cap === "agent_workspace_fs"
+  ));
+}
+
+function updateAgentWorkDir(agentId, workDir) {
+  if (!workDir || typeof workDir !== "string") return false;
+  const trimmed = workDir.trim();
+  if (!trimmed) return false;
+
+  let changed = false;
+  if (store.agents[agentId] && store.agents[agentId].workDir !== trimmed) {
+    store.agents[agentId].workDir = trimmed;
+    changed = true;
+  }
+
+  const cfg = agentConfigs.find((c) => c.id === agentId);
+  if (cfg && cfg.workDir !== trimmed) {
+    cfg.workDir = trimmed;
+    saveAgentConfigs(agentConfigs);
+    db.saveAgentConfig(cfg).catch(e => console.warn("[config] saveAgentConfig error:", e.message));
+    changed = true;
+  }
+
+  return changed;
+}
+
 // ─── Machine API key persistence ─────────────────────────────────
 
 function loadMachineKeys() {
@@ -1226,6 +1257,9 @@ app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
 function startAgentOnDaemon(id, config) {
   const runtime = config.runtime || "claude";
   const requestedMachineId = config.machineId;
+  const requestedWorkDir = typeof config.workDir === "string" && config.workDir.trim()
+    ? config.workDir.trim()
+    : undefined;
 
   // Find the target daemon: prefer the one matching machineId, fall back to first with runtime
   let targetWs = null;
@@ -1253,10 +1287,22 @@ function startAgentOnDaemon(id, config) {
   store.agents[id] = buildRuntimeAgent(id, {
     runtime,
     model: config.model,
-    workDir: config.workDir || process.cwd(),
+    workDir: requestedWorkDir,
     status: "starting",
     machineId: targetWs._machineId,
   });
+
+  const daemonConfig = {
+    runtime,
+    model: config.model,
+    systemPrompt: config.systemPrompt || config.description || "",
+    serverUrl: PUBLIC_URL,
+    authToken: "test",
+    name: config.name || id,
+    displayName: config.displayName || config.name || id,
+    description: config.description || "",
+  };
+  if (requestedWorkDir) daemonConfig.workDir = requestedWorkDir;
 
   // Send agent:start to daemon — read from config (source of truth),
   // not store.agents (which may have fallback values).
@@ -1264,17 +1310,7 @@ function startAgentOnDaemon(id, config) {
     type: "agent:start",
     agentId: id,
     launchId: uuidv4(),
-    config: {
-      runtime,
-      model: config.model,
-      workDir: config.workDir || store.agents[id].workDir,
-      systemPrompt: config.systemPrompt || config.description || "",
-      serverUrl: PUBLIC_URL,
-      authToken: "test",
-      name: config.name || id,
-      displayName: config.displayName || config.name || id,
-      description: config.description || "",
-    },
+    config: daemonConfig,
   }));
 
   daemonSockets.set(id, targetWs);
@@ -1291,10 +1327,10 @@ function startAgentOnDaemon(id, config) {
       systemPrompt: config.systemPrompt || config.description || "",
       runtime,
       model: config.model,
-      workDir: config.workDir || store.agents[id].workDir,
       machineId: targetWs._machineId,
       autoStart: true,
     };
+    if (requestedWorkDir) persisted.workDir = requestedWorkDir;
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
     db.saveAgentConfig(persisted);
@@ -1397,6 +1433,7 @@ function handleDaemonConnection(ws, apiKey) {
   daemonConnections.add(ws);
   ws._apiKey = apiKey;
   ws._runtimes = []; // store runtimes reported by this daemon
+  ws._capabilities = [];
   const machineId = uuidv4();
   ws._machineId = machineId;
   machines.set(machineId, { id: machineId, hostname: 'unknown', os: 'unknown', runtimes: [], capabilities: [], connectedAt: now(), agentIds: [] });
@@ -1439,6 +1476,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     case "ready": {
       console.log(`[daemon] Ready. Runtimes: ${msg.runtimes?.join(", ")}. Agents: ${msg.runningAgents?.join(", ") || "none"}`);
       ws._runtimes = msg.runtimes || [];
+      ws._capabilities = msg.capabilities || [];
       // Update machine record with real info from daemon
       const machine = machines.get(ws._machineId);
       if (machine) {
@@ -1516,6 +1554,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       daemonSockets.set(agentId, ws);
       store.agents[agentId].status = status;
       store.agents[agentId].machineId = ws._machineId;
+      const workDirChanged = updateAgentWorkDir(agentId, msg.workDir);
       // Track agent in machine record
       const machine = machines.get(ws._machineId);
       if (machine && !machine.agentIds.includes(agentId)) {
@@ -1525,6 +1564,10 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
       } else {
         broadcastToWeb({ type: "agent_status", agentId, status });
+        if (workDirChanged) {
+          broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
+          broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+        }
       }
       if (status === "active") {
         replayPendingDeliveries(agentId);
@@ -1560,8 +1603,19 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       break;
     }
     case "agent:workspace:file_tree": {
+      const workDirChanged = updateAgentWorkDir(msg.agentId, msg.workDir);
       // Forward to web UI
-      broadcastToWeb({ type: "workspace:file_tree", agentId: msg.agentId, dirPath: msg.dirPath, files: msg.files });
+      broadcastToWeb({
+        type: "workspace:file_tree",
+        agentId: msg.agentId,
+        dirPath: msg.dirPath || "",
+        workDir: msg.workDir,
+        files: msg.files,
+      });
+      if (workDirChanged) {
+        broadcastToWeb({ type: "agent_started", agent: agentPayload(msg.agentId) });
+        broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+      }
       break;
     }
     case "agent:workspace:file_content": {
@@ -1666,14 +1720,24 @@ function handleWebMessage(ws, msg) {
     case "workspace:list": {
       const agentWs = daemonSockets.get(msg.agentId);
       if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:workspace:list", agentId: msg.agentId, dirPath: msg.dirPath || null }));
+        const payload = { agentId: msg.agentId, dirPath: msg.dirPath || null };
+        if (hasWorkspaceFsCapability(agentWs)) {
+          agentWs.send(JSON.stringify({ type: "workspace:list", ...payload }));
+        } else {
+          agentWs.send(JSON.stringify({ type: "agent:workspace:list", ...payload }));
+        }
       }
       break;
     }
     case "workspace:read": {
       const agentWs = daemonSockets.get(msg.agentId);
       if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:workspace:read", agentId: msg.agentId, requestId: msg.requestId || uuidv4(), path: msg.path }));
+        const payload = { agentId: msg.agentId, requestId: msg.requestId || uuidv4(), path: msg.path };
+        if (hasWorkspaceFsCapability(agentWs)) {
+          agentWs.send(JSON.stringify({ type: "workspace:read", ...payload }));
+        } else {
+          agentWs.send(JSON.stringify({ type: "agent:workspace:read", ...payload }));
+        }
       }
       break;
     }

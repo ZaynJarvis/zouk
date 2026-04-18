@@ -89,6 +89,7 @@ export interface WsWorkspaceFileTreeEvent {
   type: 'workspace:file_tree';
   agentId: string;
   dirPath: string;
+  workDir?: string;
   files: import('../types').WorkspaceFile[];
 }
 

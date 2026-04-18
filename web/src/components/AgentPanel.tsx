@@ -165,7 +165,6 @@ export default function AgentsView() {
     runtime: string;
     model: string;
     machineId?: string;
-    workDir: string;
   }) => {
     await startAgent({
       name: config.name,

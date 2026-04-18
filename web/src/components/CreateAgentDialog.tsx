@@ -13,7 +13,6 @@ export interface CreateAgentConfig {
   model: string;
   machineId?: string;
   visibility: 'workspace' | 'private';
-  workDir: string;
 }
 
 export default function CreateAgentDialog({
@@ -80,8 +79,6 @@ export default function CreateAgentDialog({
   }, [runtime, selectedMachine]);
 
   const canSubmit = name.trim().length > 0 && runtime.length > 0;
-  const workDir = `~/.zouk/agents/${name.trim().toLowerCase() || '<name>'}`;
-
   const handleSubmit = () => {
     if (!canSubmit) return;
     const agentName = name.trim().toLowerCase();
@@ -92,7 +89,6 @@ export default function CreateAgentDialog({
       model: model.trim(),
       machineId: selectedMachine?.id,
       visibility,
-      workDir: `~/.zouk/agents/${agentName}`,
     });
   };
 
@@ -340,7 +336,7 @@ export default function CreateAgentDialog({
           <div>
             <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">WORK_DIR</label>
             <div className="px-3 py-2 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-green" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
-              {workDir}
+              DETECTED_FROM_DAEMON
             </div>
           </div>
 
