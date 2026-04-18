@@ -306,6 +306,37 @@ const webSockets = new Set(); // web UI connections
 const machines = new Map(); // machineId -> { id, hostname, os, runtimes, capabilities, connectedAt, agentIds }
 const pendingRuntimeModelRequests = new Map(); // requestId -> { resolve, timer }
 
+// Per-agent queue of messages that arrived while the daemon socket was offline.
+// Drained on reconnect (see replayPendingDeliveries). Bounded per agent (oldest
+// dropped) and time-limited so a long-offline agent doesn't get blasted with
+// stale events when it reconnects.
+const pendingDeliveries = new Map(); // agentId -> [{ message, queuedAt }]
+const PENDING_DELIVERY_CAP = 500;
+const PENDING_DELIVERY_TTL_MS = 24 * 60 * 60 * 1000;
+
+function queuePendingDelivery(agentId, message) {
+  let queue = pendingDeliveries.get(agentId);
+  if (!queue) {
+    queue = [];
+    pendingDeliveries.set(agentId, queue);
+  }
+  queue.push({ message, queuedAt: Date.now() });
+  if (queue.length > PENDING_DELIVERY_CAP) {
+    queue.splice(0, queue.length - PENDING_DELIVERY_CAP);
+  }
+}
+
+function replayPendingDeliveries(agentId) {
+  const queue = pendingDeliveries.get(agentId);
+  if (!queue || queue.length === 0) return;
+  pendingDeliveries.delete(agentId);
+  const cutoff = Date.now() - PENDING_DELIVERY_TTL_MS;
+  for (const item of queue) {
+    if (item.queuedAt < cutoff) continue;
+    deliverToAgent(agentId, item.message);
+  }
+}
+
 function broadcastToWeb(event) {
   const data = JSON.stringify(event);
   for (const ws of webSockets) {
@@ -325,7 +356,9 @@ function deliverToAgent(agentId, message) {
     }));
     // Mark this message as delivered so check_messages won't return it again
     store.agentReadSeq[agentId] = Math.max(store.agentReadSeq[agentId] || 0, message.seq);
+    return;
   }
+  queuePendingDelivery(agentId, message);
 }
 
 function mentionAliases(...values) {
@@ -1278,6 +1311,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           }
           store.agents[agentId].status = "active";
           broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
+          replayPendingDeliveries(agentId);
         }
       }
       break;
@@ -1307,6 +1341,9 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
       } else {
         broadcastToWeb({ type: "agent_status", agentId, status });
+      }
+      if (status === "active") {
+        replayPendingDeliveries(agentId);
       }
       console.log(`[agent:${agentId}] Status: ${status}`);
       break;

@@ -111,26 +111,34 @@ export type WsEvent =
 
 export type WsEventHandler = (event: WsEvent) => void;
 
+const PENDING_SEND_CAP = 100;
+
 export class SlockWebSocket {
   private ws: WebSocket | null = null;
   private handlers: WsEventHandler[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private url: string;
+  private serverUrl: string;
   private _connected = false;
+  private pendingSends: string[] = [];
 
   constructor(serverUrl: string) {
-    const token = localStorage.getItem('zouk_auth_token');
-    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
-    if (serverUrl) {
-      this.url = `${serverUrl.replace(/^http/, 'ws')}/ws${tokenQuery}`;
-    } else {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      this.url = `${proto}//${window.location.host}/ws${tokenQuery}`;
-    }
+    this.serverUrl = serverUrl;
   }
 
   get connected(): boolean {
     return this._connected;
+  }
+
+  private buildUrl(): string {
+    // Re-read the token on every connect so reconnects after login/logout
+    // use a fresh credential instead of the one captured at construction.
+    const token = localStorage.getItem('zouk_auth_token');
+    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+    if (this.serverUrl) {
+      return `${this.serverUrl.replace(/^http/, 'ws')}/ws${tokenQuery}`;
+    }
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${window.location.host}/ws${tokenQuery}`;
   }
 
   connect(): void {
@@ -139,7 +147,7 @@ export class SlockWebSocket {
     }
 
     try {
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(this.buildUrl());
     } catch {
       this.scheduleReconnect();
       return;
@@ -147,6 +155,7 @@ export class SlockWebSocket {
 
     this.ws.onopen = () => {
       this._connected = true;
+      this.flushPending();
       this.emit({ type: 'ws:connected' });
     };
 
@@ -180,11 +189,32 @@ export class SlockWebSocket {
       this.ws = null;
     }
     this._connected = false;
+    this.pendingSends = [];
   }
 
   send(data: Record<string, unknown>): void {
+    const payload = JSON.stringify(data);
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+      this.ws.send(payload);
+      return;
+    }
+    // Queue sends made before onopen (or during a reconnect) so the first
+    // message after a reload / network blip isn't silently dropped. Cap
+    // the queue to avoid unbounded memory if the server stays unreachable.
+    if (this.pendingSends.length >= PENDING_SEND_CAP) {
+      this.pendingSends.shift();
+    }
+    this.pendingSends.push(payload);
+  }
+
+  private flushPending(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.pendingSends.length === 0) {
+      return;
+    }
+    const queue = this.pendingSends;
+    this.pendingSends = [];
+    for (const payload of queue) {
+      this.ws.send(payload);
     }
   }
 
