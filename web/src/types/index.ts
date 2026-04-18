@@ -108,6 +108,7 @@ export interface ServerHuman {
   name: string;
   picture?: string;
   gravatarUrl?: string;
+  guest?: boolean;
 }
 
 export interface AgentConfig {
