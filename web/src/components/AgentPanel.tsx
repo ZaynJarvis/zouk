@@ -1,4 +1,4 @@
-import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Play, Loader as Loader2, Settings } from 'lucide-react';
+import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
@@ -79,44 +79,13 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
   );
 }
 
-function ConfigStartButton({
-  config,
-  isRunning,
-  isStarting,
-  onStart,
-}: {
-  config: { name: string; displayName?: string };
-  isRunning: boolean;
-  isStarting: boolean;
-  onStart: () => void;
-}) {
-  return (
-    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-      <button
-        onClick={() => !isRunning && !isStarting && onStart()}
-        disabled={isRunning || isStarting}
-        className={`cyber-btn flex items-center gap-1 px-2.5 py-1 border text-2xs font-bold font-mono ${
-          isRunning
-            ? 'border-nc-border bg-nc-elevated text-nc-muted cursor-not-allowed'
-            : 'border-nc-green bg-nc-green/10 text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green'
-        }`}
-      >
-        {isStarting ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />}
-        {config.displayName || config.name}
-      </button>
-    </ScanlineTear>
-  );
-}
-
 export default function AgentsView() {
-  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest } = useApp();
+  const { agents, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showMachineSetup, setShowMachineSetup] = useState(false);
-  const [starting, setStarting] = useState<string | null>(null);
   const [machinesExpanded, setMachinesExpanded] = useState(true);
-  const [configsExpanded, setConfigsExpanded] = useState(true);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
 
   const filteredAgents = useMemo(() =>
@@ -128,21 +97,6 @@ export default function AgentsView() {
 
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
   const selected = agents.find((a) => a.id === selectedId) ?? (filteredAgents.length > 0 ? filteredAgents[0] : null);
-
-  const handleStartAgent = async (configName: string) => {
-    const config = configs.find(c => c.name === configName);
-    if (!config) return;
-    setStarting(configName);
-    await startAgent({
-      id: config.id,
-      name: config.name,
-      displayName: config.displayName,
-      description: config.description,
-      runtime: config.runtime,
-      model: config.model,
-    });
-    setStarting(null);
-  };
 
   const handleCreateAgent = async (config: {
     name: string;
@@ -264,34 +218,7 @@ export default function AgentsView() {
             )}
           </div>
 
-          {configs.length > 0 && (
-            <div>
-              <button
-                onClick={() => setConfigsExpanded(!configsExpanded)}
-                className="w-full flex items-center gap-1.5 px-4 py-2 text-left hover:bg-nc-elevated transition-colors"
-              >
-                {configsExpanded ? <ChevronDown size={10} className="text-nc-muted" /> : <ChevronRight size={10} className="text-nc-muted" />}
-                <span className="text-2xs font-bold uppercase tracking-wider text-nc-muted font-mono">
-                  Configs ({configs.length})
-                </span>
-              </button>
-              {configsExpanded && (
-                <div className="flex flex-wrap gap-1.5 px-4 pb-2">
-                  {configs.map(c => (
-                    <ConfigStartButton
-                      key={c.name}
-                      config={c}
-                      isRunning={agents.some(a => a.name === c.name && a.status === 'active')}
-                      isStarting={starting === c.name}
-                      onStart={() => handleStartAgent(c.name)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {(machines.length > 0 || configs.length > 0) && (
+          {machines.length > 0 && (
             <div className="cyber-divider mx-4 my-1" />
           )}
 
