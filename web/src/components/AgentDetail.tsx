@@ -418,12 +418,16 @@ function SettingsTab({
   onUpdate,
   onStop,
   onDelete,
+  picture,
+  onPictureUpload,
 }: {
   agent: ServerAgent;
   machines?: ServerMachine[];
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
   onDelete: () => void;
+  picture: string | undefined;
+  onPictureUpload: React.ChangeEventHandler<HTMLInputElement>;
 }) {
   const { isGuest, configs } = useApp();
   // description / visibility / maxConcurrentTasks / autoStart only round-trip
@@ -442,35 +446,7 @@ function SettingsTab({
   const [visibility, setVisibility] = useState<'workspace' | 'private'>(persistedVisibility);
   const [maxConcurrent, setMaxConcurrent] = useState(persistedMaxConcurrent);
   const [autoStart, setAutoStart] = useState<boolean>(persistedAutoStart);
-  const [picture, setPicture] = useState<string | undefined>(agent.picture);
   const pictureInputRef = useRef<HTMLInputElement>(null);
-  const headerPictureInputRef = useRef<HTMLInputElement>(null);
-
-  const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 128;
-      const ctx = canvas.getContext('2d')!;
-      const min = Math.min(img.width, img.height);
-      const sx = (img.width - min) / 2;
-      const sy = (img.height - min) / 2;
-      ctx.drawImage(img, sx, sy, min, min, 0, 0, 128, 128);
-      for (const q of [0.8, 0.6, 0.4, 0.2]) {
-        const dataUrl = canvas.toDataURL('image/webp', q);
-        if (dataUrl.length <= 14000) {
-          setPicture(dataUrl);
-          onUpdate({ picture: dataUrl });
-          return;
-        }
-      }
-    };
-    img.src = URL.createObjectURL(file);
-    e.target.value = '';
-  }, [onUpdate]);
 
   const isDirty =
     displayName !== persistedDisplayName ||
@@ -502,7 +478,7 @@ function SettingsTab({
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={handlePictureUpload}
+                onChange={onPictureUpload}
               />
             </div>
             <p className="text-xs text-nc-muted font-mono">Click to upload (128x128 webp)</p>
@@ -746,8 +722,36 @@ export default function AgentDetail({
   onBack?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('instructions');
+  const [picture, setPicture] = useState<string | undefined>(agent.picture);
+  const headerPictureInputRef = useRef<HTMLInputElement>(null);
   const activity = agent.activity || 'offline';
   const isActive = agent.status === 'active';
+
+  const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext('2d')!;
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, 128, 128);
+      for (const q of [0.8, 0.6, 0.4, 0.2]) {
+        const dataUrl = canvas.toDataURL('image/webp', q);
+        if (dataUrl.length <= 14000) {
+          setPicture(dataUrl);
+          onUpdate({ picture: dataUrl });
+          return;
+        }
+      }
+    };
+    img.src = URL.createObjectURL(file);
+    e.target.value = '';
+  }, [onUpdate]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-nc-surface">
@@ -825,7 +829,7 @@ export default function AgentDetail({
         {tab === 'instructions' && <InstructionsTab agent={agent} onUpdate={onUpdate} />}
         {tab === 'workspace' && <WorkspaceTab agent={agent} />}
         {tab === 'activity' && <ActivityTab agent={agent} />}
-        {tab === 'settings' && <SettingsTab agent={agent} machines={machines} onUpdate={onUpdate} onStop={onStop} onDelete={onDelete} />}
+        {tab === 'settings' && <SettingsTab agent={agent} machines={machines} onUpdate={onUpdate} onStop={onStop} onDelete={onDelete} picture={picture} onPictureUpload={handlePictureUpload} />}
       </div>
     </div>
   );
