@@ -66,6 +66,44 @@ Browser connects via WebSocket -> receives `init` event with channels/agents/hum
 | `PORT` / `SERVER_PORT` | server | Server port (default 7777) |
 | `WEB_PORT` | bin/start.js | Vite dev port (default 5173) |
 
+## QA Testing
+
+Playwright-based automated UI tests live in `web/scripts/`.
+
+### Quick run
+```bash
+cd web
+node scripts/qa-runner.mjs                    # all 9 tests (runs in parallel, ~40s)
+node scripts/qa-runner.mjs --pr 61,62         # tests for specific PRs only
+node scripts/qa-runner.mjs --url http://localhost:7777 --out /tmp/qa
+```
+
+### Before running — always rebuild first
+The server at `:7777` serves `web/dist/`. If source has changed since the last build, screenshots reflect stale code:
+```bash
+cd web && npm run build   # then restart the server (kill + node bin/start.js &)
+```
+
+### How it works
+- Single `chromium` browser; each test gets its own context running **in parallel**
+- WebSocket `init` event is mocked via `routeWebSocket` — no real daemon needed
+- Auth token `qa-test-token-2026` injected via `localStorage` (token pre-loaded in `data/sessions.json`)
+- One screenshot per test (final assertion only); console prints one line per PASS, details on FAIL
+- Exit code 1 if any test fails (CI-friendly)
+- Shared helpers in `web/scripts/qa-lib.mjs`: `loadApp()`, `mockWS()`, `setupAuth()`, fake data constants
+
+### Adding a test
+1. Write `async function testNN(page, out) → { pass, note, screenshotPath? }` in `qa-runner.mjs`
+2. Register it in the `TESTS` array: `{ id: NN, prs: [PR_NUMBER], name: '...', fn: testNN }`
+3. Rebuild the frontend before running if the test targets new UI changes
+
+### Selector gotchas (lessons learned)
+- `hasText` filter is **case-insensitive** — use `getByRole('button', { name: 'X', exact: true })` when you need exact match (e.g. CONFIG tab vs "Configs (2)")
+- AgentDetail `SettingsTab` only mounts when the CONFIG tab is active; inputs inside won't appear until then
+- The file `<input type="file" class="hidden">` is in the DOM but not visible — skip with `input:visible` or filter by value
+- Some inputs lack a `type` attribute (default=text) — `input[type="text"]` won't match them; filter by value or placeholder instead
+- WorkspaceRail renders multiple theme-variant branches; count only **visible** settings gear buttons
+
 ## Key Conventions
 
 - Server uses **camelCase** internally; frontend types use **snake_case**. The `normalizeMessage()` function in `lib/api.ts` bridges the two.
