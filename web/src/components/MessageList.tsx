@@ -88,13 +88,18 @@ export default function MessageList() {
   useLayoutEffect(() => {
     const snap = preservedScrollRef.current;
     if (!snap) return;
+    // Wait for the older-page fetch to finish before restoring — if length
+    // changes mid-flight we'd clear the snapshot too early.
+    if (loadingOlderMessages) return;
     const container = containerRef.current;
     if (container) {
       const delta = container.scrollHeight - snap.scrollHeight;
-      container.scrollTop = snap.scrollTop + delta;
+      if (delta > 0) container.scrollTop = snap.scrollTop + delta;
     }
+    // Clear regardless of delta so an empty-result load doesn't strand the ref
+    // and block the next snapshot attempt.
     preservedScrollRef.current = null;
-  }, [channelMessages.length]);
+  }, [channelMessages.length, loadingOlderMessages]);
 
   useEffect(() => {
     // Skip bottom-scroll when the length change was from an older-page prepend —
