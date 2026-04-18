@@ -25,7 +25,7 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme } = useApp();
   const [text, setText] = useState('');
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -230,7 +230,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         </div>
       )}
 
-      <div className="flex flex-col border border-nc-border bg-nc-surface focus-within:border-nc-cyan focus-within:shadow-nc-cyan cyber-bevel-sm">
+      <div className={`flex flex-col border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
         {/* Textarea */}
         <textarea
           ref={textareaRef}

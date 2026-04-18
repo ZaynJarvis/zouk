@@ -30,8 +30,13 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
-    authUser,
+    authUser, setSidebarOpen,
   } = useApp();
+
+  const pick = (name: string, isDm?: boolean) => {
+    selectChannel(name, isDm);
+    if (window.innerWidth < 1024) setSidebarOpen(false);
+  };
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [dmsCollapsed, setDmsCollapsed] = useState(false);
@@ -147,7 +152,7 @@ export default function ChannelSidebar() {
             return (
               <button
                 key={ch.id}
-                onClick={() => selectChannel(ch.name)}
+                onClick={() => pick(ch.name)}
                 className={`
                   w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group mb-1
                   ${isActive
@@ -189,7 +194,7 @@ export default function ChannelSidebar() {
             return (
               <button
                 key={agent.id}
-                onClick={() => selectChannel(agent.name, true)}
+                onClick={() => pick(agent.name, true)}
                 className={`
                   w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group mb-1
                   ${isActive
@@ -247,7 +252,7 @@ export default function ChannelSidebar() {
           {!dmsCollapsed && filteredHumans.map(h => (
             <button
               key={h.id}
-              onClick={() => selectChannel(h.name, true)}
+              onClick={() => pick(h.name, true)}
               className={`
                 w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-100 mb-1
                 ${activeChannelName === h.name

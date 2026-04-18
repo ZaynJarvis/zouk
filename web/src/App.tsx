@@ -22,6 +22,12 @@ function GoogleAuthSync() {
 function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
+  useEffect(() => {
+    const onResize = () => { if (window.innerWidth < 1024) setSidebarOpen(false); };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [setSidebarOpen]);
+
   if (!isLoggedIn) {
     return <LoginScreen />;
   }
