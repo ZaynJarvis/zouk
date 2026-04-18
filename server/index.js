@@ -193,6 +193,15 @@ function dmChannelParties(channelName) {
   return channelName.substring(3).split(",");
 }
 
+// Normalize an already-stored DM channel name so parties are sorted. Idempotent.
+// Single-name rows (`dm:alice` — orphan from pre-canonical code) are returned
+// as-is because we can't infer the other party without more context.
+function canonicalizeDmChannelName(channelName) {
+  const parties = dmChannelParties(channelName);
+  if (!parties || parties.length < 2) return channelName;
+  return `dm:${[...parties].sort().join(",")}`;
+}
+
 function dmPeerFrom(channelName, myName) {
   const parties = dmChannelParties(channelName);
   if (!parties || parties.length < 2) return channelName;
@@ -200,12 +209,21 @@ function dmPeerFrom(channelName, myName) {
 }
 
 function parseTarget(target, senderName) {
-  // "#channel", "dm:@user", "#channel:shortid", "dm:@user:shortid"
+  // "#channel", "dm:@user", "#channel:shortid", "dm:@user:shortid",
+  // or pre-canonicalized "dm:alice,zeus" / "dm:alice,zeus:shortid"
   if (!target) return { channelName: "all", channelType: "channel", threadId: null };
   if (target.startsWith("dm:")) {
     const parts = target.substring(3).split(":");
     const peer = parts[0].replace("@", "");
-    const channelName = senderName ? dmChannelName(senderName, peer) : `dm:${peer}`;
+    let channelName;
+    if (peer.includes(",")) {
+      // Caller handed us a canonical-looking pair — sort to be safe.
+      channelName = canonicalizeDmChannelName(`dm:${peer}`);
+    } else if (senderName) {
+      channelName = dmChannelName(senderName, peer);
+    } else {
+      channelName = `dm:${peer}`;
+    }
     return { channelName, channelType: "dm", threadId: parts[1] || null, dmPeer: peer };
   }
   const parts = target.substring(1).split(":");
@@ -760,7 +778,13 @@ function requireAuth(req, res, next) {
 
 // Send message from web UI (human user)
 app.post("/api/messages", requireAuth, (req, res) => {
-  const { target, content, senderName = "local-user" } = req.body;
+  // Prefer the authenticated user's name over any body field so a stale client
+  // state can't pollute canonical DM channel names (would split PM threads).
+  // Falls back to the legacy body.senderName, then to "local-user" for tooling.
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const authedName = token ? authSessions.get(token)?.name : null;
+  const { target, content, senderName: bodyName } = req.body;
+  const senderName = authedName || bodyName || "local-user";
   const { channelName, channelType, threadId, dmPeer } = parseTarget(target, senderName);
   const ch = findOrCreateChannel(channelName, channelType);
 
@@ -1767,6 +1791,24 @@ async function initFromDB() {
     if (msgs.length > 0) {
       store.messages = msgs;
       console.log(`[db] Loaded ${msgs.length} messages`);
+
+      // Audit msg d5403cb2 item C2: backfill any DM rows with non-canonical
+      // channel names so PM threads don't split after this deploy. Idempotent —
+      // rows already canonical get no rewrite / db write.
+      let canonicalized = 0;
+      for (const m of store.messages) {
+        if (m.channelType !== "dm") continue;
+        const canon = canonicalizeDmChannelName(m.channelName);
+        if (canon !== m.channelName) {
+          m.channelName = canon;
+          m.channelId = `dm-${canon}`;
+          canonicalized++;
+          db.saveMessage(m);
+        }
+      }
+      if (canonicalized > 0) {
+        console.log(`[db] Canonicalized ${canonicalized} DM message(s) to sorted-pair names`);
+      }
     }
 
     for (const ch of channels) {
