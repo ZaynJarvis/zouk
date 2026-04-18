@@ -93,10 +93,6 @@ export default function ChannelSidebar() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5 mt-1">
-          <span className={`w-2 h-2 ${nc ? '' : 'border border-nc-border-bright'} ${wsConnected ? (nc ? 'bg-nc-green shadow-nc-green' : 'bg-nc-green') : (nc ? 'bg-nc-red shadow-nc-red' : 'bg-nc-red')}`} />
-          <span className="text-xs text-nc-muted truncate">{currentUser}</span>
-        </div>
       </div>
 
       <div className={`px-3 py-2 ${nc || carbon ? 'border-b border-nc-border' : wapo ? 'border-b border-nc-border' : 'border-b-[2px] border-nc-border-bright'}`}>
