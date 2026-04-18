@@ -51,6 +51,10 @@
   html[data-font-size="small"] .composer-textarea { font-size: 16.5px; }
   html[data-font-size="large"] .composer-textarea { font-size: 20px; }
 
+  .msg-body { font-size: 18px; }
+  html[data-font-size="small"] .msg-body { font-size: 16.5px; }
+  html[data-font-size="large"] .msg-body { font-size: 20px; }
+
   body {
     margin: 0;
     padding: 0;
