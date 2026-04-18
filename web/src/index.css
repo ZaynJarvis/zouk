@@ -66,6 +66,13 @@
     background-color: rgb(var(--nc-selection-bg) / 0.3);
     color: rgb(var(--nc-selection-text));
   }
+
+  /* Prevent iOS Safari from zooming on input focus (triggered when font-size < 16px) */
+  @supports (-webkit-touch-callout: none) {
+    input, textarea, select {
+      font-size: max(16px, 1em);
+    }
+  }
 }
 
 /* ==========================================================================
