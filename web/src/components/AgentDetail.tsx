@@ -458,9 +458,12 @@ function SettingsTab({
       const sx = (img.width - min) / 2;
       const sy = (img.height - min) / 2;
       ctx.drawImage(img, sx, sy, min, min, 0, 0, 128, 128);
-      const dataUrl = canvas.toDataURL('image/webp', 0.8);
-      if (dataUrl.length <= 70000) {
-        setPicture(dataUrl);
+      for (const q of [0.8, 0.6, 0.4, 0.2]) {
+        const dataUrl = canvas.toDataURL('image/webp', q);
+        if (dataUrl.length <= 14000) {
+          setPicture(dataUrl);
+          return;
+        }
       }
     };
     img.src = URL.createObjectURL(file);
