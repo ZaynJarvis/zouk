@@ -198,6 +198,14 @@ export async function logout(token: string): Promise<void> {
   });
 }
 
+export async function registerGuestSession(name: string): Promise<void> {
+  await fetch(`${getBaseUrl()}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
 export async function updateUserProfile(name: string, picture?: string): Promise<{ user: AuthUser }> {
   const body: Record<string, string> = { name };
   if (picture !== undefined) body.picture = picture;

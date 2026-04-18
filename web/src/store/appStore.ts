@@ -241,6 +241,11 @@ export function useAppStore() {
         setConfigs(e.configs || []);
         break;
       }
+      case 'humans_updated': {
+        const e = event as { humans: ServerHuman[] };
+        setHumans(e.humans || []);
+        break;
+      }
       case 'machine:connected': {
         const e = event as { machine: ServerMachine };
         setMachines(prev => {
@@ -286,6 +291,16 @@ export function useAppStore() {
       ws.disconnect();
     };
   }, [serverUrl, handleWsEvent]);
+
+  // Register guest users on the server so presence lists see them.
+  // Authenticated users are pushed into store.humans by /api/auth/google; guests
+  // need a separate hook since requireAuth blocks them from other writes.
+  useEffect(() => {
+    if (!wsConnected) return;
+    if (!isLoggedIn) return;
+    if (authToken) return;
+    api.registerGuestSession(currentUser).catch(() => {});
+  }, [wsConnected, isLoggedIn, authToken, currentUser]);
 
   useEffect(() => {
     let cancelled = false;
@@ -443,6 +458,7 @@ export function useAppStore() {
     setAuthUser(null);
     setIsLoggedIn(true);
     // currentUser already has a random name from getStoredUser()
+    api.registerGuestSession(currentUserRef.current).catch(() => {});
   }, []);
 
   const logoutAction = useCallback(async () => {

@@ -1594,9 +1594,11 @@ app.post("/api/auth/google", async (req, res) => {
     if (existingHuman) {
       if (user.picture) existingHuman.picture = user.picture;
       existingHuman.gravatarUrl = grav;
+      existingHuman.guest = false;
     } else {
       store.humans.push({ name: user.name, picture: user.picture || undefined, gravatarUrl: grav });
     }
+    broadcastToWeb({ type: "humans_updated", humans: store.humans });
 
     res.json({ token: sessionToken, user });
   } catch (err) {
@@ -1664,6 +1666,31 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
 
 app.get("/api/auth/config", (_req, res) => {
   res.json({ googleClientId: GOOGLE_CLIENT_ID || null });
+});
+
+// Register an unauthenticated guest identity so they surface in humans[] for
+// other connected clients. Guests can't write (requireAuth blocks /api/messages
+// et al.), so this is presence-only. Idempotent — repeated calls with the same
+// name don't duplicate.
+app.post("/api/auth/guest-session", (req, res) => {
+  const { name } = req.body || {};
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({ error: "name required" });
+  }
+  const trimmed = name.trim();
+  if (trimmed.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
+  const existing = store.humans.find((h) => h.name === trimmed);
+  let changed = false;
+  if (!existing) {
+    store.humans.push({ name: trimmed, guest: true });
+    changed = true;
+  } else if (existing.guest === undefined) {
+    // Legacy row — don't overwrite an authenticated user with guest=true
+  }
+  if (changed) {
+    broadcastToWeb({ type: "humans_updated", humans: store.humans });
+  }
+  res.json({ ok: true, name: trimmed });
 });
 
 // ─── Serve static web frontend ────────────────────────────────────

@@ -12,6 +12,7 @@ export type WsEventType =
   | 'channel_created'
   | 'agent_started'
   | 'config_updated'
+  | 'humans_updated'
   | 'machine:connected' | 'machine:disconnected' | 'machine:updated'
   | 'workspace:file_tree' | 'workspace:file_content'
   | 'skills:list_result'
@@ -64,6 +65,11 @@ export interface WsConfigUpdatedEvent {
   configs: AgentConfig[];
 }
 
+export interface WsHumansUpdatedEvent {
+  type: 'humans_updated';
+  humans: ServerHuman[];
+}
+
 export interface WsMachineConnectedEvent {
   type: 'machine:connected';
   machine: ServerMachine;
@@ -102,6 +108,7 @@ export type WsEvent =
   | WsChannelCreatedEvent
   | WsAgentStartedEvent
   | WsConfigUpdatedEvent
+  | WsHumansUpdatedEvent
   | WsMachineConnectedEvent
   | WsMachineUpdatedEvent
   | WsMachineDisconnectedEvent
