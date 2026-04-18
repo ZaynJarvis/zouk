@@ -184,7 +184,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       nodes.push(
         <ul key={`ul-${k++}`} className="my-2 space-y-1 pl-4">
           {items.map((item, idx) => (
-            <li key={idx} className="flex gap-2 text-sm text-nc-text leading-relaxed">
+            <li key={idx} className="flex gap-2 text-nc-text leading-relaxed">
               <span className="text-nc-cyan flex-shrink-0 mt-0.5">·</span>
               <span>{renderInline(item, `ul-${k}-${idx}`)}</span>
             </li>
@@ -206,7 +206,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       nodes.push(
         <ol key={`ol-${k++}`} className="my-2 space-y-1 pl-4">
           {items.map((item, idx) => (
-            <li key={idx} className="flex gap-2 text-sm text-nc-text leading-relaxed">
+            <li key={idx} className="flex gap-2 text-nc-text leading-relaxed">
               <span className="text-nc-cyan font-mono text-xs flex-shrink-0 mt-0.5 min-w-[1.2em]">{idx + 1}.</span>
               <span>{renderInline(item, `ol-${k}-${idx}`)}</span>
             </li>
@@ -233,7 +233,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
     if (paraLines.length > 0) {
       const paraText = paraLines.join('\n');
       nodes.push(
-        <p key={`p-${k++}`} className="text-sm text-nc-text leading-[1.75] my-1 whitespace-pre-wrap break-words" style={{ fontFamily: 'var(--nc-font-message)' }}>
+        <p key={`p-${k++}`} className="text-nc-text leading-[1.75] my-1 whitespace-pre-wrap break-words" style={{ fontFamily: 'var(--nc-font-message)' }}>
           {renderInline(paraText, `p-${k}`)}
         </p>
       );
@@ -345,7 +345,7 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
           )}
 
           {/* Rendered content */}
-          <div className="min-w-0">
+          <div className="min-w-0 msg-body">
             {message.content ? parseMarkdown(message.content) : null}
           </div>
 

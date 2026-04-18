@@ -6,7 +6,7 @@ import WorkspacePanel from './WorkspacePanel';
 import AgentSettingsPanel from './AgentSettingsPanel';
 
 export default function RightPanel() {
-  const { rightPanel } = useApp();
+  const { rightPanel, agentSettingsId } = useApp();
 
   if (!rightPanel) return null;
 
@@ -20,7 +20,7 @@ export default function RightPanel() {
     case 'workspace':
       return <WorkspacePanel />;
     case 'agent_settings':
-      return <AgentSettingsPanel />;
+      return <AgentSettingsPanel key={agentSettingsId ?? 'none'} />;
     default:
       return null;
   }
