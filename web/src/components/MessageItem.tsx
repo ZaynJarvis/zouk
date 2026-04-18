@@ -11,24 +11,33 @@ function formatTime(dateStr: string): string {
 }
 
 // ── Inline renderer: bold, italic, inline-code, @mentions ──────────────────
+type MentionSegment = { kind: 'mention'; start: number; end: number; handle: string };
+type InlineSegment = { kind: 'inline'; start: number; end: number; raw: string };
+
 function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
-  // Tokenise the string into mention tokens and inline-markdown tokens
-  const segments: { raw: string; start: number }[] = [];
+  const segments: (MentionSegment | InlineSegment)[] = [];
   let m: RegExpExecArray | null;
 
-  // collect mentions. `new RegExp(source, flags)` replaces the pattern's
-  // flags entirely, so we must re-specify `u` — otherwise `\p{L}`/`\p{N}`
-  // become invalid escapes and the regex never matches.
+  // Mentions — `new RegExp(source, flags)` replaces the pattern's flags
+  // entirely, so we must re-specify `u` or `\p{L}`/`\p{N}` become invalid.
+  // The token regex captures a leading boundary (group 1) to avoid matching
+  // inside emails; we advance the match start past that boundary so the
+  // whitespace stays as normal text.
   const mentionRegexG = new RegExp(MENTION_TOKEN_REGEX.source, 'gu');
   while ((m = mentionRegexG.exec(text)) !== null) {
-    segments.push({ raw: m[0], start: m.index });
+    const boundary = m[1] ?? '';
+    const handle = m[2] ?? '';
+    const start = m.index + boundary.length;
+    segments.push({ kind: 'mention', start, end: start + 1 + handle.length, handle });
   }
-  // collect inline markdown
+
   const inlineRegexG = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_)/g;
   while ((m = inlineRegexG.exec(text)) !== null) {
-    // only add if not already covered by a mention
-    const overlaps = segments.some(s => m!.index >= s.start && m!.index < s.start + s.raw.length);
-    if (!overlaps) segments.push({ raw: m[0], start: m.index });
+    const raw = m[0];
+    const start = m.index;
+    const end = start + raw.length;
+    const overlaps = segments.some(s => start < s.end && end > s.start);
+    if (!overlaps) segments.push({ kind: 'inline', start, end, raw });
   }
   segments.sort((a, b) => a.start - b.start);
 
@@ -39,29 +48,29 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     if (seg.start > cursor) {
       nodes.push(<span key={`${keyPrefix}-t-${cursor}`}>{text.slice(cursor, seg.start)}</span>);
     }
-    const raw = seg.raw;
-    if (raw.startsWith('@[') || raw.startsWith('@')) {
-      // @mention token: @[name] or raw @name match
-      const name = raw.startsWith('@[') ? raw.slice(2, raw.length - 1) : raw.slice(1);
+    if (seg.kind === 'mention') {
       nodes.push(
         <span key={`${keyPrefix}-m-${seg.start}`} className="bg-nc-cyan/10 text-nc-cyan font-semibold border border-nc-cyan/30 px-1 py-0.5 rounded-sm">
-          @{name}
+          @{seg.handle}
         </span>
       );
-    } else if (raw.startsWith('`')) {
-      nodes.push(
-        <code key={`${keyPrefix}-ic-${seg.start}`} className="bg-nc-black border border-nc-green/40 text-nc-green px-1.5 py-0.5 font-mono text-[0.8em] rounded-sm" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.25)' })}>
-          {raw.slice(1, -1)}
-        </code>
-      );
-    } else if (raw.startsWith('**') || raw.startsWith('__')) {
-      nodes.push(<strong key={`${keyPrefix}-b-${seg.start}`} className="font-bold text-nc-text-bright">{raw.slice(2, -2)}</strong>);
-    } else if (raw.startsWith('*') || raw.startsWith('_')) {
-      nodes.push(<em key={`${keyPrefix}-i-${seg.start}`} className="italic">{raw.slice(1, -1)}</em>);
     } else {
-      nodes.push(<span key={`${keyPrefix}-r-${seg.start}`}>{raw}</span>);
+      const raw = seg.raw;
+      if (raw.startsWith('`')) {
+        nodes.push(
+          <code key={`${keyPrefix}-ic-${seg.start}`} className="bg-nc-black border border-nc-green/40 text-nc-green px-1.5 py-0.5 font-mono text-[0.8em] rounded-sm" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.25)' })}>
+            {raw.slice(1, -1)}
+          </code>
+        );
+      } else if (raw.startsWith('**') || raw.startsWith('__')) {
+        nodes.push(<strong key={`${keyPrefix}-b-${seg.start}`} className="font-bold text-nc-text-bright">{raw.slice(2, -2)}</strong>);
+      } else if (raw.startsWith('*') || raw.startsWith('_')) {
+        nodes.push(<em key={`${keyPrefix}-i-${seg.start}`} className="italic">{raw.slice(1, -1)}</em>);
+      } else {
+        nodes.push(<span key={`${keyPrefix}-r-${seg.start}`}>{raw}</span>);
+      }
     }
-    cursor = seg.start + raw.length;
+    cursor = seg.end;
   }
   if (cursor < text.length) {
     nodes.push(<span key={`${keyPrefix}-tail`}>{text.slice(cursor)}</span>);
