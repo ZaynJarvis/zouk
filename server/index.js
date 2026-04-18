@@ -2017,16 +2017,29 @@ app.get("/api/auth/config", (_req, res) => {
   res.json({ googleClientId: GOOGLE_CLIENT_ID || null });
 });
 
-// Legacy guest endpoint kept for compatibility with existing clients.
-// Presence now rides the websocket via `presence:update`, so this only
-// validates the guest name and returns success.
-app.post("/api/auth/guest-session", (req, res) => {
+// Guest session endpoint.
+// When Google OAuth is not configured (open/dev mode), issue a real session
+// token so guests can post messages without hitting the requireAuth wall.
+// When Google OAuth IS configured, we keep the old behaviour (token-less) so
+// the "Sign in with Google" prompt still appears.
+app.post("/api/auth/guest-session", async (req, res) => {
   const { name } = req.body || {};
   if (!name || typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "name required" });
   }
   const trimmed = name.trim();
   if (trimmed.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
+
+  // In open/dev mode (no Google OAuth), mint a real session so guests aren't
+  // blocked from write operations (sending messages, etc.).
+  if (!GOOGLE_CLIENT_ID) {
+    const token = crypto.randomBytes(24).toString("hex");
+    const user = { name: trimmed, email: null, picture: null, guest: true };
+    authSessions.set(token, user);
+    await persistSession(token, user);
+    return res.json({ ok: true, name: trimmed, token, user });
+  }
+
   res.json({ ok: true, name: trimmed });
 });
 

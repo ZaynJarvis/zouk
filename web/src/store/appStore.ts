@@ -582,7 +582,18 @@ export function useAppStore() {
     setAuthUser(null);
     setIsLoggedIn(true);
     // currentUser already has a random name from getStoredUser()
-    api.registerGuestSession(currentUserRef.current).catch(() => {});
+    // In open/dev mode the server mints a real session token so guests can
+    // post messages (requireAuth won't block them).  Store it if returned.
+    api.registerGuestSession(currentUserRef.current).then(({ token, user }) => {
+      if (token) {
+        localStorage.setItem(AUTH_TOKEN_KEY, token);
+        setAuthToken(token);
+        if (user) {
+          localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+          setAuthUser(user);
+        }
+      }
+    }).catch(() => {});
   }, []);
 
   const logoutAction = useCallback(async () => {

@@ -216,12 +216,14 @@ export async function logout(token: string): Promise<void> {
   });
 }
 
-export async function registerGuestSession(name: string): Promise<void> {
-  await fetch(`${getBaseUrl()}/api/auth/guest-session`, {
+export async function registerGuestSession(name: string): Promise<{ token?: string; user?: AuthUser }> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/guest-session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
+  if (!res.ok) return {};
+  return res.json();
 }
 
 export async function updateUserProfile(name: string, picture?: string): Promise<{ user: AuthUser }> {
