@@ -60,6 +60,7 @@ export function useAppStore() {
   const [agentDetailTab, setAgentDetailTab] = useState<'instructions' | 'workspace' | 'activity' | 'settings'>('instructions');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
+  const [agentProfileId, setAgentProfileId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024);
@@ -457,6 +458,13 @@ export function useAppStore() {
     setActiveThreadMessage(null);
     setThreadMessages([]);
     setAgentSettingsId(null);
+    setAgentProfileId(null);
+  }, []);
+
+  const openAgentProfile = useCallback((agentId: string) => {
+    setAgentProfileId(agentId);
+    setRightPanel('agent_profile');
+    if (window.innerWidth < 1024) setSidebarOpen(false);
   }, []);
 
   const createChannelAction = useCallback(async (name: string) => {
@@ -664,6 +672,7 @@ export function useAppStore() {
     agentDetailTab, setAgentDetailTab,
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
+    agentProfileId, setAgentProfileId, openAgentProfile,
     activeThreadMessage, openThread, closeRightPanel,
     settingsOpen, setSettingsOpen,
     sidebarOpen, setSidebarOpen,

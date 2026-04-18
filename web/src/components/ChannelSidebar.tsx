@@ -30,7 +30,7 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
-    authUser, setSidebarOpen, setAgentSettingsId, setRightPanel,
+    authUser, setSidebarOpen, setAgentSettingsId, setRightPanel, openAgentProfile,
   } = useApp();
 
   const pick = (name: string, isDm?: boolean) => {
@@ -199,7 +199,29 @@ export default function ChannelSidebar() {
                   }
                 `}
               >
-                <Bot size={14} className="flex-shrink-0" />
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openAgentProfile(agent.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openAgentProfile(agent.id);
+                    }
+                  }}
+                  title={`View @${agent.displayName || agent.name} profile`}
+                  className="w-5 h-5 flex-shrink-0 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden font-display font-bold text-2xs text-nc-cyan hover:ring-1 hover:ring-nc-cyan cursor-pointer"
+                >
+                  {agent.picture ? (
+                    <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <Bot size={12} />
+                  )}
+                </span>
                 <span className="truncate text-sm">{agent.displayName || agent.name}</span>
                 <div className="ml-auto flex items-center gap-1.5">
                   {agent.status === 'active' && !isGuest && (
