@@ -1,4 +1,4 @@
-import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff } from 'lucide-react';
+import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, Home, Cpu, FolderOpen } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -6,7 +6,7 @@ import { isNightCity } from '../lib/themeUtils';
 
 export default function TopBar() {
   const {
-    activeChannelName, viewMode,
+    activeChannelName, viewMode, setViewMode,
     rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
     wsConnected, daemonConnected, theme,
   } = useApp();
@@ -26,6 +26,42 @@ export default function TopBar() {
           <Menu size={16} />
         </button>
       </ScanlineTear>
+
+      <div className="lg:hidden flex items-center gap-1">
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={() => setViewMode('channel')}
+            className={`w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'} ${(viewMode === 'channel' || viewMode === 'dm') ? (nc ? 'border-nc-cyan text-nc-cyan' : wapo ? 'bg-nc-red text-nc-surface' : carbon ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan' : 'bg-nc-yellow text-nc-text-bright border-nc-border-bright') : ''}`}
+            title="Home"
+            aria-label="Home"
+          >
+            <Home size={16} />
+          </button>
+        </ScanlineTear>
+
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={() => setViewMode('agents')}
+            className={`w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-green' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'} ${viewMode === 'agents' ? (nc ? 'border-nc-green text-nc-green' : wapo ? 'bg-nc-indigo text-nc-surface' : carbon ? 'bg-nc-green/15 text-nc-green border-nc-green' : 'bg-nc-green text-nc-text-bright border-nc-border-bright') : ''}`}
+            title="Agents"
+            aria-label="Agents"
+          >
+            <Cpu size={16} />
+          </button>
+        </ScanlineTear>
+
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={() => setRightPanel(rightPanel === 'workspace' ? null : 'workspace')}
+            className={`w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-magenta' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'} ${rightPanel === 'workspace' ? (nc ? 'border-nc-magenta text-nc-magenta' : wapo ? 'bg-nc-yellow text-nc-surface' : carbon ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta' : 'bg-nc-cyan text-nc-text-bright border-nc-border-bright') : ''}`}
+            title="Workspace"
+            aria-label="Workspace"
+            aria-pressed={rightPanel === 'workspace'}
+          >
+            <FolderOpen size={16} />
+          </button>
+        </ScanlineTear>
+      </div>
 
       <div className="flex items-center gap-2 min-w-0">
         {(viewMode === 'channel' || viewMode === 'dm') && (

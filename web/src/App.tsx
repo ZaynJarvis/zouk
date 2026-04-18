@@ -36,7 +36,9 @@ function AppShell() {
 
   return (
     <div className="app-shell flex overflow-hidden bg-nc-black font-body text-nc-text cyber-scanlines">
-      <WorkspaceRail />
+      <div className="hidden lg:block">
+        <WorkspaceRail />
+      </div>
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
