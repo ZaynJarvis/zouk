@@ -20,12 +20,17 @@ function AgentListItem({
   agent,
   isSelected,
   onClick,
+  onStart,
+  isStarting,
 }: {
   agent: ServerAgent;
   isSelected: boolean;
   onClick: () => void;
+  onStart?: () => void;
+  isStarting?: boolean;
 }) {
   const activity = agent.activity || 'offline';
+  const isOffline = !agent.status || agent.status === 'inactive';
 
   return (
     <button
@@ -59,6 +64,19 @@ function AgentListItem({
           ARCHIVED
         </span>
       )}
+      {isOffline && onStart && (
+        <span
+          role="button"
+          onClick={(e) => { e.stopPropagation(); onStart(); }}
+          className="shrink-0 w-6 h-6 flex items-center justify-center border border-nc-green/50 bg-nc-green/10 text-nc-green hover:bg-nc-green/20 transition-colors"
+          title="Start agent"
+        >
+          {isStarting
+            ? <span className="w-2 h-2 border border-nc-green animate-spin border-t-transparent rounded-full" />
+            : <span className="text-2xs font-bold">▶</span>
+          }
+        </span>
+      )}
     </button>
   );
 }
@@ -80,11 +98,12 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
 }
 
 export default function AgentsView() {
-  const { agents, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest } = useApp();
+  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showMachineSetup, setShowMachineSetup] = useState(false);
+  const [starting, setStarting] = useState<string | null>(null);
   const [machinesExpanded, setMachinesExpanded] = useState(true);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
 
@@ -95,8 +114,35 @@ export default function AgentsView() {
     [agents, showArchived]
   );
 
+  // Unified list: running agents + saved configs that aren't currently running
+  const unifiedEntities = useMemo<ServerAgent[]>(() => {
+    const runningIds = new Set(agents.map(a => a.id));
+    const offlineFromConfigs = configs
+      .filter(c => !runningIds.has(c.id))
+      .map(c => ({
+        id: c.id,
+        name: c.name,
+        displayName: c.displayName,
+        description: c.description,
+        runtime: c.runtime ?? 'claude',
+        model: c.model,
+        picture: c.picture,
+        status: 'inactive' as const,
+        activity: 'offline' as const,
+      } as ServerAgent));
+    return [...filteredAgents, ...offlineFromConfigs];
+  }, [filteredAgents, configs, agents]);
+
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
-  const selected = agents.find((a) => a.id === selectedId) ?? (filteredAgents.length > 0 ? filteredAgents[0] : null);
+  const selected = agents.find((a) => a.id === selectedId) ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
+
+  const handleStartAgent = async (agentId: string) => {
+    const config = configs.find(c => c.id === agentId);
+    if (!config) return;
+    setStarting(agentId);
+    await startAgent({ id: config.id, name: config.name, displayName: config.displayName, description: config.description, runtime: config.runtime, model: config.model });
+    setStarting(null);
+  };
 
   const handleCreateAgent = async (config: {
     name: string;
@@ -222,13 +268,15 @@ export default function AgentsView() {
             <div className="cyber-divider mx-4 my-1" />
           )}
 
-          {filteredAgents.length > 0 ? (
-            filteredAgents.map((agent) => (
+          {unifiedEntities.length > 0 ? (
+            unifiedEntities.map((agent) => (
               <AgentListItem
                 key={agent.id}
                 agent={agent}
                 isSelected={agent.id === (selected?.id ?? '')}
                 onClick={() => handleSelectAgent(agent.id)}
+                onStart={agent.status === 'inactive' ? () => handleStartAgent(agent.id) : undefined}
+                isStarting={starting === agent.id}
               />
             ))
           ) : (
