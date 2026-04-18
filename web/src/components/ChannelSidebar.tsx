@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Search, X } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Search, X, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -30,6 +30,7 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
+    authUser, setSettingsOpen,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -269,6 +270,59 @@ export default function ChannelSidebar() {
           )}
         </div>
       </div>
+
+      <SelfProfileFooter
+        authUser={authUser}
+        currentUser={currentUser}
+        wsConnected={wsConnected}
+        isGuest={isGuest}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+    </div>
+  );
+}
+
+function SelfProfileFooter({
+  authUser, currentUser, wsConnected, isGuest, onOpenSettings,
+}: {
+  authUser: { name: string; picture: string | null; gravatarUrl?: string | null } | null;
+  currentUser: string;
+  wsConnected: boolean;
+  isGuest: boolean;
+  onOpenSettings: () => void;
+}) {
+  const nc = isNightCity();
+  const displayName = authUser?.name || currentUser || 'Guest';
+  const pictureUrl = authUser?.picture || authUser?.gravatarUrl || null;
+  const initial = displayName.charAt(0).toUpperCase();
+  const statusDot = wsConnected ? 'bg-nc-green' : 'bg-nc-muted/40';
+
+  return (
+    <div className={`flex items-center gap-2 px-3 py-2 flex-shrink-0 ${nc ? 'border-t border-nc-border bg-nc-panel/40' : 'border-t border-nc-border bg-nc-surface'}`}>
+      <div className="relative flex-shrink-0">
+        <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden ${nc ? 'border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan' : 'border-nc-border bg-nc-elevated text-nc-text-bright'}`}>
+          {pictureUrl ? (
+            <img src={pictureUrl} alt="" className="w-full h-full object-cover" />
+          ) : (
+            initial
+          )}
+        </div>
+        <span className={`absolute bottom-0 right-0 w-2 h-2 border border-nc-surface ${statusDot}`} />
+      </div>
+      <div className="flex-1 min-w-0 leading-tight">
+        <div className="text-sm font-semibold text-nc-text-bright truncate">{displayName}</div>
+        <div className="text-2xs text-nc-muted font-mono truncate">
+          {isGuest ? 'guest' : wsConnected ? 'online' : 'offline'}
+        </div>
+      </div>
+      <button
+        onClick={onOpenSettings}
+        className={`w-7 h-7 flex-shrink-0 flex items-center justify-center border transition-colors ${nc ? 'border-nc-border text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan' : 'border-nc-border text-nc-muted hover:border-nc-border-bright hover:text-nc-text-bright'}`}
+        title="Settings"
+        aria-label="Open settings"
+      >
+        <Settings size={14} />
+      </button>
     </div>
   );
 }
