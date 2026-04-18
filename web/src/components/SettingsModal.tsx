@@ -12,7 +12,6 @@ const PREFS_KEY = 'zouk_preferences';
 interface Preferences {
   fontSize: 'small' | 'medium' | 'large';
   notifications: boolean;
-  language: 'en' | 'zh' | 'ja';
 }
 
 function loadPrefs(): Preferences {
@@ -23,7 +22,7 @@ function loadPrefs(): Preferences {
   return defaultPrefs;
 }
 
-const defaultPrefs: Preferences = { fontSize: 'medium', notifications: true, language: 'en' };
+const defaultPrefs: Preferences = { fontSize: 'medium', notifications: true };
 
 function resizeAndEncode(file: File, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -70,6 +69,13 @@ export default function SettingsModal() {
     setPrefs(prev => {
       const next = { ...prev, ...update };
       localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      if ('fontSize' in update) {
+        if (next.fontSize === 'medium') {
+          document.documentElement.removeAttribute('data-font-size');
+        } else {
+          document.documentElement.setAttribute('data-font-size', next.fontSize);
+        }
+      }
       return next;
     });
   }, []);
@@ -359,24 +365,6 @@ export default function SettingsModal() {
                   </button>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Language</label>
-                  <div className="flex gap-2">
-                    {([['en', 'English'], ['zh', '中文'], ['ja', '日本語']] as const).map(([code, label]) => (
-                      <button
-                        key={code}
-                        onClick={() => savePrefs({ language: code as Preferences['language'] })}
-                        className={`flex-1 py-2 text-sm font-bold border transition-all ${
-                          prefs.language === code
-                            ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan'
-                            : 'text-nc-muted border-nc-border hover:border-nc-cyan/50'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             )}
 

@@ -32,6 +32,7 @@
         if(favicon) favicon.href=theme==='night-city'?'/zouk-night-city.svg':'/zouk.svg';
         var themeMeta=document.querySelector("meta[name='theme-color']");
         if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#0a0a0f');
+        try{var p=JSON.parse(localStorage.getItem('zouk_preferences')||'{}');if(p.fontSize&&p.fontSize!=='medium')document.documentElement.setAttribute('data-font-size',p.fontSize);}catch(e){}
       })();
     </script>
     <div id="root"></div>

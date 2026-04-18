@@ -41,7 +41,11 @@
     overflow: hidden;
     overscroll-behavior: none;
     background-color: rgb(var(--nc-black));
+    font-size: 16px;
   }
+
+  html[data-font-size="small"] { font-size: 14px; }
+  html[data-font-size="large"] { font-size: 18px; }
 
   body {
     margin: 0;
