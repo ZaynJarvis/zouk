@@ -732,6 +732,7 @@ function SettingsTab({
 export default function AgentDetail({
   agent,
   machines,
+  initialTab,
   onUpdate,
   onStop,
   onDelete,
@@ -739,14 +740,19 @@ export default function AgentDetail({
 }: {
   agent: ServerAgent;
   machines?: ServerMachine[];
+  initialTab?: Tab;
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
   onDelete: () => void;
   onBack?: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>('instructions');
+  const [tab, setTab] = useState<Tab>(initialTab || 'instructions');
   const activity = agent.activity || 'offline';
   const isActive = agent.status === 'active';
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab, agent.id]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-nc-surface">

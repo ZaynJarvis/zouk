@@ -114,9 +114,7 @@ export default function SettingsModal() {
   ];
 
   // Thick border variant only for brutalist
-  const borderStyle = brutalist ? 'border-[3px] border-nc-border-bright' : 'border border-nc-border';
   const borderB = brutalist ? 'border-b-[3px] border-nc-border-bright' : 'border-b border-nc-border';
-  const borderR = brutalist ? 'border-r-[3px] border-nc-border-bright' : 'border-r border-nc-border';
 
   return (
     <div

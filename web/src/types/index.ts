@@ -6,7 +6,7 @@ export interface MessageRecord {
   parent_channel_type?: string;
   message_id?: string;
   timestamp?: string;
-  sender_type?: 'agent' | 'human';
+  sender_type?: 'agent' | 'human' | 'system';
   sender_name?: string;
   content?: string;
   attachments?: Array<{ filename: string; id: string }>;
@@ -20,6 +20,8 @@ export interface MessageRecord {
 export interface ServerChannel {
   id: string;
   name: string;
+  description?: string;
+  type?: 'channel' | 'dm';
 }
 
 export interface ServerAgent {
@@ -109,6 +111,7 @@ export interface ServerHuman {
   picture?: string;
   gravatarUrl?: string;
   guest?: boolean;
+  online?: boolean;
 }
 
 export interface AgentConfig {
@@ -124,6 +127,7 @@ export interface AgentConfig {
   envVars?: Record<string, string>;
   reasoningEffort?: string;
   autoStart?: boolean;
+  picture?: string;
   // UI-edited fields that the server only persists into the config (they're
   // not echoed back on the live ServerAgent payload). Keeping them typed here
   // lets SettingsTab/InstructionsTab read the persisted value back instead of
@@ -141,6 +145,7 @@ export interface ServerMachine {
   hostname: string;
   alias?: string;
   os: string;
+  status?: 'online' | 'offline';
   runtimes?: string[];
   agentIds?: string[];
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, memo } from 'react';
 import {
   FolderOpen, File, Folder, ChevronRight, RefreshCw, X,
-  ChevronDown, Eye,
+  ChevronDown, Eye, ArrowLeft,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, WorkspaceFile } from '../types';

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Search, X } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Search, X } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -30,7 +30,7 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
-    authUser, setSidebarOpen,
+    authUser, setSidebarOpen, setViewMode, setAgentDetailTab, setSelectedAgentId,
   } = useApp();
 
   const pick = (name: string, isDm?: boolean) => {
@@ -226,6 +226,22 @@ export default function ChannelSidebar() {
                       title="Reset context"
                     >
                       <RotateCcw size={12} />
+                    </span>
+                  )}
+                  {!isGuest && (
+                    <span
+                      role="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedAgentId(agent.id);
+                        setViewMode('agents');
+                        setAgentDetailTab('settings');
+                        if (window.innerWidth < 1024) setSidebarOpen(false);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all"
+                      title={`Configure ${agent.displayName || agent.name}`}
+                    >
+                      <Settings size={12} />
                     </span>
                   )}
                   <span className={`w-2 h-2 flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
