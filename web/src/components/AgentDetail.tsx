@@ -462,21 +462,21 @@ function SettingsTab({
         const dataUrl = canvas.toDataURL('image/webp', q);
         if (dataUrl.length <= 14000) {
           setPicture(dataUrl);
+          onUpdate({ picture: dataUrl });
           return;
         }
       }
     };
     img.src = URL.createObjectURL(file);
     e.target.value = '';
-  }, []);
+  }, [onUpdate]);
 
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
     visibility !== persistedVisibility ||
     maxConcurrent !== persistedMaxConcurrent ||
-    autoStart !== persistedAutoStart ||
-    picture !== agent.picture;
+    autoStart !== persistedAutoStart;
 
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
