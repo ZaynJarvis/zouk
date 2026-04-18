@@ -41,7 +41,7 @@ export function applyTheme(id: ThemeId) {
   document.documentElement.setAttribute('data-theme', id);
   const favicon = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
   if (favicon) {
-    favicon.href = id === 'night-city' ? '/zouk-night-city.svg' : '/zouk.svg';
+    favicon.href = (id === 'brutalist' || id === 'washington-post') ? '/zouk.svg' : '/zouk-night-city.svg';
   }
   const themeMeta = document.querySelector("meta[name='theme-color']") as HTMLMetaElement | null;
   const theme = getTheme(id);

@@ -47,6 +47,10 @@
   html[data-font-size="small"] { font-size: 14px; }
   html[data-font-size="large"] { font-size: 18px; }
 
+  .composer-textarea { font-size: 18px; }
+  html[data-font-size="small"] .composer-textarea { font-size: 16.5px; }
+  html[data-font-size="large"] .composer-textarea { font-size: 20px; }
+
   body {
     margin: 0;
     padding: 0;

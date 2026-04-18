@@ -29,7 +29,7 @@
         };
         document.documentElement.setAttribute('data-theme',theme);
         var favicon=document.querySelector("link[rel='icon']");
-        if(favicon) favicon.href=theme==='night-city'?'/zouk-night-city.svg':'/zouk.svg';
+        if(favicon) favicon.href=(theme==='brutalist'||theme==='washington-post')?'/zouk.svg':'/zouk-night-city.svg';
         var themeMeta=document.querySelector("meta[name='theme-color']");
         if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#0a0a0f');
         try{var p=JSON.parse(localStorage.getItem('zouk_preferences')||'{}');if(p.fontSize&&p.fontSize!=='medium')document.documentElement.setAttribute('data-font-size',p.fontSize);}catch(e){}
