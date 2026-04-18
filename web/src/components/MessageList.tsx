@@ -110,7 +110,7 @@ export default function MessageList() {
 
   return (
     <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
-      <div className="pt-4 pb-2 max-w-4xl mx-auto w-full">
+      <div className="pt-4 pb-2 max-w-4xl mx-auto w-full min-w-0">
         {channelMessages.map((msg, i) => {
           const msgDate = msg.timestamp ? formatDate(msg.timestamp) : '';
           const showDate = msgDate && msgDate !== lastDate;
