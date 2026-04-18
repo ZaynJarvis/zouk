@@ -265,10 +265,11 @@ function getSenderColor(name: string): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function MessageItem({ message, isGrouped = false }: { message: MessageRecord; isGrouped?: boolean }) {
-  const { } = useApp();
+  const { humans } = useApp();
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
+  const senderPicture = !isAgent && !isSystem ? humans.find(h => h.name === senderName)?.picture : undefined;
   const timestamp = message.timestamp || '';
   const color = getSenderColor(senderName);
 
@@ -297,7 +298,7 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
           </div>
         ) : (
           <div
-            className="w-8 h-8 sm:w-9 sm:h-9 border font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5"
+            className="w-8 h-8 sm:w-9 sm:h-9 border font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5 overflow-hidden"
             style={{
               borderColor: `${color}55`,
               backgroundColor: `${color}12`,
@@ -305,7 +306,9 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
               boxShadow: isAgent ? `0 0 10px ${color}18` : undefined,
             }}
           >
-            {isAgent ? <Bot size={15} /> : senderName.charAt(0).toUpperCase()}
+            {senderPicture ? (
+              <img src={senderPicture} alt="" className="w-full h-full object-cover" />
+            ) : isAgent ? <Bot size={15} /> : senderName.charAt(0).toUpperCase()}
           </div>
         )}
 

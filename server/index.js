@@ -1581,8 +1581,11 @@ app.post("/api/auth/google", async (req, res) => {
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
 
     // Register as human if not already present
-    if (!store.humans.find((h) => h.name === user.name)) {
-      store.humans.push({ name: user.name });
+    const existingHuman = store.humans.find((h) => h.name === user.name);
+    if (existingHuman) {
+      if (user.picture) existingHuman.picture = user.picture;
+    } else {
+      store.humans.push({ name: user.name, picture: user.picture || undefined });
     }
 
     res.json({ token: sessionToken, user });
@@ -1611,7 +1614,7 @@ app.post("/api/auth/logout", (req, res) => {
 
 app.put("/api/auth/profile", requireAuth, (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  const { name } = req.body;
+  const { name, picture } = req.body;
   if (!name || typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "name required" });
   }
@@ -1620,11 +1623,25 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
   if (!user) return res.status(401).json({ error: "Not authenticated" });
   const oldName = user.name;
   user.name = trimmed;
+  // Update avatar if provided (base64 string, max ~50KB)
+  if (picture !== undefined) {
+    if (picture === null || picture === "") {
+      user.picture = null;
+    } else if (typeof picture === "string" && picture.length <= 70000) {
+      user.picture = picture;
+    } else {
+      return res.status(400).json({ error: "picture too large (max ~50KB base64)" });
+    }
+  }
   authSessions.set(token, user);
   // Update human record
   const human = store.humans.find((h) => h.name === oldName);
-  if (human) human.name = trimmed;
-  else if (!store.humans.find((h) => h.name === trimmed)) store.humans.push({ name: trimmed });
+  if (human) {
+    human.name = trimmed;
+    human.picture = user.picture || undefined;
+  } else if (!store.humans.find((h) => h.name === trimmed)) {
+    store.humans.push({ name: trimmed, picture: user.picture || undefined });
+  }
   db.saveSession(token, user).catch(e => console.warn("[auth] saveSession error:", e.message));
   broadcastToWeb({ type: "humans_updated", humans: store.humans });
   res.json({ user });

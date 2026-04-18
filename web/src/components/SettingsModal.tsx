@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { X, User, Palette, Monitor, Server, SlidersHorizontal } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { X, User, Palette, Monitor, Server, SlidersHorizontal, Camera } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -25,16 +25,48 @@ function loadPrefs(): Preferences {
 
 const defaultPrefs: Preferences = { fontSize: 'medium', notifications: true, language: 'en' };
 
+function resizeAndEncode(file: File, maxSize: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = maxSize;
+      canvas.height = maxSize;
+      const ctx = canvas.getContext('2d')!;
+      // Crop to center square
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, maxSize, maxSize);
+      const dataUrl = canvas.toDataURL('image/webp', 0.8);
+      // Strip to just base64 if under ~50KB, otherwise try lower quality
+      if (dataUrl.length > 70000) {
+        const lowQ = canvas.toDataURL('image/webp', 0.5);
+        if (lowQ.length > 70000) {
+          reject(new Error('Image too large even after compression'));
+          return;
+        }
+        resolve(lowQ);
+      } else {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 export default function SettingsModal() {
   const {
     settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateProfile, logout,
-    wsConnected, daemonConnected, agents, machines, configs,
+    wsConnected, daemonConnected, agents, machines, configs, authUser,
   } = useApp();
   const [section, setSection] = useState<Section>('profile');
   const nc = theme === 'night-city';
   const brutalist = theme === 'brutalist';
   const [displayName, setDisplayName] = useState(currentUser);
   const [glitchActive, setGlitchActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [prefs, setPrefs] = useState<Preferences>(loadPrefs);
 
   const savePrefs = useCallback((update: Partial<Preferences>) => {
@@ -52,6 +84,18 @@ export default function SettingsModal() {
       setGlitchActive(true);
     }
   }, [theme, setTheme]);
+
+  const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await resizeAndEncode(file, 128);
+      updateProfile(displayName || currentUser, dataUrl);
+    } catch {
+      // silently fail — image too large or invalid
+    }
+    e.target.value = '';
+  }, [updateProfile, displayName, currentUser]);
 
   const handleGlitchComplete = useCallback(() => {
     setGlitchActive(false);
@@ -130,12 +174,29 @@ export default function SettingsModal() {
             {section === 'profile' && (
               <div className="max-w-md space-y-6">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 border border-nc-cyan bg-nc-cyan/10 font-display font-bold text-lg flex items-center justify-center text-nc-cyan">
-                    {currentUser.charAt(0).toUpperCase()}
+                  <div
+                    className="relative w-14 h-14 border border-nc-cyan bg-nc-cyan/10 font-display font-bold text-lg flex items-center justify-center text-nc-cyan cursor-pointer group overflow-hidden"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {authUser?.picture ? (
+                      <img src={authUser.picture} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      currentUser.charAt(0).toUpperCase()
+                    )}
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Camera size={16} className="text-white" />
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarUpload}
+                    />
                   </div>
                   <div>
                     <p className="font-display font-bold text-nc-text-bright">{currentUser}</p>
-                    <p className="text-xs text-nc-muted font-mono">GUEST_USER</p>
+                    <p className="text-xs text-nc-muted font-mono">{authUser ? authUser.email : 'GUEST_USER'}</p>
                   </div>
                 </div>
 

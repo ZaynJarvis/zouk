@@ -410,20 +410,15 @@ export function useAppStore() {
     }
   }, [addToast]);
 
-  const updateCurrentUser = useCallback((name: string) => {
+  const updateCurrentUser = useCallback((name: string, picture?: string) => {
     localStorage.setItem(CURRENT_USER_KEY, name);
     setCurrentUser(name);
-    // Persist to Supabase if logged in
+    // Persist to server if logged in
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
     if (token) {
-      api.updateUserProfile(name).then(({ user }) => {
-        const stored = localStorage.getItem(AUTH_USER_KEY);
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored);
-            localStorage.setItem(AUTH_USER_KEY, JSON.stringify({ ...parsed, name: user.name }));
-          } catch { /* ignore */ }
-        }
+      api.updateUserProfile(name, picture).then(({ user }) => {
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+        setAuthUser(user);
       }).catch(() => {});
     }
   }, []);

@@ -105,6 +105,7 @@ export interface AgentEntry {
 export interface ServerHuman {
   id: string;
   name: string;
+  picture?: string;
 }
 
 export interface AgentConfig {
