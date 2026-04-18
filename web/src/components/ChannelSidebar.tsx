@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings2, Trash2 } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -30,7 +30,7 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
-    authUser, setSidebarOpen, setViewMode, setAgentDetailTab,
+    authUser, setSidebarOpen, setViewMode, setAgentDetailTab, setSelectedAgentId,
   } = useApp();
 
   const pick = (name: string, isDm?: boolean) => {
@@ -216,6 +216,22 @@ export default function ChannelSidebar() {
                       <RotateCcw size={12} />
                     </span>
                   )}
+                  {!isGuest && (
+                    <span
+                      role="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedAgentId(agent.id);
+                        setViewMode('agents');
+                        setAgentDetailTab('settings');
+                        if (window.innerWidth < 1024) setSidebarOpen(false);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all"
+                      title={`Configure ${agent.displayName || agent.name}`}
+                    >
+                      <Settings size={12} />
+                    </span>
+                  )}
                   <span className={`w-2 h-2 flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
                   {unread > 0 && !isActive && (
                     <span className="bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
@@ -228,22 +244,6 @@ export default function ChannelSidebar() {
           })}
           {!agentsCollapsed && filteredAgents.length === 0 && (
             <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No agents</div>
-          )}
-          {!agentsCollapsed && !isGuest && (
-            <div className="px-3 pt-1">
-              <button
-                onClick={() => {
-                  setViewMode('agents');
-                  setAgentDetailTab('settings');
-                  if (window.innerWidth < 1024) setSidebarOpen(false);
-                }}
-                className={`w-full flex items-center gap-2 px-2.5 py-2 text-left text-xs font-bold uppercase tracking-wider border ${nc ? 'border-nc-border bg-nc-panel text-nc-muted hover:border-nc-cyan hover:text-nc-cyan' : 'border-nc-border bg-nc-elevated text-nc-muted hover:text-nc-text-bright'}`}
-                title="Open agent configuration"
-              >
-                <Settings2 size={14} className="shrink-0" />
-                <span>Agent Config</span>
-              </button>
-            </div>
           )}
         </div>
 
