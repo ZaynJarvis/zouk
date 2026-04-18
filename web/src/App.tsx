@@ -59,8 +59,8 @@ function AppShell() {
 
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar />
-        <div className="flex-1 flex min-h-0">
-          <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 relative min-h-0">
+          <div className="absolute inset-0 flex flex-col min-w-0">
             {showMessageView && (
               <>
                 <MessageList />
@@ -69,7 +69,11 @@ function AppShell() {
             )}
             {viewMode === 'agents' && <AgentsView />}
           </div>
-          <RightPanel />
+          <div className="absolute inset-y-0 right-0 z-20 flex pointer-events-none">
+            <div className="pointer-events-auto h-full shadow-2xl">
+              <RightPanel />
+            </div>
+          </div>
         </div>
       </div>
 

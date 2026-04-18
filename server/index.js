@@ -11,6 +11,7 @@ const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const db = require("./db");
 const { createStore: createProfilePresetsStore, MAX_PRESETS: PROFILE_PRESET_MAX } = require("./profilePresets");
+const mockData = require("./mockData");
 
 function gravatarUrl(email) {
   if (!email) return null;
@@ -2149,6 +2150,16 @@ function reconcileAgentsWithConfigs() {
   await initFromDB();
   await loadAuthSessions();
   reconcileAgentsWithConfigs();
+
+  if (mockData.shouldSeed(db)) {
+    mockData.seed({
+      store,
+      agentConfigs,
+      machines,
+      addHumanPresence,
+      findOrCreateChannel,
+    });
+  }
 
   server.listen(PORT, () => {
     console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);

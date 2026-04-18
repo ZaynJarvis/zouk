@@ -30,7 +30,7 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
-    authUser, setSidebarOpen, setViewMode, setAgentDetailTab, setSelectedAgentId,
+    authUser, setSidebarOpen, setAgentSettingsId, setRightPanel,
   } = useApp();
 
   const pick = (name: string, isDm?: boolean) => {
@@ -221,9 +221,8 @@ export default function ChannelSidebar() {
                       role="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedAgentId(agent.id);
-                        setViewMode('agents');
-                        setAgentDetailTab('settings');
+                        setAgentSettingsId(agent.id);
+                        setRightPanel('agent_settings');
                         if (window.innerWidth < 1024) setSidebarOpen(false);
                       }}
                       className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all"
