@@ -55,8 +55,11 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   work_dir     TEXT,
   description  TEXT,
   auto_start   BOOLEAN NOT NULL DEFAULT false,
+  picture      TEXT,
   config_json  JSONB NOT NULL DEFAULT '{}'
 );
+-- Migration: add picture to existing deployments
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS picture TEXT;
 
 -- Auth sessions table (survives server restarts and deploys)
 CREATE TABLE IF NOT EXISTS sessions (
