@@ -1197,7 +1197,8 @@ function autoStartAgents() {
     if (store.agents[config.id]?.status === "active") continue;
     const result = startAgentOnDaemon(config.id, config);
     if (result.error) {
-      console.log(`[auto-start] Failed to start ${config.id}: ${result.error}`);
+      const agentName = config.displayName || config.name || config.id;
+      console.log(`[auto-start] Failed to start ${agentName} (${config.id}): ${result.error}`);
     }
   }
 }
@@ -1214,7 +1215,7 @@ server.on("upgrade", (request, socket, head) => {
     // Daemon WebSocket connection — validate API key
     const apiKey = parsed.searchParams.get("key");
     if (!validateApiKey(apiKey)) {
-      console.log(`[daemon] Rejected connection: invalid API key (${apiKey?.substring(0, 12)}...)`);
+      console.log(`[daemon] Rejected connection: invalid API key (${apiKey?.substring(0, 12)}...) from ${request.socket.remoteAddress}:${request.socket.remotePort}`);
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
