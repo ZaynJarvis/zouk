@@ -332,7 +332,7 @@ export default function WorkspacePanel() {
   const selectedAgent = activeAgents.find(a => a.id === selectedAgentId);
 
   return (
-    <div className={`w-[340px] xl:w-[380px] flex-shrink-0 flex flex-col h-full border-l ${
+    <div className={`w-screen lg:w-[340px] xl:w-[380px] flex-shrink-0 flex flex-col h-full border-l ${
       nc ? 'border-nc-border bg-nc-deep' : 'border-nc-border bg-nc-surface'
     }`}>
       {/* Header */}

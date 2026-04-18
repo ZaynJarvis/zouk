@@ -14,7 +14,7 @@ export default function ThreadPanel() {
     : `#${activeThreadMessage.channel_name}:${shortId}`;
 
   return (
-    <div className="w-[380px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
+    <div className="w-screen lg:w-[380px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
       <div className="h-14 border-b border-nc-border flex items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <h3 className="font-display font-extrabold text-base text-nc-text-bright tracking-wider">THREAD</h3>

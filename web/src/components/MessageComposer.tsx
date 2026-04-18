@@ -240,7 +240,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onKeyDown={handleKeyDown}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
-          className="flex-1 px-3 pt-3 pb-1 bg-transparent text-base sm:text-sm font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[44px]"
+          className="flex-1 px-3 pt-3 pb-1 bg-transparent text-base font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[44px]"
         />
 
         {/* Toolbar row */}

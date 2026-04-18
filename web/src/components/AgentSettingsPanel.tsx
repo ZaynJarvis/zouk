@@ -74,7 +74,7 @@ export default function AgentSettingsPanel() {
 
   if (!agent) {
     return (
-      <div className="w-[30vw] min-w-[340px] max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col items-center justify-center">
+      <div className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col items-center justify-center">
         <p className="text-sm text-nc-muted font-mono mb-3">AGENT_NOT_FOUND</p>
         <button
           onClick={closeRightPanel}
@@ -115,7 +115,7 @@ export default function AgentSettingsPanel() {
   const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
 
   return (
-    <div className="w-[30vw] min-w-[340px] max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
+    <div className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
       <div className="h-14 border-b border-nc-border flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <SettingsIcon size={14} className="text-nc-cyan shrink-0" />
