@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, memo } from 'react';
 import {
-  FolderOpen, File, Folder, ChevronRight, RefreshCw, X,
-  ChevronDown, Eye, ArrowLeft,
+  FolderOpen, File, Folder, ChevronRight, RefreshCw, X, ArrowLeft,
+  ChevronDown, Eye,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, WorkspaceFile } from '../types';
@@ -53,7 +53,11 @@ function AgentAvatarStrip({
                   : 'border border-nc-border bg-nc-surface text-nc-muted hover:bg-nc-elevated')
             }`}
           >
-            {initial}
+            {agent.picture ? (
+              <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+            ) : (
+              initial
+            )}
             <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 ${activityColor} border border-nc-black`} />
           </button>
         );
@@ -293,6 +297,7 @@ export default function WorkspacePanel() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [splitMode, setSplitMode] = useState(false);
+  const [profileExpanded, setProfileExpanded] = useState(true);
 
   // Auto-select first active agent if none selected
   useEffect(() => {
@@ -369,15 +374,40 @@ export default function WorkspacePanel() {
 
       {/* Selected agent info */}
       {selectedAgent && (
-        <div className={`flex items-center gap-2 px-3 py-1.5 border-b text-xs ${
-          nc ? 'border-nc-border bg-nc-elevated/30' : 'border-nc-border bg-nc-elevated'
-        }`}>
-          <span className={`font-bold font-mono ${nc ? 'text-nc-cyan' : 'text-nc-text-bright'}`}>
-            @{selectedAgent.displayName || selectedAgent.name}
-          </span>
-          <span className="text-nc-muted font-mono">
-            {selectedAgent.runtime || ''}{selectedAgent.model ? ` · ${selectedAgent.model}` : ''}
-          </span>
+        <div className={`border-b text-xs ${nc ? 'border-nc-border bg-nc-elevated/30' : 'border-nc-border bg-nc-elevated'}`}>
+          <button
+            onClick={() => setProfileExpanded((open) => !open)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left"
+          >
+            <div className={`w-9 h-9 shrink-0 border overflow-hidden font-display font-bold text-sm flex items-center justify-center ${nc ? 'border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan' : 'border-nc-border bg-nc-panel text-nc-text-bright'}`}>
+              {selectedAgent.picture ? (
+                <img src={selectedAgent.picture} alt="" className="w-full h-full object-cover" />
+              ) : (
+                (selectedAgent.displayName || selectedAgent.name).charAt(0).toUpperCase()
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className={`font-bold font-mono truncate ${nc ? 'text-nc-cyan' : 'text-nc-text-bright'}`}>
+                @{selectedAgent.displayName || selectedAgent.name}
+              </div>
+              <div className="text-nc-muted font-mono truncate">
+                {selectedAgent.runtime || 'unknown'}{selectedAgent.model ? ` · ${selectedAgent.model}` : ''}
+              </div>
+            </div>
+            <ChevronDown size={12} className={`text-nc-muted transition-transform ${profileExpanded ? 'rotate-180' : ''}`} />
+          </button>
+          {profileExpanded && (
+            <div className="px-3 pb-2">
+              {selectedAgent.description && (
+                <p className="text-nc-text text-xs leading-5 mb-1.5">
+                  {selectedAgent.description}
+                </p>
+              )}
+              <div className="text-nc-muted font-mono text-2xs">
+                {selectedAgent.workDir || '/'}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

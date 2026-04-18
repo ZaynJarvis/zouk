@@ -10,11 +10,9 @@ const activityColors: Record<string, string> = {
 };
 
 export default function DetailsPanel() {
-  const { activeChannelName, closeRightPanel, humans, agents, messages, viewMode } = useApp();
-
-  const senderNames = new Set(messages.map(m => m.sender_name).filter(Boolean));
-  const channelHumans = humans.filter(h => senderNames.has(h.name));
-  const channelAgents = agents.filter(a => senderNames.has(a.name) || senderNames.has(a.displayName));
+  const { activeChannelName, closeRightPanel, humans, agents, viewMode } = useApp();
+  const onlineHumans = humans;
+  const onlineAgents = agents.filter(a => a.status === 'active');
   const isDm = viewMode === 'dm';
 
   return (
@@ -38,36 +36,44 @@ export default function DetailsPanel() {
         </div>
 
         <div className="p-4 border-b border-nc-border">
-          <h5 className="text-xs font-bold uppercase tracking-wider text-nc-muted mb-3 font-mono">People ({channelHumans.length})</h5>
+          <h5 className="text-xs font-bold uppercase tracking-wider text-nc-muted mb-3 font-mono">People Online ({onlineHumans.length})</h5>
           <div className="space-y-1">
-            {channelHumans.map(h => (
+            {onlineHumans.map(h => (
               <div key={h.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-nc-elevated transition-colors">
-                <div className="w-7 h-7 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-2xs flex items-center justify-center text-nc-cyan">
-                  <User size={12} />
+                <div className="w-7 h-7 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-2xs flex items-center justify-center text-nc-cyan overflow-hidden">
+                  {h.picture || h.gravatarUrl ? (
+                    <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={12} />
+                  )}
                 </div>
                 <span className="text-sm font-medium text-nc-text-bright truncate">{h.name}</span>
               </div>
             ))}
-            {channelHumans.length === 0 && (
-              <p className="text-xs text-nc-muted italic font-mono">No people in this {isDm ? 'conversation' : 'channel'}</p>
+            {onlineHumans.length === 0 && (
+              <p className="text-xs text-nc-muted italic font-mono">No people online</p>
             )}
           </div>
         </div>
 
         <div className="p-4">
-          <h5 className="text-xs font-bold uppercase tracking-wider text-nc-muted mb-3 font-mono">Agents ({channelAgents.length})</h5>
+          <h5 className="text-xs font-bold uppercase tracking-wider text-nc-muted mb-3 font-mono">Agents Online ({onlineAgents.length})</h5>
           <div className="space-y-1">
-            {channelAgents.map(a => (
+            {onlineAgents.map(a => (
               <div key={a.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-nc-elevated transition-colors">
-                <div className="w-7 h-7 border border-nc-green/30 bg-nc-green/10 font-display font-bold text-2xs flex items-center justify-center text-nc-green">
-                  <Bot size={12} />
+                <div className="w-7 h-7 border border-nc-green/30 bg-nc-green/10 font-display font-bold text-2xs flex items-center justify-center text-nc-green overflow-hidden">
+                  {a.picture ? (
+                    <img src={a.picture} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <Bot size={12} />
+                  )}
                 </div>
                 <span className="text-sm font-medium text-nc-text-bright truncate">{a.displayName || a.name}</span>
                 <span className={`ml-auto w-2 h-2 flex-shrink-0 ${activityColors[a.activity || 'offline']}`} />
               </div>
             ))}
-            {channelAgents.length === 0 && (
-              <p className="text-xs text-nc-muted italic font-mono">No agents in this {isDm ? 'conversation' : 'channel'}</p>
+            {onlineAgents.length === 0 && (
+              <p className="text-xs text-nc-muted italic font-mono">No agents online</p>
             )}
           </div>
         </div>

@@ -16,6 +16,9 @@ const path = require('path');
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
+// Keep only a recent working set in memory on startup. This is enough for
+// channel history views and search context without bloating initial render/load.
+const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '800', 10);
 
 const enabled = Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
 const db = enabled
@@ -75,18 +78,18 @@ async function saveMessage(msg) {
   if (error) console.error('[db] saveMessage error:', error.message);
 }
 
-async function loadMessages(limit = 500) {
+async function loadMessages(limit = MESSAGE_BOOTSTRAP_LIMIT) {
   if (!db) return [];
   const { data, error } = await db
     .from('messages')
     .select('*')
-    .order('seq', { ascending: true })
+    .order('seq', { ascending: false })
     .limit(limit);
   if (error) {
     console.error('[db] loadMessages error:', error.message);
     return [];
   }
-  return (data || []).map(rowToMessage);
+  return (data || []).reverse().map(rowToMessage);
 }
 
 function rowToMessage(row) {
@@ -120,6 +123,12 @@ async function saveChannel(ch) {
     type: ch.type || 'channel',
   }, { onConflict: 'id' });
   if (error) console.error('[db] saveChannel error:', error.message);
+}
+
+async function deleteChannel(id) {
+  if (!db) return;
+  const { error } = await db.from('channels').delete().eq('id', id);
+  if (error) console.error('[db] deleteChannel error:', error.message);
 }
 
 async function loadChannels() {
@@ -329,6 +338,7 @@ module.exports = {
   saveMessage,
   loadMessages,
   saveChannel,
+  deleteChannel,
   loadChannels,
   saveTask,
   loadTasks,

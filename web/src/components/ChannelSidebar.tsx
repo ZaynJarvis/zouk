@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Search, X } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -29,7 +29,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
-    createChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
+    createChannel, deleteChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
     authUser, setSidebarOpen, setViewMode, setAgentDetailTab, setSelectedAgentId,
   } = useApp();
 
@@ -43,22 +43,14 @@ export default function ChannelSidebar() {
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
 
   const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
 
-  const query = searchQuery.toLowerCase().trim();
-  const filteredChannels = useMemo(() =>
-    query ? channels.filter(c => c.name.toLowerCase().includes(query)) : channels,
-    [channels, query]
-  );
-  const filteredAgents = useMemo(() =>
-    query ? agents.filter(a => (a.displayName || a.name).toLowerCase().includes(query)) : agents,
-    [agents, query]
-  );
+  const filteredChannels = useMemo(() => channels, [channels]);
+  const filteredAgents = useMemo(() => agents, [agents]);
   const filteredHumans = useMemo(() =>
-    query ? humans.filter(h => h.name !== currentUser && h.name.toLowerCase().includes(query)) : humans.filter(h => h.name !== currentUser),
-    [humans, currentUser, query]
+    humans.filter(h => h.name !== currentUser),
+    [humans, currentUser]
   );
 
   const handleCreateChannel = () => {
@@ -97,24 +89,6 @@ export default function ChannelSidebar() {
             <span className={`text-2xs font-black px-1.5 py-0.5 border ${nc ? 'bg-nc-red/20 text-nc-red border-nc-red/40' : (carbon || wapo) ? 'bg-nc-red/20 text-nc-red border-nc-red/40 rounded-full' : 'bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
               {totalUnread}
             </span>
-          )}
-        </div>
-      </div>
-
-      <div className={`px-3 py-2 ${nc || carbon ? 'border-b border-nc-border' : wapo ? 'border-b border-nc-border' : 'border-b-[2px] border-nc-border-bright'}`}>
-        <div className={`flex items-center gap-1.5 px-2 py-1.5 ${nc || carbon ? 'bg-nc-panel border border-nc-border' : wapo ? 'bg-[#fffaf2] border border-nc-border rounded' : 'bg-nc-surface border-2 border-nc-border'}`}>
-          <Search size={14} className="text-nc-muted flex-shrink-0" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search..."
-            className="w-full bg-transparent text-sm text-nc-text placeholder:text-nc-muted focus:outline-none font-mono"
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="text-nc-muted hover:text-nc-text flex-shrink-0">
-              <X size={12} />
-            </button>
           )}
         </div>
       </div>
@@ -171,8 +145,22 @@ export default function ChannelSidebar() {
               >
                 <Hash size={14} className="flex-shrink-0" />
                 <span className="truncate text-sm">{ch.name}</span>
+                {!isGuest && ch.name !== 'all' && (
+                  <span
+                    role="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!window.confirm(`Delete channel #${ch.name}? This removes the channel from the workspace but keeps its messages in the database.`)) return;
+                      deleteChannel(ch.id, ch.name);
+                    }}
+                    className="ml-auto opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-all"
+                    title="Delete channel"
+                  >
+                    <Trash2 size={12} />
+                  </span>
+                )}
                 {unread > 0 && !isActive && (
-                  <span className="ml-auto bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
+                  <span className={`${!isGuest && ch.name !== 'all' ? '' : 'ml-auto '}bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center`}>
                     {unread}
                   </span>
                 )}
@@ -255,7 +243,7 @@ export default function ChannelSidebar() {
             );
           })}
           {!agentsCollapsed && filteredAgents.length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">{query ? 'No matching agents' : 'No agents'}</div>
+            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No agents</div>
           )}
         </div>
 
@@ -277,7 +265,13 @@ export default function ChannelSidebar() {
                 }
               `}
             >
-              <User size={14} className="flex-shrink-0" />
+              <div className="w-5 h-5 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden shrink-0">
+                {h.picture || h.gravatarUrl ? (
+                  <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <User size={12} className="flex-shrink-0" />
+                )}
+              </div>
               <span className="truncate text-sm">{h.name}</span>
               {(unreadCounts[h.name] || 0) > 0 && activeChannelName !== h.name && (
                 <span className="ml-auto bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
@@ -287,7 +281,7 @@ export default function ChannelSidebar() {
             </button>
           ))}
           {!dmsCollapsed && filteredHumans.length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">{query ? 'No matching people' : 'No people online'}</div>
+            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No people online</div>
           )}
         </div>
       </div>

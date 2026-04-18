@@ -1,4 +1,4 @@
-import { Hash, Users, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, Home, Cpu, FolderOpen } from 'lucide-react';
+import { Hash, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, Home, Cpu, FolderOpen } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -137,21 +137,6 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-1">
-        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-          <button
-            onClick={() => rightPanel === 'members' ? closeRightPanel() : setRightPanel('members')}
-            className={nc
-              ? `cyber-btn w-8 h-8 border flex items-center justify-center ${rightPanel === 'members' ? 'border-nc-cyan bg-nc-cyan/15 text-nc-cyan shadow-nc-cyan' : 'border-nc-border text-nc-muted hover:border-nc-cyan/50 hover:text-nc-cyan'}`
-              : `w-8 h-8 border-2 flex items-center justify-center transition-all ${rightPanel === 'members' ? 'border-nc-border-bright bg-nc-cyan text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'border-nc-border text-nc-muted hover:border-nc-border-bright hover:text-nc-text-bright'}`
-            }
-            title="Members"
-            aria-label="Members"
-            aria-pressed={rightPanel === 'members'}
-          >
-            <Users size={16} />
-          </button>
-        </ScanlineTear>
-
         <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
           <button
             onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}

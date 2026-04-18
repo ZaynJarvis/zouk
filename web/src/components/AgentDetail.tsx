@@ -542,14 +542,14 @@ function SettingsTab({
               <button
                 type="button"
                 onClick={() => setVisibility('workspace')}
-                className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
+                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
                   visibility === 'workspace'
                     ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
                     : 'border-nc-border hover:bg-nc-elevated'
                 }`}
               >
                 <Globe size={16} className="shrink-0 text-nc-cyan" />
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="font-bold text-sm text-nc-text-bright">Workspace</div>
                   <div className="text-xs text-nc-muted font-mono">All members</div>
                 </div>
@@ -559,14 +559,14 @@ function SettingsTab({
               <button
                 type="button"
                 onClick={() => setVisibility('private')}
-                className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
+                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
                   visibility === 'private'
                     ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
                     : 'border-nc-border hover:bg-nc-elevated'
                 }`}
               >
                 <Lock size={16} className="shrink-0 text-nc-red" />
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="font-bold text-sm text-nc-text-bright">Private</div>
                   <div className="text-xs text-nc-muted font-mono">Only you</div>
                 </div>
@@ -582,13 +582,13 @@ function SettingsTab({
               <button
                 type="button"
                 onClick={() => setAutoStart(true)}
-                className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
+                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
                   autoStart
                     ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
                     : 'border-nc-border hover:bg-nc-elevated'
                 }`}
               >
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="font-bold text-sm text-nc-text-bright">ON</div>
                   <div className="text-xs text-nc-muted font-mono">Restart on daemon reconnect</div>
                 </div>
@@ -598,13 +598,13 @@ function SettingsTab({
               <button
                 type="button"
                 onClick={() => setAutoStart(false)}
-                className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
+                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
                   !autoStart
                     ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
                     : 'border-nc-border hover:bg-nc-elevated'
                 }`}
               >
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="font-bold text-sm text-nc-text-bright">OFF</div>
                   <div className="text-xs text-nc-muted font-mono">Manual start only</div>
                 </div>
