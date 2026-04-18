@@ -330,6 +330,7 @@ export default function AgentsView() {
       <div className={`${mobileShowDetail ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0 overflow-hidden flex-col`}>
         {selected ? (
           <AgentDetail
+            key={selected.id}
             agent={selected}
             machines={machines}
             onUpdate={handleUpdateAgent}
