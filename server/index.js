@@ -1727,24 +1727,6 @@ async function initFromDB() {
     if (msgs.length > 0) {
       store.messages = msgs;
       console.log(`[db] Loaded ${msgs.length} messages`);
-
-      // Audit msg d5403cb2 item C2: backfill any DM rows with non-canonical
-      // channel names so PM threads don't split after this deploy. Idempotent —
-      // rows already canonical get no rewrite / db write.
-      let canonicalized = 0;
-      for (const m of store.messages) {
-        if (m.channelType !== "dm") continue;
-        const canon = canonicalizeDmChannelName(m.channelName);
-        if (canon !== m.channelName) {
-          m.channelName = canon;
-          m.channelId = `dm-${canon}`;
-          canonicalized++;
-          db.saveMessage(m);
-        }
-      }
-      if (canonicalized > 0) {
-        console.log(`[db] Canonicalized ${canonicalized} DM message(s) to sorted-pair names`);
-      }
     }
 
     for (const ch of channels) {
