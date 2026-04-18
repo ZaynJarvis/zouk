@@ -18,26 +18,26 @@ export default function WorkspaceRail() {
     if (carbon) {
       return (
         <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-nc-deep border-r border-nc-border">
-          <div className="w-10 h-10 border border-nc-border bg-nc-cyan/10 font-display font-semibold text-lg flex items-center justify-center text-nc-text-bright">
+          <div className="w-10 h-10 border border-nc-border bg-nc-cyan/10 font-display font-semibold text-lg flex items-center justify-center text-nc-text-bright" aria-hidden="true">
             Z
           </div>
           <div className="w-8 my-1 border-t border-nc-border" />
 
-          <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Home">
+          <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Home" aria-label="Home">
             <Home size={20} />
           </button>
 
-          <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-nc-green/15 text-nc-green border-nc-green' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Agents">
+          <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-nc-green/15 text-nc-green border-nc-green' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Agents" aria-label="Agents">
             <Cpu size={20} />
           </button>
 
-          <button onClick={toggleWorkspace} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${wsOpen ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Workspace">
+          <button onClick={toggleWorkspace} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${wsOpen ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Workspace" aria-label="Workspace" aria-pressed={wsOpen}>
             <FolderOpen size={20} />
           </button>
 
           <div className="flex-1" />
 
-          <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border flex items-center justify-center transition-all duration-100 text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright" title="Settings">
+          <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border flex items-center justify-center transition-all duration-100 text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright" title="Settings" aria-label="Settings">
             <Settings size={20} />
           </button>
         </div>
@@ -46,56 +46,56 @@ export default function WorkspaceRail() {
 
     if (wapo) {
       return (
-        <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-[#f7f0e6] border-r border-nc-border">
-          <div className="w-10 h-10 border border-[#7c2430] bg-[#fffaf2] font-display font-bold text-lg flex items-center justify-center text-[#7c2430]">
+        <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-nc-deep border-r border-nc-border">
+          <div className="w-10 h-10 border border-nc-red bg-nc-surface font-display font-bold text-lg flex items-center justify-center text-nc-red" aria-hidden="true">
             Z
           </div>
           <div className="w-8 my-1 border-t border-nc-border" />
 
-          <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-[#7c2430] text-[#fffaf2] border-[#7c2430]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Home">
+          <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-nc-red text-nc-surface border-nc-red' : 'text-nc-red border-nc-border hover:bg-nc-elevated'}`} title="Home" aria-label="Home">
             <Home size={20} />
           </button>
 
-          <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-[#405268] text-[#fffaf2] border-[#405268]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Agents">
+          <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-nc-indigo text-nc-surface border-nc-indigo' : 'text-nc-red border-nc-border hover:bg-nc-elevated'}`} title="Agents" aria-label="Agents">
             <Cpu size={20} />
           </button>
 
-          <button onClick={toggleWorkspace} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${wsOpen ? 'bg-[#c1934c] text-[#fffaf2] border-[#c1934c]' : 'text-[#7c2430] border-nc-border hover:bg-[#efe2d4]'}`} title="Workspace">
+          <button onClick={toggleWorkspace} className={`w-10 h-10 border flex items-center justify-center transition-all duration-100 ${wsOpen ? 'bg-nc-yellow text-nc-surface border-nc-yellow' : 'text-nc-red border-nc-border hover:bg-nc-elevated'}`} title="Workspace" aria-label="Workspace" aria-pressed={wsOpen}>
             <FolderOpen size={20} />
           </button>
 
           <div className="flex-1" />
 
-          <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border flex items-center justify-center transition-all duration-100 text-[#7c2430] border-nc-border hover:bg-[#efe2d4]" title="Settings">
+          <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border flex items-center justify-center transition-all duration-100 text-nc-red border-nc-border hover:bg-nc-elevated" title="Settings" aria-label="Settings">
             <Settings size={20} />
           </button>
         </div>
       );
     }
 
-    // Neo Brutalism rail — dark bg, yellow active, thick borders
+    // Neo Brutalism rail — light bg, yellow active, thick black borders
     return (
-      <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3" style={{ background: '#2E2A26', borderRight: '3px solid #1A1A1A' }}>
-        <div className="w-10 h-10 border-2 font-display font-black text-lg flex items-center justify-center" style={{ background: '#facc15', borderColor: '#facc15', color: '#1A1A1A' }}>
-          S
+      <div className="w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-nc-deep border-r-[3px] border-nc-border-bright">
+        <div className="w-10 h-10 border-2 border-nc-border-bright bg-nc-yellow font-display font-black text-lg flex items-center justify-center text-nc-text-bright" aria-hidden="true">
+          Z
         </div>
-        <div className="w-8 my-1" style={{ borderTop: '2px solid #68645A' }} />
+        <div className="w-8 my-1 border-t-2 border-nc-border" />
 
-        <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'shadow-[2px_2px_0px_0px_#1A1A1A]' : ''}`} style={viewMode === 'channel' || viewMode === 'dm' ? { background: '#facc15', color: '#1A1A1A', borderColor: '#1A1A1A' } : { color: '#C8C4BA', borderColor: '#68645A' }} title="Home">
+        <button onClick={() => setViewMode('channel')} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${viewMode === 'channel' || viewMode === 'dm' ? 'bg-nc-yellow text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Home" aria-label="Home">
           <Home size={20} />
         </button>
 
-        <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'shadow-[2px_2px_0px_0px_#1A1A1A]' : ''}`} style={viewMode === 'agents' ? { background: '#00CC66', color: '#1A1A1A', borderColor: '#1A1A1A' } : { color: '#C8C4BA', borderColor: '#68645A' }} title="Agents">
+        <button onClick={() => setViewMode('agents')} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${viewMode === 'agents' ? 'bg-nc-green text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Agents" aria-label="Agents">
           <Cpu size={20} />
         </button>
 
-        <button onClick={toggleWorkspace} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${wsOpen ? 'shadow-[2px_2px_0px_0px_#1A1A1A]' : ''}`} style={wsOpen ? { background: '#0066FF', color: '#FAFAF5', borderColor: '#1A1A1A' } : { color: '#C8C4BA', borderColor: '#68645A' }} title="Workspace">
+        <button onClick={toggleWorkspace} className={`w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 ${wsOpen ? 'bg-nc-cyan text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]' : 'text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright'}`} title="Workspace" aria-label="Workspace" aria-pressed={wsOpen}>
           <FolderOpen size={20} />
         </button>
 
         <div className="flex-1" />
 
-        <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border-2 flex items-center justify-center transition-all duration-100" style={{ color: '#C8C4BA', borderColor: '#68645A' }} title="Settings">
+        <button onClick={() => setSettingsOpen(true)} className="w-10 h-10 border-2 flex items-center justify-center transition-all duration-100 text-nc-muted border-nc-border hover:bg-nc-elevated hover:text-nc-text-bright" title="Settings" aria-label="Settings">
           <Settings size={20} />
         </button>
       </div>
@@ -109,6 +109,7 @@ export default function WorkspaceRail() {
         <div
           className="w-10 h-10 border border-nc-cyan bg-nc-cyan/10 font-display font-black text-lg flex items-center justify-center text-nc-cyan"
           style={ncStyle({ textShadow: '0 0 8px rgb(var(--nc-cyan) / 0.5)' })}
+          aria-hidden="true"
         >
           Z
         </div>
@@ -126,6 +127,7 @@ export default function WorkspaceRail() {
               : 'text-nc-muted border-nc-border hover:text-nc-cyan hover:border-nc-cyan/50'}
           `}
           title="Chat"
+          aria-label="Chat"
         >
           <MessagesSquare size={20} />
         </button>
@@ -141,6 +143,7 @@ export default function WorkspaceRail() {
               : 'text-nc-muted border-nc-border hover:text-nc-green hover:border-nc-green/50'}
           `}
           title="Agents"
+          aria-label="Agents"
         >
           <Cpu size={20} />
         </button>
@@ -156,6 +159,8 @@ export default function WorkspaceRail() {
               : 'text-nc-muted border-nc-border hover:text-nc-magenta hover:border-nc-magenta/50'}
           `}
           title="Workspace"
+          aria-label="Workspace"
+          aria-pressed={wsOpen}
         >
           <FolderOpen size={20} />
         </button>
@@ -168,6 +173,7 @@ export default function WorkspaceRail() {
           onClick={() => setSettingsOpen(true)}
           className="cyber-btn w-10 h-10 border border-nc-border flex items-center justify-center text-nc-muted hover:text-nc-yellow hover:border-nc-yellow/50"
           title="Settings"
+          aria-label="Settings"
         >
           <Settings size={20} />
         </button>

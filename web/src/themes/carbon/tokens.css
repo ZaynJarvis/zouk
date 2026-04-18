@@ -19,7 +19,7 @@ html[data-theme="carbon"] {
   /* Text — muted3 #abb1b8 for body, light #f4f5f5 for emphasis */
   --nc-text: 171 177 184;
   --nc-text-bright: 244 245 245;
-  --nc-muted: 103 106 105;
+  --nc-muted: 156 162 164;
 
   /* Selection */
   --nc-selection-bg: 136 181 196;

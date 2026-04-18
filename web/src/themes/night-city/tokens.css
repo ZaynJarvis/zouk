@@ -19,7 +19,7 @@ html[data-theme="night-city"] {
   /* Text */
   --nc-text: 200 214 229;
   --nc-text-bright: 232 240 248;
-  --nc-muted: 90 100 120;
+  --nc-muted: 140 154 176;
 
   /* Selection */
   --nc-selection-bg: 94 246 255;

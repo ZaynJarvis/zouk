@@ -19,7 +19,9 @@ export default function TopBar() {
       <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-[#7c2430] hover:bg-[#f3e7d9]' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
+          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
+          aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          aria-expanded={sidebarOpen}
         >
           <Menu size={16} />
         </button>
@@ -107,6 +109,8 @@ export default function TopBar() {
               : `w-8 h-8 border-2 flex items-center justify-center transition-all ${rightPanel === 'members' ? 'border-nc-border-bright bg-nc-cyan text-white shadow-[2px_2px_0px_0px_#1A1A1A]' : 'border-nc-border text-nc-muted hover:border-nc-border-bright hover:text-nc-text-bright'}`
             }
             title="Members"
+            aria-label="Members"
+            aria-pressed={rightPanel === 'members'}
           >
             <Users size={16} />
           </button>
@@ -120,6 +124,8 @@ export default function TopBar() {
               : `w-8 h-8 border-2 flex items-center justify-center transition-all ${rightPanel ? 'border-nc-border-bright bg-[#FF6B00] text-nc-text-bright shadow-[2px_2px_0px_0px_#1A1A1A]' : 'border-nc-border text-nc-muted hover:border-nc-border-bright hover:text-nc-text-bright'}`
             }
             title={rightPanel ? 'Close Panel' : 'Open Panel'}
+            aria-label={rightPanel ? 'Close side panel' : 'Open side panel'}
+            aria-expanded={!!rightPanel}
           >
             {rightPanel ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
           </button>
