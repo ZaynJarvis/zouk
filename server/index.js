@@ -323,6 +323,7 @@ const daemonConnections = new Set(); // all daemon ws connections (for sending a
 const webSockets = new Set(); // web UI connections
 const machines = new Map(); // machineId -> { id, hostname, os, runtimes, capabilities, connectedAt, agentIds }
 const pendingRuntimeModelRequests = new Map(); // requestId -> { resolve, timer }
+const onlineHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest, count }
 
 // Per-agent queue of messages that arrived while the daemon socket was offline.
 // Drained on reconnect (see replayPendingDeliveries). Bounded per agent (oldest
@@ -360,6 +361,126 @@ function broadcastToWeb(event) {
   for (const ws of webSockets) {
     if (ws.readyState === 1) ws.send(data);
   }
+}
+
+function humanId(name) {
+  return `human:${String(name || "").trim().toLowerCase()}`;
+}
+
+function currentHumans() {
+  return [...onlineHumans.values()]
+    .filter((human) => human.count > 0)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(({ count, ...human }) => human);
+}
+
+function broadcastHumans() {
+  store.humans = currentHumans();
+  broadcastToWeb({ type: "humans_updated", humans: store.humans });
+}
+
+function addHumanPresence(human) {
+  if (!human?.name) return;
+  const existing = onlineHumans.get(human.name);
+  if (existing) {
+    existing.count += 1;
+    existing.picture = human.picture ?? existing.picture;
+    existing.gravatarUrl = human.gravatarUrl ?? existing.gravatarUrl;
+    existing.guest = human.guest ?? existing.guest;
+  } else {
+    onlineHumans.set(human.name, {
+      id: human.id || humanId(human.name),
+      name: human.name,
+      picture: human.picture,
+      gravatarUrl: human.gravatarUrl,
+      guest: !!human.guest,
+      count: 1,
+    });
+  }
+  broadcastHumans();
+}
+
+function removeHumanPresence(name) {
+  if (!name) return;
+  const existing = onlineHumans.get(name);
+  if (!existing) return;
+  existing.count -= 1;
+  if (existing.count <= 0) onlineHumans.delete(name);
+  broadcastHumans();
+}
+
+function resolveWsHuman(msg = {}, fallbackToken = null) {
+  const token = typeof msg.token === "string" && msg.token ? msg.token : fallbackToken;
+  if (token && authSessions.has(token)) {
+    const user = authSessions.get(token);
+    return {
+      token,
+      human: {
+        id: humanId(user.name),
+        name: user.name,
+        picture: user.picture || undefined,
+        gravatarUrl: user.gravatarUrl || (user.email ? gravatarUrl(user.email) : undefined),
+        guest: false,
+      },
+    };
+  }
+
+  const name = typeof msg.name === "string" ? msg.name.trim() : "";
+  if (!name) return { token: null, human: null };
+  return {
+    token: null,
+    human: {
+      id: humanId(name),
+      name,
+      picture: typeof msg.picture === "string" && msg.picture ? msg.picture : undefined,
+      gravatarUrl: typeof msg.gravatarUrl === "string" && msg.gravatarUrl ? msg.gravatarUrl : undefined,
+      guest: true,
+    },
+  };
+}
+
+function setWebPresence(ws, msg = {}) {
+  const { token, human } = resolveWsHuman(msg, ws._authToken || null);
+  const previousName = ws._humanName || null;
+
+  if (!human) {
+    if (previousName) {
+      removeHumanPresence(previousName);
+      ws._humanName = null;
+      ws._human = null;
+    }
+    if (!token) {
+      ws._authenticated = false;
+      ws._authToken = null;
+    }
+    return;
+  }
+
+  if (token) {
+    ws._authenticated = true;
+    ws._authToken = token;
+  }
+
+  if (previousName && previousName !== human.name) {
+    removeHumanPresence(previousName);
+  }
+
+  if (previousName === human.name) {
+    const existing = onlineHumans.get(human.name);
+    if (existing) {
+      existing.picture = human.picture ?? existing.picture;
+      existing.gravatarUrl = human.gravatarUrl ?? existing.gravatarUrl;
+      existing.guest = human.guest ?? existing.guest;
+      broadcastHumans();
+    } else {
+      addHumanPresence(human);
+    }
+  } else {
+    addHumanPresence(human);
+  }
+
+  ws._humanName = human.name;
+  ws._human = human;
 }
 
 function deliverToAgent(agentId, message) {
@@ -853,6 +974,17 @@ app.post("/api/channels", requireAuth, (req, res) => {
   res.json({ channel: ch });
 });
 
+app.delete("/api/channels/:id", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const idx = store.channels.findIndex((ch) => ch.id === id && (ch.type || "channel") === "channel");
+  if (idx < 0) return res.status(404).json({ error: "Channel not found" });
+
+  const [channel] = store.channels.splice(idx, 1);
+  await db.deleteChannel(channel.id);
+  broadcastToWeb({ type: "channel_deleted", channelId: channel.id, channelName: channel.name });
+  res.json({ success: true, channel });
+});
+
 // List connected machines (daemons)
 app.get("/api/machines", (req, res) => {
   const machineList = Array.from(machines.values()).map((m) => ({
@@ -1235,7 +1367,7 @@ server.on("upgrade", (request, socket, head) => {
     const wsToken = parsed.searchParams.get("token");
     const wsAuthenticated = !!(wsToken && authSessions.has(wsToken));
     wss.handleUpgrade(request, socket, head, (ws) => {
-      handleWebConnection(ws, wsAuthenticated);
+      handleWebConnection(ws, wsAuthenticated, wsToken || null);
     });
   } else {
     socket.destroy();
@@ -1443,8 +1575,11 @@ const WS_AUTH_REQUIRED_TYPES = new Set([
   "machine:workspace:scan",
 ]);
 
-function handleWebConnection(ws, authenticated) {
+function handleWebConnection(ws, authenticated, token = null) {
   ws._authenticated = !!authenticated;
+  ws._authToken = token;
+  ws._humanName = null;
+  ws._human = null;
   webSockets.add(ws);
   console.log(`[web] Client connected (authenticated: ${ws._authenticated})`);
 
@@ -1453,7 +1588,7 @@ function handleWebConnection(ws, authenticated) {
     type: "init",
     channels: store.channels.filter((ch) => (ch.type || "channel") === "channel"),
     agents: Object.keys(store.agents).map((id) => agentPayload(id)),
-    humans: store.humans,
+    humans: currentHumans(),
     configs: agentConfigs,
     machines: Array.from(machines.values()),
   }));
@@ -1468,6 +1603,7 @@ function handleWebConnection(ws, authenticated) {
   });
 
   ws.on("close", () => {
+    if (ws._humanName) removeHumanPresence(ws._humanName);
     webSockets.delete(ws);
     console.log("[web] Client disconnected");
   });
@@ -1482,6 +1618,14 @@ function handleWebMessage(ws, msg) {
   }
 
   switch (msg.type) {
+    case "presence:update": {
+      setWebPresence(ws, msg);
+      break;
+    }
+    case "presence:clear": {
+      setWebPresence(ws, {});
+      break;
+    }
     case "workspace:list": {
       const agentWs = daemonSockets.get(msg.agentId);
       if (agentWs && agentWs.readyState === 1) {
@@ -1651,17 +1795,6 @@ app.post("/api/auth/google", async (req, res) => {
     authSessions.set(sessionToken, user);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
 
-    // Register as human if not already present
-    const existingHuman = store.humans.find((h) => h.name === user.name);
-    if (existingHuman) {
-      if (user.picture) existingHuman.picture = user.picture;
-      existingHuman.gravatarUrl = grav;
-      existingHuman.guest = false;
-    } else {
-      store.humans.push({ name: user.name, picture: user.picture || undefined, gravatarUrl: grav });
-    }
-    broadcastToWeb({ type: "humans_updated", humans: store.humans });
-
     res.json({ token: sessionToken, user });
   } catch (err) {
     console.error("[auth] Google token verification failed:", err.message);
@@ -1708,21 +1841,42 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
     }
   }
   authSessions.set(token, user);
-  // Update human record
-  const human = store.humans.find((h) => h.name === oldName);
   // Ensure gravatarUrl is set if user has email
   if (!user.gravatarUrl && user.email) {
     user.gravatarUrl = gravatarUrl(user.email);
   }
-  if (human) {
-    human.name = trimmed;
-    human.picture = user.picture || undefined;
-    human.gravatarUrl = user.gravatarUrl || undefined;
-  } else if (!store.humans.find((h) => h.name === trimmed)) {
-    store.humans.push({ name: trimmed, picture: user.picture || undefined, gravatarUrl: user.gravatarUrl || undefined });
+  if (oldName && oldName !== trimmed && onlineHumans.has(oldName)) {
+    const previous = onlineHumans.get(oldName);
+    onlineHumans.delete(oldName);
+    onlineHumans.set(trimmed, {
+      ...previous,
+      id: humanId(trimmed),
+      name: trimmed,
+      picture: user.picture || undefined,
+      gravatarUrl: user.gravatarUrl || undefined,
+      guest: false,
+    });
+    for (const client of webSockets) {
+      if (client._humanName === oldName) {
+        client._humanName = trimmed;
+        client._human = {
+          id: humanId(trimmed),
+          name: trimmed,
+          picture: user.picture || undefined,
+          gravatarUrl: user.gravatarUrl || undefined,
+          guest: false,
+        };
+      }
+    }
+    broadcastHumans();
+  } else if (onlineHumans.has(trimmed)) {
+    const existing = onlineHumans.get(trimmed);
+    existing.picture = user.picture || undefined;
+    existing.gravatarUrl = user.gravatarUrl || undefined;
+    existing.guest = false;
+    broadcastHumans();
   }
   db.saveSession(token, user).catch(e => console.warn("[auth] saveSession error:", e.message));
-  broadcastToWeb({ type: "humans_updated", humans: store.humans });
   res.json({ user });
 });
 
@@ -1730,10 +1884,9 @@ app.get("/api/auth/config", (_req, res) => {
   res.json({ googleClientId: GOOGLE_CLIENT_ID || null });
 });
 
-// Register an unauthenticated guest identity so they surface in humans[] for
-// other connected clients. Guests can't write (requireAuth blocks /api/messages
-// et al.), so this is presence-only. Idempotent — repeated calls with the same
-// name don't duplicate.
+// Legacy guest endpoint kept for compatibility with existing clients.
+// Presence now rides the websocket via `presence:update`, so this only
+// validates the guest name and returns success.
 app.post("/api/auth/guest-session", (req, res) => {
   const { name } = req.body || {};
   if (!name || typeof name !== "string" || !name.trim()) {
@@ -1741,17 +1894,6 @@ app.post("/api/auth/guest-session", (req, res) => {
   }
   const trimmed = name.trim();
   if (trimmed.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
-  const existing = store.humans.find((h) => h.name === trimmed);
-  let changed = false;
-  if (!existing) {
-    store.humans.push({ name: trimmed, guest: true });
-    changed = true;
-  } else if (existing.guest === undefined) {
-    // Legacy row — don't overwrite an authenticated user with guest=true
-  }
-  if (changed) {
-    broadcastToWeb({ type: "humans_updated", humans: store.humans });
-  }
   res.json({ ok: true, name: trimmed });
 });
 

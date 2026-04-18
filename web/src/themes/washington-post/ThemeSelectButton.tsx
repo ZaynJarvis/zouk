@@ -10,6 +10,7 @@ const css = `
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
   gap: 6px;
   min-height: 88px;
   width: 100%;
@@ -58,6 +59,9 @@ const css = `
 .wp-theme-btn__title {
   position: relative;
   z-index: 1;
+  display: block;
+  width: 100%;
+  text-align: center;
   font-family: 'Newsreader', Georgia, serif;
   font-size: 22px;
   line-height: 1;

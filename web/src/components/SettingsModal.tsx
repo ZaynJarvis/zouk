@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { X, User, Palette, Monitor, Server, SlidersHorizontal, Camera } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
@@ -22,6 +22,14 @@ function loadPrefs(): Preferences {
 }
 
 const defaultPrefs: Preferences = { fontSize: 'medium' };
+
+function applyFontSizePreference(fontSize: Preferences['fontSize']) {
+  if (fontSize === 'medium') {
+    document.documentElement.removeAttribute('data-font-size');
+    return;
+  }
+  document.documentElement.setAttribute('data-font-size', fontSize);
+}
 
 function resizeAndEncode(file: File, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -64,17 +72,14 @@ export default function SettingsModal() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [prefs, setPrefs] = useState<Preferences>(loadPrefs);
 
+  useEffect(() => {
+    applyFontSizePreference(prefs.fontSize);
+  }, [prefs.fontSize]);
+
   const savePrefs = useCallback((update: Partial<Preferences>) => {
     setPrefs(prev => {
       const next = { ...prev, ...update };
       localStorage.setItem(PREFS_KEY, JSON.stringify(next));
-      if ('fontSize' in update) {
-        if (next.fontSize === 'medium') {
-          document.documentElement.removeAttribute('data-font-size');
-        } else {
-          document.documentElement.setAttribute('data-font-size', next.fontSize);
-        }
-      }
       return next;
     });
   }, []);
@@ -114,9 +119,7 @@ export default function SettingsModal() {
   ];
 
   // Thick border variant only for brutalist
-  const borderStyle = brutalist ? 'border-[3px] border-nc-border-bright' : 'border border-nc-border';
   const borderB = brutalist ? 'border-b-[3px] border-nc-border-bright' : 'border-b border-nc-border';
-  const borderR = brutalist ? 'border-r-[3px] border-nc-border-bright' : 'border-r border-nc-border';
 
   return (
     <div
@@ -127,7 +130,7 @@ export default function SettingsModal() {
 
       <div className={`cyber-panel w-full max-w-3xl h-[80vh] flex flex-col sm:flex-row overflow-hidden animate-bounce-in ${nc ? 'cyber-bevel' : ''}`}>
         <div className={`w-full sm:w-48 shrink-0 flex flex-row sm:flex-col bg-nc-deep ${brutalist ? 'border-b-[3px] sm:border-b-0 sm:border-r-[3px] border-nc-border-bright' : 'border-b sm:border-b-0 sm:border-r border-nc-border'}`}>
-          <div className={`hidden sm:block px-4 py-4 ${borderB}`}>
+          <div className={`hidden sm:flex h-14 items-center px-4 ${borderB}`}>
             {nc
               ? <h2 className="font-display font-black text-sm text-nc-cyan neon-cyan tracking-wider">SETTINGS</h2>
               : <h2 className="font-display font-bold text-base text-nc-text-bright">{nc ? 'SETTINGS' : 'Settings'}</h2>

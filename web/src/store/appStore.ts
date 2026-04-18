@@ -57,6 +57,7 @@ export function useAppStore() {
   const [activeChannelName, setActiveChannelName] = useState<string>('general');
   const [viewMode, setViewMode] = useState<ViewMode>('channel');
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  const [agentDetailTab, setAgentDetailTab] = useState<'instructions' | 'workspace' | 'activity' | 'settings'>('instructions');
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024);
@@ -219,6 +220,27 @@ export function useAppStore() {
         });
         break;
       }
+      case 'channel_deleted': {
+        const e = event as unknown as { channelId: string; channelName: string };
+        setChannels(prev => {
+          const next = prev.filter(c => c.id !== e.channelId);
+          if (viewModeRef.current === 'channel' && activeChannelRef.current === e.channelName) {
+            const fallback = next[0]?.name || 'all';
+            setActiveChannelName(fallback);
+            setMessages([]);
+            setThreadMessages([]);
+            setActiveThreadMessage(null);
+            setRightPanel(prevPanel => (prevPanel === 'thread' ? null : prevPanel));
+          }
+          return next;
+        });
+        setUnreadCounts(prev => {
+          const next = { ...prev };
+          delete next[e.channelName];
+          return next;
+        });
+        break;
+      }
       case 'agent_started': {
         const e = event as { agent: ServerAgent };
         setAgents(prev => {
@@ -291,6 +313,21 @@ export function useAppStore() {
       ws.disconnect();
     };
   }, [serverUrl, handleWsEvent]);
+
+  useEffect(() => {
+    if (!wsConnected) return;
+    if (!isLoggedIn) {
+      wsRef.current?.send({ type: 'presence:clear' });
+      return;
+    }
+    wsRef.current?.send({
+      type: 'presence:update',
+      token: authToken,
+      name: currentUser,
+      picture: authUser?.picture,
+      gravatarUrl: authUser?.gravatarUrl,
+    });
+  }, [wsConnected, isLoggedIn, authToken, authUser, currentUser]);
 
   // Register guest users on the server so presence lists see them.
   // Authenticated users are pushed into store.humans by /api/auth/google; guests
@@ -375,6 +412,15 @@ export function useAppStore() {
       addToast(`Channel #${name} created`, 'success');
     } catch {
       addToast('Failed to create channel', 'error');
+    }
+  }, [addToast]);
+
+  const deleteChannelAction = useCallback(async (channelId: string, channelName: string) => {
+    try {
+      await api.deleteChannel(channelId);
+      addToast(`Channel #${channelName} deleted`, 'info');
+    } catch {
+      addToast('Failed to delete channel', 'error');
     }
   }, [addToast]);
 
@@ -497,6 +543,7 @@ export function useAppStore() {
     activeChannelName, selectChannel,
     viewMode, setViewMode,
     rightPanel, setRightPanel,
+    agentDetailTab, setAgentDetailTab,
     activeThreadMessage, openThread, closeRightPanel,
     settingsOpen, setSettingsOpen,
     sidebarOpen, setSidebarOpen,
@@ -507,6 +554,7 @@ export function useAppStore() {
     loadingMessages,
     sendMessage: sendMessageAction,
     createChannel: createChannelAction,
+    deleteChannel: deleteChannelAction,
     startAgent: startAgentAction,
     stopAgent: stopAgentAction,
     deleteAgent: deleteAgentAction,

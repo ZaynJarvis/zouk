@@ -100,6 +100,16 @@ export async function createChannel(name: string): Promise<{ channel: { id: stri
   return res.json();
 }
 
+export async function deleteChannel(channelId: string): Promise<{ success: true; channel: { id: string; name: string } }> {
+  const url = `${getBaseUrl()}/api/channels/${encodeURIComponent(channelId)}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to delete channel: ${res.status}`);
+  return res.json();
+}
+
 export async function startAgent(config: {
   id?: string;
   name: string;

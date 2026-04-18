@@ -1,5 +1,5 @@
 import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
 import AgentDetail from './AgentDetail';
@@ -98,7 +98,7 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
 }
 
 export default function AgentsView() {
-  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest } = useApp();
+  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest, agentDetailTab, setAgentDetailTab } = useApp();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -118,9 +118,9 @@ export default function AgentsView() {
   const unifiedEntities = useMemo<ServerAgent[]>(() => {
     const runningIds = new Set(agents.map(a => a.id));
     const offlineFromConfigs = configs
-      .filter(c => !runningIds.has(c.id))
+      .filter(c => c.id && !runningIds.has(c.id))
       .map(c => ({
-        id: c.id,
+        id: c.id!,
         name: c.name,
         displayName: c.displayName,
         description: c.description,
@@ -169,6 +169,7 @@ export default function AgentsView() {
 
   const handleSelectAgent = (id: string) => {
     setSelectedId(id);
+    setAgentDetailTab('instructions');
     if (window.innerWidth < 1024) setMobileShowDetail(true);
   };
 
@@ -181,6 +182,12 @@ export default function AgentsView() {
     setSelectedId((current) => (current === selected.id ? null : current));
     if (window.innerWidth < 1024) setMobileShowDetail(false);
   };
+
+  useEffect(() => {
+    if (agentDetailTab === 'settings' && window.innerWidth < 1024 && selected) {
+      setMobileShowDetail(true);
+    }
+  }, [agentDetailTab, selected]);
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden">
@@ -308,6 +315,7 @@ export default function AgentsView() {
             key={selected.id}
             agent={selected}
             machines={machines}
+            initialTab={agentDetailTab}
             onUpdate={handleUpdateAgent}
             onStop={() => stopAgent(selected.id)}
             onDelete={handleDeleteAgent}
