@@ -43,13 +43,11 @@ export default function AgentSettingsPanel() {
   const persistedDescription = config?.description ?? agent?.description ?? '';
   const persistedVisibility = config?.visibility ?? agent?.visibility ?? 'workspace';
   const persistedMaxConcurrent = config?.maxConcurrentTasks ?? agent?.maxConcurrentTasks ?? 6;
-  const persistedAutoStart = config?.autoStart ?? agent?.autoStart ?? true;
 
   const [displayName, setDisplayName] = useState(persistedDisplayName);
   const [description, setDescription] = useState(persistedDescription);
   const [visibility, setVisibility] = useState<'workspace' | 'private'>(persistedVisibility);
   const [maxConcurrent, setMaxConcurrent] = useState(persistedMaxConcurrent);
-  const [autoStart, setAutoStart] = useState<boolean>(persistedAutoStart);
   const [picture, setPicture] = useState<string | undefined>(agent?.picture);
   const pictureInputRef = useRef<HTMLInputElement>(null);
 
@@ -90,8 +88,7 @@ export default function AgentSettingsPanel() {
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
     visibility !== persistedVisibility ||
-    maxConcurrent !== persistedMaxConcurrent ||
-    autoStart !== persistedAutoStart;
+    maxConcurrent !== persistedMaxConcurrent;
 
   const handleSave = () => {
     updateAgentConfig(agent.id, {
@@ -99,7 +96,7 @@ export default function AgentSettingsPanel() {
       description,
       visibility,
       maxConcurrentTasks: maxConcurrent,
-      autoStart,
+      autoStart: true,
       picture,
     });
   };
@@ -211,7 +208,7 @@ export default function AgentSettingsPanel() {
               onClick={() => setVisibility('workspace')}
               className={`flex items-center gap-2 border px-2.5 py-2 text-left ${
                 visibility === 'workspace'
-                  ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
+                  ? 'border-nc-cyan bg-nc-cyan/10'
                   : 'border-nc-border hover:bg-nc-elevated'
               }`}
             >
@@ -226,7 +223,7 @@ export default function AgentSettingsPanel() {
               onClick={() => setVisibility('private')}
               className={`flex items-center gap-2 border px-2.5 py-2 text-left ${
                 visibility === 'private'
-                  ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
+                  ? 'border-nc-cyan bg-nc-cyan/10'
                   : 'border-nc-border hover:bg-nc-elevated'
               }`}
             >
@@ -234,36 +231,6 @@ export default function AgentSettingsPanel() {
               <div className="min-w-0 flex-1">
                 <div className="font-bold text-xs text-nc-text-bright">Private</div>
                 <div className="text-2xs text-nc-muted font-mono">Only you</div>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">AUTO_RESTART</label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setAutoStart(true)}
-              className={`flex items-center gap-2 border px-2.5 py-2 text-left ${
-                autoStart ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan' : 'border-nc-border hover:bg-nc-elevated'
-              }`}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-xs text-nc-text-bright">ON</div>
-                <div className="text-2xs text-nc-muted font-mono">Restart on reconnect</div>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setAutoStart(false)}
-              className={`flex items-center gap-2 border px-2.5 py-2 text-left ${
-                !autoStart ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan' : 'border-nc-border hover:bg-nc-elevated'
-              }`}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-xs text-nc-text-bright">OFF</div>
-                <div className="text-2xs text-nc-muted font-mono">Manual start only</div>
               </div>
             </button>
           </div>
