@@ -360,19 +360,13 @@ html[data-theme="night-city"] .cyber-scanlines::after {
   z-index: 1;
 }
 
-/* Panel gradient + glow shadow */
+/* Panels — flat, no gradient/glow */
 html[data-theme="night-city"] .cyber-panel {
-  background: linear-gradient(180deg, rgb(var(--nc-surface)) 0%, rgb(var(--nc-panel)) 100%);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgb(var(--nc-cyan) / 0.05);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
 }
 
 html[data-theme="night-city"] .cyber-panel-elevated {
-  background: linear-gradient(180deg, rgb(var(--nc-elevated)) 0%, rgb(var(--nc-surface)) 100%);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgb(var(--nc-cyan) / 0.08);
-}
-
-html[data-theme="night-city"] .cyber-border-glow {
-  box-shadow: 0 0 8px rgb(var(--nc-cyan) / 0.2), inset 0 0 8px rgb(var(--nc-cyan) / 0.05);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
 }
 
 /* Neon text-shadow glow */
@@ -505,11 +499,6 @@ html[data-theme="night-city"] .status-chip-sm {
 html[data-theme="night-city"] .status-chip:hover,
 html[data-theme="night-city"] .status-chip-sm:hover {
   animation: cp-hue-strobe 420ms linear 1;
-}
-
-/* Input glow on focus */
-html[data-theme="night-city"] .cyber-input:focus {
-  box-shadow: 0 0 8px rgb(var(--nc-cyan) / 0.2), inset 0 0 8px rgb(var(--nc-cyan) / 0.05);
 }
 
 /* Divider gradient */
