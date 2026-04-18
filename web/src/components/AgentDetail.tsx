@@ -444,6 +444,7 @@ function SettingsTab({
   const [autoStart, setAutoStart] = useState<boolean>(persistedAutoStart);
   const [picture, setPicture] = useState<string | undefined>(agent.picture);
   const pictureInputRef = useRef<HTMLInputElement>(null);
+  const headerPictureInputRef = useRef<HTMLInputElement>(null);
 
   const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -759,12 +760,25 @@ export default function AgentDetail({
             <ArrowLeft size={14} />
           </button>
         )}
-        <div className="w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan overflow-hidden">
-          {agent.picture ? (
-            <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+        <div
+          className="relative w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan overflow-hidden cursor-pointer group"
+          onClick={() => headerPictureInputRef.current?.click()}
+        >
+          {picture ? (
+            <img src={picture} alt="" className="w-full h-full object-cover" />
           ) : (
             (agent.displayName || agent.name).charAt(0).toUpperCase()
           )}
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <Camera size={12} className="text-white" />
+          </div>
+          <input
+            ref={headerPictureInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handlePictureUpload}
+          />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
