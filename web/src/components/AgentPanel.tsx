@@ -114,8 +114,10 @@ export default function AgentsView() {
     [agents, showArchived]
   );
 
-  // Unified list: running agents + saved configs that aren't currently running
+  // Unified list: running agents + saved configs that aren't currently running.
+  // Offline configs only appear in the active (non-archived) view.
   const unifiedEntities = useMemo<ServerAgent[]>(() => {
+    if (showArchived) return filteredAgents;
     const runningIds = new Set(agents.map(a => a.id));
     const offlineFromConfigs = configs
       .filter(c => !runningIds.has(c.id))
@@ -131,10 +133,10 @@ export default function AgentsView() {
         activity: 'offline' as const,
       } as ServerAgent));
     return [...filteredAgents, ...offlineFromConfigs];
-  }, [filteredAgents, configs, agents]);
+  }, [showArchived, filteredAgents, configs, agents]);
 
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
-  const selected = agents.find((a) => a.id === selectedId) ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
+  const selected = unifiedEntities.find((a) => a.id === selectedId) ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
 
   const handleStartAgent = async (agentId: string) => {
     const config = configs.find(c => c.id === agentId);
