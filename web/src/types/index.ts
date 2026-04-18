@@ -28,6 +28,7 @@ export interface ServerAgent {
   displayName?: string;
   description?: string;
   instructions?: string;
+  picture?: string;
   status: 'active' | 'inactive';
   activity?: AgentActivity;
   activityDetail?: string;

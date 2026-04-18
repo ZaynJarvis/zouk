@@ -36,8 +36,12 @@ function AgentListItem({
           : 'hover:bg-nc-elevated/50'
       }`}
     >
-      <div className="w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan shrink-0">
-        {(agent.displayName || agent.name).charAt(0).toUpperCase()}
+      <div className="w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan shrink-0 overflow-hidden">
+        {agent.picture ? (
+          <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+        ) : (
+          (agent.displayName || agent.name).charAt(0).toUpperCase()
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

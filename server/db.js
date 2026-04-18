@@ -229,6 +229,7 @@ async function saveAgentConfig(config) {
     work_dir: config.workDir || null,
     description: config.description || null,
     auto_start: config.autoStart || false,
+    picture: config.picture || null,
     config_json: config,
   }, { onConflict: 'id' });
   if (error) console.error('[db] saveAgentConfig error:', error.message);

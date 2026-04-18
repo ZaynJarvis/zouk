@@ -84,6 +84,7 @@ function agentPayload(agentId) {
     runtime: cfg.runtime || a.runtime,
     model: cfg.model || a.model,
     workDir: cfg.workDir || a.workDir,
+    picture: cfg.picture || a.picture || undefined,
   };
 }
 
