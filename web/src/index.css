@@ -73,24 +73,6 @@
    ========================================================================== */
 
 @layer components {
-  /* Scrollbar */
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: rgb(var(--nc-border));
-    border-radius: 0;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background-color: rgb(var(--nc-border-bright));
-  }
-
   /* Scanlines container — structural only */
   .cyber-scanlines {
     position: relative;
@@ -341,12 +323,6 @@ html[data-theme="carbon"] .cyber-btn-lg {
 /* Message text font — Fira Code for wider, monospaced readability */
 html[data-theme="night-city"] {
   --nc-font-message: 'Fira Code', 'JetBrains Mono', monospace;
-}
-
-/* Neon scrollbar hover */
-html[data-theme="night-city"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(var(--nc-cyan));
-  box-shadow: 0 0 6px rgb(var(--nc-cyan) / 0.3);
 }
 
 /* Scanline overlay on body */
@@ -644,15 +620,6 @@ html[data-theme="brutalist"] .tone-neutral {
   color: rgb(var(--nc-text-bright));
 }
 
-/* Scrollbar — wider, solid */
-html[data-theme="brutalist"] .scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-}
-
-html[data-theme="brutalist"] .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: rgb(var(--nc-border));
-  border: 1px solid rgb(var(--nc-border-bright));
-}
 
 /* Border glow → solid thick border, no glow */
 html[data-theme="brutalist"] .cyber-border-glow {
