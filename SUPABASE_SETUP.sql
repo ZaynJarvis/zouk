@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS agent_profile_presets (
   image      TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS agent_profile_presets_created_idx ON agent_profile_presets (created_at);
 
 ALTER TABLE agent_profile_presets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service role all" ON agent_profile_presets FOR ALL USING (true);
