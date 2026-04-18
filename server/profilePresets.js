@@ -107,7 +107,6 @@ function createStore({ filePath, db, broadcast, onChange }) {
     const preset = {
       id: `pp-${uuidv4().slice(0, 8)}`,
       image,
-      sortOrder: presets.length,
       createdAt: new Date().toISOString(),
     };
     presets.push(preset);

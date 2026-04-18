@@ -307,7 +307,6 @@ async function saveProfilePreset(preset) {
   const { error } = await db.from('agent_profile_presets').upsert({
     id: preset.id,
     image: preset.image,
-    sort_order: preset.sortOrder || 0,
     created_at: preset.createdAt,
   }, { onConflict: 'id' });
   if (error) console.error('[db] saveProfilePreset error:', error.message);
@@ -324,7 +323,6 @@ async function loadProfilePresets() {
   const { data, error } = await db
     .from('agent_profile_presets')
     .select('*')
-    .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true });
   if (error) {
     console.error('[db] loadProfilePresets error:', error.message);
@@ -333,7 +331,6 @@ async function loadProfilePresets() {
   return (data || []).map(row => ({
     id: row.id,
     image: row.image,
-    sortOrder: row.sort_order || 0,
     createdAt: row.created_at,
   }));
 }
