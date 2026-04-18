@@ -1,17 +1,41 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Send, Bot, User, Paperclip, Slash } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { buildMentionSearchTerms, MENTION_QUERY_REGEX, toMentionHandle } from '../lib/mentions';
+import {
+  buildMentionSearchTerms,
+  filterMentionTargets,
+  MENTION_QUERY_REGEX,
+  toMentionHandle,
+  type MentionTarget,
+} from '../lib/mentions';
+
+// Locate the @ that anchors the current mention query. Mirrors the lookbehind
+// in MENTION_QUERY_REGEX (start-of-string or whitespace) so we don't confuse
+// an email address for a mention anchor.
+function findAnchorAt(text: string, cursorPos: number): number {
+  for (let i = cursorPos - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === '@') {
+      if (i === 0 || /\s/.test(text[i - 1])) return i;
+      return -1;
+    }
+    if (/\s/.test(ch)) return -1;
+  }
+  return -1;
+}
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
   const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest } = useApp();
   const [text, setText] = useState('');
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  // After the user presses Escape we stash the anchor @ index so we can
+  // suppress the dropdown until they move past it or start a fresh @.
+  const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const allMentionTargets = useMemo(() => {
-    const targets: { label: string; mention: string; type: 'agent' | 'human'; searchTerms: string[] }[] = [];
+  const allMentionTargets = useMemo<MentionTarget[]>(() => {
+    const targets: MentionTarget[] = [];
     for (const a of agents) {
       const label = a.displayName || a.name;
       targets.push({
@@ -35,21 +59,20 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   const mentionMatches = useMemo(() => {
     if (mentionQuery === null) return [];
-    const q = mentionQuery.toLowerCase();
-    return allMentionTargets.filter(t => t.searchTerms.some(term => term.startsWith(q))).slice(0, 8);
+    return filterMentionTargets(allMentionTargets, mentionQuery);
   }, [mentionQuery, allMentionTargets]);
 
   const insertMention = useCallback((mention: string) => {
     const el = textareaRef.current;
     if (!el) return;
     const cursorPos = el.selectionStart;
-    const before = text.slice(0, cursorPos);
-    const atIdx = before.lastIndexOf('@');
+    const atIdx = findAnchorAt(text, cursorPos);
     if (atIdx < 0) return;
     const newText = text.slice(0, atIdx) + `@${mention} ` + text.slice(cursorPos);
     setText(newText);
     setMentionQuery(null);
     setMentionIndex(0);
+    setSuppressedAtPos(null);
     requestAnimationFrame(() => {
       el.focus();
       const newPos = atIdx + mention.length + 2;
@@ -63,6 +86,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     sendMessage(trimmed, threadTarget);
     setText('');
     setMentionQuery(null);
+    setSuppressedAtPos(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -87,6 +111,11 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       }
       if (e.key === 'Escape') {
         e.preventDefault();
+        const el = textareaRef.current;
+        if (el) {
+          const atIdx = findAnchorAt(text, el.selectionStart);
+          if (atIdx >= 0) setSuppressedAtPos(atIdx);
+        }
         setMentionQuery(null);
         return;
       }
@@ -96,7 +125,36 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       e.preventDefault();
       handleSubmit();
     }
-  }, [handleSubmit, mentionQuery, mentionMatches, mentionIndex, insertMention]);
+  }, [handleSubmit, mentionQuery, mentionMatches, mentionIndex, insertMention, text]);
+
+  const recomputeMentionState = useCallback((val: string, cursorPos: number) => {
+    const atIdx = findAnchorAt(val, cursorPos);
+    if (atIdx < 0) {
+      setMentionQuery(null);
+      setSuppressedAtPos(null);
+      return;
+    }
+    // Escape earlier → keep the dropdown closed while the user is still
+    // inside the same @-token. Only reopen once they escape that word.
+    if (suppressedAtPos !== null && atIdx === suppressedAtPos) {
+      setMentionQuery(null);
+      return;
+    }
+    if (suppressedAtPos !== null && atIdx !== suppressedAtPos) {
+      setSuppressedAtPos(null);
+    }
+    const query = val.slice(atIdx + 1, cursorPos);
+    // Final safety check — the regex anchors at cursor, so `findAnchorAt`
+    // shouldn't return anything MENTION_QUERY_REGEX wouldn't also match,
+    // but keep it honest in case future edits diverge.
+    const before = val.slice(0, cursorPos);
+    if (!MENTION_QUERY_REGEX.test(before)) {
+      setMentionQuery(null);
+      return;
+    }
+    setMentionQuery(query);
+    setMentionIndex(0);
+  }, [suppressedAtPos]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -108,16 +166,13 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       el.style.height = Math.min(el.scrollHeight, 200) + 'px';
     }
 
-    const cursorPos = e.target.selectionStart;
-    const before = val.slice(0, cursorPos);
-    const atMatch = before.match(MENTION_QUERY_REGEX);
-    if (atMatch) {
-      setMentionQuery(atMatch[1]);
-      setMentionIndex(0);
-    } else {
-      setMentionQuery(null);
-    }
-  }, []);
+    recomputeMentionState(val, e.target.selectionStart);
+  }, [recomputeMentionState]);
+
+  const handleSelect = useCallback((e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    recomputeMentionState(el.value, el.selectionStart);
+  }, [recomputeMentionState]);
 
   // Auto-focus textarea when switching channels/views
   useEffect(() => {
@@ -181,6 +236,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           ref={textareaRef}
           value={text}
           onChange={handleChange}
+          onSelect={handleSelect}
           onKeyDown={handleKeyDown}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
