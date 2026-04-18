@@ -11,7 +11,6 @@ const PREFS_KEY = 'zouk_preferences';
 
 interface Preferences {
   fontSize: 'small' | 'medium' | 'large';
-  notifications: boolean;
 }
 
 function loadPrefs(): Preferences {
@@ -22,7 +21,7 @@ function loadPrefs(): Preferences {
   return defaultPrefs;
 }
 
-const defaultPrefs: Preferences = { fontSize: 'medium', notifications: true };
+const defaultPrefs: Preferences = { fontSize: 'medium' };
 
 function resizeAndEncode(file: File, maxSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -338,31 +337,6 @@ export default function SettingsModal() {
                       </button>
                     ))}
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Notifications</label>
-                  <button
-                    onClick={() => savePrefs({ notifications: !prefs.notifications })}
-                    className={`flex items-center gap-3 px-4 py-2.5 border w-full text-left transition-all ${
-                      prefs.notifications
-                        ? 'border-nc-green/50 bg-nc-green/10 text-nc-green'
-                        : 'border-nc-border bg-nc-panel text-nc-muted'
-                    }`}
-                  >
-                    <span className={`w-8 h-4 border relative transition-all ${
-                      prefs.notifications
-                        ? 'border-nc-green bg-nc-green/20'
-                        : 'border-nc-border bg-nc-panel'
-                    }`}>
-                      <span className={`absolute top-0.5 w-2.5 h-2.5 transition-all ${
-                        prefs.notifications
-                          ? 'right-0.5 bg-nc-green'
-                          : 'left-0.5 bg-nc-muted'
-                      }`} />
-                    </span>
-                    <span className="text-sm font-bold">{prefs.notifications ? 'Enabled' : 'Disabled'}</span>
-                  </button>
                 </div>
 
               </div>

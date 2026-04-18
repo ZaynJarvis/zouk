@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Send, Bot, User, Paperclip, Slash } from 'lucide-react';
+import { Send, Bot, User } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import {
   buildMentionSearchTerms,
@@ -245,25 +245,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
         {/* Toolbar row */}
         <div className="flex items-center gap-1 px-2 pb-1.5">
-          {/* Slash command hint */}
-          <button
-            type="button"
-            title="Slash commands (coming soon)"
-            className="w-7 h-7 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-colors opacity-50 cursor-default"
-            tabIndex={-1}
-          >
-            <Slash size={13} />
-          </button>
-          {/* Attachment hint */}
-          <button
-            type="button"
-            title="Attach file (coming soon)"
-            className="w-7 h-7 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-colors opacity-50 cursor-default"
-            tabIndex={-1}
-          >
-            <Paperclip size={13} />
-          </button>
-
           <div className="flex-1" />
 
           {/* Hint text */}
