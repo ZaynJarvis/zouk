@@ -20,12 +20,14 @@ function AgentListItem({
   agent,
   isSelected,
   onClick,
+  onOpenSettings,
   onStart,
   isStarting,
 }: {
   agent: ServerAgent;
   isSelected: boolean;
   onClick: () => void;
+  onOpenSettings: () => void;
   onStart?: () => void;
   isStarting?: boolean;
 }) {
@@ -35,7 +37,7 @@ function AgentListItem({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all border-b border-nc-border ${
+      className={`group w-full flex items-center gap-3 px-4 py-3 text-left transition-all border-b border-nc-border ${
         isSelected
           ? 'bg-nc-elevated border-l-2 border-l-nc-cyan'
           : 'hover:bg-nc-elevated/50'
@@ -64,6 +66,17 @@ function AgentListItem({
           ARCHIVED
         </span>
       )}
+      <span
+        role="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenSettings();
+        }}
+        className="shrink-0 w-6 h-6 hidden sm:flex items-center justify-center border border-transparent text-nc-muted opacity-0 group-hover:opacity-100 hover:border-nc-cyan/40 hover:bg-nc-cyan/10 hover:text-nc-cyan transition-all"
+        title={`Configure ${agent.displayName || agent.name}`}
+      >
+        <Settings size={13} />
+      </span>
       {isOffline && onStart && (
         <span
           role="button"
@@ -98,8 +111,10 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
 }
 
 export default function AgentsView() {
-  const { agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, isGuest, agentDetailTab, setAgentDetailTab } = useApp();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const {
+    agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent,
+    isGuest, agentDetailTab, setAgentDetailTab, selectedAgentId, setSelectedAgentId,
+  } = useApp();
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showMachineSetup, setShowMachineSetup] = useState(false);
@@ -134,7 +149,7 @@ export default function AgentsView() {
   }, [filteredAgents, configs, agents]);
 
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
-  const selected = agents.find((a) => a.id === selectedId) ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
+  const selected = agents.find((a) => a.id === selectedAgentId) ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
 
   const handleStartAgent = async (agentId: string) => {
     const config = configs.find(c => c.id === agentId);
@@ -168,8 +183,14 @@ export default function AgentsView() {
   };
 
   const handleSelectAgent = (id: string) => {
-    setSelectedId(id);
+    setSelectedAgentId(id);
     setAgentDetailTab('instructions');
+    if (window.innerWidth < 1024) setMobileShowDetail(true);
+  };
+
+  const handleOpenAgentSettings = (id: string) => {
+    setSelectedAgentId(id);
+    setAgentDetailTab('settings');
     if (window.innerWidth < 1024) setMobileShowDetail(true);
   };
 
@@ -179,7 +200,7 @@ export default function AgentsView() {
     const confirmed = window.confirm(`Delete agent ${label}? This removes the saved config and disconnects the running agent.`);
     if (!confirmed) return;
     await deleteAgent(selected.id);
-    setSelectedId((current) => (current === selected.id ? null : current));
+    setSelectedAgentId((current) => (current === selected.id ? null : current));
     if (window.innerWidth < 1024) setMobileShowDetail(false);
   };
 
@@ -282,6 +303,7 @@ export default function AgentsView() {
                 agent={agent}
                 isSelected={agent.id === (selected?.id ?? '')}
                 onClick={() => handleSelectAgent(agent.id)}
+                onOpenSettings={() => handleOpenAgentSettings(agent.id)}
                 onStart={agent.status === 'inactive' ? () => handleStartAgent(agent.id) : undefined}
                 isStarting={starting === agent.id}
               />

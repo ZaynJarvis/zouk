@@ -58,6 +58,7 @@ export function useAppStore() {
   const [viewMode, setViewMode] = useState<ViewMode>('channel');
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [agentDetailTab, setAgentDetailTab] = useState<'instructions' | 'workspace' | 'activity' | 'settings'>('instructions');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024);
@@ -178,6 +179,7 @@ export function useAppStore() {
         const e = event as { agentId: string; status: string };
         if (e.status === 'deleted') {
           setAgents(prev => prev.filter(a => a.id !== e.agentId));
+          setSelectedAgentId(prev => (prev === e.agentId ? null : prev));
         } else {
           setAgents(prev => prev.map(a =>
             a.id === e.agentId ? { ...a, status: e.status as 'active' | 'inactive' } : a
@@ -544,6 +546,7 @@ export function useAppStore() {
     viewMode, setViewMode,
     rightPanel, setRightPanel,
     agentDetailTab, setAgentDetailTab,
+    selectedAgentId, setSelectedAgentId,
     activeThreadMessage, openThread, closeRightPanel,
     settingsOpen, setSettingsOpen,
     sidebarOpen, setSidebarOpen,

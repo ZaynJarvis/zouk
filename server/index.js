@@ -333,6 +333,34 @@ const pendingDeliveries = new Map(); // agentId -> [{ message, queuedAt }]
 const PENDING_DELIVERY_CAP = 500;
 const PENDING_DELIVERY_TTL_MS = 24 * 60 * 60 * 1000;
 
+function hasKnownAgentConfig(agentId) {
+  return agentConfigs.some((config) => config.id === agentId);
+}
+
+function purgeUnknownAgentState(agentId) {
+  pendingDeliveries.delete(agentId);
+  if (store.agents[agentId]) delete store.agents[agentId];
+  daemonSockets.delete(agentId);
+  for (const machine of machines.values()) {
+    if (Array.isArray(machine.agentIds)) {
+      machine.agentIds = machine.agentIds.filter((id) => id !== agentId);
+    }
+  }
+}
+
+function sendAgentStop(agentId, preferredWs = null) {
+  const targets = new Set();
+  if (preferredWs?.readyState === 1) targets.add(preferredWs);
+  const directWs = daemonSockets.get(agentId);
+  if (directWs?.readyState === 1) targets.add(directWs);
+  for (const ws of daemonConnections) {
+    if (ws.readyState === 1) targets.add(ws);
+  }
+  for (const ws of targets) {
+    ws.send(JSON.stringify({ type: "agent:stop", agentId }));
+  }
+}
+
 function queuePendingDelivery(agentId, message) {
   let queue = pendingDeliveries.get(agentId);
   if (!queue) {
@@ -1120,25 +1148,14 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
 // Delete agent config
 app.delete("/api/agents/:id", requireAuth, (req, res) => {
   const { id } = req.params;
-  // Tell the daemon to stop the process and drop any idle-restart cache for
-  // this agent. Without this, the daemon keeps the process (or the
-  // idleAgentConfigs entry) and re-announces the agent on its next reconnect,
-  // which rebuilds an orphan store.agents[id] with fallback metadata.
-  const ws = daemonSockets.get(id);
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
-  }
+  sendAgentStop(id);
   const idx = agentConfigs.findIndex((c) => c.id === id);
   if (idx >= 0) {
     agentConfigs.splice(idx, 1);
     saveAgentConfigs(agentConfigs);
     db.deleteAgentConfig(id);
   }
-  // Also clean up runtime state if agent exists
-  if (store.agents[id]) {
-    delete store.agents[id];
-    daemonSockets.delete(id);
-  }
+  purgeUnknownAgentState(id);
   broadcastToWeb({ type: "agent_status", agentId: id, status: "deleted" });
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
   res.json({ success: true });
@@ -1455,6 +1472,11 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       // Register any running agents
       if (msg.runningAgents) {
         for (const agentId of msg.runningAgents) {
+          if (!hasKnownAgentConfig(agentId)) {
+            purgeUnknownAgentState(agentId);
+            sendAgentStop(agentId, ws);
+            continue;
+          }
           connectedAgents.add(agentId);
           daemonSockets.set(agentId, ws);
           const isNew = !store.agents[agentId];
@@ -1475,6 +1497,11 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     }
     case "agent:status": {
       const { agentId, status } = msg;
+      if (!hasKnownAgentConfig(agentId)) {
+        purgeUnknownAgentState(agentId);
+        sendAgentStop(agentId, ws);
+        break;
+      }
       const isNew = !store.agents[agentId];
       if (isNew) {
         store.agents[agentId] = buildRuntimeAgent(agentId, {
@@ -1507,11 +1534,21 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     }
     case "agent:activity": {
       const { agentId, activity, detail, entries } = msg;
+      if (!hasKnownAgentConfig(agentId)) {
+        purgeUnknownAgentState(agentId);
+        sendAgentStop(agentId, ws);
+        break;
+      }
       broadcastToWeb({ type: "agent_activity", agentId, activity, detail, entries });
       break;
     }
     case "agent:session": {
       const { agentId, sessionId } = msg;
+      if (!hasKnownAgentConfig(agentId)) {
+        purgeUnknownAgentState(agentId);
+        sendAgentStop(agentId, ws);
+        break;
+      }
       if (store.agents[agentId]) {
         store.agents[agentId].sessionId = sessionId;
       }
