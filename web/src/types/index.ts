@@ -179,7 +179,7 @@ export interface WorkspaceState {
 }
 
 export type ViewMode = 'channel' | 'dm' | 'agents';
-export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'agent_settings' | null;
+export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'agent_settings' | 'agent_profile' | null;
 export type Theme = 'night-city' | 'brutalist' | 'washington-post' | 'carbon';
 
 export interface Toast {

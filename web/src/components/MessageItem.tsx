@@ -197,11 +197,9 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
     // Ordered list
     if (/^\d+\. /.test(line)) {
       const items: string[] = [];
-      let num = 1;
       while (i < lines.length && /^\d+\. /.test(lines[i])) {
         items.push(lines[i].replace(/^\d+\. /, ''));
         i++;
-        num++;
       }
       nodes.push(
         <ol key={`ol-${k++}`} className="my-2 space-y-1 pl-4">
@@ -274,12 +272,16 @@ function getSenderColor(name: string): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function MessageItem({ message, isGrouped = false }: { message: MessageRecord; isGrouped?: boolean }) {
-  const { humans, agents, currentUser, authUser } = useApp();
+  const { humans, agents, configs, currentUser, authUser, openAgentProfile } = useApp();
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
   const senderHuman = !isAgent && !isSystem ? humans.find(h => h.name === senderName) : undefined;
   const senderAgent = isAgent ? agents.find(a => a.name === senderName || a.displayName === senderName) : undefined;
+  const senderAgentConfig = isAgent && !senderAgent
+    ? configs.find(c => c.name === senderName || c.displayName === senderName)
+    : undefined;
+  const agentProfileId = senderAgent?.id || senderAgentConfig?.id;
   const isSelf = !isAgent && !isSystem && senderName === currentUser;
   const selfPicture = isSelf ? authUser?.picture || authUser?.gravatarUrl : undefined;
   const senderPicture = senderHuman?.picture || senderHuman?.gravatarUrl || senderAgent?.picture || selfPicture;
@@ -309,6 +311,22 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
               {timestamp && formatTime(timestamp)}
             </span>
           </div>
+        ) : isAgent && agentProfileId ? (
+          <button
+            type="button"
+            onClick={() => openAgentProfile(agentProfileId)}
+            title={`View @${senderName} profile`}
+            className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5 overflow-hidden transition-transform hover:scale-105 hover:ring-1 hover:ring-nc-cyan focus:outline-none focus:ring-1 focus:ring-nc-cyan"
+            style={{
+              backgroundColor: `${color}12`,
+              color,
+              boxShadow: `0 0 10px ${color}18`,
+            }}
+          >
+            {senderPicture ? (
+              <img src={senderPicture} alt="" className="w-full h-full object-cover" />
+            ) : <Bot size={15} />}
+          </button>
         ) : (
           <div
             className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5 overflow-hidden"
