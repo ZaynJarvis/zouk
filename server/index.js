@@ -11,6 +11,12 @@ const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const db = require("./db");
 
+function gravatarUrl(email) {
+  if (!email) return null;
+  const hash = crypto.createHash("md5").update(email.trim().toLowerCase()).digest("hex");
+  return `https://www.gravatar.com/avatar/${hash}?s=128&d=identicon`;
+}
+
 const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
@@ -1572,10 +1578,12 @@ app.post("/api/auth/google", async (req, res) => {
     const sessionToken = crypto.randomBytes(32).toString("hex");
     // Use email prefix as default display name (e.g. "zaynjarvis" from "zaynjarvis@gmail.com")
     const emailPrefix = payload.email.split("@")[0];
+    const grav = gravatarUrl(payload.email);
     const user = {
       name: emailPrefix,
       email: payload.email,
       picture: payload.picture || null,
+      gravatarUrl: grav,
     };
     authSessions.set(sessionToken, user);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
@@ -1584,8 +1592,9 @@ app.post("/api/auth/google", async (req, res) => {
     const existingHuman = store.humans.find((h) => h.name === user.name);
     if (existingHuman) {
       if (user.picture) existingHuman.picture = user.picture;
+      existingHuman.gravatarUrl = grav;
     } else {
-      store.humans.push({ name: user.name, picture: user.picture || undefined });
+      store.humans.push({ name: user.name, picture: user.picture || undefined, gravatarUrl: grav });
     }
 
     res.json({ token: sessionToken, user });
@@ -1636,11 +1645,16 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
   authSessions.set(token, user);
   // Update human record
   const human = store.humans.find((h) => h.name === oldName);
+  // Ensure gravatarUrl is set if user has email
+  if (!user.gravatarUrl && user.email) {
+    user.gravatarUrl = gravatarUrl(user.email);
+  }
   if (human) {
     human.name = trimmed;
     human.picture = user.picture || undefined;
+    human.gravatarUrl = user.gravatarUrl || undefined;
   } else if (!store.humans.find((h) => h.name === trimmed)) {
-    store.humans.push({ name: trimmed, picture: user.picture || undefined });
+    store.humans.push({ name: trimmed, picture: user.picture || undefined, gravatarUrl: user.gravatarUrl || undefined });
   }
   db.saveSession(token, user).catch(e => console.warn("[auth] saveSession error:", e.message));
   broadcastToWeb({ type: "humans_updated", humans: store.humans });

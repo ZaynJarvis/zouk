@@ -214,6 +214,7 @@ export interface AuthUser {
   name: string;
   email: string;
   picture: string | null;
+  gravatarUrl?: string | null;
 }
 
 // Machine API Key management

@@ -269,7 +269,8 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
-  const senderPicture = !isAgent && !isSystem ? humans.find(h => h.name === senderName)?.picture : undefined;
+  const senderHuman = !isAgent && !isSystem ? humans.find(h => h.name === senderName) : undefined;
+  const senderPicture = senderHuman?.picture || senderHuman?.gravatarUrl;
   const timestamp = message.timestamp || '';
   const color = getSenderColor(senderName);
 

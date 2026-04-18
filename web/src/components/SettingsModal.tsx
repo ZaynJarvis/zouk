@@ -180,6 +180,8 @@ export default function SettingsModal() {
                   >
                     {authUser?.picture ? (
                       <img src={authUser.picture} alt="" className="w-full h-full object-cover" />
+                    ) : authUser?.gravatarUrl ? (
+                      <img src={authUser.gravatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
                       currentUser.charAt(0).toUpperCase()
                     )}
@@ -197,6 +199,16 @@ export default function SettingsModal() {
                   <div>
                     <p className="font-display font-bold text-nc-text-bright">{currentUser}</p>
                     <p className="text-xs text-nc-muted font-mono">{authUser ? authUser.email : 'GUEST_USER'}</p>
+                    {authUser?.email && (
+                      <a
+                        href="https://gravatar.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-nc-cyan hover:underline"
+                      >
+                        Change avatar on Gravatar
+                      </a>
+                    )}
                   </div>
                 </div>
 
