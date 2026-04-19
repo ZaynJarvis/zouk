@@ -10,46 +10,26 @@ import * as api from '../lib/api';
 import { normalizeMessage } from '../lib/api';
 import type { AuthUser } from '../lib/api';
 import { isMobileViewport } from '../lib/layout';
+import {
+  clearStoredAuth,
+  clearStoredAuthUser,
+  clearStoredCurrentUser,
+  createGuestUserName,
+  getStoredAuth,
+  getStoredAuthToken,
+  getStoredCurrentUser,
+  getStoredTheme,
+  setStoredAuth,
+  setStoredAuthUser,
+  setStoredAuthToken,
+  setStoredCurrentUser,
+  setStoredTheme,
+} from './storage';
 import { applyTheme } from '../themes';
 
-const CURRENT_USER_KEY = 'zouk_current_user';
-const AUTH_TOKEN_KEY = 'zouk_auth_token';
-const AUTH_USER_KEY = 'zouk_auth_user';
-
-function getStoredUser(): string {
-  // If we have a Google-authenticated user, use their name
-  const authUser = localStorage.getItem(AUTH_USER_KEY);
-  if (authUser) {
-    try {
-      const parsed = JSON.parse(authUser);
-      if (parsed.name) return parsed.name;
-    } catch { /* ignore */ }
-  }
-  const stored = localStorage.getItem(CURRENT_USER_KEY);
-  if (stored) return stored;
-  const name = 'user-' + Math.random().toString(36).slice(2, 6);
-  localStorage.setItem(CURRENT_USER_KEY, name);
-  return name;
-}
-
-function getStoredAuth(): { token: string; user: AuthUser } | null {
-  const token = localStorage.getItem(AUTH_TOKEN_KEY);
-  const userStr = localStorage.getItem(AUTH_USER_KEY);
-  if (token && userStr) {
-    try {
-      return { token, user: JSON.parse(userStr) };
-    } catch { /* ignore */ }
-  }
-  return null;
-}
-
 export function useAppStore() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const stored = localStorage.getItem('zouk_theme');
-    if (stored === 'night-city' || stored === 'brutalist' || stored === 'washington-post' || stored === 'carbon') return stored;
-    return 'night-city';
-  });
-  const [currentUser, setCurrentUser] = useState(getStoredUser);
+  const [theme, setTheme] = useState<Theme>(getStoredTheme);
+  const [currentUser, setCurrentUser] = useState(getStoredCurrentUser);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
   const [agents, setAgents] = useState<ServerAgent[]>([]);
   const [humans, setHumans] = useState<ServerHuman[]>([]);
@@ -99,7 +79,7 @@ export function useAppStore() {
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
   useLayoutEffect(() => {
-    localStorage.setItem('zouk_theme', theme);
+    setStoredTheme(theme);
     applyTheme(theme);
   }, [theme]);
 
@@ -572,10 +552,10 @@ export function useAppStore() {
     const previousUser = currentUserRef.current;
     const previousAuthUser = authUser;
 
-    localStorage.setItem(CURRENT_USER_KEY, trimmed);
+    setStoredCurrentUser(trimmed);
     setCurrentUser(trimmed);
 
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    const token = getStoredAuthToken();
     if (!token) return;
 
     const optimisticUser = previousAuthUser
@@ -587,23 +567,23 @@ export function useAppStore() {
       : null;
 
     if (optimisticUser) {
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(optimisticUser));
+      setStoredAuthUser(optimisticUser);
       setAuthUser(optimisticUser);
     }
 
     api.updateUserProfile(trimmed, picture).then(({ user }) => {
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-      localStorage.setItem(CURRENT_USER_KEY, user.name);
+      setStoredAuthUser(user);
+      setStoredCurrentUser(user.name);
       setAuthUser(user);
       setCurrentUser(user.name);
     }).catch(() => {
-      localStorage.setItem(CURRENT_USER_KEY, previousUser);
+      setStoredCurrentUser(previousUser);
       setCurrentUser(previousUser);
       if (previousAuthUser) {
-        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(previousAuthUser));
+        setStoredAuthUser(previousAuthUser);
         setAuthUser(previousAuthUser);
       } else {
-        localStorage.removeItem(AUTH_USER_KEY);
+        clearStoredAuthUser();
         setAuthUser(null);
       }
       addToast('Failed to update profile', 'error');
@@ -613,9 +593,8 @@ export function useAppStore() {
   const loginWithGoogle = useCallback(async (credential: string) => {
     const { token, user } = await api.googleLogin(credential);
     // Server already uses email prefix as name; use it as display name
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-    localStorage.setItem(CURRENT_USER_KEY, user.name);
+    setStoredAuth(token, user);
+    setStoredCurrentUser(user.name);
     setAuthToken(token);
     setAuthUser(user);
     setIsLoggedIn(true);
@@ -624,20 +603,19 @@ export function useAppStore() {
 
   const loginAsGuest = useCallback(() => {
     // Clear any existing auth and use the random name
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem(AUTH_USER_KEY);
+    clearStoredAuth();
     setAuthToken(null);
     setAuthUser(null);
     setIsLoggedIn(true);
-    // currentUser already has a random name from getStoredUser()
+    // currentUser already has a random name from getStoredCurrentUser()
     // In open/dev mode the server mints a real session token so guests can
     // post messages (requireAuth won't block them).  Store it if returned.
     api.registerGuestSession(currentUserRef.current).then(({ token, user }) => {
       if (token) {
-        localStorage.setItem(AUTH_TOKEN_KEY, token);
+        setStoredAuthToken(token);
         setAuthToken(token);
         if (user) {
-          localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+          setStoredAuthUser(user);
           setAuthUser(user);
         }
       }
@@ -648,15 +626,14 @@ export function useAppStore() {
     if (authToken) {
       await api.logout(authToken).catch(() => {});
     }
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    localStorage.removeItem(AUTH_USER_KEY);
-    localStorage.removeItem(CURRENT_USER_KEY);
+    clearStoredAuth();
+    clearStoredCurrentUser();
     setAuthToken(null);
     setAuthUser(null);
     setIsLoggedIn(false);
     // Generate new random name for next guest session
-    const name = 'user-' + Math.random().toString(36).slice(2, 6);
-    localStorage.setItem(CURRENT_USER_KEY, name);
+    const name = createGuestUserName();
+    setStoredCurrentUser(name);
     setCurrentUser(name);
   }, [authToken]);
 

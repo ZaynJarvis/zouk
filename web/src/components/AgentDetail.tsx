@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback, memo, useRef, useMemo } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Server, Trash2, Camera } from 'lucide-react';
-import type { ServerAgent, ServerMachine, Skill, WorkspaceFile } from '../types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera } from 'lucide-react';
+import type { ServerAgent, ServerMachine, Skill } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
-import { activityColors, activityLabels, getActivityColor } from '../lib/activityStatus';
+import { activityColors, activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { resizeAndEncode } from '../lib/imageEncode';
+import { AgentActivityFeed } from './agent/AgentActivityFeed';
+import { WorkspaceTree } from './workspace/WorkspaceTree';
+import { useWorkspaceTree } from './workspace/useWorkspaceTree';
 
 type Tab = 'instructions' | 'workspace' | 'activity' | 'settings';
 
@@ -141,140 +144,19 @@ function InstructionsTab({
   );
 }
 
-const DetailTreeNode = memo(function DetailTreeNode({
-  file,
-  agentId,
-  level,
-  expandedDirs,
-  treeCache,
-  onToggleDir,
-  onViewFile,
-}: {
-  file: WorkspaceFile;
-  agentId: string;
-  level: number;
-  expandedDirs: Set<string>;
-  treeCache: Record<string, WorkspaceFile[]>;
-  onToggleDir: (dirPath: string) => void;
-  onViewFile: (path: string) => void;
-}) {
-  const dirPath = file.path || file.name;
-  const isDir = file.isDirectory;
-  const isExpanded = isDir && expandedDirs.has(dirPath);
-  const children = isDir ? treeCache[dirPath] : undefined;
-
-  return (
-    <>
-      <button
-        onClick={() => isDir ? onToggleDir(dirPath) : onViewFile(dirPath)}
-        className="w-full flex items-center gap-1.5 py-1.5 text-left hover:bg-nc-elevated transition-colors border-b border-nc-border/30 last:border-b-0"
-        style={{ paddingLeft: `${12 + level * 16}px`, paddingRight: '12px' }}
-      >
-        {isDir ? (
-          <ChevronRight
-            size={14}
-            className={`flex-shrink-0 text-nc-muted transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
-          />
-        ) : (
-          <span className="w-3.5 flex-shrink-0" />
-        )}
-        {isDir
-          ? (isExpanded
-            ? <FolderOpen size={14} className="flex-shrink-0 text-nc-yellow" />
-            : <Folder size={14} className="flex-shrink-0 text-nc-yellow" />)
-          : <File size={14} className="flex-shrink-0 text-nc-muted" />
-        }
-        <span className="flex-1 text-sm font-mono text-nc-text-bright truncate">{file.name}</span>
-        {!isDir && file.size !== undefined && (
-          <span className="text-2xs text-nc-muted flex-shrink-0 font-mono">
-            {file.size < 1024 ? `${file.size}B` : `${(file.size / 1024).toFixed(1)}K`}
-          </span>
-        )}
-      </button>
-      {isDir && isExpanded && (
-        <div
-          className="overflow-hidden transition-[grid-template-rows] duration-200"
-          style={{ display: 'grid', gridTemplateRows: '1fr' }}
-        >
-          <div className="min-h-0">
-            {children ? (
-              children.length > 0 ? (
-                children.map((child) => (
-                  <DetailTreeNode
-                    key={child.path || child.name}
-                    file={child}
-                    agentId={agentId}
-                    level={level + 1}
-                    expandedDirs={expandedDirs}
-                    treeCache={treeCache}
-                    onToggleDir={onToggleDir}
-                    onViewFile={onViewFile}
-                  />
-                ))
-              ) : (
-                <div
-                  className="text-2xs text-nc-muted font-mono py-1"
-                  style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}
-                >
-                  (empty)
-                </div>
-              )
-            ) : (
-              <div
-                className="text-2xs text-nc-muted font-mono py-1 animate-pulse"
-                style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}
-              >
-                loading...
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </>
-  );
-});
-
 function WorkspaceTab({ agent }: { agent: ServerAgent }) {
-  const { wsTreeCache, workspaceFileContent, requestWorkspaceFiles, requestFileContent } = useApp();
+  const { workspaceFileContent, requestFileContent } = useApp();
   const [viewingFile, setViewingFile] = useState<string | null>(null);
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
-  const agentCache = useMemo(() => wsTreeCache[agent.id] || {}, [wsTreeCache, agent.id]);
-  const rootFiles = useMemo(() => agentCache[''] || [], [agentCache]);
-
-  useEffect(() => {
-    if (agent.status === 'active') {
-      requestWorkspaceFiles(agent.id);
-    }
-  }, [agent.id, agent.status, requestWorkspaceFiles]);
+  const { expandedDirs, refresh, rootFiles, toggleDir, treeCache } = useWorkspaceTree(agent);
 
   const fileContent = workspaceFileContent?.agentId === agent.id && workspaceFileContent?.path === viewingFile
     ? workspaceFileContent.content
     : null;
 
-  const handleToggleDir = useCallback((dirPath: string) => {
-    setExpandedDirs(prev => {
-      const next = new Set(prev);
-      if (next.has(dirPath)) {
-        next.delete(dirPath);
-      } else {
-        next.add(dirPath);
-        if (!agentCache[dirPath]) {
-          requestWorkspaceFiles(agent.id, dirPath);
-        }
-      }
-      return next;
-    });
-  }, [agent.id, agentCache, requestWorkspaceFiles]);
-
   const handleViewFile = useCallback((filePath: string) => {
     setViewingFile(filePath);
     requestFileContent(agent.id, filePath);
   }, [agent.id, requestFileContent]);
-
-  const handleRefresh = useCallback(() => {
-    requestWorkspaceFiles(agent.id);
-    setExpandedDirs(new Set());
-  }, [agent.id, requestWorkspaceFiles]);
 
   if (agent.status !== 'active') {
     return (
@@ -314,7 +196,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
           {agent.workDir || 'WORKSPACE'}
         </h3>
         <button
-          onClick={handleRefresh}
+          onClick={refresh}
           className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan"
           title="Refresh"
         >
@@ -324,18 +206,14 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
 
       {rootFiles.length > 0 ? (
         <div className="border border-nc-border bg-nc-panel overflow-hidden">
-          {rootFiles.map((f) => (
-            <DetailTreeNode
-              key={f.path || f.name}
-              file={f}
-              agentId={agent.id}
-              level={0}
-              expandedDirs={expandedDirs}
-              treeCache={agentCache}
-              onToggleDir={handleToggleDir}
-              onViewFile={handleViewFile}
-            />
-          ))}
+          <WorkspaceTree
+            files={rootFiles}
+            treeCache={treeCache}
+            expandedDirs={expandedDirs}
+            onToggleDir={toggleDir}
+            onFileSelect={handleViewFile}
+            variant="detail"
+          />
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
@@ -351,6 +229,8 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
 }
 
 function ActivityTab({ agent }: { agent: ServerAgent }) {
+  const entries = agent.entries || [];
+
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
       <div className="mb-4">
@@ -358,33 +238,8 @@ function ActivityTab({ agent }: { agent: ServerAgent }) {
         <p className="text-xs text-nc-muted mt-0.5 font-mono">Real-time activity from this agent.</p>
       </div>
 
-      {agent.entries && agent.entries.length > 0 ? (
-        <div className="space-y-1">
-          {agent.entries.map((entry, i) => (
-            <div
-              key={i}
-              className={`text-xs font-mono px-3 py-1.5 border border-nc-border ${
-                entry.kind === 'status'
-                  ? 'bg-nc-cyan/5 text-nc-cyan border-nc-cyan/20'
-                  : entry.kind === 'thinking'
-                    ? 'bg-nc-yellow/5 text-nc-yellow border-nc-yellow/20'
-                    : entry.kind === 'tool_start'
-                      ? 'bg-nc-green/5 text-nc-green border-nc-green/20'
-                      : 'bg-nc-elevated text-nc-muted'
-              }`}
-            >
-              {entry.kind === 'text' && <span>{entry.text}</span>}
-              {entry.kind === 'status' && (
-                <span className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 ${getActivityColor(entry.activity)}`} />
-                  [{entry.activity}] {entry.detail || ''}
-                </span>
-              )}
-              {entry.kind === 'thinking' && <span>THINKING: {entry.text || ''}</span>}
-              {entry.kind === 'tool_start' && <span>TOOL: {entry.toolName}</span>}
-            </div>
-          ))}
-        </div>
+      {entries.length > 0 ? (
+        <AgentActivityFeed entries={entries} className="space-y-1" />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
           <div className="w-14 h-14 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-3">

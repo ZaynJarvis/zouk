@@ -5,6 +5,15 @@ import { activityColors } from '../lib/activityStatus';
 import { isMobileViewport } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
+import {
+  channelSidebarThemeConfig,
+  getChannelSidebarAgentItemClass,
+  getChannelSidebarChannelItemClass,
+  getChannelSidebarFooterAvatarClass,
+  getChannelSidebarFooterClass,
+  resolveNavigationTheme,
+  type NavigationThemeVariant,
+} from './navigation/themeVariants';
 
 function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
   title: string; count?: number; collapsed: boolean; onToggle: () => void; onAdd?: () => void;
@@ -63,31 +72,25 @@ export default function ChannelSidebar() {
     setShowCreateChannel(false);
   };
 
-  const nc = isNightCity();
-  const wapo = theme === 'washington-post';
-  const carbon = theme === 'carbon';
+  const themeVariant = resolveNavigationTheme(theme, isNightCity());
+  const channelSidebarTheme = channelSidebarThemeConfig[themeVariant];
 
   return (
-    <div className={`w-[260px] h-full flex flex-col overflow-hidden ${nc || carbon ? 'bg-nc-surface border-r border-nc-border' : wapo ? 'bg-nc-surface border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
-      <div className={`safe-top flex-shrink-0 ${nc || carbon ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={channelSidebarTheme.shell}>
+      <div className={channelSidebarTheme.header}>
         <div className="px-3 h-14 flex items-center justify-between">
-          {nc
-            ? <GlitchText as="h2" className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider" intensity="low">ZOUK</GlitchText>
-            : carbon
-              ? <h2 className="font-display font-semibold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk</h2>
-              : wapo
-                ? <h2 className="font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate">Zouk</h2>
-                : <h2 className="font-display font-black text-lg text-nc-text-bright truncate">Zouk</h2>
-          }
+          {channelSidebarTheme.titleStyle === 'glitch'
+            ? <GlitchText as="h2" className={channelSidebarTheme.titleClass} intensity="low">ZOUK</GlitchText>
+            : <h2 className={channelSidebarTheme.titleClass}>Zouk</h2>}
           {totalUnread > 0 && (
-            <span className={`text-2xs font-black px-1.5 py-0.5 border ${nc ? 'bg-nc-red/20 text-nc-red border-nc-red/40' : (carbon || wapo) ? 'bg-nc-red/20 text-nc-red border-nc-red/40 rounded-full' : 'bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]'}`}>
+            <span className={channelSidebarTheme.unreadBadge}>
               {totalUnread}
             </span>
           )}
         </div>
       </div>
 
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${!nc && !wapo && !carbon ? 'px-2' : ''}`}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${channelSidebarTheme.scrollerPadding}`}>
         <div>
           <SectionHeader
             title="Channels"
@@ -121,21 +124,7 @@ export default function ChannelSidebar() {
               <button
                 key={ch.id}
                 onClick={() => pick(ch.name)}
-                className={`
-                  w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group mb-1
-                  ${isActive
-                    ? (nc
-                        ? 'bg-nc-cyan/10 border-l-2 border-nc-cyan text-nc-cyan font-bold'
-                        : carbon
-                          ? 'bg-nc-cyan/10 border-l-2 border-nc-cyan text-nc-text-bright font-semibold'
-                          : wapo
-                            ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
-                            : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
-                    : unread > 0
-                      ? (nc || carbon ? 'font-semibold text-nc-text-bright hover:bg-nc-elevated' : wapo ? 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
-                      : (nc || carbon ? 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text' : wapo ? 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright')
-                  }
-                `}
+                className={getChannelSidebarChannelItemClass(themeVariant, isActive, unread)}
               >
                 <Hash size={14} className="flex-shrink-0" />
                 <span className="truncate text-sm">{ch.name}</span>
@@ -177,21 +166,7 @@ export default function ChannelSidebar() {
               <button
                 key={agent.id}
                 onClick={() => pick(agent.name, true)}
-                className={`
-                  w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-75 group mb-1
-                  ${isActive
-                    ? (nc
-                        ? 'bg-nc-green/10 border-l-2 border-nc-green text-nc-green font-bold'
-                        : carbon
-                          ? 'bg-nc-green/10 border-l-2 border-nc-green text-nc-text-bright font-semibold'
-                          : wapo
-                            ? 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]'
-                            : 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1')
-                    : unread > 0
-                      ? (wapo ? 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]' : 'font-semibold text-nc-text-bright hover:bg-nc-elevated')
-                      : (wapo ? 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright' : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text')
-                  }
-                `}
+                className={getChannelSidebarAgentItemClass(themeVariant, isActive, unread)}
               >
                 <span
                   role="button"
@@ -304,29 +279,30 @@ export default function ChannelSidebar() {
         currentUser={currentUser}
         wsConnected={wsConnected}
         isGuest={isGuest}
+        themeVariant={themeVariant}
       />
     </div>
   );
 }
 
 function SelfProfileFooter({
-  authUser, currentUser, wsConnected, isGuest,
+  authUser, currentUser, wsConnected, isGuest, themeVariant,
 }: {
   authUser: { name: string; picture: string | null; gravatarUrl?: string | null } | null;
   currentUser: string;
   wsConnected: boolean;
   isGuest: boolean;
+  themeVariant: NavigationThemeVariant;
 }) {
-  const nc = isNightCity();
   const displayName = authUser?.name || currentUser || 'Guest';
   const pictureUrl = authUser?.picture || authUser?.gravatarUrl || null;
   const initial = displayName.charAt(0).toUpperCase();
   const statusDot = wsConnected ? 'bg-nc-green' : 'bg-nc-muted/40';
 
   return (
-    <div className={`safe-bottom-fill flex items-center gap-2 px-3 py-2 flex-shrink-0 ${nc ? 'border-t border-nc-border bg-nc-panel/40' : 'border-t border-nc-border bg-nc-surface'}`}>
+    <div className={getChannelSidebarFooterClass(themeVariant)}>
       <div className="relative flex-shrink-0">
-        <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden ${nc ? 'border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan' : 'border-nc-border bg-nc-elevated text-nc-text-bright'}`}>
+        <div className={getChannelSidebarFooterAvatarClass(themeVariant)}>
           {pictureUrl ? (
             <img src={pictureUrl} alt="" className="w-full h-full object-cover" />
           ) : (

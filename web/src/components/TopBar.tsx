@@ -3,6 +3,12 @@ import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
 import { isNightCity } from '../lib/themeUtils';
+import {
+  getTopBarMobileIconButtonClass,
+  getTopBarRightPanelButtonClass,
+  getTopBarShellClass,
+  resolveNavigationTheme,
+} from './navigation/themeVariants';
 
 export default function TopBar() {
   const {
@@ -10,17 +16,19 @@ export default function TopBar() {
     rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
     wsConnected, daemonConnected, theme, setSettingsOpen,
   } = useApp();
-  const nc = isNightCity();
-  const wapo = theme === 'washington-post';
-  const carbon = theme === 'carbon';
+  const themeVariant = resolveNavigationTheme(theme, isNightCity());
+  const nc = themeVariant === 'night-city';
+  const wapo = themeVariant === 'washington-post';
+  const carbon = themeVariant === 'carbon';
+  const inHomeView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
-    <div className={`safe-top bg-nc-surface scanline-overlay flex-shrink-0 ${nc ? 'border-b border-nc-border' : (wapo || carbon) ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={getTopBarShellClass(themeVariant)}>
     <div className={`h-12 sm:h-14 flex items-center px-2 sm:px-4 gap-2 sm:gap-3`}>
       <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`lg:hidden w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
+          className={`lg:hidden ${getTopBarMobileIconButtonClass(themeVariant, 'cyan')}`}
           aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
           aria-expanded={sidebarOpen}
         >
@@ -32,7 +40,7 @@ export default function TopBar() {
         <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
           <button
             onClick={() => setViewMode('channel')}
-            className={`w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'} ${(viewMode === 'channel' || viewMode === 'dm') ? (nc ? 'border-nc-cyan text-nc-cyan' : wapo ? 'bg-nc-red text-nc-surface' : carbon ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan' : 'bg-nc-yellow text-nc-text-bright border-nc-border-bright') : ''}`}
+            className={getTopBarMobileIconButtonClass(themeVariant, 'cyan', inHomeView)}
             title="Home"
             aria-label="Home"
           >
@@ -43,7 +51,7 @@ export default function TopBar() {
         <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
           <button
             onClick={() => setViewMode('agents')}
-            className={`w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-green' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'} ${viewMode === 'agents' ? (nc ? 'border-nc-green text-nc-green' : wapo ? 'bg-nc-indigo text-nc-surface' : carbon ? 'bg-nc-green/15 text-nc-green border-nc-green' : 'bg-nc-green text-nc-text-bright border-nc-border-bright') : ''}`}
+            className={getTopBarMobileIconButtonClass(themeVariant, 'green', viewMode === 'agents')}
             title="Agents"
             aria-label="Agents"
           >
@@ -54,7 +62,7 @@ export default function TopBar() {
         <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
           <button
             onClick={() => setSettingsOpen(true)}
-            className={`w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-yellow' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'}`}
+            className={getTopBarMobileIconButtonClass(themeVariant, 'yellow')}
             title="Settings"
             aria-label="Settings"
           >
@@ -64,7 +72,7 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-2 min-w-0">
-        {(viewMode === 'channel' || viewMode === 'dm') && (
+        {inHomeView && (
           <>
             {viewMode === 'channel' && <Hash size={18} className={`flex-shrink-0 ${nc ? 'text-nc-cyan' : 'text-nc-text-bright font-bold'}`} />}
             {nc
@@ -140,10 +148,7 @@ export default function TopBar() {
         <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
           <button
             onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}
-            className={nc
-              ? `cyber-btn w-8 h-8 border flex items-center justify-center ${rightPanel ? 'border-nc-yellow bg-nc-yellow/15 text-nc-yellow shadow-nc-yellow' : 'border-nc-border text-nc-muted hover:border-nc-yellow/50 hover:text-nc-yellow'}`
-              : `w-8 h-8 border-2 flex items-center justify-center transition-all ${rightPanel ? 'border-nc-border-bright bg-[#FF6B00] text-nc-text-bright shadow-[2px_2px_0px_0px_#1A1A1A]' : 'border-nc-border text-nc-muted hover:border-nc-border-bright hover:text-nc-text-bright'}`
-            }
+            className={getTopBarRightPanelButtonClass(themeVariant, !!rightPanel)}
             title={rightPanel ? 'Close Panel' : 'Open Panel'}
             aria-label={rightPanel ? 'Close side panel' : 'Open side panel'}
             aria-expanded={!!rightPanel}
