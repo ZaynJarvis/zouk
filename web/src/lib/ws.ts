@@ -136,6 +136,7 @@ export class SlockWebSocket {
   private handlers: WsEventHandler[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+  private visibilityBound: (() => void) | null = null;
   private serverUrl: string;
   private _connected = false;
   private pendingSends: string[] = [];
@@ -161,6 +162,11 @@ export class SlockWebSocket {
   }
 
   connect(): void {
+    if (!this.visibilityBound) {
+      this.visibilityBound = () => this.handleVisibilityChange();
+      document.addEventListener('visibilitychange', this.visibilityBound);
+    }
+
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -202,6 +208,10 @@ export class SlockWebSocket {
   }
 
   disconnect(): void {
+    if (this.visibilityBound) {
+      document.removeEventListener('visibilitychange', this.visibilityBound);
+      this.visibilityBound = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -279,5 +289,29 @@ export class SlockWebSocket {
       clearTimeout(this.watchdogTimer);
       this.watchdogTimer = null;
     }
+  }
+
+  // iOS PWA kills WebSocket silently when backgrounded — onclose never fires,
+  // leaving a zombie OPEN socket that receives nothing. Force-reconnect the
+  // moment the page becomes visible again rather than waiting for the watchdog.
+  private handleVisibilityChange(): void {
+    if (document.visibilityState !== 'visible') return;
+    // Detach all callbacks before closing so no stale handlers fire.
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      try { this.ws.close(); } catch { /* ignore */ }
+      this.ws = null;
+    }
+    this.clearWatchdog();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this._connected = false;
+    this.emit({ type: 'ws:disconnected' });
+    this.connect();
   }
 }
