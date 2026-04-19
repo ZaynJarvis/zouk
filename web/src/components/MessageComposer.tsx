@@ -247,7 +247,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
           <div className="flex items-center gap-2 px-2 pb-1.5 flex-shrink-0">
             {!text.trim() && (
-              <span className="text-2xs text-nc-muted/50 font-mono hidden sm:block">
+              <span
+                aria-hidden="true"
+                className="text-2xs text-nc-muted/50 font-mono hidden sm:block pointer-events-none select-none"
+              >
                 Enter to send · Shift+Enter for newline
               </span>
             )}
