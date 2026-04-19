@@ -1503,7 +1503,11 @@ function handleDaemonConnection(ws, apiKey) {
     }
   });
 
-  // Send ping periodically
+  // Application-level keepalive. Cellular NAT gateways drop idle TCP mappings
+  // in as little as 30 s, and Cloudflare's WebSocket idle timeout is 100 s.
+  // Without a regular frame the connection goes stale — the client's inbound
+  // watchdog (web/src/lib/ws.ts, INBOUND_WATCHDOG_MS) relies on these pings to
+  // know the socket is still alive. Interval must be < watchdog / 2.
   const pingInterval = setInterval(() => {
     if (ws.readyState === 1) {
       ws.send(JSON.stringify({ type: "ping" }));

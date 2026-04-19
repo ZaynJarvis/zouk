@@ -129,7 +129,25 @@ export type WsEvent =
 export type WsEventHandler = (event: WsEvent) => void;
 
 const PENDING_SEND_CAP = 100;
-const INBOUND_WATCHDOG_MS = 70_000;
+
+// iOS (Safari / PWA) silently kills WebSocket TCP connections when the app is
+// backgrounded or the screen locks. Unlike a normal close, the OS never sends a
+// FIN/RST, so `onclose` never fires and `readyState` stays OPEN — the socket is
+// a zombie that receives nothing. Sources:
+//   • WebKit bug 228296: iOS 15 regression — WS closed without close event
+//   • WebKit bug 247943: Safari does not emit `onclose` when network drops
+//   • graphql-ws #290, tRPC #4078, socket.io #2924 — all hit the same bug
+//   • Apple Developer Forums TN2277: "WebSocket is a TCP socket subject to iOS
+//     multitasking rules; background apps get seconds, not minutes"
+//
+// Two-layer defence:
+//   1. `visibilitychange` — force-reconnect the moment the user returns to the
+//      tab (instant recovery; same fix as Phoenix PR #6534, socket.io, etc.)
+//   2. Inbound watchdog — if no frame arrives within INBOUND_WATCHDOG_MS, close
+//      and reconnect. Catches stale connections that die without backgrounding:
+//      NAT timeout (cellular gateways drop idle mappings in ~30s), Wi-Fi→cell
+//      handoff, Cloudflare idle timeout, screen-lock while foregrounded.
+const INBOUND_WATCHDOG_MS = 70_000; // 2× server ping interval + buffer
 
 export class SlockWebSocket {
   private ws: WebSocket | null = null;
@@ -291,9 +309,9 @@ export class SlockWebSocket {
     }
   }
 
-  // iOS PWA kills WebSocket silently when backgrounded — onclose never fires,
-  // leaving a zombie OPEN socket that receives nothing. Force-reconnect the
-  // moment the page becomes visible again rather than waiting for the watchdog.
+  // See module-level comment for why this exists. Short version: iOS kills the
+  // TCP socket silently on background without firing onclose. This handler is
+  // the primary defence; the watchdog above is the secondary belt-and-suspenders.
   private handleVisibilityChange(): void {
     if (document.visibilityState !== 'visible') return;
     // Detach all callbacks before closing so no stale handlers fire.

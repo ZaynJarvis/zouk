@@ -104,6 +104,10 @@ cd web && npm run build   # then restart the server (kill + node bin/start.js &)
 - Some inputs lack a `type` attribute (default=text) — `input[type="text"]` won't match them; filter by value or placeholder instead
 - WorkspaceRail renders multiple theme-variant branches; count only **visible** settings gear buttons
 
+## Known Platform Gotchas
+
+- **iOS WebSocket silent disconnect** — iOS kills WebSocket TCP connections when the PWA is backgrounded without firing `onclose`. `readyState` stays `OPEN` but no frames arrive. Fix: `visibilitychange` listener in `web/src/lib/ws.ts`. Full explanation + proof links in `docs/ios-websocket-reconnect.md`.
+
 ## Key Conventions
 
 - Server uses **camelCase** internally; frontend types use **snake_case**. The `normalizeMessage()` function in `lib/api.ts` bridges the two.
