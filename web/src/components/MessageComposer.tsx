@@ -192,8 +192,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   if (isGuest) {
     return (
-      <div className="flex-shrink-0 safe-bottom">
-        <div className="px-5 pt-2 pb-2 sm:pb-4">
+      <div className="flex-shrink-0 composer-outer safe-bottom">
+        <div className="composer-inner-pad px-5 pt-2 pb-2 sm:pb-4">
           <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
             Sign in with Google to send messages
           </div>
@@ -203,72 +203,72 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }
 
   return (
-    <div className="flex-shrink-0 safe-bottom">
-    <div className="px-4 sm:px-6 pt-1 sm:pt-2 pb-2 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
-      {mentionQuery !== null && mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
-          {mentionMatches.map((match, i) => (
+    <div className="flex-shrink-0 composer-outer safe-bottom">
+      <div className="composer-inner-pad px-4 sm:px-6 pt-1 sm:pt-2 pb-2 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
+        {mentionQuery !== null && mentionMatches.length > 0 && (
+          <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
+            {mentionMatches.map((match, i) => (
+              <button
+                key={`${match.type}:${match.mention}`}
+                onMouseDown={(e) => { e.preventDefault(); insertMention(match.mention); }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
+                  i === mentionIndex
+                    ? 'bg-nc-cyan/10 text-nc-cyan'
+                    : 'text-nc-text hover:bg-nc-elevated'
+                }`}
+              >
+                {match.type === 'agent'
+                  ? <Bot size={14} className="flex-shrink-0 text-nc-green" />
+                  : <User size={14} className="flex-shrink-0 text-nc-cyan" />
+                }
+                <div className="min-w-0 flex flex-col">
+                  <span className="font-bold font-mono truncate">@{match.mention}</span>
+                  {match.label !== match.mention && (
+                    <span className="text-xs text-nc-muted truncate">{match.label}</span>
+                  )}
+                </div>
+                <span className="text-xs text-nc-muted ml-auto font-mono">{match.type}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className={`flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={handleChange}
+            onSelect={handleSelect}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder || `Message ${channelLabel}`}
+            rows={1}
+            className="composer-textarea flex-1 min-w-0 px-3 py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[40px]"
+          />
+
+          <div className="flex items-center gap-2 px-2 pb-1.5 flex-shrink-0">
+            {!text.trim() && (
+              <span className="text-2xs text-nc-muted/50 font-mono hidden sm:block">
+                Enter to send · Shift+Enter for newline
+              </span>
+            )}
+
             <button
-              key={`${match.type}:${match.mention}`}
-              onMouseDown={(e) => { e.preventDefault(); insertMention(match.mention); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
-                i === mentionIndex
-                  ? 'bg-nc-cyan/10 text-nc-cyan'
-                  : 'text-nc-text hover:bg-nc-elevated'
-              }`}
+              onClick={handleSubmit}
+              disabled={!text.trim()}
+              className={`
+                cyber-btn flex items-center justify-center h-7 px-3 gap-1.5 border border-nc-border flex-shrink-0 text-xs font-mono glitch-text transition-colors
+                ${text.trim()
+                  ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan/50 hover:bg-nc-cyan/25'
+                  : 'bg-nc-elevated text-nc-muted cursor-not-allowed'
+                }
+              `}
             >
-              {match.type === 'agent'
-                ? <Bot size={14} className="flex-shrink-0 text-nc-green" />
-                : <User size={14} className="flex-shrink-0 text-nc-cyan" />
-              }
-              <div className="min-w-0 flex flex-col">
-                <span className="font-bold font-mono truncate">@{match.mention}</span>
-                {match.label !== match.mention && (
-                  <span className="text-xs text-nc-muted truncate">{match.label}</span>
-                )}
-              </div>
-              <span className="text-xs text-nc-muted ml-auto font-mono">{match.type}</span>
+              <Send size={12} />
+              <span className="hidden sm:inline">Send</span>
             </button>
-          ))}
-        </div>
-      )}
-
-      <div className={`flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={handleChange}
-          onSelect={handleSelect}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder || `Message ${channelLabel}`}
-          rows={1}
-          className="composer-textarea flex-1 min-w-0 px-3 py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[40px]"
-        />
-
-        <div className="flex items-center gap-2 px-2 pb-1.5 flex-shrink-0">
-          {!text.trim() && (
-            <span className="text-2xs text-nc-muted/50 font-mono hidden sm:block">
-              Enter to send · Shift+Enter for newline
-            </span>
-          )}
-
-          <button
-            onClick={handleSubmit}
-            disabled={!text.trim()}
-            className={`
-              cyber-btn flex items-center justify-center h-7 px-3 gap-1.5 border border-nc-border flex-shrink-0 text-xs font-mono glitch-text transition-colors
-              ${text.trim()
-                ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan/50 hover:bg-nc-cyan/25'
-                : 'bg-nc-elevated text-nc-muted cursor-not-allowed'
-              }
-            `}
-          >
-            <Send size={12} />
-            <span className="hidden sm:inline">Send</span>
-          </button>
+          </div>
         </div>
       </div>
-    </div>
     </div>
   );
 }
