@@ -192,16 +192,19 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   if (isGuest) {
     return (
-      <div className="px-5 pb-4 pt-2">
-        <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
-          Sign in with Google to send messages
+      <div className="safe-bottom bg-nc-black flex-shrink-0">
+        <div className="px-5 pb-4 pt-2">
+          <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
+            Sign in with Google to send messages
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="px-4 sm:px-6 pb-4 pt-2 relative max-w-4xl mx-auto w-full">
+    <div className="safe-bottom bg-nc-black flex-shrink-0">
+    <div className="px-4 sm:px-6 pb-2 pt-1 sm:pb-4 sm:pt-2 relative max-w-4xl mx-auto w-full">
       {mentionQuery !== null && mentionMatches.length > 0 && (
         <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
           {mentionMatches.map((match, i) => (
@@ -271,6 +274,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </button>
         </div>
       </div>
+    </div>
     </div>
   );
 }

@@ -15,7 +15,8 @@ export default function TopBar() {
   const carbon = theme === 'carbon';
 
   return (
-    <div className={`h-14 bg-nc-surface flex items-center px-2 sm:px-4 gap-2 sm:gap-3 scanline-overlay ${nc ? 'border-b border-nc-border' : (wapo || carbon) ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={`safe-top bg-nc-surface scanline-overlay flex-shrink-0 ${nc ? 'border-b border-nc-border' : (wapo || carbon) ? 'border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+    <div className={`h-12 sm:h-14 flex items-center px-2 sm:px-4 gap-2 sm:gap-3`}>
       <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -164,6 +165,7 @@ export default function TopBar() {
         </ScanlineTear>
 
       </div>
+    </div>
     </div>
   );
 }
