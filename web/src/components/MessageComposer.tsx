@@ -233,8 +233,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         </div>
       )}
 
-      <div className={`safe-bottom flex flex-col border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
-        {/* Textarea */}
+      <div className={`safe-bottom flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
         <textarea
           ref={textareaRef}
           value={text}
@@ -243,21 +242,16 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onKeyDown={handleKeyDown}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
-          className="composer-textarea flex-1 px-3 pt-3 pb-1 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[44px]"
+          className="composer-textarea flex-1 min-w-0 px-3 py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[40px]"
         />
 
-        {/* Toolbar row */}
-        <div className="flex items-center gap-1 px-2 pb-1.5">
-          <div className="flex-1" />
-
-          {/* Hint text */}
+        <div className="flex items-center gap-2 px-2 pb-1.5 flex-shrink-0">
           {!text.trim() && (
             <span className="text-2xs text-nc-muted/50 font-mono hidden sm:block">
               Enter to send · Shift+Enter for newline
             </span>
           )}
 
-          {/* Send button */}
           <button
             onClick={handleSubmit}
             disabled={!text.trim()}
