@@ -245,15 +245,26 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       continue;
     }
 
-    // Unordered list — supports one level of nesting via 2-space indent
-    if (/^[-*+] /.test(line) || /^ {2,}[-*+] /.test(line)) {
+    // Unordered list — supports one level of nesting via 2-space indent.
+    // A single blank line between items keeps them in the same list; two
+    // consecutive blank lines (or a non-list line) end the list.
+    const isUlLine = (s: string) => /^[-*+] /.test(s) || /^ {2,}[-*+] /.test(s);
+    if (isUlLine(line)) {
       type ListItem = { depth: 0 | 1; text: string };
       const items: ListItem[] = [];
-      while (i < lines.length && (/^[-*+] /.test(lines[i]) || /^ {2,}[-*+] /.test(lines[i]))) {
-        const raw = lines[i];
-        const nested = /^ {2,}[-*+] /.test(raw);
-        items.push({ depth: nested ? 1 : 0, text: raw.replace(/^ {2,}[-*+] |^[-*+] /, '') });
-        i++;
+      while (i < lines.length) {
+        const cur = lines[i];
+        if (isUlLine(cur)) {
+          const nested = /^ {2,}[-*+] /.test(cur);
+          items.push({ depth: nested ? 1 : 0, text: cur.replace(/^ {2,}[-*+] |^[-*+] /, '') });
+          i++;
+          continue;
+        }
+        if (cur.trim() === '' && i + 1 < lines.length && isUlLine(lines[i + 1])) {
+          i++;
+          continue;
+        }
+        break;
       }
       nodes.push(
         <ul key={`ul-${k++}`} className="my-1.5 pl-1" style={{ lineHeight: 1.55 }}>
@@ -274,21 +285,32 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       continue;
     }
 
-    // Ordered list
+    // Ordered list — preserves authored numbering, and a single blank line
+    // between items does not split the list into two <ol>s.
     if (/^\d+\. /.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\d+\. /.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+\. /, ''));
-        i++;
+      const items: { num: number; text: string }[] = [];
+      while (i < lines.length) {
+        const cur = lines[i];
+        const m = cur.match(/^(\d+)\. (.*)/);
+        if (m) {
+          items.push({ num: parseInt(m[1], 10), text: m[2] });
+          i++;
+          continue;
+        }
+        if (cur.trim() === '' && i + 1 < lines.length && /^\d+\. /.test(lines[i + 1])) {
+          i++;
+          continue;
+        }
+        break;
       }
       nodes.push(
         <ol key={`ol-${k++}`} className="my-1.5 pl-1" style={{ lineHeight: 1.55 }}>
           {items.map((item, idx) => (
             <li key={idx} className="flex gap-2 text-nc-text">
               <span className="text-nc-cyan font-mono flex-shrink-0 tabular-nums" style={{ minWidth: '1.4em', textAlign: 'right' }}>
-                {idx + 1}.
+                {item.num}.
               </span>
-              <span className="flex-1">{renderInline(item, `ol-${k}-${idx}`)}</span>
+              <span className="flex-1">{renderInline(item.text, `ol-${k}-${idx}`)}</span>
             </li>
           ))}
         </ol>
