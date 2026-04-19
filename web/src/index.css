@@ -55,6 +55,10 @@
   html[data-font-size="small"] .msg-body { font-size: 16.5px; }
   html[data-font-size="large"] .msg-body { font-size: 20px; }
 
+  html { --chat-max-width: 56rem; }
+  html[data-chat-width="6xl"] { --chat-max-width: 72rem; }
+  html[data-chat-width="9xl"] { --chat-max-width: 96rem; }
+
   body {
     margin: 0;
     padding: 0;

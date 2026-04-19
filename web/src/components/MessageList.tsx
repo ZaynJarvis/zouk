@@ -167,7 +167,7 @@ export default function MessageList() {
       onScroll={handleScroll}
       className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin"
     >
-      <div className="pt-4 pb-2 max-w-4xl mx-auto w-full min-w-0">
+      <div className="pt-4 pb-2 max-w-[var(--chat-max-width)] mx-auto w-full min-w-0">
         {loadingOlderMessages && (
           <div className="flex items-center justify-center py-3">
             <Loader size={16} className="animate-spin text-nc-cyan" />

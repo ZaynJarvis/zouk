@@ -14,6 +14,7 @@ const PREFS_KEY = 'zouk_preferences';
 
 interface Preferences {
   fontSize: 'small' | 'medium' | 'large';
+  chatWidth: '4xl' | '6xl' | '9xl';
 }
 
 function loadPrefs(): Preferences {
@@ -24,7 +25,7 @@ function loadPrefs(): Preferences {
   return defaultPrefs;
 }
 
-const defaultPrefs: Preferences = { fontSize: 'medium' };
+const defaultPrefs: Preferences = { fontSize: 'medium', chatWidth: '4xl' };
 
 function applyFontSizePreference(fontSize: Preferences['fontSize']) {
   if (fontSize === 'medium') {
@@ -32,6 +33,14 @@ function applyFontSizePreference(fontSize: Preferences['fontSize']) {
     return;
   }
   document.documentElement.setAttribute('data-font-size', fontSize);
+}
+
+function applyChatWidthPreference(chatWidth: Preferences['chatWidth']) {
+  if (chatWidth === '4xl') {
+    document.documentElement.removeAttribute('data-chat-width');
+    return;
+  }
+  document.documentElement.setAttribute('data-chat-width', chatWidth);
 }
 
 export default function SettingsModal() {
@@ -54,6 +63,10 @@ export default function SettingsModal() {
   useEffect(() => {
     applyFontSizePreference(prefs.fontSize);
   }, [prefs.fontSize]);
+
+  useEffect(() => {
+    applyChatWidthPreference(prefs.chatWidth);
+  }, [prefs.chatWidth]);
 
   const savePrefs = useCallback((update: Partial<Preferences>) => {
     setPrefs(prev => {
@@ -276,6 +289,25 @@ export default function SettingsModal() {
                         }`}
                       >
                         {size.charAt(0).toUpperCase() + size.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-nc-border">
+                  <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Chat Width</label>
+                  <div className="flex gap-2">
+                    {(['4xl', '6xl', '9xl'] as const).map(width => (
+                      <button
+                        key={width}
+                        onClick={() => savePrefs({ chatWidth: width })}
+                        className={`flex-1 py-2 text-sm font-bold border transition-all ${
+                          prefs.chatWidth === width
+                            ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan'
+                            : 'text-nc-muted border-nc-border hover:border-nc-cyan/50'
+                        }`}
+                      >
+                        {width.toUpperCase()}
                       </button>
                     ))}
                   </div>
