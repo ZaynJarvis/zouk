@@ -70,6 +70,18 @@ const IOS_EMULATION_CSS = `
     z-index: 100;
     pointer-events: none;
   }
+
+  /* 1px viewport-bottom reference line so "where does the composer end"
+     is unambiguous between the pre-fix and after-fix shots. */
+  html::after {
+    content: "";
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: 1px;
+    background: rgba(255, 120, 120, 0.85);
+    z-index: 101;
+    pointer-events: none;
+  }
 `;
 
 /* IMPORTANT limitation: Playwright's emulateMedia({features:[{name:'display-mode',
@@ -131,16 +143,27 @@ async function shootMobile(browser, { name, displayMode, emulateIOS, forceStanda
       const innerPad = document.querySelector('.composer-inner-pad');
       const outer = document.querySelector('.composer-outer');
       const textarea = document.querySelector('.composer-textarea');
+      const sendBtn = document.querySelector('.composer-surface button');
       if (!surface) return { error: 'composer-surface not found' };
       const get = (el) => el ? getComputedStyle(el) : null;
+      const rect = (el) => el ? el.getBoundingClientRect() : null;
       const s = get(surface), i = get(innerPad), o = get(outer), t = get(textarea);
+      const sr = rect(surface), tr = rect(textarea), br = rect(sendBtn);
       return {
         matchMediaStandalone: window.matchMedia('(display-mode: standalone)').matches,
         matchMediaBrowser: window.matchMedia('(display-mode: browser)').matches,
         outer: { pb: o?.paddingBottom, classes: outer?.className },
         innerPad: { pb: i?.paddingBottom },
-        surface: { pb: s?.paddingBottom, clipPath: s?.clipPath, bg: s?.backgroundColor },
-        textarea: { pb: t?.paddingBottom, pt: t?.paddingTop },
+        surface: {
+          pb: s?.paddingBottom,
+          clipPath: s?.clipPath,
+          bg: s?.backgroundColor,
+          bottomY: sr?.bottom, // distance from viewport top
+          height: sr?.height,
+        },
+        textarea: { pb: t?.paddingBottom, pt: t?.paddingTop, bottomY: tr?.bottom },
+        sendButton: { bottomY: br?.bottom, topY: br?.top },
+        viewportHeight: window.innerHeight,
       };
     });
     console.log(`[${name}] computed styles:`, JSON.stringify(computed, null, 2));
@@ -169,7 +192,7 @@ const browser = await chromium.launch();
 // Pre-fix (bug) state: iOS safe-area emulation applied, but the production
 // @media (display-mode: standalone) rule is dormant (Chromium won't match
 // it). This reproduces what shipped before the fix.
-await shootMobile(browser, { name: 'iphone-pwa-prefix',       displayMode: 'standalone', emulateIOS: true  });
+await shootMobile(browser, { name: 'iphone-pwa-prefix',       displayMode: 'standalone', emulateIOS: true,  reportComputed: true });
 // After-fix state: additionally force-apply the fix's rule bodies so the
 // shot shows what real iOS PWA users see once the @media rule matches.
 await shootMobile(browser, { name: 'iphone-pwa-standalone',   displayMode: 'standalone', emulateIOS: true, forceStandaloneFix: true, reportComputed: true });
