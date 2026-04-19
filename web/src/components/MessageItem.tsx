@@ -3,7 +3,6 @@ import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { MENTION_TOKEN_REGEX } from '../lib/mentions';
-import { ncStyle } from '../lib/themeUtils';
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -31,7 +30,8 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     segments.push({ kind: 'mention', start, end: start + 1 + handle.length, handle });
   }
 
-  const inlineRegexG = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|_[^_]+_)/g;
+  // Order matters: longer/specific tokens first so `**` isn't eaten by `*`.
+  const inlineRegexG = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g;
   while ((m = inlineRegexG.exec(text)) !== null) {
     const raw = m[0];
     const start = m.index;
@@ -50,7 +50,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     }
     if (seg.kind === 'mention') {
       nodes.push(
-        <span key={`${keyPrefix}-m-${seg.start}`} className="bg-nc-cyan/10 text-nc-cyan font-semibold border border-nc-cyan/30 px-1 py-0.5 rounded-sm">
+        <span key={`${keyPrefix}-m-${seg.start}`} className="text-nc-cyan font-semibold">
           @{seg.handle}
         </span>
       );
@@ -58,12 +58,14 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
       const raw = seg.raw;
       if (raw.startsWith('`')) {
         nodes.push(
-          <code key={`${keyPrefix}-ic-${seg.start}`} className="bg-nc-black border border-nc-green/40 text-nc-green px-1.5 py-0.5 font-mono text-[0.8em] rounded-sm" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.25)' })}>
+          <code key={`${keyPrefix}-ic-${seg.start}`} className="bg-nc-green/10 text-nc-text-bright px-[2px] py-px font-mono text-[0.88em] rounded-sm">
             {raw.slice(1, -1)}
           </code>
         );
       } else if (raw.startsWith('**') || raw.startsWith('__')) {
-        nodes.push(<strong key={`${keyPrefix}-b-${seg.start}`} className="font-bold text-nc-text-bright">{raw.slice(2, -2)}</strong>);
+        nodes.push(<strong key={`${keyPrefix}-b-${seg.start}`} className="font-extrabold text-nc-text-bright">{raw.slice(2, -2)}</strong>);
+      } else if (raw.startsWith('~~')) {
+        nodes.push(<span key={`${keyPrefix}-s-${seg.start}`} className="line-through text-nc-muted">{raw.slice(2, -2)}</span>);
       } else if (raw.startsWith('*') || raw.startsWith('_')) {
         nodes.push(<em key={`${keyPrefix}-i-${seg.start}`} className="italic">{raw.slice(1, -1)}</em>);
       } else {
@@ -96,16 +98,23 @@ function parseMarkdown(content: string): React.ReactNode[] {
     const lang = match[1] || '';
     const code = match[2].trim();
     nodes.push(
-      <pre key={`cb-${key++}`} className="relative bg-nc-black border border-nc-green/25 rounded-sm my-3 overflow-x-auto max-w-full group">
+      <div key={`cb-${key++}`} className="relative my-3 border border-nc-green/25 rounded-sm bg-nc-black overflow-hidden">
         {lang && (
-          <div className="px-3 pt-1.5 pb-0 text-2xs font-mono text-nc-green/50 border-b border-nc-green/15 uppercase tracking-widest">
+          <div className="px-3 pt-1.5 pb-0 text-[0.7em] font-mono text-nc-green/70 border-b border-nc-green/15 uppercase tracking-widest">
             {lang}
           </div>
         )}
-        <code className="block px-3 py-2.5 font-mono text-xs text-nc-green leading-relaxed whitespace-pre" style={ncStyle({ textShadow: '0 0 5px rgb(var(--nc-green) / 0.25)' })}>
-          {code}
-        </code>
-      </pre>
+        <pre className="overflow-x-auto max-w-full">
+          <code className="block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre">
+            {code}
+          </code>
+        </pre>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 bottom-0 right-0 w-6"
+          style={{ background: 'linear-gradient(to left, rgb(var(--nc-black)) 20%, transparent)' }}
+        />
+      </div>
     );
     lastIndex = match.index + match[0].length;
   }
@@ -132,17 +141,27 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       continue;
     }
 
-    // ATX headers
-    const hMatch = line.match(/^(#{1,3})\s+(.*)/);
+    // ATX headers — support h1–h6 so `####+` never leaks raw to the reader.
+    // Sizes use `em` so the whole scale rides on .msg-body's font-size,
+    // guaranteeing headings are always larger than body regardless of the
+    // user's font-size preference (small/medium/large).
+    const hMatch = line.match(/^(#{1,6})\s+(.*)/);
     if (hMatch) {
       const level = hMatch[1].length;
-      const cls = level === 1
-        ? 'font-display font-black text-xl text-nc-text-bright mt-4 mb-2 tracking-wide'
-        : level === 2
-          ? 'font-display font-bold text-lg text-nc-text-bright mt-3 mb-1.5'
-          : 'font-display font-semibold text-base text-nc-text-bright mt-2 mb-1';
+      const sizeByLevel = ['1.5em', '1.3em', '1.15em', '1.05em', '1em', '1em'];
+      const weightByLevel = ['900', '800', '700', '700', '700', '700'];
+      const marginByLevel = ['1.4em 0 0.65em', '1.25em 0 0.6em', '1.1em 0 0.6em', '0.95em 0 0.55em', '0.8em 0 0.5em', '0.8em 0 0.5em'];
       nodes.push(
-        <div key={`h-${k++}`} className={cls}>
+        <div
+          key={`h-${k++}`}
+          className="font-display text-nc-text-bright tracking-wide"
+          style={{
+            fontSize: sizeByLevel[level - 1],
+            fontWeight: weightByLevel[level - 1] as unknown as number,
+            lineHeight: 1.3,
+            margin: marginByLevel[level - 1],
+          }}
+        >
           {renderInline(hMatch[2], `h-${k}`)}
         </div>
       );
@@ -158,7 +177,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
         i++;
       }
       nodes.push(
-        <blockquote key={`bq-${k++}`} className="border-l-2 border-nc-cyan/50 pl-3 my-2 text-nc-muted italic">
+        <blockquote key={`bq-${k++}`} className="border-l-[3px] border-nc-cyan/60 bg-nc-cyan/[0.04] pl-3 pr-2 py-1.5 my-2 text-nc-muted rounded-r-sm" style={{ lineHeight: 1.55 }}>
           {bqLines.map((l, idx) => (
             <p key={idx} className="my-0.5">{renderInline(l, `bq-${k}-${idx}`)}</p>
           ))}
@@ -174,19 +193,28 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       continue;
     }
 
-    // Unordered list
-    if (/^[-*+] /.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^[-*+] /.test(lines[i])) {
-        items.push(lines[i].slice(2));
+    // Unordered list — supports one level of nesting via 2-space indent
+    if (/^[-*+] /.test(line) || /^ {2,}[-*+] /.test(line)) {
+      type ListItem = { depth: 0 | 1; text: string };
+      const items: ListItem[] = [];
+      while (i < lines.length && (/^[-*+] /.test(lines[i]) || /^ {2,}[-*+] /.test(lines[i]))) {
+        const raw = lines[i];
+        const nested = /^ {2,}[-*+] /.test(raw);
+        items.push({ depth: nested ? 1 : 0, text: raw.replace(/^ {2,}[-*+] |^[-*+] /, '') });
         i++;
       }
       nodes.push(
-        <ul key={`ul-${k++}`} className="my-2 space-y-1 pl-4">
+        <ul key={`ul-${k++}`} className="my-1.5 pl-1" style={{ lineHeight: 1.55 }}>
           {items.map((item, idx) => (
-            <li key={idx} className="flex gap-2 text-nc-text leading-relaxed">
-              <span className="text-nc-cyan flex-shrink-0 mt-0.5">·</span>
-              <span>{renderInline(item, `ul-${k}-${idx}`)}</span>
+            <li
+              key={idx}
+              className="flex gap-2 text-nc-text"
+              style={{ paddingLeft: `${item.depth * 1.1}em` }}
+            >
+              <span className="text-nc-cyan flex-shrink-0 select-none" aria-hidden="true" style={{ width: '0.9em', textAlign: 'center' }}>
+                {item.depth === 0 ? '•' : '▸'}
+              </span>
+              <span className="flex-1">{renderInline(item.text, `ul-${k}-${idx}`)}</span>
             </li>
           ))}
         </ul>
@@ -202,11 +230,13 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
         i++;
       }
       nodes.push(
-        <ol key={`ol-${k++}`} className="my-2 space-y-1 pl-4">
+        <ol key={`ol-${k++}`} className="my-1.5 pl-1" style={{ lineHeight: 1.55 }}>
           {items.map((item, idx) => (
-            <li key={idx} className="flex gap-2 text-nc-text leading-relaxed">
-              <span className="text-nc-cyan font-mono text-xs flex-shrink-0 mt-0.5 min-w-[1.2em]">{idx + 1}.</span>
-              <span>{renderInline(item, `ol-${k}-${idx}`)}</span>
+            <li key={idx} className="flex gap-2 text-nc-text">
+              <span className="text-nc-cyan font-mono flex-shrink-0 tabular-nums" style={{ minWidth: '1.4em', textAlign: 'right' }}>
+                {idx + 1}.
+              </span>
+              <span className="flex-1">{renderInline(item, `ol-${k}-${idx}`)}</span>
             </li>
           ))}
         </ol>
@@ -219,9 +249,10 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
     while (
       i < lines.length &&
       lines[i].trim() !== '' &&
-      !lines[i].match(/^#{1,3}\s/) &&
+      !lines[i].match(/^#{1,6}\s/) &&
       !lines[i].startsWith('> ') &&
       !/^[-*+] /.test(lines[i]) &&
+      !/^ {2,}[-*+] /.test(lines[i]) &&
       !/^\d+\. /.test(lines[i]) &&
       !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim())
     ) {
@@ -231,7 +262,11 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
     if (paraLines.length > 0) {
       const paraText = paraLines.join('\n');
       nodes.push(
-        <p key={`p-${k++}`} className="text-nc-text leading-[1.75] my-1 whitespace-pre-wrap break-words" style={{ fontFamily: 'var(--nc-font-message)' }}>
+        <p
+          key={`p-${k++}`}
+          className="text-nc-text my-1 whitespace-pre-wrap break-words"
+          style={{ fontFamily: 'var(--nc-font-message)', lineHeight: 1.55, overflowWrap: 'anywhere' }}
+        >
           {renderInline(paraText, `p-${k}`)}
         </p>
       );
@@ -303,7 +338,7 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
 
   return (
     <div className="group relative px-4 sm:px-6 hover:bg-nc-elevated/40 transition-colors duration-100 overflow-hidden">
-      <div className={`flex gap-3 sm:gap-4 ${isGrouped ? 'py-0.5' : 'pt-4 pb-1'}`}>
+      <div className={`flex gap-3 sm:gap-4 ${isGrouped ? 'py-0.5' : 'pt-5 pb-1'}`}>
         {/* Avatar column */}
         {isGrouped ? (
           <div className="w-8 sm:w-9 flex-shrink-0 flex items-start justify-center">
