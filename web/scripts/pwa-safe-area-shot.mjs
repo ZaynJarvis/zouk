@@ -13,7 +13,14 @@ import { mkdirSync } from 'fs';
 import { resolve } from 'path';
 import { loadApp } from './qa-lib.mjs';
 
-const URL = process.env.ZOUK_URL || 'http://localhost:7777';
+const URL = process.env.ZOUK_URL || 'http://localhost:5188';
+
+const now = Date.now();
+const extraMessages = [
+  { type: 'new_message', message: { id: 'm1', channel_name: 'all', channel_type: 'channel', sender_name: 'zaynjarvis', sender_type: 'human', content: 'Hey team, pushing a composer polish fix today.', timestamp: new Date(now - 120000).toISOString() } },
+  { type: 'new_message', message: { id: 'm2', channel_name: 'all', channel_type: 'channel', sender_name: 'hela-bot', sender_type: 'agent', content: 'Removing distinct bg band so chat bg extends seamlessly to the home indicator.', timestamp: new Date(now - 90000).toISOString() } },
+  { type: 'new_message', message: { id: 'm3', channel_name: 'all', channel_type: 'channel', sender_name: 'qa-bot', sender_type: 'agent', content: 'Standing by for re-eval with PWA screenshots.', timestamp: new Date(now - 60000).toISOString() } },
+];
 const OUT = resolve(process.cwd(), 'qa-screenshots');
 mkdirSync(OUT, { recursive: true });
 
@@ -65,9 +72,9 @@ const ctx = await browser.newContext({
 });
 const page = await ctx.newPage();
 await page.addStyleTag({ content: SAFE_AREA_CSS }).catch(() => {});
-await loadApp(page, URL);
+await loadApp(page, URL, { extraMessages });
 await page.addStyleTag({ content: SAFE_AREA_CSS });
-await page.waitForTimeout(500);
+await page.waitForTimeout(600);
 const shot = resolve(OUT, 'pwa-safe-area.png');
 await page.screenshot({ path: shot, fullPage: false });
 console.log('Saved screenshot:', shot);
