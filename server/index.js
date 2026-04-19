@@ -1740,6 +1740,13 @@ function handleWebConnection(ws, authenticated, token = null) {
     webSockets.delete(ws);
     console.log("[web] Client disconnected");
   });
+
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "ping" }));
+    }
+  }, 30000);
+  ws.on("close", () => clearInterval(pingInterval));
 }
 
 function handleWebMessage(ws, msg) {

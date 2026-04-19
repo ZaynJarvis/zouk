@@ -6,6 +6,7 @@ import type {
 export type WsEventType =
   | 'init'
   | 'message' | 'new_message'
+  | 'ping'
   | 'agent_status'
   | 'agent_activity'
   | 'daemon_connected' | 'daemon_disconnected'
@@ -128,11 +129,13 @@ export type WsEvent =
 export type WsEventHandler = (event: WsEvent) => void;
 
 const PENDING_SEND_CAP = 100;
+const INBOUND_WATCHDOG_MS = 70_000;
 
 export class SlockWebSocket {
   private ws: WebSocket | null = null;
   private handlers: WsEventHandler[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private serverUrl: string;
   private _connected = false;
   private pendingSends: string[] = [];
@@ -171,11 +174,13 @@ export class SlockWebSocket {
 
     this.ws.onopen = () => {
       this._connected = true;
+      this.resetWatchdog();
       this.flushPending();
       this.emit({ type: 'ws:connected' });
     };
 
     this.ws.onmessage = (event) => {
+      this.resetWatchdog();
       try {
         const data = JSON.parse(event.data) as WsEvent;
         this.emit(data);
@@ -186,6 +191,7 @@ export class SlockWebSocket {
 
     this.ws.onclose = () => {
       this._connected = false;
+      this.clearWatchdog();
       this.emit({ type: 'ws:disconnected' });
       this.scheduleReconnect();
     };
@@ -200,6 +206,7 @@ export class SlockWebSocket {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearWatchdog();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -253,5 +260,24 @@ export class SlockWebSocket {
       this.reconnectTimer = null;
       this.connect();
     }, 3000);
+  }
+
+  private resetWatchdog(): void {
+    this.clearWatchdog();
+    this.watchdogTimer = setTimeout(() => {
+      this._connected = false;
+      try {
+        this.ws?.close();
+      } catch {
+        // ignore close failures; reconnect path below will recover
+      }
+    }, INBOUND_WATCHDOG_MS);
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdogTimer) {
+      clearTimeout(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
   }
 }
