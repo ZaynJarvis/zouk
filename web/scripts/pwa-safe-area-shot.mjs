@@ -60,6 +60,7 @@ const ctx = await browser.newContext({
   deviceScaleFactor: 3,
   isMobile: true,
   hasTouch: true,
+  bypassCSP: true,
   userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
 });
 const page = await ctx.newPage();
