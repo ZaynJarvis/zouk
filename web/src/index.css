@@ -77,7 +77,7 @@
 
   html { --chat-max-width: 56rem; }
   html[data-chat-width="6xl"] { --chat-max-width: 72rem; }
-  html[data-chat-width="9xl"] { --chat-max-width: 96rem; }
+  html[data-chat-width="9xl"] { --chat-max-width: 100%; }
 
   body {
     margin: 0;

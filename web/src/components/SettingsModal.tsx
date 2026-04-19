@@ -165,7 +165,7 @@ export default function SettingsModal() {
       <GlitchTransition active={glitchActive} duration={400} onComplete={handleGlitchComplete} themeAgnostic />
 
       <div className={`cyber-panel w-full max-w-3xl h-[80vh] flex flex-col sm:flex-row overflow-hidden animate-bounce-in ${nc ? 'cyber-bevel' : ''}`}>
-        <div className={`w-full sm:w-48 shrink-0 flex flex-row sm:flex-col bg-nc-deep ${brutalist ? 'border-b-[3px] sm:border-b-0 sm:border-r-[3px] border-nc-border-bright' : 'border-b sm:border-b-0 sm:border-r border-nc-border'}`}>
+        <div className={`w-full sm:w-48 shrink-0 flex flex-row sm:flex-col bg-nc-deep order-last sm:order-first ${brutalist ? 'border-t-[3px] sm:border-t-0 sm:border-r-[3px] border-nc-border-bright' : 'border-t sm:border-t-0 sm:border-r border-nc-border'}`}>
           <div className={`hidden sm:flex h-14 items-center px-4 ${borderB}`}>
             {nc
               ? <h2 className="font-display font-black text-sm text-nc-cyan neon-cyan tracking-wider">SETTINGS</h2>
@@ -294,20 +294,24 @@ export default function SettingsModal() {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-nc-border">
+                <div className="hidden sm:block pt-4 border-t border-nc-border">
                   <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Chat Width</label>
                   <div className="flex gap-2">
-                    {(['4xl', '6xl', '9xl'] as const).map(width => (
+                    {([
+                      { id: '4xl', label: 'Normal' },
+                      { id: '6xl', label: 'Wide' },
+                      { id: '9xl', label: 'Full Screen' },
+                    ] as const).map(({ id, label }) => (
                       <button
-                        key={width}
-                        onClick={() => savePrefs({ chatWidth: width })}
+                        key={id}
+                        onClick={() => savePrefs({ chatWidth: id })}
                         className={`flex-1 py-2 text-sm font-bold border transition-all ${
-                          prefs.chatWidth === width
+                          prefs.chatWidth === id
                             ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan'
                             : 'text-nc-muted border-nc-border hover:border-nc-cyan/50'
                         }`}
                       >
-                        {width.toUpperCase()}
+                        {label}
                       </button>
                     ))}
                   </div>

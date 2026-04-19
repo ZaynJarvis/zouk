@@ -86,7 +86,7 @@ export default function LoginScreen() {
   const nc = theme === 'night-city';
 
   return (
-    <div className="login-shell flex items-center justify-center bg-nc-black font-body cyber-scanlines">
+    <div className="login-shell flex sm:items-center items-start justify-center bg-nc-black font-body cyber-scanlines">
       <GlitchTransition
         active={glitchActive}
         duration={500}
@@ -100,11 +100,11 @@ export default function LoginScreen() {
         }} />
       )}
 
-      <div className="relative z-10 w-full max-w-sm">
-        <div className="cyber-panel p-8 cyber-bevel">
+      <div className="relative z-10 w-full sm:max-w-sm">
+        <div className="sm:cyber-panel sm:p-8 sm:cyber-bevel p-5 pt-8">
           {nc && <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-nc-cyan/40 to-transparent" />}
 
-          <div className="mb-8">
+          <div className="mb-4 sm:mb-8">
             <ScrambleTitle nc={nc} />
             <p className={`text-sm text-nc-muted text-center mt-2 ${nc ? 'tracking-[0.15em] uppercase font-medium' : ''}`}>
               {nc ? 'Jack into the system' : 'Sign in to continue'}
@@ -175,13 +175,13 @@ export default function LoginScreen() {
           </ScanlineTear>
 
 
-          <div className="mt-6 flex items-center gap-3">
+          <div className="mt-4 hidden sm:flex items-center gap-3">
             <div className="h-px flex-1 bg-nc-border" />
             <span className="text-2xs text-nc-muted/60 font-mono">THEME</span>
             <div className="h-px flex-1 bg-nc-border" />
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-3">
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-1 gap-3">
             {themes.map((t) => {
               const Btn = t.ThemeSelectButton;
               return (

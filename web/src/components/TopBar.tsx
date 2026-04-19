@@ -1,4 +1,4 @@
-import { Hash, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, Home, Cpu, FolderOpen, Settings } from 'lucide-react';
+import { Hash, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, Home, Cpu, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -48,18 +48,6 @@ export default function TopBar() {
             aria-label="Agents"
           >
             <Cpu size={16} />
-          </button>
-        </ScanlineTear>
-
-        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-          <button
-            onClick={() => setRightPanel(rightPanel === 'workspace' ? null : 'workspace')}
-            className={`w-8 h-8 border flex items-center justify-center ${nc ? 'cyber-btn border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-magenta' : carbon ? 'border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright' : wapo ? 'border-nc-border text-nc-red hover:bg-nc-elevated' : 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright'} ${rightPanel === 'workspace' ? (nc ? 'border-nc-magenta text-nc-magenta' : wapo ? 'bg-nc-yellow text-nc-surface' : carbon ? 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta' : 'bg-nc-cyan text-nc-text-bright border-nc-border-bright') : ''}`}
-            title="Workspace"
-            aria-label="Workspace"
-            aria-pressed={rightPanel === 'workspace'}
-          >
-            <FolderOpen size={16} />
           </button>
         </ScanlineTear>
 
