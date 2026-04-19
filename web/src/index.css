@@ -266,10 +266,19 @@
     height: 100dvh;
     overflow: hidden;
     overscroll-behavior: none;
-    padding-top: env(safe-area-inset-top, 0px);
     padding-right: env(safe-area-inset-right, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
     padding-left: env(safe-area-inset-left, 0px);
+  }
+
+  /* Edge-to-edge chrome: let the TopBar, sidebar header, and composer extend
+     their backgrounds under the iOS status bar and home indicator so the
+     safe-area insets become tinted chrome instead of dead black bands. */
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
 }

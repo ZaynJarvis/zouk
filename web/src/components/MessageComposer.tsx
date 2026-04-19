@@ -192,16 +192,19 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   if (isGuest) {
     return (
-      <div className="px-5 pb-4 pt-2">
-        <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
-          Sign in with Google to send messages
+      <div className="flex-shrink-0">
+        <div className="px-5 pt-2">
+          <div className="safe-bottom flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
+            Sign in with Google to send messages
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="px-4 sm:px-6 pb-4 pt-2 relative max-w-4xl mx-auto w-full">
+    <div className="flex-shrink-0">
+    <div className="px-4 sm:px-6 pt-1 sm:pt-2 relative max-w-4xl mx-auto w-full">
       {mentionQuery !== null && mentionMatches.length > 0 && (
         <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
           {mentionMatches.map((match, i) => (
@@ -230,8 +233,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         </div>
       )}
 
-      <div className={`flex flex-col border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
-        {/* Textarea */}
+      <div className={`safe-bottom flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
         <textarea
           ref={textareaRef}
           value={text}
@@ -240,21 +242,16 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           onKeyDown={handleKeyDown}
           placeholder={placeholder || `Message ${channelLabel}`}
           rows={1}
-          className="composer-textarea flex-1 px-3 pt-3 pb-1 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[44px]"
+          className="composer-textarea flex-1 min-w-0 px-3 py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[40px]"
         />
 
-        {/* Toolbar row */}
-        <div className="flex items-center gap-1 px-2 pb-1.5">
-          <div className="flex-1" />
-
-          {/* Hint text */}
+        <div className="flex items-center gap-2 px-2 pb-1.5 flex-shrink-0">
           {!text.trim() && (
             <span className="text-2xs text-nc-muted/50 font-mono hidden sm:block">
               Enter to send · Shift+Enter for newline
             </span>
           )}
 
-          {/* Send button */}
           <button
             onClick={handleSubmit}
             disabled={!text.trim()}
@@ -271,6 +268,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </button>
         </div>
       </div>
+    </div>
     </div>
   );
 }

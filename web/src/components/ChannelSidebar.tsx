@@ -75,8 +75,8 @@ export default function ChannelSidebar() {
 
   return (
     <div className={`w-[260px] h-full flex flex-col overflow-hidden ${nc || carbon ? 'bg-nc-surface border-r border-nc-border' : wapo ? 'bg-nc-surface border-r border-nc-border' : 'bg-nc-panel border-r-[3px] border-nc-border-bright'}`}>
-      <div className={`px-3 h-14 flex flex-col justify-center ${nc || carbon ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
-        <div className="flex items-center justify-between">
+      <div className={`safe-top flex-shrink-0 ${nc || carbon ? 'border-b border-nc-border' : wapo ? 'bg-[#f7f0e6] border-b border-nc-border' : 'border-b-[3px] border-nc-border-bright'}`}>
+        <div className="px-3 h-14 flex items-center justify-between">
           {nc
             ? <GlitchText as="h2" className="font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider" intensity="low">ZOUK</GlitchText>
             : carbon
