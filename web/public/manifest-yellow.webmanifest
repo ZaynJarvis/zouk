@@ -6,17 +6,17 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0A0A0F",
-  "theme_color": "#0A0A0F",
+  "background_color": "#fffcf5",
+  "theme_color": "#fffcf5",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "/icon-192-yellow.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/icon-512-yellow.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
