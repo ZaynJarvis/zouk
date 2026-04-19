@@ -347,13 +347,17 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  .safe-bottom-fill {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
 }
 
-/* In iOS standalone PWAs, reserving the full safe-area inset under the
-   composer makes the box float too high. Let the composer keep its normal
-   mobile spacing and allow the page background to continue behind the home
-   indicator instead of creating a separate footer band. */
-html[data-display-mode="standalone"] .composer-outer.safe-bottom {
+/* In standalone PWAs, bottom safe-area space should not automatically push
+   interactive chrome upward. By default, disable bottom safe-area padding;
+   surfaces that should visually bleed into the safe area opt in separately
+   with .safe-bottom-fill. */
+html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 

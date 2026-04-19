@@ -159,7 +159,7 @@ export default function SettingsModal() {
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 animate-fade-in p-4"
+      className="fixed inset-0 bg-nc-black/70 flex items-center justify-center z-50 animate-fade-in p-4 safe-top safe-bottom"
       onClick={(e) => e.target === e.currentTarget && setSettingsOpen(false)}
     >
       <GlitchTransition active={glitchActive} duration={400} onComplete={handleGlitchComplete} themeAgnostic />

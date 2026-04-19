@@ -332,7 +332,7 @@ function SelfProfileFooter({
   const statusDot = wsConnected ? 'bg-nc-green' : 'bg-nc-muted/40';
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 flex-shrink-0 ${nc ? 'border-t border-nc-border bg-nc-panel/40' : 'border-t border-nc-border bg-nc-surface'}`}>
+    <div className={`safe-bottom-fill flex items-center gap-2 px-3 py-2 flex-shrink-0 ${nc ? 'border-t border-nc-border bg-nc-panel/40' : 'border-t border-nc-border bg-nc-surface'}`}>
       <div className="relative flex-shrink-0">
         <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden ${nc ? 'border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan' : 'border-nc-border bg-nc-elevated text-nc-text-bright'}`}>
           {pictureUrl ? (
