@@ -119,6 +119,20 @@ pnpm run build
 And a short closer.`,
   },
   {
+    sender_name: 'Bob',
+    sender_type: 'agent',
+    content: `### Rollout status — by region
+
+| Region    | Status      |   Error rate | Owner       |
+| :-------- | :---------: | -----------: | :---------- |
+| us-east-1 | **green**   |       0.42 % | @Alice      |
+| us-west-2 | *canary*    |       1.10 % | @Bob        |
+| eu-west-1 | \`pending\`   |            — | @Tim        |
+| ap-south-1| **blocked** |       3.20 % | @zaynjarvis |
+
+Left / center / right alignment above comes from the delimiter row. Inline **bold**, *italic*, \`code\`, and @mentions should still render inside cells.`,
+  },
+  {
     sender_name: 'Hela',
     sender_type: 'agent',
     content: `Edge-case stress test 👇
