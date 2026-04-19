@@ -308,6 +308,50 @@
 }
 
 /* ==========================================================================
+   iOS PWA composer bottom absorption (display-mode: standalone only)
+   --------------------------------------------------------------------------
+   In iOS PWA standalone mode, env(safe-area-inset-bottom) ≈ 34px (home
+   indicator zone). With .safe-bottom applied to the composer's outer
+   wrapper — as before — that 34px became padding below the bordered input,
+   which rendered as a dead strip of chat bg. Users reported: "the bottom
+   space is not used in PWA, it shows this weird space of color".
+
+   Correct pattern: the safe-area padding belongs on the VISIBLE element
+   (the bordered surface), so its own background fills the home-indicator
+   zone while internal flex items-end keeps the textarea baseline natural.
+   On PC and iOS Safari tab, env() returns 0 so these rules are no-ops;
+   the display-mode media query is a belt-and-suspenders isolation.
+
+   Pattern references (external proof per iOS-WebSocket research standard):
+   - MDN env() canonical sticky-footer example places safe-area on the
+     visible element:
+     https://developer.mozilla.org/en-US/docs/Web/CSS/env
+   - Same bug symptom and fix documented at:
+     https://github.com/ionic-team/ionic-framework/issues/29621
+     https://github.com/revoltchat/revite/issues/370
+     https://github.com/lobehub/lobehub/issues/10454
+   - Tailwind pb-safe utility recipe / discussion:
+     https://github.com/tailwindlabs/tailwindcss/discussions/12536
+   ========================================================================== */
+@media (display-mode: standalone) {
+  /* Outer wrapper stops claiming the safe-area as outer padding. */
+  .composer-outer.safe-bottom {
+    padding-bottom: 0;
+  }
+  /* Collapse the wrapper's bottom gap so the bordered surface reaches the
+     viewport edge. Top/side padding preserved. */
+  .composer-inner-pad {
+    padding-bottom: 0;
+  }
+  /* The bordered surface absorbs the safe-area inset: its bg fills the
+     home-indicator zone while items-end keeps children (textarea, send
+     button) above it at their natural position. */
+  .composer-surface {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* ==========================================================================
    Washington Post theme — editorial refinements
    ========================================================================== */
 
