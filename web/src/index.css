@@ -353,10 +353,8 @@
    composer makes the box float too high. Let the composer keep its normal
    mobile spacing and allow the page background to continue behind the home
    indicator instead of creating a separate footer band. */
-@media (display-mode: standalone) {
-  .composer-outer.safe-bottom {
-    padding-bottom: 0;
-  }
+html[data-display-mode="standalone"] .composer-outer.safe-bottom {
+  padding-bottom: 0;
 }
 
 /* ==========================================================================

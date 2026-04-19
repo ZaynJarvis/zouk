@@ -22,13 +22,18 @@
         var t=localStorage.getItem('zouk_theme');
         var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon')?t:'night-city';
         var isYellow=theme==='brutalist'||theme==='washington-post';
+        var isStandalone=false;
         var themeColors={
           'night-city':'#0a0a0f',
           'brutalist':'#fffcf5',
           'washington-post':'#f4eee3',
           'carbon':'#151515'
         };
+        try{
+          isStandalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
+        }catch(e){}
         document.documentElement.setAttribute('data-theme',theme);
+        document.documentElement.setAttribute('data-display-mode',isStandalone?'standalone':'browser');
         var favicon=document.querySelector("link[rel='icon']");
         if(favicon) favicon.href=isYellow?'/zouk.svg':'/zouk-night-city.svg';
         // PWA/touch icon + manifest are NOT theme-swapped: iOS Safari snapshots
