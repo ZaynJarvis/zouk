@@ -349,16 +349,13 @@
 
 }
 
-/* In iOS standalone PWAs, the full home-indicator inset below the composer
-   makes the input float too high. Keep the composer height unchanged and
-   cap that bottom gutter to the app's normal 0.5rem-1rem spacing scale. */
+/* In iOS standalone PWAs, reserving the full safe-area inset under the
+   composer makes the box float too high. Let the composer keep its normal
+   mobile spacing and allow the page background to continue behind the home
+   indicator instead of creating a separate footer band. */
 @media (display-mode: standalone) {
   .composer-outer.safe-bottom {
     padding-bottom: 0;
-  }
-
-  .composer-inner-pad {
-    padding-bottom: clamp(0.5rem, env(safe-area-inset-bottom, 0px), 1rem);
   }
 }
 
