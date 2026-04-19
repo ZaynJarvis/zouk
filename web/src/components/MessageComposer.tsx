@@ -192,9 +192,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   if (isGuest) {
     return (
-      <div className="flex-shrink-0">
-        <div className="px-5 pt-2">
-          <div className="safe-bottom flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
+      <div className="flex-shrink-0 safe-bottom bg-nc-elevated">
+        <div className="px-5 pt-2 pb-2 sm:pb-4">
+          <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
             Sign in with Google to send messages
           </div>
         </div>
@@ -203,8 +203,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }
 
   return (
-    <div className="flex-shrink-0">
-    <div className="px-4 sm:px-6 pt-1 sm:pt-2 relative max-w-[var(--chat-max-width)] mx-auto w-full">
+    <div className="flex-shrink-0 safe-bottom bg-nc-surface">
+    <div className="px-4 sm:px-6 pt-1 sm:pt-2 pb-2 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
       {mentionQuery !== null && mentionMatches.length > 0 && (
         <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
           {mentionMatches.map((match, i) => (
@@ -233,7 +233,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         </div>
       )}
 
-      <div className={`safe-bottom flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+      <div className={`flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
         <textarea
           ref={textareaRef}
           value={text}
