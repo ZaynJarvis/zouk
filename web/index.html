@@ -21,6 +21,7 @@
       (function(){
         var t=localStorage.getItem('zouk_theme');
         var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon')?t:'night-city';
+        var isYellow=theme==='brutalist'||theme==='washington-post';
         var themeColors={
           'night-city':'#0a0a0f',
           'brutalist':'#fffcf5',
@@ -29,7 +30,11 @@
         };
         document.documentElement.setAttribute('data-theme',theme);
         var favicon=document.querySelector("link[rel='icon']");
-        if(favicon) favicon.href=(theme==='brutalist'||theme==='washington-post')?'/zouk.svg':'/zouk-night-city.svg';
+        if(favicon) favicon.href=isYellow?'/zouk.svg':'/zouk-night-city.svg';
+        var touchIcon=document.querySelector("link[rel='apple-touch-icon']");
+        if(touchIcon) touchIcon.href=isYellow?'/apple-touch-icon-yellow.png':'/apple-touch-icon.png';
+        var manifest=document.querySelector("link[rel='manifest']");
+        if(manifest) manifest.href=isYellow?'/manifest-yellow.webmanifest':'/manifest.webmanifest';
         var themeMeta=document.querySelector("meta[name='theme-color']");
         if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#0a0a0f');
         try{var p=JSON.parse(localStorage.getItem('zouk_preferences')||'{}');if(p.fontSize&&p.fontSize!=='medium')document.documentElement.setAttribute('data-font-size',p.fontSize);}catch(e){}

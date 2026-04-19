@@ -1,0 +1,25 @@
+{
+  "name": "Zouk",
+  "short_name": "Zouk",
+  "description": "Team workspace for humans and agents.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fffcf5",
+  "theme_color": "#fffcf5",
+  "icons": [
+    {
+      "src": "/icon-192-yellow.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512-yellow.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
