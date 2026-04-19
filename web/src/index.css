@@ -349,6 +349,13 @@
   .composer-surface {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+  /* Night-city bevel cuts a 6px wedge at the bottom-left corner — normally
+     invisible when the composer has outer padding, but in PWA mode the
+     composer reaches the viewport edge and that wedge exposes chat bg.
+     Keep the top-right bevel, square off both bottom corners. */
+  html[data-theme="night-city"] .composer-surface.cyber-bevel-sm {
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
+  }
 }
 
 /* ==========================================================================
