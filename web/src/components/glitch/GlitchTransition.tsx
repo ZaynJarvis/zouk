@@ -62,7 +62,7 @@ export default function GlitchTransition({ active, duration = 600, onComplete, c
     }, 50);
 
     return () => clearInterval(interval);
-  }, [active, duration, generateBars, generateScramble, onComplete, themeAgnostic]);
+  }, [active, duration, generateBars, generateScramble, isNightCity, onComplete, themeAgnostic]);
 
   if (phase === 'idle') return <>{children}</>;
 

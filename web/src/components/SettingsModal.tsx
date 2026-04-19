@@ -150,6 +150,10 @@ export default function SettingsModal() {
     { key: 'providers', label: 'PROVIDERS', icon: Server },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
+  const currentNavItem = navItems.find((item) => item.key === section) ?? navItems[0];
+  const sectionTitle = nc
+    ? currentNavItem.label
+    : currentNavItem.label.charAt(0) + currentNavItem.label.slice(1).toLowerCase();
 
   const presetCount = profilePresets.length;
   const atPresetLimit = presetCount >= PROFILE_PRESET_MAX;
@@ -199,7 +203,7 @@ export default function SettingsModal() {
         <div className="flex-1 flex flex-col min-h-0">
           <div className={`hidden sm:flex h-14 items-center justify-between px-6 ${borderB}`}>
             <h3 className={`font-display font-bold text-base text-nc-text-bright ${nc ? 'tracking-wider' : 'capitalize'}`}>
-              {nc ? navItems.find(n => n.key === section)?.label : navItems.find(n => n.key === section)?.label.charAt(0).toUpperCase()! + navItems.find(n => n.key === section)?.label.slice(1).toLowerCase()}
+              {sectionTitle}
             </h3>
             <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
               <button

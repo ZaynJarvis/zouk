@@ -12,6 +12,7 @@ import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
 import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
+import { isMobileViewport } from './lib/layout';
 
 function GoogleAuthSync() {
   const { setHasGoogleAuth } = useApp();
@@ -23,7 +24,7 @@ function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
   useEffect(() => {
-    const onResize = () => { if (window.innerWidth < 1024) setSidebarOpen(false); };
+    const onResize = () => { if (isMobileViewport()) setSidebarOpen(false); };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [setSidebarOpen]);

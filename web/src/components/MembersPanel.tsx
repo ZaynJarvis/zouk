@@ -1,14 +1,7 @@
 import { X, Search, User, Bot } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
-
-const activityColors: Record<string, string> = {
-  thinking: 'bg-nc-yellow animate-pulse',
-  working: 'bg-nc-red animate-pulse',
-  online: 'bg-nc-green',
-  offline: 'bg-nc-muted/30',
-  error: 'bg-nc-red',
-};
+import { activityColors } from '../lib/activityStatus';
 
 export default function MembersPanel() {
   const { humans, agents, messages, closeRightPanel } = useApp();

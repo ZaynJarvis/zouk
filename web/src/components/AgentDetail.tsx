@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, memo, useRef } from 'react';
+import { useState, useEffect, useCallback, memo, useRef, useMemo } from 'react';
 import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, File, Folder, ChevronRight, ArrowLeft, RefreshCw, Server, Trash2, Camera } from 'lucide-react';
 import type { ServerAgent, ServerMachine, Skill, WorkspaceFile } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
+import { activityColors, activityLabels, getActivityColor } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { resizeAndEncode } from '../lib/imageEncode';
@@ -15,22 +16,6 @@ const TAB_CONFIG: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: 'activity', label: 'ACTIVITY', icon: Activity },
   { key: 'settings', label: 'CONFIG', icon: Settings },
 ];
-
-const activityColors: Record<string, string> = {
-  thinking: 'bg-nc-yellow animate-pulse',
-  working: 'bg-nc-red animate-pulse',
-  online: 'bg-nc-green',
-  offline: 'bg-nc-muted/30',
-  error: 'bg-nc-red',
-};
-
-const activityLabels: Record<string, string> = {
-  thinking: 'THINKING',
-  working: 'WORKING',
-  online: 'ONLINE',
-  offline: 'OFFLINE',
-  error: 'ERROR',
-};
 
 const AVAILABLE_SKILLS: Skill[] = [
   { id: 's1', name: 'Code Review', description: 'Reviews code for quality and security issues' },
@@ -253,8 +238,8 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   const { wsTreeCache, workspaceFileContent, requestWorkspaceFiles, requestFileContent } = useApp();
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
-  const agentCache = wsTreeCache[agent.id] || {};
-  const rootFiles = agentCache[''] || [];
+  const agentCache = useMemo(() => wsTreeCache[agent.id] || {}, [wsTreeCache, agent.id]);
+  const rootFiles = useMemo(() => agentCache[''] || [], [agentCache]);
 
   useEffect(() => {
     if (agent.status === 'active') {
@@ -391,7 +376,7 @@ function ActivityTab({ agent }: { agent: ServerAgent }) {
               {entry.kind === 'text' && <span>{entry.text}</span>}
               {entry.kind === 'status' && (
                 <span className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 ${activityColors[entry.activity || 'offline']}`} />
+                  <span className={`w-1.5 h-1.5 ${getActivityColor(entry.activity)}`} />
                   [{entry.activity}] {entry.detail || ''}
                 </span>
               )}

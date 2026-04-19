@@ -5,25 +5,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, WorkspaceFile } from '../types';
+import { activityColors, activityLabels, getActivityColor } from '../lib/activityStatus';
 import { formatRuntime } from '../lib/runtimeLabels';
 
 type Tab = 'profile' | 'workspace' | 'activity';
-
-const activityColors: Record<string, string> = {
-  thinking: 'bg-nc-yellow animate-pulse',
-  working: 'bg-nc-red animate-pulse',
-  online: 'bg-nc-green',
-  offline: 'bg-nc-muted/30',
-  error: 'bg-nc-red',
-};
-
-const activityLabels: Record<string, string> = {
-  thinking: 'THINKING',
-  working: 'WORKING',
-  online: 'ONLINE',
-  offline: 'OFFLINE',
-  error: 'ERROR',
-};
 
 const TAB_CONFIG: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: 'profile', label: 'PROFILE', icon: UserIcon },
@@ -113,7 +98,7 @@ const TreeNode = memo(function TreeNode({
 });
 
 function ProfileTab({ agent }: { agent: ServerAgent }) {
-  const { machines, setAgentSettingsId, setRightPanel, selectChannel } = useApp();
+  const { machines, openAgentSettings, selectChannel } = useApp();
   const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
   const activity = agent.activity || 'offline';
   const isActive = agent.status === 'active';
@@ -151,7 +136,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
           <MessageCircle size={12} /> MESSAGE
         </button>
         <button
-          onClick={() => { setAgentSettingsId(agent.id); setRightPanel('agent_settings'); }}
+          onClick={() => openAgentSettings(agent.id)}
           className="cyber-btn flex items-center gap-1.5 px-3 py-1.5 border border-nc-border bg-nc-panel text-xs font-bold text-nc-muted hover:text-nc-cyan hover:border-nc-cyan font-mono"
         >
           <SettingsIcon size={12} /> CONFIG
@@ -333,7 +318,7 @@ function ActivityTab({ agent }: { agent: ServerAgent }) {
           {entry.kind === 'text' && <span>{entry.text}</span>}
           {entry.kind === 'status' && (
             <span className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 ${activityColors[entry.activity || 'offline']}`} />
+              <span className={`w-1.5 h-1.5 ${getActivityColor(entry.activity)}`} />
               [{entry.activity}] {entry.detail || ''}
             </span>
           )}

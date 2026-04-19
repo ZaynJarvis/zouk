@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import {
   FolderOpen, File, Folder, ChevronRight, RefreshCw, X, ArrowLeft,
   ChevronDown, Eye,
@@ -168,8 +168,8 @@ function FileTree({
 }) {
   const { wsTreeCache, requestWorkspaceFiles } = useApp();
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
-  const agentCache = wsTreeCache[agent.id] || {};
-  const rootFiles = agentCache[''] || [];
+  const agentCache = useMemo(() => wsTreeCache[agent.id] || {}, [wsTreeCache, agent.id]);
+  const rootFiles = useMemo(() => agentCache[''] || [], [agentCache]);
 
   useEffect(() => {
     if (agent.status === 'active') {

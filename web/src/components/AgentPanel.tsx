@@ -2,19 +2,13 @@ import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings } from 
 import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
+import { activityColors } from '../lib/activityStatus';
+import { isMobileViewport } from '../lib/layout';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
 import ScanlineTear from './glitch/ScanlineTear';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
-
-const activityColors: Record<string, string> = {
-  thinking: 'bg-nc-yellow animate-pulse',
-  working: 'bg-nc-red animate-pulse',
-  online: 'bg-nc-green',
-  offline: 'bg-nc-muted/30',
-  error: 'bg-nc-red',
-};
 
 function AgentListItem({
   agent,
@@ -184,13 +178,13 @@ export default function AgentsView() {
   const handleSelectAgent = (id: string) => {
     setSelectedAgentId(id);
     setAgentDetailTab('instructions');
-    if (window.innerWidth < 1024) setMobileShowDetail(true);
+    if (isMobileViewport()) setMobileShowDetail(true);
   };
 
   const handleOpenAgentSettings = (id: string) => {
     setSelectedAgentId(id);
     setAgentDetailTab('settings');
-    if (window.innerWidth < 1024) setMobileShowDetail(true);
+    if (isMobileViewport()) setMobileShowDetail(true);
   };
 
   const handleDeleteAgent = async () => {
@@ -200,11 +194,11 @@ export default function AgentsView() {
     if (!confirmed) return;
     await deleteAgent(selected.id);
     setSelectedAgentId((current) => (current === selected.id ? null : current));
-    if (window.innerWidth < 1024) setMobileShowDetail(false);
+    if (isMobileViewport()) setMobileShowDetail(false);
   };
 
   useEffect(() => {
-    if (agentDetailTab === 'settings' && window.innerWidth < 1024 && selected) {
+    if (agentDetailTab === 'settings' && isMobileViewport() && selected) {
       setMobileShowDetail(true);
     }
   }, [agentDetailTab, selected]);

@@ -9,6 +9,7 @@ import type { WsEvent } from '../lib/ws';
 import * as api from '../lib/api';
 import { normalizeMessage } from '../lib/api';
 import type { AuthUser } from '../lib/api';
+import { isMobileViewport } from '../lib/layout';
 import { applyTheme } from '../themes';
 
 const CURRENT_USER_KEY = 'zouk_current_user';
@@ -419,15 +420,18 @@ export function useAppStore() {
     }
   }, [loadingOlderMessages, hasMoreMessages]);
 
+  const closeSidebarOnMobile = useCallback(() => {
+    if (isMobileViewport()) setSidebarOpen(false);
+  }, []);
+
   const selectChannel = useCallback((name: string, isDm = false) => {
     setActiveChannelName(name);
     setViewMode(isDm ? 'dm' : 'channel');
     setThreadMessages([]);
     setActiveThreadMessage(null);
     if (rightPanel === 'thread') setRightPanel(null);
-    // Auto-close sidebar on mobile
-    if (window.innerWidth < 1024) setSidebarOpen(false);
-  }, [rightPanel]);
+    closeSidebarOnMobile();
+  }, [closeSidebarOnMobile, rightPanel]);
 
   const sendMessageAction = useCallback(async (content: string, threadTarget?: string) => {
     const isDm = viewModeRef.current === 'dm';
@@ -464,8 +468,14 @@ export function useAppStore() {
   const openAgentProfile = useCallback((agentId: string) => {
     setAgentProfileId(agentId);
     setRightPanel('agent_profile');
-    if (window.innerWidth < 1024) setSidebarOpen(false);
-  }, []);
+    closeSidebarOnMobile();
+  }, [closeSidebarOnMobile]);
+
+  const openAgentSettings = useCallback((agentId: string) => {
+    setAgentSettingsId(agentId);
+    setRightPanel('agent_settings');
+    closeSidebarOnMobile();
+  }, [closeSidebarOnMobile]);
 
   const createChannelAction = useCallback(async (name: string) => {
     try {
@@ -672,7 +682,7 @@ export function useAppStore() {
     agentDetailTab, setAgentDetailTab,
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
-    agentProfileId, setAgentProfileId, openAgentProfile,
+    agentProfileId, setAgentProfileId, openAgentProfile, openAgentSettings,
     activeThreadMessage, openThread, closeRightPanel,
     settingsOpen, setSettingsOpen,
     sidebarOpen, setSidebarOpen,

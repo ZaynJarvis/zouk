@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import { activityColors } from '../lib/activityStatus';
+import { isMobileViewport } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
 
@@ -30,12 +32,12 @@ export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
-    authUser, setSidebarOpen, setAgentSettingsId, setRightPanel, openAgentProfile,
+    authUser, setSidebarOpen, openAgentProfile, openAgentSettings,
   } = useApp();
 
   const pick = (name: string, isDm?: boolean) => {
     selectChannel(name, isDm);
-    if (window.innerWidth < 1024) setSidebarOpen(false);
+    if (isMobileViewport()) setSidebarOpen(false);
   };
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -59,14 +61,6 @@ export default function ChannelSidebar() {
     createChannel(name);
     setNewChannelName('');
     setShowCreateChannel(false);
-  };
-
-  const activityColors: Record<string, string> = {
-    thinking: 'bg-nc-yellow animate-pulse',
-    working: 'bg-nc-red animate-pulse',
-    online: 'bg-nc-green',
-    offline: 'bg-nc-muted/30',
-    error: 'bg-nc-red',
   };
 
   const nc = isNightCity();
@@ -243,9 +237,7 @@ export default function ChannelSidebar() {
                       role="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setAgentSettingsId(agent.id);
-                        setRightPanel('agent_settings');
-                        if (window.innerWidth < 1024) setSidebarOpen(false);
+                        openAgentSettings(agent.id);
                       }}
                       className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all"
                       title={`Configure ${agent.displayName || agent.name}`}
