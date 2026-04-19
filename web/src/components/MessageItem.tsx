@@ -3,6 +3,7 @@ import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { MENTION_TOKEN_REGEX } from '../lib/mentions';
+import { highlightCode } from '../lib/highlight';
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -97,6 +98,7 @@ function parseMarkdown(content: string): React.ReactNode[] {
     }
     const lang = match[1] || '';
     const code = match[2].trim();
+    const highlighted = highlightCode(code, lang);
     nodes.push(
       <div key={`cb-${key++}`} className="relative my-3 border border-nc-green/25 rounded-sm bg-nc-black overflow-hidden">
         {lang && (
@@ -105,9 +107,16 @@ function parseMarkdown(content: string): React.ReactNode[] {
           </div>
         )}
         <pre className="overflow-x-auto max-w-full">
-          <code className="block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre">
-            {code}
-          </code>
+          {highlighted ? (
+            <code
+              className="hljs block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre"
+              dangerouslySetInnerHTML={{ __html: highlighted }}
+            />
+          ) : (
+            <code className="block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre">
+              {code}
+            </code>
+          )}
         </pre>
         <div
           aria-hidden="true"

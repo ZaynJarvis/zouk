@@ -75,6 +75,48 @@
      shout — keeps the literary register Alice called out in R3. */
   .msg-body blockquote strong { font-weight: 700; }
 
+  /* Syntax highlighting — neon theme mapping hljs classes onto zouk's
+     nc-* palette. Scoped to .msg-body so it only affects chat code blocks.
+     Applied by MessageItem when a language fence matches a registered hljs
+     language (best-effort — unknown / no-lang blocks render plain). */
+  .msg-body .hljs { color: rgb(var(--nc-text-bright)); background: transparent; }
+  .msg-body .hljs-comment,
+  .msg-body .hljs-quote { color: rgb(var(--nc-muted)); font-style: italic; }
+  .msg-body .hljs-keyword,
+  .msg-body .hljs-selector-tag,
+  .msg-body .hljs-literal,
+  .msg-body .hljs-section,
+  .msg-body .hljs-doctag,
+  .msg-body .hljs-type,
+  .msg-body .hljs-name,
+  .msg-body .hljs-strong { color: rgb(var(--nc-cyan)); }
+  .msg-body .hljs-string,
+  .msg-body .hljs-regexp,
+  .msg-body .hljs-addition,
+  .msg-body .hljs-attribute,
+  .msg-body .hljs-meta-string { color: rgb(var(--nc-green)); }
+  .msg-body .hljs-number,
+  .msg-body .hljs-built_in,
+  .msg-body .hljs-variable,
+  .msg-body .hljs-template-variable,
+  .msg-body .hljs-link,
+  .msg-body .hljs-symbol,
+  .msg-body .hljs-bullet { color: rgb(var(--nc-yellow)); }
+  .msg-body .hljs-title,
+  .msg-body .hljs-title.class_,
+  .msg-body .hljs-title.function_,
+  .msg-body .hljs-class .hljs-title { color: rgb(var(--nc-text-bright)); font-weight: 600; }
+  .msg-body .hljs-attr,
+  .msg-body .hljs-tag,
+  .msg-body .hljs-selector-id,
+  .msg-body .hljs-selector-class,
+  .msg-body .hljs-selector-attr,
+  .msg-body .hljs-selector-pseudo { color: rgb(var(--nc-magenta)); }
+  .msg-body .hljs-deletion { color: rgb(var(--nc-red)); }
+  .msg-body .hljs-meta,
+  .msg-body .hljs-meta-keyword { color: rgb(var(--nc-muted)); }
+  .msg-body .hljs-emphasis { font-style: italic; }
+
   html { --chat-max-width: 56rem; }
   html[data-chat-width="6xl"] { --chat-max-width: 72rem; }
   html[data-chat-width="9xl"] { --chat-max-width: 96rem; }
