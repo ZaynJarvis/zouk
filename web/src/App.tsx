@@ -20,6 +20,12 @@ function GoogleAuthSync() {
   return null;
 }
 
+function AllowlistSync({ active }: { active: boolean }) {
+  const { setAllowlistActive } = useApp();
+  useEffect(() => { setAllowlistActive(active); }, [active, setAllowlistActive]);
+  return null;
+}
+
 function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
@@ -86,12 +92,14 @@ function AppShell() {
 
 function AppWithAuth() {
   const [clientId, setClientId] = useState<string | null>(null);
+  const [allowlistActive, setAllowlistActive] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     api.getAuthConfig()
-      .then(({ googleClientId }) => {
+      .then(({ googleClientId, allowlistActive }) => {
         setClientId(googleClientId || null);
+        setAllowlistActive(!!allowlistActive);
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
@@ -104,6 +112,7 @@ function AppWithAuth() {
       <GoogleOAuthProvider clientId={clientId}>
         <AppProvider>
           <GoogleAuthSync />
+          <AllowlistSync active={allowlistActive} />
           <AppShell />
         </AppProvider>
       </GoogleOAuthProvider>
@@ -112,6 +121,7 @@ function AppWithAuth() {
 
   return (
     <AppProvider>
+      <AllowlistSync active={allowlistActive} />
       <AppShell />
     </AppProvider>
   );

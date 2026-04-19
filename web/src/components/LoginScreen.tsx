@@ -52,7 +52,7 @@ function ScrambleTitle({ nc }: { nc: boolean }) {
 }
 
 export default function LoginScreen() {
-  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, theme, setTheme } = useApp();
+  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, allowlistActive, theme, setTheme } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [glitchActive, setGlitchActive] = useState(false);
@@ -69,8 +69,9 @@ export default function LoginScreen() {
     setPendingAction('google');
     try {
       await loginWithGoogle(credential);
-    } catch {
-      setError('Google sign-in failed. Is GOOGLE_CLIENT_ID configured on the server?');
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : 'Google sign-in failed.';
+      setError(message);
       setLoading(false);
     }
   }, [loginWithGoogle]);
@@ -136,15 +137,17 @@ export default function LoginScreen() {
                 />
               </div>
 
-              <div className="flex items-center gap-3 w-full mb-4">
-                <div className="flex-1 h-px bg-nc-border" />
-                <span className="text-xs text-nc-muted uppercase tracking-wider">or</span>
-                <div className="flex-1 h-px bg-nc-border" />
-              </div>
+              {!allowlistActive && (
+                <div className="flex items-center gap-3 w-full mb-4">
+                  <div className="flex-1 h-px bg-nc-border" />
+                  <span className="text-xs text-nc-muted uppercase tracking-wider">or</span>
+                  <div className="flex-1 h-px bg-nc-border" />
+                </div>
+              )}
             </>
           )}
 
-          {!hasGoogleAuth && nc && (
+          {!hasGoogleAuth && !allowlistActive && nc && (
             <div className="space-y-3 mb-6">
               <div className="flex items-center gap-2 text-2xs text-nc-muted uppercase tracking-wider">
                 <div className="h-px flex-1 bg-nc-border" />
@@ -154,25 +157,27 @@ export default function LoginScreen() {
             </div>
           )}
 
-          <ScanlineTear className="w-full" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={handleGuestLogin}
-              disabled={loading}
-              className={nc
-                ? "cyber-btn-lg w-full py-3 px-4 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-display font-bold text-sm tracking-[0.15em] uppercase hover:bg-nc-cyan/20 hover:shadow-nc-cyan active:bg-nc-cyan/30 disabled:opacity-50"
-                : "cyber-btn-lg w-full py-2.5 px-4 bg-nc-panel border border-nc-border-bright text-nc-text-bright font-bold text-sm hover:bg-nc-yellow disabled:opacity-50"
-              }
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
-                  {nc ? 'Connecting...' : 'Connecting...'}
-                </span>
-              ) : (
-                nc ? 'Initialize Guest Session' : 'Continue as Guest'
-              )}
-            </button>
-          </ScanlineTear>
+          {!allowlistActive && (
+            <ScanlineTear className="w-full" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={handleGuestLogin}
+                disabled={loading}
+                className={nc
+                  ? "cyber-btn-lg w-full py-3 px-4 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-display font-bold text-sm tracking-[0.15em] uppercase hover:bg-nc-cyan/20 hover:shadow-nc-cyan active:bg-nc-cyan/30 disabled:opacity-50"
+                  : "cyber-btn-lg w-full py-2.5 px-4 bg-nc-panel border border-nc-border-bright text-nc-text-bright font-bold text-sm hover:bg-nc-yellow disabled:opacity-50"
+                }
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
+                    {nc ? 'Connecting...' : 'Connecting...'}
+                  </span>
+                ) : (
+                  nc ? 'Initialize Guest Session' : 'Continue as Guest'
+                )}
+              </button>
+            </ScanlineTear>
+          )}
 
 
           <div className="mt-4 hidden sm:flex items-center gap-3">

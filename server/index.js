@@ -23,6 +23,24 @@ const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+
+// Email allowlist: when ALLOW is defined (comma-separated emails), only those
+// addresses can mint sessions; guest mode is disabled.
+const ALLOW_EMAILS = new Set(
+  (process.env.ALLOW || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+const ALLOW_ACTIVE = ALLOW_EMAILS.size > 0;
+function isEmailAllowed(email) {
+  if (!ALLOW_ACTIVE) return true;
+  if (!email || typeof email !== "string") return false;
+  return ALLOW_EMAILS.has(email.trim().toLowerCase());
+}
+if (ALLOW_ACTIVE) {
+  console.log(`[auth] Email allowlist active (${ALLOW_EMAILS.size} address(es))`);
+}
 const CONFIG_DIR = path.join(__dirname, "..", "data");
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
 const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
@@ -958,11 +976,19 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 
 // ─── Web API: for the frontend ────────────────────────────────────
 
-// Auth middleware: blocks guest (unauthenticated) users from write operations
+// Auth middleware: blocks guest (unauthenticated) users from write operations.
+// Also enforces the email allowlist on every request — a session minted before
+// ALLOW was set (or whose email was later removed from ALLOW) is rejected.
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (token && authSessions.has(token)) return next();
-  return res.status(403).json({ error: "Authentication required. Sign in with Google to perform this action." });
+  const user = token ? authSessions.get(token) : null;
+  if (!user) {
+    return res.status(403).json({ error: "Authentication required. Sign in with Google to perform this action." });
+  }
+  if (ALLOW_ACTIVE && !isEmailAllowed(user.email)) {
+    return res.status(403).json({ error: "Email not authorized to access this server." });
+  }
+  next();
 }
 
 // Send message from web UI (human user)
@@ -1936,6 +1962,10 @@ app.post("/api/auth/google", async (req, res) => {
       audience: GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
+    if (!isEmailAllowed(payload.email)) {
+      console.log(`[auth] Rejected login: ${payload.email} not in allowlist`);
+      return res.status(403).json({ error: "Email not authorized to access this server." });
+    }
     const sessionToken = crypto.randomBytes(32).toString("hex");
     // Use email prefix as default display name (e.g. "zaynjarvis" from "zaynjarvis@gmail.com")
     const emailPrefix = payload.email.split("@")[0];
@@ -2035,7 +2065,7 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
 });
 
 app.get("/api/auth/config", (_req, res) => {
-  res.json({ googleClientId: GOOGLE_CLIENT_ID || null });
+  res.json({ googleClientId: GOOGLE_CLIENT_ID || null, allowlistActive: ALLOW_ACTIVE });
 });
 
 // Guest session endpoint.
@@ -2044,6 +2074,11 @@ app.get("/api/auth/config", (_req, res) => {
 // When Google OAuth IS configured, we keep the old behaviour (token-less) so
 // the "Sign in with Google" prompt still appears.
 app.post("/api/auth/guest-session", async (req, res) => {
+  // Email allowlist disables guest access entirely — ALLOW implies "only these
+  // humans may enter", and guests have no email to check.
+  if (ALLOW_ACTIVE) {
+    return res.status(403).json({ error: "Guest access disabled on this server." });
+  }
   const { name } = req.body || {};
   if (!name || typeof name !== "string" || !name.trim()) {
     return res.status(400).json({ error: "name required" });

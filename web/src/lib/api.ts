@@ -208,7 +208,7 @@ export function getAttachmentUrl(attachmentId: string): string {
 }
 
 // Auth
-export async function getAuthConfig(): Promise<{ googleClientId: string | null }> {
+export async function getAuthConfig(): Promise<{ googleClientId: string | null; allowlistActive?: boolean }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/config`);
   if (!res.ok) throw new Error('Failed to fetch auth config');
   return res.json();
@@ -220,7 +220,10 @@ export async function googleLogin(credential: string): Promise<{ token: string; 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ credential }),
   });
-  if (!res.ok) throw new Error('Google login failed');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Google login failed');
+  }
   return res.json();
 }
 

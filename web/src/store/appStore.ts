@@ -65,6 +65,7 @@ export function useAppStore() {
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getStoredAuth());
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
+  const [allowlistActive, setAllowlistActive] = useState(false);
 
   const wsRef = useRef<SlockWebSocket | null>(null);
   const activeChannelRef = useRef(activeChannelName);
@@ -686,6 +687,7 @@ export function useAppStore() {
     addProfilePreset: addProfilePresetAction,
     removeProfilePreset: removeProfilePresetAction,
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
+    allowlistActive, setAllowlistActive,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
   };
