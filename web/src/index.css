@@ -51,9 +51,29 @@
   html[data-font-size="small"] .composer-textarea { font-size: 16.5px; }
   html[data-font-size="large"] .composer-textarea { font-size: 20px; }
 
-  .msg-body { font-size: 18px; }
-  html[data-font-size="small"] .msg-body { font-size: 16.5px; }
-  html[data-font-size="large"] .msg-body { font-size: 20px; }
+  /* Message body establishes its own em context.
+     iOS 16px input-zoom guard lives on html / inputs (above) — it does not
+     need to govern body copy. Keeping the two concerns separate lets us
+     tighten mobile chat copy to a comfortable 15px without affecting the
+     composer. Everything inside .msg-body (headings, code, lists) sizes in
+     em relative to this value so the scale stays consistent. */
+  .msg-body {
+    font-size: 16px;
+    line-height: 1.55;
+  }
+  @media (min-width: 768px) {
+    .msg-body { font-size: 17px; }
+  }
+  html[data-font-size="small"] .msg-body { font-size: 15px; }
+  html[data-font-size="large"] .msg-body { font-size: 18px; }
+  @media (min-width: 768px) {
+    html[data-font-size="small"] .msg-body { font-size: 16px; }
+    html[data-font-size="large"] .msg-body { font-size: 19px; }
+  }
+
+  /* Inside a blockquote, cap strong at 700 so the quoted voice doesn't
+     shout — keeps the literary register Alice called out in R3. */
+  .msg-body blockquote strong { font-weight: 700; }
 
   html { --chat-max-width: 56rem; }
   html[data-chat-width="6xl"] { --chat-max-width: 72rem; }
