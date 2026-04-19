@@ -134,6 +134,49 @@ function parseMarkdown(content: string): React.ReactNode[] {
   return nodes;
 }
 
+// ── GFM pipe-table helpers ──────────────────────────────────────────────────
+// Split a pipe-table row into trimmed cells. Leading/trailing pipes are
+// optional; `\|` stays literal inside a cell.
+function splitPipeRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+  const cells: string[] = [];
+  let buf = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && s[i + 1] === '|') { buf += '|'; i++; }
+    else if (s[i] === '|') { cells.push(buf.trim()); buf = ''; }
+    else buf += s[i];
+  }
+  cells.push(buf.trim());
+  return cells;
+}
+
+function isDelimiterRow(line: string): boolean {
+  if (!line.includes('|') && !line.includes('-')) return false;
+  const cells = splitPipeRow(line);
+  if (cells.length === 0) return false;
+  return cells.every(c => /^:?-+:?$/.test(c));
+}
+
+type TableAlign = 'left' | 'center' | 'right' | undefined;
+function alignFromCell(cell: string): TableAlign {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  if (left) return 'left';
+  return undefined;
+}
+
+function isTableStart(lines: string[], i: number): boolean {
+  return (
+    i + 1 < lines.length &&
+    lines[i].includes('|') &&
+    isDelimiterRow(lines[i + 1])
+  );
+}
+
 function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   // Normalise line endings, split into lines
@@ -253,6 +296,57 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       continue;
     }
 
+    // GFM pipe table — header row + delimiter row + zero or more body rows.
+    // Alignment is taken from the delimiter row (`:---`, `:---:`, `---:`).
+    if (isTableStart(lines, i)) {
+      const headerCells = splitPipeRow(lines[i]);
+      const aligns = splitPipeRow(lines[i + 1]).map(alignFromCell);
+      const body: string[][] = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim() !== '' && lines[i].includes('|')) {
+        body.push(splitPipeRow(lines[i]));
+        i++;
+      }
+      const tk = k++;
+      nodes.push(
+        <div key={`tbl-${tk}`} className="my-2.5 -mx-1 overflow-x-auto">
+          <table className="min-w-full border-collapse border border-nc-border/70 text-[0.95em]" style={{ lineHeight: 1.5 }}>
+            <thead>
+              <tr className="bg-nc-elevated/40">
+                {headerCells.map((h, idx) => (
+                  <th
+                    key={idx}
+                    className="border border-nc-border/70 px-2 py-1 font-display font-bold text-nc-text-bright"
+                    style={{ textAlign: aligns[idx] || 'left' }}
+                  >
+                    {renderInline(h, `tbl-${tk}-h-${idx}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            {body.length > 0 && (
+              <tbody>
+                {body.map((row, rIdx) => (
+                  <tr key={rIdx} className="odd:bg-nc-elevated/10">
+                    {headerCells.map((_, cIdx) => (
+                      <td
+                        key={cIdx}
+                        className="border border-nc-border/70 px-2 py-1 text-nc-text align-top"
+                        style={{ textAlign: aligns[cIdx] || 'left' }}
+                      >
+                        {renderInline(row[cIdx] ?? '', `tbl-${tk}-${rIdx}-${cIdx}`)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            )}
+          </table>
+        </div>
+      );
+      continue;
+    }
+
     // Paragraph — collect consecutive non-special lines
     const paraLines: string[] = [];
     while (
@@ -263,7 +357,8 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       !/^[-*+] /.test(lines[i]) &&
       !/^ {2,}[-*+] /.test(lines[i]) &&
       !/^\d+\. /.test(lines[i]) &&
-      !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim())
+      !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim()) &&
+      !isTableStart(lines, i)
     ) {
       paraLines.push(lines[i]);
       i++;
