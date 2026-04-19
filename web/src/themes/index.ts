@@ -35,7 +35,7 @@ export const themes: ThemeDefinition[] = [
   { ...carbon, ThemeSelectButton: CarbonThemeSelectButton },
 ];
 
-export const DEFAULT_THEME: ThemeId = 'night-city';
+export const DEFAULT_THEME: ThemeId = 'washington-post';
 
 export function applyTheme(id: ThemeId) {
   document.documentElement.setAttribute('data-theme', id);

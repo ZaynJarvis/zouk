@@ -8,7 +8,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0A0A0F" />
+    <meta name="theme-color" content="#f4eee3" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Zouk" />
@@ -22,7 +22,7 @@
     <script>
       (function(){
         var t=localStorage.getItem('zouk_theme');
-        var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon')?t:'night-city';
+        var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon')?t:'washington-post';
         var isStandalone=false;
         var themeColors={
           'night-city':'#0a0a0f',
@@ -36,7 +36,7 @@
         document.documentElement.setAttribute('data-theme',theme);
         document.documentElement.setAttribute('data-display-mode',isStandalone?'standalone':'browser');
         var themeMeta=document.querySelector("meta[name='theme-color']");
-        if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#0a0a0f');
+        if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#f4eee3');
         try{var p=JSON.parse(localStorage.getItem('zouk_preferences')||'{}');if(p.fontSize&&p.fontSize!=='medium')document.documentElement.setAttribute('data-font-size',p.fontSize);}catch(e){}
       })();
     </script>

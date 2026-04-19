@@ -32,7 +32,7 @@ export function getStoredTheme(): Theme {
   if (stored === 'night-city' || stored === 'brutalist' || stored === 'washington-post' || stored === 'carbon') {
     return stored;
   }
-  return 'night-city';
+  return 'washington-post';
 }
 
 export function setStoredTheme(theme: Theme) {
