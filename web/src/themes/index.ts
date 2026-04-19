@@ -39,19 +39,6 @@ export const DEFAULT_THEME: ThemeId = 'night-city';
 
 export function applyTheme(id: ThemeId) {
   document.documentElement.setAttribute('data-theme', id);
-  const isYellow = id === 'brutalist' || id === 'washington-post';
-  const favicon = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
-  if (favicon) {
-    favicon.href = isYellow ? '/zouk.svg' : '/zouk-night-city.svg';
-  }
-  const touchIcon = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement | null;
-  if (touchIcon) {
-    touchIcon.href = isYellow ? '/apple-touch-icon-yellow.png' : '/apple-touch-icon.png';
-  }
-  const manifest = document.querySelector("link[rel='manifest']") as HTMLLinkElement | null;
-  if (manifest) {
-    manifest.href = isYellow ? '/manifest-yellow.webmanifest' : '/manifest.webmanifest';
-  }
   const themeMeta = document.querySelector("meta[name='theme-color']") as HTMLMetaElement | null;
   const theme = getTheme(id);
   if (themeMeta && theme) {

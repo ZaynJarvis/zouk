@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/zouk.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -21,7 +23,6 @@
       (function(){
         var t=localStorage.getItem('zouk_theme');
         var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon')?t:'night-city';
-        var isYellow=theme==='brutalist'||theme==='washington-post';
         var isStandalone=false;
         var themeColors={
           'night-city':'#0a0a0f',
@@ -34,12 +35,6 @@
         }catch(e){}
         document.documentElement.setAttribute('data-theme',theme);
         document.documentElement.setAttribute('data-display-mode',isStandalone?'standalone':'browser');
-        var favicon=document.querySelector("link[rel='icon']");
-        if(favicon) favicon.href=isYellow?'/zouk.svg':'/zouk-night-city.svg';
-        // PWA/touch icon + manifest are NOT theme-swapped: iOS Safari snapshots
-        // these at "Add to Home Screen" time and keeps the icon forever. We
-        // always install with the black-green chrome so theme choice during
-        // install doesn't pin a yellow app icon on the home screen.
         var themeMeta=document.querySelector("meta[name='theme-color']");
         if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#0a0a0f');
         try{var p=JSON.parse(localStorage.getItem('zouk_preferences')||'{}');if(p.fontSize&&p.fontSize!=='medium')document.documentElement.setAttribute('data-font-size',p.fontSize);}catch(e){}
