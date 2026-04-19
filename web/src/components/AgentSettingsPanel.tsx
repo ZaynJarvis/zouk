@@ -1,10 +1,14 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
-import { X, Save, Square, Globe, Lock, Trash2, Camera, Server, Settings as SettingsIcon } from 'lucide-react';
+import { Save, Square, Globe, Lock, Trash2, Camera, Server, Settings as SettingsIcon } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { resizeAndEncode } from '../lib/imageEncode';
+import PanelShell from './panel/PanelShell';
+import PanelHeader from './panel/PanelHeader';
+
+const settingsPanelWidthClassName = 'w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px]';
 
 export default function AgentSettingsPanel() {
   const {
@@ -72,15 +76,16 @@ export default function AgentSettingsPanel() {
 
   if (!agent) {
     return (
-      <div className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col items-center justify-center">
+      <PanelShell widthClassName={settingsPanelWidthClassName} centered>
         <p className="text-sm text-nc-muted font-mono mb-3">AGENT_NOT_FOUND</p>
         <button
+          type="button"
           onClick={closeRightPanel}
           className="px-3 py-1.5 border border-nc-border text-xs text-nc-muted hover:text-nc-text-bright font-mono"
         >
           CLOSE
         </button>
-      </div>
+      </PanelShell>
     );
   }
 
@@ -112,22 +117,20 @@ export default function AgentSettingsPanel() {
   const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
 
   return (
-    <div className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
-      <div className="h-14 border-b border-nc-border flex items-center justify-between px-4 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+    <PanelShell widthClassName={settingsPanelWidthClassName} animated>
+      <PanelHeader
+        onClose={closeRightPanel}
+        className="shrink-0"
+        leftClassName="flex items-center gap-2"
+        closeTitle="Close"
+      >
+        <>
           <SettingsIcon size={14} className="text-nc-cyan shrink-0" />
           <h3 className="font-display font-extrabold text-base text-nc-text-bright tracking-wider truncate">
             CONFIG · @{agent.displayName || agent.name}
           </h3>
-        </div>
-        <button
-          onClick={closeRightPanel}
-          className="w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-red hover:text-nc-red hover:bg-nc-red/10 transition-all shrink-0"
-          title="Close"
-        >
-          <X size={16} />
-        </button>
-      </div>
+        </>
+      </PanelHeader>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
         <div>
@@ -303,6 +306,6 @@ export default function AgentSettingsPanel() {
           )}
         </div>
       )}
-    </div>
+    </PanelShell>
   );
 }

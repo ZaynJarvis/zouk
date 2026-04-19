@@ -1,7 +1,9 @@
-import { X, Hash } from 'lucide-react';
+import { Hash } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import MessageItem from './MessageItem';
 import MessageComposer from './MessageComposer';
+import PanelShell from './panel/PanelShell';
+import PanelHeader from './panel/PanelHeader';
 
 export default function ThreadPanel() {
   const { activeThreadMessage, threadMessages, closeRightPanel, activeChannelName } = useApp();
@@ -14,21 +16,15 @@ export default function ThreadPanel() {
     : `#${activeThreadMessage.channel_name}:${shortId}`;
 
   return (
-    <div className="w-screen lg:w-[380px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
-      <div className="h-14 border-b border-nc-border flex items-center justify-between px-4">
-        <div className="flex items-center gap-2">
+    <PanelShell animated>
+      <PanelHeader onClose={closeRightPanel} leftClassName="flex items-center gap-2">
+        <>
           <h3 className="font-display font-extrabold text-base text-nc-text-bright tracking-wider">THREAD</h3>
           <span className="flex items-center gap-1 text-xs text-nc-muted font-mono">
             <Hash size={12} />{activeChannelName}
           </span>
-        </div>
-        <button
-          onClick={closeRightPanel}
-          className="w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-red hover:text-nc-red hover:bg-nc-red/10 transition-all"
-        >
-          <X size={16} />
-        </button>
-      </div>
+        </>
+      </PanelHeader>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="border-b border-nc-border pb-2">
@@ -53,6 +49,6 @@ export default function ThreadPanel() {
       </div>
 
       <MessageComposer threadTarget={threadTarget} placeholder="Reply..." />
-    </div>
+    </PanelShell>
   );
 }

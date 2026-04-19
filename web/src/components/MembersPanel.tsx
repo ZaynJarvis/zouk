@@ -1,7 +1,9 @@
-import { X, Search, User, Bot } from 'lucide-react';
+import { Search, User, Bot } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
 import { activityColors } from '../lib/activityStatus';
+import PanelShell from './panel/PanelShell';
+import PanelHeader from './panel/PanelHeader';
 
 export default function MembersPanel() {
   const { humans, agents, messages, closeRightPanel } = useApp();
@@ -21,16 +23,10 @@ export default function MembersPanel() {
   const totalCount = channelHumans.length + channelAgents.length;
 
   return (
-    <div className="w-screen lg:w-[380px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
-      <div className="h-14 border-b border-nc-border flex items-center justify-between px-4">
+    <PanelShell animated>
+      <PanelHeader onClose={closeRightPanel}>
         <h3 className="font-display font-extrabold text-base text-nc-text-bright tracking-wider">MEMBERS ({totalCount})</h3>
-        <button
-          onClick={closeRightPanel}
-          className="w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-red hover:text-nc-red hover:bg-nc-red/10 transition-all"
-        >
-          <X size={16} />
-        </button>
-      </div>
+      </PanelHeader>
 
       <div className="px-4 py-3 border-b border-nc-border">
         <div className="flex items-center border border-nc-border bg-nc-panel">
@@ -83,6 +79,6 @@ export default function MembersPanel() {
           <div className="px-4 py-8 text-center text-sm text-nc-muted font-mono">No members found</div>
         )}
       </div>
-    </div>
+    </PanelShell>
   );
 }
