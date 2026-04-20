@@ -1265,6 +1265,7 @@ app.post("/api/agent-configs", requireAuth, (req, res) => {
     agentConfigs[existing] = { ...agentConfigs[existing], ...rest };
   } else {
     if (!config.machineId) return res.status(400).json({ error: "machineId is required" });
+    if (!isPersistentMachineId(config.machineId)) return res.status(400).json({ error: "machineId does not match any machine key" });
     agentConfigs.push(config);
   }
   const saved = agentConfigs.find((c) => c.id === config.id);
@@ -2036,15 +2037,24 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "agent:start": {
-      // Trigger agent start via daemon — find a daemon with the right runtime
-      let targetWs = daemonSockets.get(msg.agentId); // try existing agent socket first
-      const requestedMachineId = typeof msg.machineId === "string" && msg.machineId.trim()
-        ? msg.machineId.trim()
-        : (typeof msg.config?.machineId === "string" && msg.config.machineId.trim()
-          ? msg.config.machineId.trim()
-          : null);
-      if (targetWs && requestedMachineId && targetWs._machineId !== requestedMachineId) {
-        targetWs = null;
+      // Trigger agent start via daemon — saved config's machineId is
+      // authoritative. The payload can only pick a machine when no config
+      // exists yet (first-bind for a brand-new agent).
+      const savedCfg = msg.agentId ? agentConfigs.find((c) => c.id === msg.agentId) : null;
+      const requestedMachineId = savedCfg?.machineId
+        || (typeof msg.machineId === "string" && msg.machineId.trim()
+          ? msg.machineId.trim()
+          : (typeof msg.config?.machineId === "string" && msg.config.machineId.trim()
+            ? msg.config.machineId.trim()
+            : null));
+      if (savedCfg && !savedCfg.machineId) {
+        console.log(`[ws] Refusing agent:start for ${msg.agentId}: saved config has no machineId`);
+        break;
+      }
+      let targetWs = null;
+      const existing = msg.agentId ? daemonSockets.get(msg.agentId) : null;
+      if (existing && existing.readyState === 1 && (!requestedMachineId || existing._machineId === requestedMachineId)) {
+        targetWs = existing;
       }
       if (!targetWs) {
         for (const dws of daemonConnections) {
@@ -2053,6 +2063,10 @@ function handleWebMessage(ws, msg) {
           targetWs = dws;
           break;
         }
+      }
+      if (savedCfg && targetWs && targetWs._machineId !== savedCfg.machineId) {
+        console.log(`[ws] Refusing agent:start for ${msg.agentId}: daemon ${targetWs._machineId} != bound ${savedCfg.machineId}`);
+        break;
       }
       if (targetWs && targetWs.readyState === 1) {
         const agentId = msg.agentId || `agent-${uuidv4().substring(0, 8)}`;
