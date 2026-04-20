@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
-  X, Bot, User as UserIcon, Activity, FolderOpen, Server, Settings as SettingsIcon, Zap, MessageCircle,
+  X, Bot, User as UserIcon, Activity, FolderOpen, Server, Settings as SettingsIcon, Zap, MessageCircle, ArrowLeft,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
 import { activityColors, activityLabels } from '../lib/activityStatus';
+import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
@@ -143,7 +144,18 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
 }
 
 function WorkspaceTab({ agent }: { agent: ServerAgent }) {
+  const { workspaceFileContent, requestFileContent } = useApp();
+  const [viewingFile, setViewingFile] = useState<string | null>(null);
   const { expandedDirs, rootFiles, toggleDir, treeCache } = useWorkspaceTree(agent);
+
+  const fileContent = workspaceFileContent?.agentId === agent.id && workspaceFileContent?.path === viewingFile
+    ? workspaceFileContent.content
+    : null;
+
+  const handleViewFile = useCallback((filePath: string) => {
+    setViewingFile(filePath);
+    requestFileContent(agent.id, filePath);
+  }, [agent.id, requestFileContent]);
 
   if (agent.status !== 'active') {
     return (
@@ -151,6 +163,28 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
         <FolderOpen size={24} className="text-nc-muted mb-2" />
         <p className="text-sm text-nc-muted font-bold font-mono">AGENT_OFFLINE</p>
         <p className="text-xs text-nc-muted mt-1 font-mono">Start the agent to browse its workspace.</p>
+      </div>
+    );
+  }
+
+  if (viewingFile) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-nc-border">
+          <button
+            onClick={() => setViewingFile(null)}
+            className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan"
+          >
+            <ArrowLeft size={14} />
+          </button>
+          <span className="text-xs font-mono text-nc-muted truncate">{viewingFile}</span>
+        </div>
+        <pre
+          className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50"
+          style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
+        >
+          {fileContent ?? 'Loading...'}
+        </pre>
       </div>
     );
   }
@@ -168,6 +202,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
               treeCache={treeCache}
               expandedDirs={expandedDirs}
               onToggleDir={toggleDir}
+              onFileSelect={handleViewFile}
               variant="compact"
               expandMode="static"
             />
