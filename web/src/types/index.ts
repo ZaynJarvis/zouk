@@ -178,8 +178,16 @@ export interface WorkspaceState {
   fileContent?: { path: string; content: string; requestId: string } | null;
 }
 
+export interface MemoryEntry {
+  uri: string;
+  size?: number;
+  isDir: boolean;
+  modTime?: string;
+  abstract?: string;
+}
+
 export type ViewMode = 'channel' | 'dm' | 'agents';
-export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'agent_settings' | 'agent_profile' | null;
+export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'memory' | 'agent_settings' | 'agent_profile' | null;
 export type Theme = 'night-city' | 'brutalist' | 'washington-post' | 'carbon';
 
 export interface Toast {

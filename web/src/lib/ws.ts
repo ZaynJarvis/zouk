@@ -17,6 +17,7 @@ export type WsEventType =
   | 'agent_profile_presets_updated'
   | 'machine:connected' | 'machine:disconnected' | 'machine:updated'
   | 'workspace:file_tree' | 'workspace:file_content'
+  | 'memory:list_result' | 'memory:content'
   | 'skills:list_result'
   | 'machine:workspace:scan_result' | 'machine:workspace:delete_result';
 
@@ -108,6 +109,23 @@ export interface WsWorkspaceFileContentEvent {
   content: string;
 }
 
+export interface WsMemoryListResultEvent {
+  type: 'memory:list_result';
+  agentId: string;
+  uri: string;
+  entries: import('../types').MemoryEntry[];
+  error?: string;
+}
+
+export interface WsMemoryContentEvent {
+  type: 'memory:content';
+  agentId: string;
+  requestId: string;
+  uri: string;
+  content: string | null;
+  error?: string;
+}
+
 export type WsEvent =
   | WsInitEvent
   | WsMessageEvent
@@ -123,6 +141,8 @@ export type WsEvent =
   | WsMachineDisconnectedEvent
   | WsWorkspaceFileTreeEvent
   | WsWorkspaceFileContentEvent
+  | WsMemoryListResultEvent
+  | WsMemoryContentEvent
   | WsProfilePresetsUpdatedEvent
   | { type: string; [key: string]: unknown };
 

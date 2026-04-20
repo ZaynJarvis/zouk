@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, Toast,
-  WorkspaceFile, AgentProfilePreset,
+  WorkspaceFile, MemoryEntry, AgentProfilePreset,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -60,6 +60,9 @@ export function useAppStore() {
   // Tree cache: agentId -> dirPath -> files (for recursive tree rendering)
   const [wsTreeCache, setWsTreeCache] = useState<Record<string, Record<string, WorkspaceFile[]>>>({});
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
+  // Memory trees per agent: agentId -> uri -> entries (for recursive tree rendering)
+  const [memoryTreeCache, setMemoryTreeCache] = useState<Record<string, Record<string, MemoryEntry[]>>>({});
+  const [memoryFileContent, setMemoryFileContent] = useState<{ agentId: string; uri: string; content: string } | null>(null);
   const [profilePresets, setProfilePresets] = useState<AgentProfilePreset[]>([]);
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user || null);
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
@@ -307,6 +310,19 @@ export function useAppStore() {
       case 'workspace:file_content': {
         const e = event as { agentId: string; requestId: string; content: string };
         setWorkspaceFileContent({ agentId: e.agentId, path: e.requestId, content: e.content });
+        break;
+      }
+      case 'memory:list_result': {
+        const e = event as { agentId: string; uri: string; entries: MemoryEntry[] };
+        setMemoryTreeCache(prev => ({
+          ...prev,
+          [e.agentId]: { ...(prev[e.agentId] || {}), [e.uri || 'viking:///']: e.entries },
+        }));
+        break;
+      }
+      case 'memory:content': {
+        const e = event as { agentId: string; requestId: string; uri: string; content: string };
+        setMemoryFileContent({ agentId: e.agentId, uri: e.uri || e.requestId, content: e.content });
         break;
       }
     }
@@ -650,6 +666,14 @@ export function useAppStore() {
     wsRef.current?.send({ type: 'workspace:read', agentId, requestId: filePath, path: filePath });
   }, []);
 
+  const requestMemoryList = useCallback((agentId: string, uri?: string) => {
+    wsRef.current?.send({ type: 'memory:list', agentId, uri: uri || 'viking:///' });
+  }, []);
+
+  const requestMemoryContent = useCallback((agentId: string, uri: string) => {
+    wsRef.current?.send({ type: 'memory:read', agentId, requestId: uri, uri });
+  }, []);
+
   return {
     theme, setTheme,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
@@ -683,6 +707,8 @@ export function useAppStore() {
     wsSend,
     workspaceFiles, wsTreeCache, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
+    memoryTreeCache, memoryFileContent,
+    requestMemoryList, requestMemoryContent,
     profilePresets,
     addProfilePreset: addProfilePresetAction,
     removeProfilePreset: removeProfilePresetAction,
