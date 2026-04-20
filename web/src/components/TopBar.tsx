@@ -24,16 +24,18 @@ export default function TopBar() {
   return (
     <div className={getTopBarShellClass(themeVariant)}>
       <div className={`h-12 sm:h-14 flex items-center px-2 sm:px-4 gap-2 sm:gap-3`}>
-        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className={`lg:hidden ${getTopBarMobileIconButtonClass(themeVariant, 'cyan')}`}
-            aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-            aria-expanded={sidebarOpen}
-          >
-            <Menu size={16} />
-          </button>
-        </ScanlineTear>
+        {!inHomeView && (
+          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className={`lg:hidden ${getTopBarMobileIconButtonClass(themeVariant, 'cyan')}`}
+              aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+              aria-expanded={sidebarOpen}
+            >
+              <Menu size={16} />
+            </button>
+          </ScanlineTear>
+        )}
 
         <div className="lg:hidden flex items-center gap-1">
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>

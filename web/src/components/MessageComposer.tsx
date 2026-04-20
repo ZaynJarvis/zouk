@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Bot, User } from 'lucide-react';
+import { Bot, User, Menu } from 'lucide-react';
 import { useApp } from '../store/AppContext';
+import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import {
   buildMentionSearchTerms,
   filterMentionTargets,
@@ -25,7 +26,7 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen } = useApp();
   const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
   const draftsRef = useRef<Map<string, string>>(new Map());
   const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
@@ -33,6 +34,21 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   textRef.current = text;
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
+
+  useEffect(() => {
+    const update = () => setIsMobileSurface(isMobileViewport() || isStandalonePWA());
+    window.addEventListener('resize', update);
+    const mql = window.matchMedia?.('(display-mode: standalone)');
+    mql?.addEventListener?.('change', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      mql?.removeEventListener?.('change', update);
+    };
+  }, []);
+
+  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen && !focused;
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
   const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
@@ -254,17 +270,30 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </div>
         )}
 
-        <div className={`composer-surface flex items-end border border-nc-border bg-nc-black cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+        <div className={`composer-surface flex items-end gap-2 border border-nc-border bg-nc-black cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+          {showMobileSidebarBtn && (
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open sidebar"
+              className={`lg:hidden flex-shrink-0 self-center ml-1.5 w-8 h-8 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors`}
+            >
+              <Menu size={16} />
+            </button>
+          )}
           <textarea
             ref={textareaRef}
             value={text}
             onChange={handleChange}
             onSelect={handleSelect}
             onKeyDown={handleKeyDown}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
+            enterKeyHint="send"
             placeholder={placeholder || `Message ${channelLabel}`}
             rows={1}
             className="composer-textarea flex-1 min-w-0 px-4 py-1.5 sm:px-3 sm:py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px]"
