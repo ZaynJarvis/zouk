@@ -34,6 +34,8 @@ export type MentionTarget = {
   mention: string;
   type: 'agent' | 'human';
   searchTerms: string[];
+  picture?: string;
+  online?: boolean;
 };
 
 // Rank targets by how well they match the query.

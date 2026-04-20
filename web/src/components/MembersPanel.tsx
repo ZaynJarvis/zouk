@@ -47,14 +47,28 @@ export default function MembersPanel() {
             <div className="px-4 py-1 text-xs font-bold uppercase tracking-wider text-nc-muted font-mono">
               People ({filteredHumans.length})
             </div>
-            {filteredHumans.map(h => (
-              <div key={h.id} className="w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left">
-                <div className="w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan">
-                  <User size={14} />
+            {filteredHumans.map(h => {
+              const avatar = h.picture || h.gravatarUrl;
+              const offline = h.online === false;
+              return (
+                <div key={h.id} className={`w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left ${offline ? 'opacity-60' : ''}`}>
+                  <div className="relative w-8 h-8 flex-shrink-0">
+                    {avatar ? (
+                      <img src={avatar} alt="" className={`w-8 h-8 object-cover border border-nc-cyan/30 ${offline ? 'grayscale' : ''}`} />
+                    ) : (
+                      <div className="w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan">
+                        <User size={14} />
+                      </div>
+                    )}
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-nc-bg ${offline ? 'bg-nc-muted' : 'bg-nc-green'}`}
+                      title={offline ? 'offline' : 'online'}
+                    />
+                  </div>
+                  <span className="text-sm font-semibold text-nc-text-bright truncate">{h.name}</span>
                 </div>
-                <span className="text-sm font-semibold text-nc-text-bright truncate">{h.name}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
