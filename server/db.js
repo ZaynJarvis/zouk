@@ -416,6 +416,35 @@ async function loadEmailAllowlist() {
   }
 }
 
+async function addEmailAllowlist(email, addedBy) {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO email_allowlist (email, added_by)
+       VALUES ($1,$2)
+       ON CONFLICT (email) DO UPDATE SET added_by = EXCLUDED.added_by
+       RETURNING email, added_at, added_by`,
+      [email, addedBy || null]
+    );
+    const row = rows[0];
+    return { email: row.email, addedAt: row.added_at, addedBy: row.added_by || null };
+  } catch (e) {
+    console.error('[db] addEmailAllowlist error:', e.message);
+    return null;
+  }
+}
+
+async function removeEmailAllowlist(email) {
+  if (!pool) return false;
+  try {
+    const { rowCount } = await pool.query('DELETE FROM email_allowlist WHERE email = $1', [email]);
+    return rowCount > 0;
+  } catch (e) {
+    console.error('[db] removeEmailAllowlist error:', e.message);
+    return false;
+  }
+}
+
 // ─── Auth sessions ────────────────────────────────────────────────
 
 async function saveSession(token, user) {
@@ -482,4 +511,6 @@ module.exports = {
   deleteSession,
   loadSessions,
   loadEmailAllowlist,
+  addEmailAllowlist,
+  removeEmailAllowlist,
 };
