@@ -55,7 +55,7 @@ const PWA_SAFE_AREA_CSS = `
   }
 `;
 
-async function shot(label, { viewport, mobile = false, standalone = false, theme = null }) {
+async function shot(label, { viewport, mobile = false, standalone = false, theme = null, focusComposer = false }) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({
     viewport,
@@ -81,6 +81,10 @@ async function shot(label, { viewport, mobile = false, standalone = false, theme
     await page.addStyleTag({ content: HOME_INDICATOR_CSS });
   }
   await page.waitForTimeout(700);
+  if (focusComposer) {
+    await page.locator('textarea[placeholder*="Message"]').first().focus();
+    await page.waitForTimeout(200);
+  }
   const out = resolve(OUT, `composer-${label}.png`);
   await page.screenshot({ path: out, fullPage: false });
   console.log('Saved:', out);
@@ -91,3 +95,4 @@ await shot('desktop', { viewport: { width: 1280, height: 800 } });
 await shot('mobile-browser', { viewport: { width: 393, height: 852 }, mobile: true, standalone: false });
 await shot('mobile-pwa', { viewport: { width: 393, height: 852 }, mobile: true, standalone: true });
 await shot('mobile-pwa-nc', { viewport: { width: 393, height: 852 }, mobile: true, standalone: true, theme: 'night-city' });
+await shot('mobile-pwa-brutalist', { viewport: { width: 393, height: 852 }, mobile: true, standalone: true, theme: 'brutalist', focusComposer: true });

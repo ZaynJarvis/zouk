@@ -361,12 +361,6 @@ html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 
-/* Composer opt-in: keep the safe-area inset as breathing room below the
-   composer in standalone PWAs (task #61 — "use safe area as margin"). */
-html[data-display-mode="standalone"] .composer-outer.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
 /* Phone-mode composer surface: pill shape + disable NC bevel clip-path so
    the 100% border-radius is actually visible (task #61 direction 3). */
 @media (max-width: 639.98px) {
@@ -789,6 +783,13 @@ html[data-theme="brutalist"] ::selection {
 html[data-theme="brutalist"] .focus-within\:border-nc-cyan:focus-within {
   border-color: rgb(var(--nc-yellow));
   box-shadow: 3px 3px 0px 0px rgb(var(--nc-yellow));
+}
+
+/* Phone: composer sits at screen bottom, offset shadow would bleed off-screen */
+@media (max-width: 639.98px) {
+  html[data-theme="brutalist"] .focus-within\:border-nc-cyan:focus-within {
+    box-shadow: none;
+  }
 }
 
 /* Code blocks — thick border */
