@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
-  X, Bot, User as UserIcon, Activity, FolderOpen, Server, Settings as SettingsIcon, Zap, MessageCircle, ArrowLeft,
+  X, Bot, User as UserIcon, Activity, FolderOpen, Server, Settings as SettingsIcon, Zap, MessageCircle,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
@@ -167,53 +167,58 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
     );
   }
 
-  if (viewingFile) {
-    return (
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-nc-border">
-          <button
-            onClick={() => setViewingFile(null)}
-            className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan"
-          >
-            <ArrowLeft size={14} />
-          </button>
-          <span className="text-xs font-mono text-nc-muted truncate">{viewingFile}</span>
-        </div>
-        <pre
-          className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50"
-          style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
-        >
-          {fileContent ?? 'Loading...'}
-        </pre>
-      </div>
-    );
-  }
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div className="px-3 py-1.5 border-b border-nc-border">
-        <span className="text-xs font-mono text-nc-muted truncate block">{agent.workDir || '/'}</span>
+      <div
+        className="flex flex-col min-h-0"
+        style={viewingFile ? { maxHeight: '50%', flex: '1 1 0%' } : { flex: '1 1 0%' }}
+      >
+        <div className="px-3 py-1.5 border-b border-nc-border">
+          <span className="text-xs font-mono text-nc-muted truncate block">{agent.workDir || '/'}</span>
+        </div>
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          {rootFiles.length > 0 ? (
+            <div className="py-0.5">
+              <WorkspaceTree
+                files={rootFiles}
+                treeCache={treeCache}
+                expandedDirs={expandedDirs}
+                onToggleDir={toggleDir}
+                onFileSelect={handleViewFile}
+                variant="compact"
+                expandMode="static"
+              />
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center py-12">
+              <FolderOpen size={20} className="text-nc-muted mb-2" />
+              <p className="text-xs text-nc-muted font-mono">No files</p>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {rootFiles.length > 0 ? (
-          <div className="py-0.5">
-            <WorkspaceTree
-              files={rootFiles}
-              treeCache={treeCache}
-              expandedDirs={expandedDirs}
-              onToggleDir={toggleDir}
-              onFileSelect={handleViewFile}
-              variant="compact"
-              expandMode="static"
-            />
+      {viewingFile && (
+        <div className="flex-1 flex flex-col min-h-0 border-t border-nc-border">
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/50">
+            <span className="flex-1 text-xs font-mono text-nc-text truncate" title={viewingFile}>
+              {viewingFile.split('/').pop() || viewingFile}
+            </span>
+            <button
+              onClick={() => setViewingFile(null)}
+              className="w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-colors"
+              title="Close preview"
+            >
+              <X size={12} />
+            </button>
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center text-center py-12">
-            <FolderOpen size={20} className="text-nc-muted mb-2" />
-            <p className="text-xs text-nc-muted font-mono">No files</p>
-          </div>
-        )}
-      </div>
+          <pre
+            className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50"
+            style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
+          >
+            {fileContent ?? 'Loading...'}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
