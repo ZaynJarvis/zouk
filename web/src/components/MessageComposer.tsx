@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useMemo, useEffect, type PointerEvent } from 'react';
-import { Send, Bot, User } from 'lucide-react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { Bot, User } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import {
   buildMentionSearchTerms,
@@ -91,57 +91,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       textareaRef.current.style.height = 'auto';
     }
   }, [text, sendMessage, threadTarget]);
-
-  // Mobile has no Shift+Enter; long-press Send to insert a newline instead.
-  const longPressTimer = useRef<number | null>(null);
-  const longPressedRef = useRef(false);
-
-  const insertNewlineAtCursor = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const next = text.slice(0, start) + '\n' + text.slice(end);
-    setText(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      const caret = start + 1;
-      el.setSelectionRange(caret, caret);
-      el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-    });
-  }, [text]);
-
-  const handleSendPointerDown = useCallback((e: PointerEvent<HTMLButtonElement>) => {
-    if (e.pointerType === 'mouse') return;
-    if (!text.trim()) return;
-    longPressedRef.current = false;
-    longPressTimer.current = window.setTimeout(() => {
-      longPressedRef.current = true;
-      insertNewlineAtCursor();
-    }, 450);
-  }, [insertNewlineAtCursor, text]);
-
-  const cancelLongPress = useCallback(() => {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
-  const handleSendClick = useCallback(() => {
-    if (longPressedRef.current) {
-      longPressedRef.current = false;
-      return;
-    }
-    handleSubmit();
-  }, [handleSubmit]);
-
-  useEffect(() => () => {
-    if (longPressTimer.current !== null) {
-      window.clearTimeout(longPressTimer.current);
-    }
-  }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionQuery !== null && mentionMatches.length > 0) {
@@ -297,37 +246,14 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             className="composer-textarea flex-1 min-w-0 px-4 py-1.5 sm:px-3 sm:py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px]"
           />
 
-          <div className="flex items-center gap-2 px-1.5 pb-1 sm:px-2 sm:pb-1.5 flex-shrink-0">
-            {!text.trim() && (
-              <span
-                aria-hidden="true"
-                className="text-2xs text-nc-muted/50 font-mono hidden sm:block pointer-events-none select-none"
-              >
-                Enter to send · Shift+Enter for newline
-              </span>
-            )}
-
-            <button
-              onClick={handleSendClick}
-              onPointerDown={handleSendPointerDown}
-              onPointerUp={cancelLongPress}
-              onPointerLeave={cancelLongPress}
-              onPointerCancel={cancelLongPress}
-              disabled={!text.trim()}
-              title="Tap to send · Hold for newline"
-              aria-label="Send message. Hold to insert newline."
-              className={`
-                cyber-btn flex items-center justify-center h-7 px-2.5 sm:px-3 gap-1.5 border border-nc-border flex-shrink-0 text-xs font-mono glitch-text transition-colors
-                ${text.trim()
-                  ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan/50 hover:bg-nc-cyan/25'
-                  : 'bg-nc-elevated text-nc-muted cursor-not-allowed'
-                }
-              `}
+          {!text.trim() && (
+            <span
+              aria-hidden="true"
+              className="text-2xs text-nc-muted/50 font-mono hidden sm:block pointer-events-none select-none self-center pr-3 flex-shrink-0"
             >
-              <Send size={12} />
-              <span className="hidden sm:inline">Send</span>
-            </button>
-          </div>
+              Enter to send · Shift+Enter for newline
+            </span>
+          )}
         </div>
       </div>
     </div>
