@@ -329,7 +329,10 @@
   .login-shell {
     width: 100%;
     min-height: 100svh;
-    height: 100dvh;
+    /* Falls back to 100dvh before useVisualViewportLock populates --vv-height.
+       Using the visual viewport height keeps chrome pinned when the mobile
+       keyboard opens, since dvh alone can lag and iOS may scroll the doc. */
+    height: var(--vv-height, 100dvh);
     overflow: hidden;
     overscroll-behavior: none;
     padding-right: env(safe-area-inset-right, 0px);
@@ -352,9 +355,10 @@
   }
 
   /* Toasts float above the top safe-area in standalone PWAs so they don't
-     hide behind the iOS notch / status bar. */
+     hide behind the iOS notch / status bar. Offset by --vv-offset-top so
+     they track the visual viewport when the keyboard scrolls the doc. */
   .toast-container {
-    top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+    top: calc(var(--vv-offset-top, 0px) + env(safe-area-inset-top, 0px) + 0.75rem);
   }
 
 }
