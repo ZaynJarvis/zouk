@@ -13,6 +13,7 @@ import AgentsView from './components/AgentPanel';
 import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
+import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
 
 function GoogleAuthSync() {
   const { setHasGoogleAuth } = useApp();
@@ -34,6 +35,8 @@ function AppShell() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [setSidebarOpen]);
+
+  useEdgeSwipeRight(() => setSidebarOpen(true), { enabled: !sidebarOpen });
 
   if (!isLoggedIn) {
     return <LoginScreen />;
