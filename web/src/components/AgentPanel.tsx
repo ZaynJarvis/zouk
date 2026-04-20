@@ -1,4 +1,4 @@
-import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings, X } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
@@ -15,15 +15,13 @@ function AgentListItem({
   isSelected,
   onClick,
   onOpenSettings,
-  onStart,
-  isStarting,
+  onDelete,
 }: {
   agent: ServerAgent;
   isSelected: boolean;
   onClick: () => void;
   onOpenSettings: () => void;
-  onStart?: () => void;
-  isStarting?: boolean;
+  onDelete?: () => void;
 }) {
   const activity = agent.activity || 'offline';
   const isOffline = !agent.status || agent.status === 'inactive';
@@ -71,17 +69,14 @@ function AgentListItem({
       >
         <Settings size={13} />
       </span>
-      {isOffline && onStart && (
+      {isOffline && onDelete && (
         <span
           role="button"
-          onClick={(e) => { e.stopPropagation(); onStart(); }}
-          className="shrink-0 w-6 h-6 flex items-center justify-center border border-nc-green/50 bg-nc-green/10 text-nc-green hover:bg-nc-green/20 transition-colors"
-          title="Start agent"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="shrink-0 w-6 h-6 flex items-center justify-center border border-nc-red/50 bg-nc-red/10 text-nc-red hover:bg-nc-red/20 transition-colors"
+          title="Delete agent — its machine is gone"
         >
-          {isStarting
-            ? <span className="w-2 h-2 border border-nc-green animate-spin border-t-transparent rounded-full" />
-            : <span className="text-2xs font-bold">▶</span>
-          }
+          <X size={12} />
         </span>
       )}
     </button>
@@ -112,7 +107,6 @@ export default function AgentsView() {
   const [showArchived, setShowArchived] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showMachineSetup, setShowMachineSetup] = useState(false);
-  const [starting, setStarting] = useState<string | null>(null);
   const [machinesExpanded, setMachinesExpanded] = useState(true);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
 
@@ -145,12 +139,13 @@ export default function AgentsView() {
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
   const selected = agents.find((a) => a.id === selectedAgentId) ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
 
-  const handleStartAgent = async (agentId: string) => {
+  const handleDeleteInactive = async (agentId: string) => {
     const config = configs.find(c => c.id === agentId);
-    if (!config) return;
-    setStarting(agentId);
-    await startAgent({ id: config.id, name: config.name, displayName: config.displayName, description: config.description, runtime: config.runtime, model: config.model });
-    setStarting(null);
+    const label = config?.displayName || config?.name || agentId;
+    const confirmed = window.confirm(`Delete agent ${label}? Its machine is gone, so it cannot be restarted.`);
+    if (!confirmed) return;
+    await deleteAgent(agentId);
+    setSelectedAgentId((current) => (current === agentId ? null : current));
   };
 
   const handleCreateAgent = async (config: {
@@ -297,8 +292,7 @@ export default function AgentsView() {
                 isSelected={agent.id === (selected?.id ?? '')}
                 onClick={() => handleSelectAgent(agent.id)}
                 onOpenSettings={() => handleOpenAgentSettings(agent.id)}
-                onStart={agent.status === 'inactive' ? () => handleStartAgent(agent.id) : undefined}
-                isStarting={starting === agent.id}
+                onDelete={agent.status === 'inactive' ? () => handleDeleteInactive(agent.id) : undefined}
               />
             ))
           ) : (

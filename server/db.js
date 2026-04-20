@@ -268,10 +268,16 @@ async function loadMaxTaskNum() {
 
 async function saveAgentConfig(config) {
   if (!pool) return;
+  // machine_id is required. A config without one is a deletion signal.
+  if (!config.machineId) return deleteAgentConfig(config.id);
   try {
+    // machine_id is deliberately excluded from DO UPDATE SET — once an agent
+    // is bound to a machine, that binding is immutable. config_json's
+    // machineId is rewritten from the existing row so the JSON stays
+    // consistent with the authoritative column on every update.
     await pool.query(
-      `INSERT INTO agent_configs (id, name, display_name, runtime, model, system_prompt, skills, work_dir, description, auto_start, picture, config_json)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `INSERT INTO agent_configs (id, name, display_name, runtime, model, system_prompt, skills, work_dir, description, auto_start, picture, machine_id, config_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          display_name = EXCLUDED.display_name,
@@ -283,7 +289,7 @@ async function saveAgentConfig(config) {
          description = EXCLUDED.description,
          auto_start = EXCLUDED.auto_start,
          picture = EXCLUDED.picture,
-         config_json = EXCLUDED.config_json`,
+         config_json = jsonb_set(EXCLUDED.config_json, '{machineId}', to_jsonb(agent_configs.machine_id))`,
       [
         config.id,
         config.name,
@@ -296,6 +302,7 @@ async function saveAgentConfig(config) {
         config.description || null,
         config.autoStart || false,
         config.picture || null,
+        config.machineId,
         JSON.stringify(config),
       ]
     );
@@ -316,8 +323,9 @@ async function deleteAgentConfig(id) {
 async function loadAgentConfigs() {
   if (!pool) return null;
   try {
-    const { rows } = await pool.query('SELECT config_json FROM agent_configs ORDER BY name ASC');
-    return rows.map(row => row.config_json);
+    const { rows } = await pool.query('SELECT machine_id, config_json FROM agent_configs ORDER BY name ASC');
+    // machine_id column is the source of truth; overlay it onto the JSON blob.
+    return rows.map(row => ({ ...row.config_json, machineId: row.machine_id }));
   } catch (e) {
     console.error('[db] loadAgentConfigs error:', e.message);
     return null;
@@ -351,6 +359,16 @@ async function saveMachineKey(key) {
     );
   } catch (e) {
     console.error('[db] saveMachineKey error:', e.message);
+  }
+}
+
+async function deleteMachineKey(id) {
+  if (!pool) return;
+  try {
+    // agent_configs.machine_id has ON DELETE CASCADE → rows are auto-removed.
+    await pool.query('DELETE FROM machine_keys WHERE id = $1', [id]);
+  } catch (e) {
+    console.error('[db] deleteMachineKey error:', e.message);
   }
 }
 
@@ -520,6 +538,7 @@ module.exports = {
   deleteAgentConfig,
   loadAgentConfigs,
   saveMachineKey,
+  deleteMachineKey,
   loadMachineKeys,
   saveProfilePreset,
   deleteProfilePreset,

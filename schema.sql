@@ -42,6 +42,16 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_by_name TEXT
 );
 
+CREATE TABLE IF NOT EXISTS machine_keys (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  raw_key           TEXT UNIQUE NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at      TIMESTAMPTZ,
+  revoked_at        TIMESTAMPTZ,
+  bound_fingerprint TEXT
+);
+
 CREATE TABLE IF NOT EXISTS agent_configs (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -54,6 +64,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   description   TEXT,
   auto_start    BOOLEAN NOT NULL DEFAULT false,
   picture       TEXT,
+  machine_id    TEXT NOT NULL REFERENCES machine_keys(id) ON DELETE CASCADE,
   config_json   JSONB NOT NULL DEFAULT '{}'
 );
 
@@ -69,16 +80,6 @@ CREATE TABLE IF NOT EXISTS agent_profile_presets (
   id         TEXT PRIMARY KEY,
   image      TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS machine_keys (
-  id                TEXT PRIMARY KEY,
-  name              TEXT NOT NULL,
-  raw_key           TEXT UNIQUE NOT NULL,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_used_at      TIMESTAMPTZ,
-  revoked_at        TIMESTAMPTZ,
-  bound_fingerprint TEXT
 );
 
 CREATE TABLE IF NOT EXISTS email_allowlist (

@@ -93,7 +93,15 @@ if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
 function loadAgentConfigs() {
   try {
     if (fs.existsSync(AGENT_CONFIGS_FILE)) {
-      return JSON.parse(fs.readFileSync(AGENT_CONFIGS_FILE, "utf8"));
+      const raw = JSON.parse(fs.readFileSync(AGENT_CONFIGS_FILE, "utf8"));
+      // machineId is a required core field — drop any config without one.
+      const filtered = Array.isArray(raw)
+        ? raw.filter((c) => typeof c?.machineId === "string" && c.machineId.trim())
+        : [];
+      if (Array.isArray(raw) && filtered.length !== raw.length) {
+        console.warn(`[config] Dropped ${raw.length - filtered.length} agent config(s) without machineId`);
+      }
+      return filtered;
     }
   } catch (e) {
     console.error("[config] Failed to load agent configs:", e.message);
@@ -235,50 +243,15 @@ function isPersistentMachineId(machineId) {
   return machineKeys.some((k) => !k.revokedAt && k.id === machineId);
 }
 
-function isLegacyEphemeralMachineId(machineId) {
-  if (!machineId) return false;
-  if (isPersistentMachineId(machineId)) return false;
-  if (machines.has(machineId)) return false;
-  return true;
-}
-
-function updateConfiguredAgentMachineId(agentId, machineId, reason = null) {
-  if (!agentId || !machineId) return false;
-  const cfg = agentConfigs.find((c) => c.id === agentId);
-  if (!cfg || cfg.machineId === machineId) return false;
-
-  const previousMachineId = cfg.machineId;
-  cfg.machineId = machineId;
-  saveAgentConfigs(agentConfigs);
-  db.saveAgentConfig(cfg);
-  console.log(
-    `[config] Agent ${agentId} machine affinity ${previousMachineId || "unset"} -> ${machineId}`
-    + (reason ? ` (${reason})` : "")
-  );
-  return true;
-}
-
+// machineId is immutable. An agent with no configured machineId is invalid
+// (startup drops it) and a mismatched daemon adoption is always rejected.
 function evaluateAgentMachineAffinity(agentId, ws) {
   const cfg = agentConfigs.find((c) => c.id === agentId);
   const configuredMachineId = typeof cfg?.machineId === "string" && cfg.machineId.trim()
     ? cfg.machineId.trim()
     : null;
-
-  if (!configuredMachineId) {
-    return { allowed: true, migrated: false };
-  }
-
-  if (configuredMachineId === ws._machineId) {
-    return { allowed: true, migrated: false };
-  }
-
-  // Older configs stored a per-connection UUID. If the daemon reconnects with
-  // a stable machine-key-backed id, migrate that stale binding in place.
-  if (isLegacyEphemeralMachineId(configuredMachineId) && isPersistentMachineId(ws._machineId)) {
-    const migrated = updateConfiguredAgentMachineId(agentId, ws._machineId, "migrated legacy machine id");
-    return { allowed: true, migrated };
-  }
-
+  if (!configuredMachineId) return { allowed: false, expectedMachineId: null };
+  if (configuredMachineId === ws._machineId) return { allowed: true };
   return { allowed: false, expectedMachineId: configuredMachineId };
 }
 
@@ -1287,8 +1260,12 @@ app.post("/api/agent-configs", requireAuth, (req, res) => {
   if (!config.id) config.id = `agent-${uuidv4().substring(0, 8)}`;
   const existing = agentConfigs.findIndex((c) => c.id === config.id);
   if (existing >= 0) {
-    agentConfigs[existing] = { ...agentConfigs[existing], ...config };
+    // machineId is immutable — never let the payload overwrite the stored value.
+    const { machineId: _ignored, ...rest } = config;
+    agentConfigs[existing] = { ...agentConfigs[existing], ...rest };
   } else {
+    if (!config.machineId) return res.status(400).json({ error: "machineId is required" });
+    if (!isPersistentMachineId(config.machineId)) return res.status(400).json({ error: "machineId does not match any machine key" });
     agentConfigs.push(config);
   }
   const saved = agentConfigs.find((c) => c.id === config.id);
@@ -1309,6 +1286,7 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
   if (idx < 0) {
     const running = store.agents[id];
     if (!running) return res.status(404).json({ error: "Agent not found" });
+    if (!running.machineId) return res.status(400).json({ error: "Running agent has no machineId" });
     agentConfigs.push({
       id,
       name: running.name,
@@ -1316,10 +1294,13 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
       runtime: running.runtime,
       model: running.model,
       workDir: running.workDir,
+      machineId: running.machineId,
     });
     idx = agentConfigs.length - 1;
   }
-  agentConfigs[idx] = { ...agentConfigs[idx], ...updates };
+  // machineId is immutable — never let the payload overwrite the stored value.
+  const { machineId: _ignored, ...rest } = updates;
+  agentConfigs[idx] = { ...agentConfigs[idx], ...rest };
   // description is the system prompt — keep them in sync
   if (updates.description !== undefined && updates.systemPrompt === undefined) {
     agentConfigs[idx].systemPrompt = updates.description;
@@ -1416,15 +1397,43 @@ app.post("/api/machine-keys", requireAuth, async (req, res) => {
   });
 });
 
-// Revoke a machine API key
+// Delete a machine API key — cascades to agent_configs bound to this machine.
 app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
-  const key = machineKeys.find((k) => k.id === id);
-  if (!key) return res.status(404).json({ error: "Key not found" });
-  key.revokedAt = now();
+  const idx = machineKeys.findIndex((k) => k.id === id);
+  if (idx < 0) return res.status(404).json({ error: "Key not found" });
+  const key = machineKeys[idx];
+
+  // Cascade: collect agents bound to this machine, stop them, purge state.
+  const orphanedAgentIds = agentConfigs
+    .filter((c) => c.machineId === id)
+    .map((c) => c.id);
+  for (const agentId of orphanedAgentIds) {
+    sendAgentStop(agentId);
+    purgeUnknownAgentState(agentId);
+    broadcastToWeb({ type: "agent_status", agentId, status: "deleted" });
+  }
+  for (let i = agentConfigs.length - 1; i >= 0; i--) {
+    if (agentConfigs[i].machineId === id) agentConfigs.splice(i, 1);
+  }
+  saveAgentConfigs(agentConfigs);
+
+  // Remove the key itself. The DB has ON DELETE CASCADE, so agent_configs
+  // rows in Postgres are removed by the FK — we don't need deleteAgentConfig.
+  machineKeys.splice(idx, 1);
   saveMachineKeys(machineKeys);
-  await db.saveMachineKey(key);
-  console.log(`[keys] Revoked machine key "${key.name}"`);
+  await db.deleteMachineKey(id);
+
+  // Drop any live daemon connection authenticated with this key.
+  for (const dws of daemonConnections) {
+    if (dws._machineId === id) {
+      try { dws.close(1008, "machine key deleted"); } catch {}
+    }
+  }
+  machines.delete(id);
+  broadcastToWeb({ type: "machine:disconnected", machineId: id });
+  broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  console.log(`[keys] Deleted machine key "${key.name}" (cascaded ${orphanedAgentIds.length} agent config(s))`);
   res.json({ success: true });
 });
 
@@ -1520,9 +1529,8 @@ function startAgentOnDaemon(id, config) {
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
     db.saveAgentConfig(persisted);
-  } else {
-    updateConfiguredAgentMachineId(id, targetWs._machineId, "updated on agent start");
   }
+  // Existing configs: machineId is immutable — no rewrite on restart.
 
   broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
@@ -1535,9 +1543,11 @@ app.post("/api/agents/start", requireAuth, (req, res) => {
   const config = req.body;
   const id = config.agentId || config.id || `agent-${uuidv4().substring(0, 8)}`;
 
-  // If starting from a saved config, look it up
+  // If starting from a saved config, look it up. machineId on a saved config
+  // is immutable, so the request body's machineId is ignored when one exists.
   const savedConfig = agentConfigs.find((c) => c.id === id);
   const mergedConfig = { ...savedConfig, ...config };
+  if (savedConfig?.machineId) mergedConfig.machineId = savedConfig.machineId;
 
   if (store.agents[id] && store.agents[id].status === "active") {
     return res.status(400).json({ error: `Agent ${id} is already running` });
@@ -1733,9 +1743,6 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
             sendAgentStop(agentId, ws, { broadcast: false });
             continue;
           }
-          if (affinity.migrated) {
-            broadcastToWeb({ type: "config_updated", configs: agentConfigs });
-          }
           connectedAgents.add(agentId);
           daemonSockets.set(agentId, ws);
           const isNew = !store.agents[agentId];
@@ -1772,9 +1779,6 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         console.log(`[agent:${agentId}] Ignoring status from machine ${ws._machineId}; expected ${affinity.expectedMachineId}`);
         sendAgentStop(agentId, ws, { broadcast: false });
         break;
-      }
-      if (affinity.migrated) {
-        broadcastToWeb({ type: "config_updated", configs: agentConfigs });
       }
       const isNew = !store.agents[agentId];
       if (isNew) {
@@ -2033,15 +2037,24 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "agent:start": {
-      // Trigger agent start via daemon — find a daemon with the right runtime
-      let targetWs = daemonSockets.get(msg.agentId); // try existing agent socket first
-      const requestedMachineId = typeof msg.machineId === "string" && msg.machineId.trim()
-        ? msg.machineId.trim()
-        : (typeof msg.config?.machineId === "string" && msg.config.machineId.trim()
-          ? msg.config.machineId.trim()
-          : null);
-      if (targetWs && requestedMachineId && targetWs._machineId !== requestedMachineId) {
-        targetWs = null;
+      // Trigger agent start via daemon — saved config's machineId is
+      // authoritative. The payload can only pick a machine when no config
+      // exists yet (first-bind for a brand-new agent).
+      const savedCfg = msg.agentId ? agentConfigs.find((c) => c.id === msg.agentId) : null;
+      const requestedMachineId = savedCfg?.machineId
+        || (typeof msg.machineId === "string" && msg.machineId.trim()
+          ? msg.machineId.trim()
+          : (typeof msg.config?.machineId === "string" && msg.config.machineId.trim()
+            ? msg.config.machineId.trim()
+            : null));
+      if (savedCfg && !savedCfg.machineId) {
+        console.log(`[ws] Refusing agent:start for ${msg.agentId}: saved config has no machineId`);
+        break;
+      }
+      let targetWs = null;
+      const existing = msg.agentId ? daemonSockets.get(msg.agentId) : null;
+      if (existing && existing.readyState === 1 && (!requestedMachineId || existing._machineId === requestedMachineId)) {
+        targetWs = existing;
       }
       if (!targetWs) {
         for (const dws of daemonConnections) {
@@ -2050,6 +2063,10 @@ function handleWebMessage(ws, msg) {
           targetWs = dws;
           break;
         }
+      }
+      if (savedCfg && targetWs && targetWs._machineId !== savedCfg.machineId) {
+        console.log(`[ws] Refusing agent:start for ${msg.agentId}: daemon ${targetWs._machineId} != bound ${savedCfg.machineId}`);
+        break;
       }
       if (targetWs && targetWs.readyState === 1) {
         const agentId = msg.agentId || `agent-${uuidv4().substring(0, 8)}`;
