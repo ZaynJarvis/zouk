@@ -21,13 +21,13 @@ export default function ToastContainer() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-[100] space-y-2 w-80">
+    <div className="toast-container fixed left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-2 w-[min(22rem,calc(100%-2rem))] pointer-events-none">
       {toasts.map(toast => {
         const Icon = icons[toast.type];
         return (
           <div
             key={toast.id}
-            className={`flex items-center gap-2 px-3 py-2.5 border text-sm font-bold shadow-lg backdrop-blur-md animate-toast-in ${styles[toast.type]}`}
+            className={`pointer-events-auto w-full flex items-center gap-2 px-3 py-2.5 border text-sm font-bold shadow-lg backdrop-blur-md animate-toast-in ${styles[toast.type]}`}
           >
             <Icon size={16} />
             <span className="flex-1 font-mono text-xs">{toast.message}</span>

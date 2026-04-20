@@ -26,7 +26,11 @@ function findAnchorAt(text: string, cursorPos: number): number {
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
   const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme } = useApp();
-  const [text, setText] = useState('');
+  const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
+  const draftsRef = useRef<Map<string, string>>(new Map());
+  const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
+  const textRef = useRef(text);
+  textRef.current = text;
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   // After the user presses Escape we stash the anchor @ index so we can
@@ -80,17 +84,19 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     });
   }, [text]);
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    sendMessage(trimmed, threadTarget);
+    const ok = await sendMessage(trimmed, threadTarget);
+    if (!ok) return;
     setText('');
+    draftsRef.current.delete(draftKey);
     setMentionQuery(null);
     setSuppressedAtPos(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [text, sendMessage, threadTarget]);
+  }, [text, sendMessage, threadTarget, draftKey]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionQuery !== null && mentionMatches.length > 0) {
@@ -174,6 +180,21 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     recomputeMentionState(el.value, el.selectionStart);
   }, [recomputeMentionState]);
 
+  // Swap drafts when the active channel/thread changes: save outgoing text
+  // under the previous key, restore any stored draft for the new key.
+  useEffect(() => {
+    const drafts = draftsRef.current;
+    setText(drafts.get(draftKey) ?? '');
+    return () => {
+      const pending = textRef.current;
+      if (pending) {
+        drafts.set(draftKey, pending);
+      } else {
+        drafts.delete(draftKey);
+      }
+    };
+  }, [draftKey]);
+
   // Auto-focus textarea when switching channels/views
   useEffect(() => {
     textareaRef.current?.focus();
@@ -240,7 +261,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             onChange={handleChange}
             onSelect={handleSelect}
             onKeyDown={handleKeyDown}
-            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             placeholder={placeholder || `Message ${channelLabel}`}
             rows={1}
             className="composer-textarea flex-1 min-w-0 px-4 py-1.5 sm:px-3 sm:py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px]"

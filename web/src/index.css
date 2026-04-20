@@ -351,6 +351,12 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  /* Toasts float above the top safe-area in standalone PWAs so they don't
+     hide behind the iOS notch / status bar. */
+  .toast-container {
+    top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  }
+
 }
 
 /* In standalone PWAs, bottom safe-area space should not automatically push

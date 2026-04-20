@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
-import { activityColors, activityLabels } from '../lib/activityStatus';
+import { activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
@@ -28,13 +28,12 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
       <div className="flex items-start gap-3">
-        <div className="relative w-16 h-16 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 overflow-hidden font-display font-bold text-xl text-nc-cyan">
+        <div className="w-16 h-16 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 overflow-hidden font-display font-bold text-xl text-nc-cyan">
           {agent.picture ? (
             <img src={agent.picture} alt="" className="w-full h-full object-cover" />
           ) : (
             (agent.displayName || agent.name).charAt(0).toUpperCase()
           )}
-          <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border border-nc-surface ${activityColors[activity]}`} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="font-display font-black text-lg text-nc-text-bright truncate tracking-wider">

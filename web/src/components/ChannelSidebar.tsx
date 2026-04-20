@@ -9,10 +9,7 @@ import {
   channelSidebarThemeConfig,
   getChannelSidebarAgentItemClass,
   getChannelSidebarChannelItemClass,
-  getChannelSidebarFooterAvatarClass,
-  getChannelSidebarFooterClass,
   resolveNavigationTheme,
-  type NavigationThemeVariant,
 } from './navigation/themeVariants';
 
 function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
@@ -40,7 +37,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
-    createChannel, deleteChannel, currentUser, unreadCounts, wsConnected, wsSend, addToast, isGuest, theme,
+    createChannel, deleteChannel, currentUser, unreadCounts, wsSend, addToast, isGuest, theme,
     authUser, setSidebarOpen, openAgentProfile, openAgentSettings,
   } = useApp();
 
@@ -59,10 +56,24 @@ export default function ChannelSidebar() {
 
   const filteredChannels = useMemo(() => channels, [channels]);
   const filteredAgents = useMemo(() => agents, [agents]);
-  const filteredHumans = useMemo(() =>
-    humans.filter(h => h.name !== currentUser),
-    [humans, currentUser]
-  );
+  const filteredHumans = useMemo(() => {
+    const list = humans.slice();
+    if (currentUser && !list.some(h => h.name === currentUser)) {
+      list.push({
+        id: `self:${currentUser}`,
+        name: currentUser,
+        picture: authUser?.picture || undefined,
+        gravatarUrl: authUser?.gravatarUrl || undefined,
+        guest: isGuest,
+      });
+    }
+    list.sort((a, b) => {
+      if (a.name === currentUser) return -1;
+      if (b.name === currentUser) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    return list;
+  }, [humans, currentUser, authUser, isGuest]);
 
   const handleCreateChannel = () => {
     const name = newChannelName.trim().replace(/[^a-z0-9-_]/gi, '-').toLowerCase();
@@ -241,80 +252,52 @@ export default function ChannelSidebar() {
             collapsed={dmsCollapsed}
             onToggle={() => setDmsCollapsed(!dmsCollapsed)}
           />
-          {!dmsCollapsed && filteredHumans.map(h => (
-            <button
-              key={h.id}
-              onClick={() => pick(h.name, true)}
-              className={`
-                w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-100 mb-1
-                ${activeChannelName === h.name
-                  ? 'bg-nc-magenta/10 border-l-2 border-nc-magenta text-nc-magenta font-bold'
-                  : 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text'
-                }
-              `}
-            >
-              <div className="w-5 h-5 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden shrink-0">
-                {h.picture || h.gravatarUrl ? (
-                  <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <User size={12} className="flex-shrink-0" />
+          {!dmsCollapsed && filteredHumans.map(h => {
+            const isSelf = h.name === currentUser;
+            const isActive = activeChannelName === h.name;
+            const commonRow = 'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-100 mb-1';
+            const activeClass = 'bg-nc-magenta/10 border-l-2 border-nc-magenta text-nc-magenta font-bold';
+            const idleClass = 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text';
+            const content = (
+              <>
+                <div className="w-5 h-5 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden shrink-0">
+                  {h.picture || h.gravatarUrl ? (
+                    <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={12} className="flex-shrink-0" />
+                  )}
+                </div>
+                <span className="truncate text-sm">{h.name}</span>
+                {isSelf && (
+                  <span className="text-2xs text-nc-muted font-mono">(you)</span>
                 )}
-              </div>
-              <span className="truncate text-sm">{h.name}</span>
-              {(unreadCounts[h.name] || 0) > 0 && activeChannelName !== h.name && (
-                <span className="ml-auto bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
-                  {unreadCounts[h.name]}
-                </span>
-              )}
-            </button>
-          ))}
+                {!isSelf && (unreadCounts[h.name] || 0) > 0 && !isActive && (
+                  <span className="ml-auto bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
+                    {unreadCounts[h.name]}
+                  </span>
+                )}
+              </>
+            );
+            if (isSelf) {
+              return (
+                <div key={h.id} className={`${commonRow} text-nc-muted cursor-default`}>
+                  {content}
+                </div>
+              );
+            }
+            return (
+              <button
+                key={h.id}
+                onClick={() => pick(h.name, true)}
+                className={`${commonRow} ${isActive ? activeClass : idleClass}`}
+              >
+                {content}
+              </button>
+            );
+          })}
           {!dmsCollapsed && filteredHumans.length === 0 && (
             <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No people online</div>
           )}
-        </div>
-      </div>
-
-      <SelfProfileFooter
-        authUser={authUser}
-        currentUser={currentUser}
-        wsConnected={wsConnected}
-        isGuest={isGuest}
-        themeVariant={themeVariant}
-      />
-    </div>
-  );
-}
-
-function SelfProfileFooter({
-  authUser, currentUser, wsConnected, isGuest, themeVariant,
-}: {
-  authUser: { name: string; picture: string | null; gravatarUrl?: string | null } | null;
-  currentUser: string;
-  wsConnected: boolean;
-  isGuest: boolean;
-  themeVariant: NavigationThemeVariant;
-}) {
-  const displayName = authUser?.name || currentUser || 'Guest';
-  const pictureUrl = authUser?.picture || authUser?.gravatarUrl || null;
-  const initial = displayName.charAt(0).toUpperCase();
-  const statusDot = wsConnected ? 'bg-nc-green' : 'bg-nc-muted/40';
-
-  return (
-    <div className={getChannelSidebarFooterClass(themeVariant)}>
-      <div className="relative flex-shrink-0">
-        <div className={getChannelSidebarFooterAvatarClass(themeVariant)}>
-          {pictureUrl ? (
-            <img src={pictureUrl} alt="" className="w-full h-full object-cover" />
-          ) : (
-            initial
-          )}
-        </div>
-        <span className={`absolute bottom-0 right-0 w-2 h-2 border border-nc-surface ${statusDot}`} />
-      </div>
-      <div className="flex-1 min-w-0 leading-tight">
-        <div className="text-sm font-semibold text-nc-text-bright truncate">{displayName}</div>
-        <div className="text-2xs text-nc-muted font-mono truncate">
-          {isGuest ? 'guest' : wsConnected ? 'online' : 'offline'}
         </div>
       </div>
     </div>

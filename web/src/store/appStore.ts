@@ -430,13 +430,15 @@ export function useAppStore() {
     closeSidebarOnMobile();
   }, [closeSidebarOnMobile, rightPanel]);
 
-  const sendMessageAction = useCallback(async (content: string, threadTarget?: string) => {
+  const sendMessageAction = useCallback(async (content: string, threadTarget?: string): Promise<boolean> => {
     const isDm = viewModeRef.current === 'dm';
     const target = threadTarget || (isDm ? `dm:@${activeChannelRef.current}` : `#${activeChannelRef.current}`);
     try {
       await api.sendMessage(content, target, currentUser);
+      return true;
     } catch {
       addToast('Failed to send message', 'error');
+      return false;
     }
   }, [currentUser, addToast]);
 
