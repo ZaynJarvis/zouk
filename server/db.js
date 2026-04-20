@@ -399,6 +399,23 @@ async function loadProfilePresets() {
   }
 }
 
+// ─── Email allowlist ─────────────────────────────────────────────
+
+async function loadEmailAllowlist() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query('SELECT email, added_at, added_by FROM email_allowlist');
+    return rows.map(row => ({
+      email: row.email,
+      addedAt: row.added_at,
+      addedBy: row.added_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadEmailAllowlist error:', e.message);
+    return null;
+  }
+}
+
 // ─── Auth sessions ────────────────────────────────────────────────
 
 async function saveSession(token, user) {
@@ -464,4 +481,5 @@ module.exports = {
   saveSession,
   deleteSession,
   loadSessions,
+  loadEmailAllowlist,
 };
