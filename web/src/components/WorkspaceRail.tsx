@@ -1,4 +1,4 @@
-import { Home, MessagesSquare, FolderOpen, Cpu, Settings } from 'lucide-react';
+import { Home, MessagesSquare, FolderOpen, Brain, Cpu, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { isNightCity, ncStyle } from '../lib/themeUtils';
@@ -16,6 +16,8 @@ export default function WorkspaceRail() {
   const nc = themeVariant === 'night-city';
   const wsOpen = rightPanel === 'workspace';
   const toggleWorkspace = () => setRightPanel(wsOpen ? null : 'workspace');
+  const memOpen = rightPanel === 'memory';
+  const toggleMemory = () => setRightPanel(memOpen ? null : 'memory');
   const railTheme = workspaceRailThemeConfig[themeVariant];
 
   if (!nc) {
@@ -36,6 +38,10 @@ export default function WorkspaceRail() {
 
         <button onClick={toggleWorkspace} className={getWorkspaceRailButtonClass(themeVariant, 'workspace', wsOpen)} title="Workspace" aria-label="Workspace" aria-pressed={wsOpen}>
           <FolderOpen size={20} />
+        </button>
+
+        <button onClick={toggleMemory} className={getWorkspaceRailButtonClass(themeVariant, 'memory', memOpen)} title="Memory" aria-label="Memory" aria-pressed={memOpen}>
+          <Brain size={20} />
         </button>
 
         <div className="flex-1" />
@@ -93,6 +99,18 @@ export default function WorkspaceRail() {
           aria-pressed={wsOpen}
         >
           <FolderOpen size={20} />
+        </button>
+      </ScanlineTear>
+
+      <ScanlineTear config={hoverConfig}>
+        <button
+          onClick={toggleMemory}
+          className={getWorkspaceRailButtonClass(themeVariant, 'memory', memOpen)}
+          title="Memory"
+          aria-label="Memory"
+          aria-pressed={memOpen}
+        >
+          <Brain size={20} />
         </button>
       </ScanlineTear>
 

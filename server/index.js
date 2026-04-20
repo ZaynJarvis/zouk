@@ -1878,6 +1878,14 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       broadcastToWeb({ type: "workspace:file_content", agentId: msg.agentId, requestId: msg.requestId, content: msg.content });
       break;
     }
+    case "agent:memory:list_result": {
+      broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri: msg.uri, entries: msg.entries, error: msg.error });
+      break;
+    }
+    case "agent:memory:content": {
+      broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId: msg.requestId, uri: msg.uri, content: msg.content, error: msg.error });
+      break;
+    }
     case "agent:skills:list_result": {
       const ownerWs = daemonSockets.get(msg.agentId);
       if (ownerWs && ownerWs !== ws) {
@@ -2007,6 +2015,20 @@ function handleWebMessage(ws, msg) {
         } else {
           agentWs.send(JSON.stringify({ type: "agent:workspace:read", ...payload }));
         }
+      }
+      break;
+    }
+    case "memory:list": {
+      const agentWs = daemonSockets.get(msg.agentId);
+      if (agentWs && agentWs.readyState === 1) {
+        agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: msg.agentId, uri: msg.uri || "viking:///" }));
+      }
+      break;
+    }
+    case "memory:read": {
+      const agentWs = daemonSockets.get(msg.agentId);
+      if (agentWs && agentWs.readyState === 1) {
+        agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: msg.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri }));
       }
       break;
     }
