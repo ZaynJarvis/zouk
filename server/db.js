@@ -37,10 +37,26 @@ async function migrate() {
   try {
     const sqlPath = path.join(__dirname, '..', 'schema.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
-    await client.query(sql);
-    console.log('[db] Auto-migration complete — all tables verified');
-  } catch (e) {
-    console.error('[db] Auto-migration error:', e.message);
+    // Run each statement individually — PgBouncer and some poolers reject
+    // multi-statement queries sent as a single string.
+    const statements = sql
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0 && !s.startsWith('--'));
+    let errors = 0;
+    for (const stmt of statements) {
+      try {
+        await client.query(stmt);
+      } catch (e) {
+        console.error('[db] Migration statement error:', e.message, '\n  SQL:', stmt.slice(0, 120));
+        errors++;
+      }
+    }
+    if (errors === 0) {
+      console.log('[db] Auto-migration complete — all tables verified');
+    } else {
+      console.warn(`[db] Auto-migration completed with ${errors} error(s) — check logs above`);
+    }
   } finally {
     client.release();
   }
