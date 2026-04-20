@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { getActivityColor } from '../../lib/activityStatus';
 import type { AgentEntry } from '../../types';
 
@@ -39,6 +40,11 @@ export function AgentActivityFeed({
   entries: AgentEntry[];
   className?: string;
 }) {
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' });
+  }, [entries.length]);
+
   return (
     <div className={className}>
       {entries.map((entry, index) => (
@@ -49,6 +55,7 @@ export function AgentActivityFeed({
           {renderEntry(entry)}
         </div>
       ))}
+      <div ref={endRef} />
     </div>
   );
 }

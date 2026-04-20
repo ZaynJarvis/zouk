@@ -48,7 +48,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     };
   }, []);
 
-  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen && !focused;
+  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen && !focused && !text.trim();
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
   const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
@@ -270,17 +270,18 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </div>
         )}
 
-        <div className={`composer-surface flex items-end gap-2 border border-nc-border bg-nc-black cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+        <div className="flex items-end gap-2">
           {showMobileSidebarBtn && (
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open sidebar"
-              className={`lg:hidden flex-shrink-0 self-center ml-1.5 w-8 h-8 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors`}
+              className="lg:hidden flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors"
             >
-              <Menu size={16} />
+              <Menu size={18} />
             </button>
           )}
+          <div className={`composer-surface flex-1 min-w-0 flex items-end gap-2 border border-nc-border bg-nc-black cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
           <textarea
             ref={textareaRef}
             value={text}
@@ -307,6 +308,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               Enter to send · Shift+Enter for newline
             </span>
           )}
+          </div>
         </div>
       </div>
     </div>
