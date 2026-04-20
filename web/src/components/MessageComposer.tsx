@@ -233,7 +233,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </div>
         )}
 
-        <div className={`composer-surface flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+        <div className={`composer-surface flex items-end border border-nc-border bg-nc-black cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
           <textarea
             ref={textareaRef}
             value={text}

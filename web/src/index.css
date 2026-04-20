@@ -370,17 +370,6 @@ html[data-display-mode="standalone"] .safe-bottom {
   html[data-theme="night-city"] .composer-surface.cyber-bevel-sm {
     clip-path: none;
   }
-
-  /* Phone: anchor composer wrapper bg to --nc-surface so the safe-bottom
-     inset band reads as composer chrome instead of page body — symmetric
-     with TopBar's safe-top bg-nc-surface treatment. Without this, the
-     safe-area-inset-bottom padding (mobile browser) and any transient
-     re-layout during channel switch reveal the darker nc-black body bg
-     as a "dim" stripe below the pill. The pill's own border keeps it
-     visually distinct against the matching wrapper. */
-  .composer-outer {
-    background-color: rgb(var(--nc-surface));
-  }
 }
 
 /* ==========================================================================
