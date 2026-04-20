@@ -1,19 +1,20 @@
 -- PostgreSQL schema for Zouk server.
 -- Idempotent — safe to run on every server startup.
+-- All statements are guarded by IF NOT EXISTS.
 
 CREATE TABLE IF NOT EXISTS messages (
-  id           TEXT PRIMARY KEY,
-  seq          INTEGER NOT NULL,
-  channel_name TEXT NOT NULL,
-  channel_type TEXT NOT NULL DEFAULT 'channel',
-  thread_id    TEXT,
-  sender_name  TEXT NOT NULL,
-  sender_type  TEXT NOT NULL DEFAULT 'human',
-  content      TEXT NOT NULL,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  attachments  JSONB NOT NULL DEFAULT '[]',
-  task_number  INTEGER,
-  task_status  TEXT,
+  id                 TEXT PRIMARY KEY,
+  seq                INTEGER NOT NULL,
+  channel_name       TEXT NOT NULL,
+  channel_type       TEXT NOT NULL DEFAULT 'channel',
+  thread_id          TEXT,
+  sender_name        TEXT NOT NULL,
+  sender_type        TEXT NOT NULL DEFAULT 'human',
+  content            TEXT NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  attachments        JSONB NOT NULL DEFAULT '[]',
+  task_number        INTEGER,
+  task_status        TEXT,
   task_assignee_id   TEXT,
   task_assignee_type TEXT
 );
@@ -55,7 +56,6 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   picture       TEXT,
   config_json   JSONB NOT NULL DEFAULT '{}'
 );
-ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS picture TEXT;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,
@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS machine_keys (
   revoked_at        TIMESTAMPTZ,
   bound_fingerprint TEXT
 );
-ALTER TABLE machine_keys ADD COLUMN IF NOT EXISTS bound_fingerprint TEXT;
 
 CREATE TABLE IF NOT EXISTS email_allowlist (
   email      TEXT PRIMARY KEY,
