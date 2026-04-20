@@ -361,6 +361,23 @@ html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 
+/* Composer opt-in: keep the safe-area inset as breathing room below the
+   composer in standalone PWAs (task #61 — "use safe area as margin"). */
+html[data-display-mode="standalone"] .composer-outer.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Phone-mode composer surface: pill shape + disable NC bevel clip-path so
+   the 100% border-radius is actually visible (task #61 direction 3). */
+@media (max-width: 639.98px) {
+  .composer-surface {
+    border-radius: 9999px;
+  }
+  html[data-theme="night-city"] .composer-surface.cyber-bevel-sm {
+    clip-path: none;
+  }
+}
+
 /* ==========================================================================
    Washington Post theme — editorial refinements
    ========================================================================== */
