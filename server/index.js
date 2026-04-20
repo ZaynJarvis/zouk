@@ -1629,7 +1629,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           daemonSockets.set(agentId, ws);
           const isNew = !store.agents[agentId];
           if (isNew) {
-            store.agents[agentId] = buildRuntimeAgent(agentId, { status: "active" });
+            store.agents[agentId] = buildRuntimeAgent(agentId, { status: "active", machineId: ws._machineId });
           } else {
             // Refresh config fields on existing agents — they may still
             // have stale/fallback values from before configs were loaded.
@@ -1637,6 +1637,12 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
             if (cfg) syncRuntimeAgentFromConfig(agentId, cfg);
           }
           store.agents[agentId].status = "active";
+          store.agents[agentId].machineId = ws._machineId;
+          // Track agent in machine record (mirrors "agent:status" handler)
+          const readyMachine = machines.get(ws._machineId);
+          if (readyMachine && !readyMachine.agentIds.includes(agentId)) {
+            readyMachine.agentIds.push(agentId);
+          }
           broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
           replayPendingDeliveries(agentId);
         }
