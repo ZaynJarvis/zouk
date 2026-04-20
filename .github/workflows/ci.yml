@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Install root + all workspace deps (server, web)
+      - name: Install dependencies
+        run: npm install
+
+      # TypeScript typecheck — catches type errors without a browser
+      - name: TypeScript typecheck
+        run: npm run typecheck --workspace=web
+
+      # Install Playwright's Chromium browser (only what we need)
+      - name: Install Playwright browser
+        run: npx playwright install chromium --with-deps
+        working-directory: web
+
+      # Build the React frontend so the server can serve it
+      - name: Build frontend
+        run: npm run build --workspace=web
+
+      # ── Server API tests ───────────────────────────────────────────────────
+      # test-api.mjs spawns its own server internally — no background process needed
+      - name: Server API tests
+        run: node --test server/test-api.mjs
+
+      # ── UI smoke tests ────────────────────────────────────────────────────
+      # Start the server in the background (serves built web/dist/), wait for it,
+      # then run Playwright smoke tests against it.
+      - name: Start server
+        run: |
+          node server/index.js &
+          echo $! > /tmp/zouk-server.pid
+          # Poll until the API responds (up to 15s)
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:7777/api/channels > /dev/null && break
+            sleep 0.5
+          done
+        env:
+          PORT: 7777
+          NODE_ENV: test
+
+      - name: UI smoke tests
+        run: node web/tests/ui-smoke.mjs --url http://localhost:7777 --out test-out/ui-smoke
+        env:
+          NODE_ENV: test
+
+      # ── Cleanup ────────────────────────────────────────────────────────────
+      - name: Stop server
+        if: always()
+        run: kill $(cat /tmp/zouk-server.pid) 2>/dev/null || true
+
+      # Upload screenshots + results on failure so you can inspect what broke
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_id }}
+          path: |
+            test-out/
+          retention-days: 7

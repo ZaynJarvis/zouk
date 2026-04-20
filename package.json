@@ -9,7 +9,10 @@
     "start": "node server/index.js",
     "dev": "node bin/start.js",
     "server": "node server/index.js",
-    "web:dev": "npm run dev --workspace=web"
+    "web:dev": "npm run dev --workspace=web",
+    "test:server": "node --test server/test-api.mjs",
+    "test:ui": "node web/tests/ui-smoke.mjs",
+    "test": "npm run test:server"
   },
   "bin": {
     "zouk": "./bin/start.js"
