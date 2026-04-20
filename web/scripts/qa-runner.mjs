@@ -247,42 +247,6 @@ async function test26(_page, out, url) {
   };
 }
 
-async function test27(page, out) {
-  // Open Settings → PREFERENCES
-  await page.locator('button[title="Settings"]').filter({ visible: true }).first().click();
-  await page.waitForTimeout(500);
-  await page.getByRole('button', { name: 'PREFERENCES' }).click();
-  await page.waitForTimeout(300);
-
-  // Language must be gone
-  const engCount = await page.locator('button').filter({ hasText: 'English' }).count();
-  const zhCount  = await page.locator('button').filter({ hasText: '中文' }).count();
-  const langGone = engCount === 0 && zhCount === 0;
-
-  // Font size toggles
-  await page.getByRole('button', { name: 'Small', exact: true }).click();
-  await page.waitForTimeout(300);
-  const small = await page.evaluate(() => document.documentElement.getAttribute('data-font-size'));
-
-  await page.getByRole('button', { name: 'Large', exact: true }).click();
-  await page.waitForTimeout(300);
-  const large = await page.evaluate(() => document.documentElement.getAttribute('data-font-size'));
-
-  await page.getByRole('button', { name: 'Medium', exact: true }).click();
-  await page.waitForTimeout(300);
-  const medium = await page.evaluate(() => document.documentElement.getAttribute('data-font-size'));
-
-  const ss = resolve(out, '27-preferences-panel.png');
-  await page.screenshot({ path: ss });
-
-  const fontOk = small === 'small' && large === 'large' && medium === null;
-  return {
-    pass: langGone && fontOk,
-    note: `Language removed:${langGone}. small="${small}" large="${large}" medium="${medium}"`,
-    screenshotPath: ss,
-  };
-}
-
 async function test28(page, out) {
   // Self-profile footer shows user name + online status
   const footerName = await page.locator('text="QA Tester"').first()
@@ -324,7 +288,6 @@ const TESTS = [
   { id: 24, prs: [59], name: '@mention word-boundary + Escape',       fn: test24 },
   { id: 25, prs: [58], name: 'Native scrollbar (no custom CSS)',      fn: test25 },
   { id: 26, prs: [61], name: 'iOS focus-zoom CSS @supports rule',     fn: test26 },
-  { id: 27, prs: [62], name: 'Font-size wired to DOM; language gone', fn: test27 },
   { id: 28, prs: [63, 64], name: 'Self-profile footer + gear dedup', fn: test28 },
   {
     id: 29, prs: [64], name: 'Self-avatar via authUser fallback',

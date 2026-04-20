@@ -324,7 +324,7 @@ export async function generateMachineKey(name: string): Promise<{ key: MachineAp
 
 export async function listMachineKeys(): Promise<MachineApiKey[]> {
   const url = `${getBaseUrl()}/api/machine-keys`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to list machine keys: ${res.status}`);
   const data = await res.json();
   return data.keys || [];

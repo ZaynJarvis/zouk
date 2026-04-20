@@ -88,10 +88,15 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
     <div className="flex items-center gap-2 px-4 py-2 border-b border-nc-border">
       <Server size={12} className="text-nc-green shrink-0" />
       <span className="text-2xs font-bold text-nc-text-bright truncate font-mono">{machine.alias || machine.hostname}</span>
-      {machine.alias && <span className="text-2xs text-nc-muted truncate font-mono">{machine.hostname}</span>}
+      {machine.alias && machine.alias !== machine.hostname && (
+        <span className="text-2xs text-nc-muted truncate font-mono">{machine.hostname}</span>
+      )}
       <span className="w-1.5 h-1.5 bg-nc-green shrink-0" />
       {machine.runtimes && (
-        <span className="text-2xs text-nc-muted truncate ml-auto font-mono">
+        <span
+          className="text-2xs text-nc-muted truncate ml-auto font-mono max-w-[40%] opacity-70"
+          title={formatRuntimes(machine.runtimes)}
+        >
           {formatRuntimes(machine.runtimes)}
         </span>
       )}
@@ -202,7 +207,20 @@ export default function AgentsView() {
     <div className="flex-1 flex min-h-0 overflow-hidden">
       <div className={`${mobileShowDetail ? 'hidden' : 'flex'} lg:flex w-full lg:w-72 shrink-0 border-r-0 lg:border-r border-nc-border flex-col bg-nc-surface`}>
         <div className="flex h-12 items-center justify-between border-b border-nc-border px-4">
-          <h1 className="font-display font-black text-sm text-nc-text-bright tracking-wider">AGENTS</h1>
+          {!isGuest ? (
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={() => setShowMachineSetup(true)}
+                className="cyber-btn flex items-center gap-1.5 px-3 h-8 border border-nc-green bg-nc-green/10 text-xs font-bold font-mono text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green"
+                title="Machine Setup & API Keys"
+              >
+                <Settings size={14} />
+                MACHINE_SETUP
+              </button>
+            </ScanlineTear>
+          ) : (
+            <div />
+          )}
           <div className="flex items-center gap-1.5">
             {archivedCount > 0 && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
@@ -246,18 +264,6 @@ export default function AgentsView() {
                   Machines ({machines.length})
                 </span>
               </button>
-              {!isGuest && (
-                <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                  <button
-                    onClick={() => setShowMachineSetup(true)}
-                    className="cyber-btn flex items-center gap-1 px-2 h-6 border border-nc-green bg-nc-green/10 text-2xs font-bold font-mono text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green"
-                    title="Machine Setup & API Keys"
-                  >
-                    <Settings size={10} />
-                    SETUP
-                  </button>
-                </ScanlineTear>
-              )}
             </div>
             {machinesExpanded && (
               machines.length > 0 ? (
