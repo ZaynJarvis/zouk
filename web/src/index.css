@@ -351,6 +351,12 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  /* Toasts float above the top safe-area in standalone PWAs so they don't
+     hide behind the iOS notch / status bar. */
+  .toast-container {
+    top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  }
+
 }
 
 /* In standalone PWAs, bottom safe-area space should not automatically push
@@ -361,11 +367,13 @@ html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 
-/* Phone-mode composer surface: pill shape + disable NC bevel clip-path so
-   the 100% border-radius is actually visible (task #61 direction 3). */
+/* Phone-mode composer surface: fixed radius equal to half the single-line
+   surface height (textarea min-h 36px + 2px border = 38px → 19px). Renders
+   as a pill when single-line and as a rounded rectangle when the textarea
+   grows, so the side-cap curvature stays consistent. */
 @media (max-width: 639.98px) {
   .composer-surface {
-    border-radius: 9999px;
+    border-radius: 19px;
   }
   html[data-theme="night-city"] .composer-surface.cyber-bevel-sm {
     clip-path: none;

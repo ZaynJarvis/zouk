@@ -315,18 +315,3 @@ export function getChannelSidebarAgentItemClass(
   );
 }
 
-export function getChannelSidebarFooterClass(themeVariant: NavigationThemeVariant): string {
-  return cx(
-    'safe-bottom-fill flex items-center gap-2 px-3 py-2 flex-shrink-0',
-    themeVariant === 'night-city' ? 'border-t border-nc-border bg-nc-panel/40' : 'border-t border-nc-border bg-nc-surface',
-  );
-}
-
-export function getChannelSidebarFooterAvatarClass(themeVariant: NavigationThemeVariant): string {
-  return cx(
-    'w-8 h-8 border font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden',
-    themeVariant === 'night-city'
-      ? 'border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan'
-      : 'border-nc-border bg-nc-elevated text-nc-text-bright',
-  );
-}
