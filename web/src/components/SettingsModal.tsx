@@ -27,7 +27,7 @@ function loadPrefs(): Preferences {
   return defaultPrefs;
 }
 
-const defaultPrefs: Preferences = { fontSize: 'medium', chatWidth: '4xl' };
+const defaultPrefs: Preferences = { fontSize: 'small', chatWidth: '4xl' };
 
 function applyFontSizePreference(fontSize: Preferences['fontSize']) {
   if (fontSize === 'medium') {
@@ -48,7 +48,7 @@ function applyChatWidthPreference(chatWidth: Preferences['chatWidth']) {
 export default function SettingsModal() {
   const {
     settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateProfile, logout,
-    wsConnected, daemonConnected, agents, machines, configs, authUser,
+    wsConnected, agents, machines, configs, authUser,
     profilePresets, addProfilePreset, removeProfilePreset,
   } = useApp();
   const [section, setSection] = useState<Section>('profile');
@@ -330,7 +330,7 @@ export default function SettingsModal() {
                       onClick={() => { setSettingsOpen(false); logout(); }}
                       className="cyber-btn px-4 py-2 bg-nc-red/10 border border-nc-red/50 text-nc-red font-bold text-sm tracking-wider"
                     >
-                      Disconnect
+                      Logout
                     </button>
                   </ScanlineTear>
                 </div>
@@ -504,15 +504,6 @@ export default function SettingsModal() {
                         </span>
                       </div>
                     </div>
-                    <div className="cyber-panel-elevated p-3 flex items-center justify-between">
-                      <span className="text-sm text-nc-text-bright font-bold">Daemon</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 ${daemonConnected ? 'bg-nc-green' : 'bg-nc-red'}`} />
-                        <span className={`text-xs font-mono ${daemonConnected ? 'text-nc-green' : 'text-nc-red'}`}>
-                          {daemonConnected ? 'CONNECTED' : 'DISCONNECTED'}
-                        </span>
-                      </div>
-                    </div>
                   </div>
                 </div>
 
@@ -521,7 +512,6 @@ export default function SettingsModal() {
                   <div className="cyber-panel-elevated p-3 text-xs font-mono space-y-1">
                     <p className="text-nc-muted">Agents online: <span className="text-nc-text-bright">{agents.filter(a => a.status === 'active').length} / {agents.length}</span></p>
                     <p className="text-nc-muted">Machines: <span className="text-nc-text-bright">{machines.length}</span></p>
-                    <p className="text-nc-muted">Configs: <span className="text-nc-text-bright">{configs.length}</span></p>
                   </div>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-import { Hash, PanelRightOpen, PanelRightClose, Menu, Wifi, WifiOff, Home, Cpu, Settings } from 'lucide-react';
+import { Hash, PanelRightOpen, PanelRightClose, Menu, Home, Cpu, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -14,12 +14,11 @@ export default function TopBar() {
   const {
     activeChannelName, viewMode, setViewMode,
     rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
-    wsConnected, daemonConnected, theme, setSettingsOpen,
+    theme, setSettingsOpen,
   } = useApp();
   const themeVariant = resolveNavigationTheme(theme, isNightCity());
   const nc = themeVariant === 'night-city';
   const wapo = themeVariant === 'washington-post';
-  const carbon = themeVariant === 'carbon';
   const inHomeView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
@@ -91,58 +90,6 @@ export default function TopBar() {
         </div>
 
         <div className="flex-1" />
-
-        <div className="hidden sm:flex items-center gap-2 text-xs">
-          {nc ? (
-            <>
-              <span className={`status-chip-sm flex items-center gap-1 font-mono ${wsConnected ? 'tone-terminal' : 'tone-critical'}`}>
-                {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-                <span>{wsConnected ? 'LINKED' : 'OFFLINE'}</span>
-              </span>
-              {daemonConnected && (
-                <span className="status-chip-sm flex items-center gap-1 font-mono tone-telemetry">
-                  DAEMON
-                </span>
-              )}
-            </>
-          ) : wapo ? (
-            <>
-              <span className={`flex items-center gap-1 px-2.5 py-1 border rounded-full font-semibold ${wsConnected ? 'border-[#5b8770] text-[#335c4a] bg-[#f4fbf6]' : 'border-[#b55b60] text-[#8a3239] bg-[#fff4f3]'}`}>
-                {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-                {wsConnected ? 'Linked' : 'Offline'}
-              </span>
-              {daemonConnected && (
-                <span className="flex items-center gap-1 px-2.5 py-1 border rounded-full border-[#c1934c] text-[#8a6326] bg-[#fffbf1] font-semibold">
-                  Daemon
-                </span>
-              )}
-            </>
-          ) : carbon ? (
-            <>
-              <span className={`flex items-center gap-1 px-2.5 py-1 border rounded-full font-semibold ${wsConnected ? 'border-nc-green/40 bg-nc-green/10 text-nc-green' : 'border-nc-red/40 bg-nc-red/10 text-nc-red'}`}>
-                {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-                {wsConnected ? 'Linked' : 'Offline'}
-              </span>
-              {daemonConnected && (
-                <span className="flex items-center gap-1 px-2.5 py-1 border rounded-full border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan font-semibold">
-                  Daemon
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <span className={`flex items-center gap-1 px-2 py-0.5 border-2 font-semibold ${wsConnected ? 'border-nc-green bg-[#D4F5E2] text-nc-text-bright' : 'border-nc-red bg-[#FED7D7] text-nc-text-bright'}`}>
-                {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
-                {wsConnected ? 'Connected' : 'Disconnected'}
-              </span>
-              {daemonConnected && (
-                <span className="flex items-center gap-1 px-2 py-0.5 border-2 border-nc-cyan bg-[#D6EAFF] text-nc-text-bright font-semibold">
-                  Daemon
-                </span>
-              )}
-            </>
-          )}
-        </div>
 
         <div className="flex items-center gap-1">
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
