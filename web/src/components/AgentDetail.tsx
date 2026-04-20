@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera } from 'lucide-react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2 } from 'lucide-react';
 import type { ServerAgent, ServerMachine, Skill } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -7,6 +7,7 @@ import { activityColors, activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { resizeAndEncode } from '../lib/imageEncode';
+import { fetchRuntimeModels, type RuntimeModel } from '../lib/api';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
@@ -170,34 +171,15 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
     );
   }
 
-  if (viewingFile) {
-    return (
-      <div className="flex-1 flex flex-col p-5 overflow-hidden">
-        <div className="flex items-center gap-2 mb-3">
-          <button
-            onClick={() => setViewingFile(null)}
-            className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan"
-          >
-            <ArrowLeft size={14} />
-          </button>
-          <span className="text-xs font-mono text-nc-muted truncate">{viewingFile}</span>
-        </div>
-        <pre className="flex-1 overflow-auto p-3 border border-nc-border bg-nc-black text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
-          {fileContent ?? 'Loading...'}
-        </pre>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-bold text-sm text-nc-text-bright tracking-wider">
+  const treePane = (
+    <div className="flex-1 flex flex-col min-h-0 p-5 overflow-hidden">
+      <div className="flex items-center justify-between mb-3 shrink-0">
+        <h3 className="font-display font-bold text-sm text-nc-text-bright tracking-wider truncate">
           {agent.workDir || 'WORKSPACE'}
         </h3>
         <button
           onClick={refresh}
-          className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan"
+          className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan shrink-0"
           title="Refresh"
         >
           <RefreshCw size={12} />
@@ -205,7 +187,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
       </div>
 
       {rootFiles.length > 0 ? (
-        <div className="border border-nc-border bg-nc-panel overflow-hidden">
+        <div className="border border-nc-border bg-nc-panel overflow-y-auto scrollbar-thin flex-1 min-h-0">
           <WorkspaceTree
             files={rootFiles}
             treeCache={treeCache}
@@ -224,6 +206,39 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
           <p className="text-xs text-nc-muted mt-1 font-mono">Files will appear here when the agent creates them.</p>
         </div>
       )}
+    </div>
+  );
+
+  if (!viewingFile) {
+    return <div className="flex-1 flex flex-col min-h-0 overflow-hidden">{treePane}</div>;
+  }
+
+  const previewPane = (
+    <div className="flex-1 flex flex-col min-h-0 p-5 overflow-hidden">
+      <div className="flex items-center gap-2 mb-3 shrink-0">
+        <span className="flex-1 text-xs font-mono text-nc-muted truncate">{viewingFile}</span>
+        <button
+          onClick={() => setViewingFile(null)}
+          className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-red hover:text-nc-red text-nc-muted shrink-0"
+          title="Close file"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <pre className="flex-1 overflow-auto p-3 border border-nc-border bg-nc-black text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
+        {fileContent ?? 'Loading...'}
+      </pre>
+    </div>
+  );
+
+  return (
+    <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:max-w-[40%] border-b lg:border-b-0 lg:border-r border-nc-border">
+        {treePane}
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col">
+        {previewPane}
+      </div>
     </div>
   );
 }
@@ -277,14 +292,39 @@ function SettingsTab({
   const persistedVisibility = savedConfig?.visibility ?? agent.visibility ?? 'workspace';
   const persistedMaxConcurrent = savedConfig?.maxConcurrentTasks ?? agent.maxConcurrentTasks ?? 6;
   const persistedAutoStart = savedConfig?.autoStart ?? true;
+  const persistedModel = savedConfig?.model ?? agent.model ?? '';
 
   const [displayName, setDisplayName] = useState(persistedDisplayName);
   const [description, setDescription] = useState(persistedDescription);
   const [visibility, setVisibility] = useState<'workspace' | 'private'>(persistedVisibility);
   const [maxConcurrent, setMaxConcurrent] = useState(persistedMaxConcurrent);
   const [autoStart, setAutoStart] = useState<boolean>(persistedAutoStart);
+  const [model, setModel] = useState<string>(persistedModel);
+  const [modelOptions, setModelOptions] = useState<RuntimeModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [customModel, setCustomModel] = useState(false);
   const [picture, setPicture] = useState<string | undefined>(agent.picture);
   const pictureInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!agent.machineId || !agent.runtime) return;
+    let cancelled = false;
+    setModelsLoading(true);
+    fetchRuntimeModels(agent.machineId, agent.runtime)
+      .then((result) => {
+        if (cancelled) return;
+        setModelOptions(result.models);
+      })
+      .catch(() => { if (!cancelled) setModelOptions([]); })
+      .finally(() => { if (!cancelled) setModelsLoading(false); });
+    return () => { cancelled = true; };
+  }, [agent.machineId, agent.runtime]);
+
+  useEffect(() => {
+    if (modelOptions.length === 0) return;
+    const persistedMatches = !persistedModel || modelOptions.some((m) => m.id === persistedModel);
+    setCustomModel(!persistedMatches);
+  }, [modelOptions, persistedModel]);
 
   const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -309,7 +349,8 @@ function SettingsTab({
     description !== persistedDescription ||
     visibility !== persistedVisibility ||
     maxConcurrent !== persistedMaxConcurrent ||
-    autoStart !== persistedAutoStart;
+    autoStart !== persistedAutoStart ||
+    model !== persistedModel;
 
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
@@ -337,7 +378,6 @@ function SettingsTab({
                 onChange={handlePictureUpload}
               />
             </div>
-            <p className="text-xs text-nc-muted font-mono">Click to upload (128x128 webp)</p>
           </div>
           {profilePresets.length > 0 && (
             <div className="mt-3">
@@ -495,8 +535,67 @@ function SettingsTab({
             <span className="font-bold text-sm text-nc-text-bright font-mono">
               {formatRuntime(agent.runtime) || 'Unknown'}
             </span>
-            <span className="text-xs text-nc-muted font-mono">/ {agent.model || '\u2014'}</span>
+            <span className="text-2xs text-nc-muted font-mono ml-auto">Fixed</span>
           </div>
+        </div>
+
+        <div>
+          <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
+            <span>MODEL</span>
+            {modelsLoading && <Loader2 size={10} className="animate-spin text-nc-cyan" />}
+          </label>
+          {modelOptions.length > 0 && !customModel ? (
+            <>
+              <div className="flex gap-2 flex-wrap">
+                {modelOptions.map((m) => (
+                  <ScanlineTear key={m.id} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setModel(m.id)}
+                      className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
+                        model === m.id
+                          ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
+                          : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                      }`}
+                      title={m.id}
+                    >
+                      {m.label}
+                    </button>
+                  </ScanlineTear>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setCustomModel(true); }}
+                className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
+              >
+                Use custom model ID
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="Model identifier (leave blank for runtime default)"
+                className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
+              />
+              {modelOptions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setCustomModel(false); setModel(modelOptions[0].id); }}
+                  className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
+                >
+                  Back to suggested models
+                </button>
+              )}
+            </>
+          )}
+          {agent.status === 'active' && model !== persistedModel && (
+            <p className="text-2xs text-nc-yellow mt-1 font-mono">
+              Saving applies on next agent start — restart the agent to use the new model.
+            </p>
+          )}
         </div>
 
         {agent.machineId && (
@@ -555,7 +654,7 @@ function SettingsTab({
             {isDirty && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
-                  onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent, autoStart, picture })}
+                  onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent, autoStart, picture, model })}
                   className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
                 >
                   <Save size={12} /> SAVE

@@ -156,7 +156,6 @@ export default function AgentSettingsPanel() {
                 onChange={handlePictureUpload}
               />
             </div>
-            <p className="text-xs text-nc-muted font-mono">Click to upload (128x128 webp)</p>
           </div>
           {profilePresets.length > 0 && (
             <div className="mt-2.5">
