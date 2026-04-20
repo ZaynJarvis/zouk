@@ -2145,8 +2145,8 @@ app.post("/api/settings/allowlist", requireAuth, async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const addedBy = token ? authSessions.get(token)?.email || null : null;
   const row = await db.addEmailAllowlist(normalized, addedBy);
-  if (!row) {
-    return res.status(500).json({ error: "Failed to add allowlist entry" });
+  if (!row || row.dbError) {
+    return res.status(500).json({ error: row?.dbError || "Failed to add allowlist entry" });
   }
   dbAllowEmails.set(row.email, { addedAt: row.addedAt, addedBy: row.addedBy });
   res.json({ ok: true, entry: { email: row.email, source: "db", addedAt: row.addedAt, addedBy: row.addedBy } });

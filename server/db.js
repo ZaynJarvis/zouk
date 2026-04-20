@@ -433,7 +433,7 @@ async function loadEmailAllowlist() {
 }
 
 async function addEmailAllowlist(email, addedBy) {
-  if (!pool) return null;
+  if (!pool) return { dbError: 'Database pool not initialised' };
   try {
     const { rows } = await pool.query(
       `INSERT INTO email_allowlist (email, added_by)
@@ -443,10 +443,11 @@ async function addEmailAllowlist(email, addedBy) {
       [email, addedBy || null]
     );
     const row = rows[0];
+    if (!row) return { dbError: 'INSERT returned no rows' };
     return { email: row.email, addedAt: row.added_at, addedBy: row.added_by || null };
   } catch (e) {
     console.error('[db] addEmailAllowlist error:', e.message);
-    return null;
+    return { dbError: e.message };
   }
 }
 
