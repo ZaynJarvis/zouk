@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_by_name TEXT
 );
 
+-- Machine API keys table (replaces data/machine-keys.json for Railway)
+-- Declared before agent_configs because the latter has an FK referencing it.
+CREATE TABLE IF NOT EXISTS machine_keys (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  raw_key     TEXT UNIQUE NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at  TIMESTAMPTZ,
+  bound_fingerprint TEXT
+);
+-- Migration: add bound_fingerprint to existing deployments
+ALTER TABLE machine_keys ADD COLUMN IF NOT EXISTS bound_fingerprint TEXT;
+
 -- Agent configs table (replaces data/agent-configs.json for Railway)
 CREATE TABLE IF NOT EXISTS agent_configs (
   id           TEXT PRIMARY KEY,
@@ -56,6 +70,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   description  TEXT,
   auto_start   BOOLEAN NOT NULL DEFAULT false,
   picture      TEXT,
+  machine_id   TEXT NOT NULL REFERENCES machine_keys(id) ON DELETE CASCADE,
   config_json  JSONB NOT NULL DEFAULT '{}'
 );
 -- Migration: add picture to existing deployments
@@ -94,19 +109,6 @@ CREATE TABLE IF NOT EXISTS email_allowlist (
 
 ALTER TABLE email_allowlist ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service role all" ON email_allowlist FOR ALL USING (true);
-
--- Machine API keys table (replaces data/machine-keys.json for Railway)
-CREATE TABLE IF NOT EXISTS machine_keys (
-  id          TEXT PRIMARY KEY,
-  name        TEXT NOT NULL,
-  raw_key     TEXT UNIQUE NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_used_at TIMESTAMPTZ,
-  revoked_at  TIMESTAMPTZ,
-  bound_fingerprint TEXT
-);
--- Migration: add bound_fingerprint to existing deployments
-ALTER TABLE machine_keys ADD COLUMN IF NOT EXISTS bound_fingerprint TEXT;
 
 -- Disable RLS for service-role access (server uses service key)
 ALTER TABLE messages      ENABLE ROW LEVEL SECURITY;
