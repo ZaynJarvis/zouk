@@ -59,22 +59,22 @@ ALTER TABLE machine_keys ADD COLUMN IF NOT EXISTS bound_fingerprint TEXT;
 
 -- Agent configs table (replaces data/agent-configs.json for Railway)
 CREATE TABLE IF NOT EXISTS agent_configs (
-  id           TEXT PRIMARY KEY,
-  name         TEXT NOT NULL,
-  display_name TEXT,
-  runtime      TEXT NOT NULL DEFAULT 'claude',
-  model        TEXT,
-  system_prompt TEXT,
-  skills       JSONB NOT NULL DEFAULT '[]',
-  work_dir     TEXT,
-  description  TEXT,
-  auto_start   BOOLEAN NOT NULL DEFAULT false,
-  picture      TEXT,
-  machine_id   TEXT NOT NULL REFERENCES machine_keys(id) ON DELETE CASCADE,
-  config_json  JSONB NOT NULL DEFAULT '{}'
+  id                   TEXT PRIMARY KEY,
+  machine_id           TEXT NOT NULL REFERENCES machine_keys(id) ON DELETE CASCADE,
+  name                 TEXT NOT NULL,
+  display_name         TEXT,
+  description          TEXT,
+  runtime              TEXT NOT NULL DEFAULT 'claude',
+  model                TEXT,
+  system_prompt        TEXT,
+  instructions         TEXT,
+  work_dir             TEXT,
+  picture              TEXT,
+  visibility           TEXT,
+  max_concurrent_tasks INTEGER,
+  auto_start           BOOLEAN NOT NULL DEFAULT false,
+  skills               JSONB NOT NULL DEFAULT '[]'
 );
--- Migration: add picture to existing deployments
-ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS picture TEXT;
 
 -- Auth sessions table (survives server restarts and deploys)
 CREATE TABLE IF NOT EXISTS sessions (

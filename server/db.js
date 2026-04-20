@@ -272,38 +272,43 @@ async function saveAgentConfig(config) {
   if (!config.machineId) return deleteAgentConfig(config.id);
   try {
     // machine_id is deliberately excluded from DO UPDATE SET — once an agent
-    // is bound to a machine, that binding is immutable. config_json's
-    // machineId is rewritten from the existing row so the JSON stays
-    // consistent with the authoritative column on every update.
+    // is bound to a machine, that binding is immutable.
     await pool.query(
-      `INSERT INTO agent_configs (id, name, display_name, runtime, model, system_prompt, skills, work_dir, description, auto_start, picture, machine_id, config_json)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      `INSERT INTO agent_configs (
+         id, machine_id, name, display_name, description, runtime, model,
+         system_prompt, instructions, work_dir, picture, visibility,
+         max_concurrent_tasks, auto_start, skills
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (id) DO UPDATE SET
-         name = EXCLUDED.name,
-         display_name = EXCLUDED.display_name,
-         runtime = EXCLUDED.runtime,
-         model = EXCLUDED.model,
-         system_prompt = EXCLUDED.system_prompt,
-         skills = EXCLUDED.skills,
-         work_dir = EXCLUDED.work_dir,
-         description = EXCLUDED.description,
-         auto_start = EXCLUDED.auto_start,
-         picture = EXCLUDED.picture,
-         config_json = jsonb_set(EXCLUDED.config_json, '{machineId}', to_jsonb(agent_configs.machine_id))`,
+         name                 = EXCLUDED.name,
+         display_name         = EXCLUDED.display_name,
+         description          = EXCLUDED.description,
+         runtime              = EXCLUDED.runtime,
+         model                = EXCLUDED.model,
+         system_prompt        = EXCLUDED.system_prompt,
+         instructions         = EXCLUDED.instructions,
+         work_dir             = EXCLUDED.work_dir,
+         picture              = EXCLUDED.picture,
+         visibility           = EXCLUDED.visibility,
+         max_concurrent_tasks = EXCLUDED.max_concurrent_tasks,
+         auto_start           = EXCLUDED.auto_start,
+         skills               = EXCLUDED.skills`,
       [
         config.id,
+        config.machineId,
         config.name,
         config.displayName || config.name,
+        config.description || null,
         config.runtime || 'claude',
         config.model || null,
-        config.systemPrompt || config.description || null,
-        JSON.stringify(config.skills || []),
+        config.systemPrompt || null,
+        config.instructions || null,
         config.workDir || null,
-        config.description || null,
-        config.autoStart || false,
         config.picture || null,
-        config.machineId,
-        JSON.stringify(config),
+        config.visibility || null,
+        Number.isFinite(config.maxConcurrentTasks) ? config.maxConcurrentTasks : null,
+        config.autoStart || false,
+        JSON.stringify(config.skills || []),
       ]
     );
   } catch (e) {
@@ -323,9 +328,30 @@ async function deleteAgentConfig(id) {
 async function loadAgentConfigs() {
   if (!pool) return null;
   try {
-    const { rows } = await pool.query('SELECT machine_id, config_json FROM agent_configs ORDER BY name ASC');
-    // machine_id column is the source of truth; overlay it onto the JSON blob.
-    return rows.map(row => ({ ...row.config_json, machineId: row.machine_id }));
+    const { rows } = await pool.query(
+      `SELECT id, machine_id, name, display_name, description, runtime, model,
+              system_prompt, instructions, work_dir, picture, visibility,
+              max_concurrent_tasks, auto_start, skills
+         FROM agent_configs
+         ORDER BY name ASC`
+    );
+    return rows.map(row => ({
+      id: row.id,
+      machineId: row.machine_id,
+      name: row.name,
+      displayName: row.display_name || row.name,
+      description: row.description || '',
+      runtime: row.runtime || 'claude',
+      model: row.model || null,
+      systemPrompt: row.system_prompt || '',
+      instructions: row.instructions || '',
+      workDir: row.work_dir || null,
+      picture: row.picture || null,
+      visibility: row.visibility || null,
+      maxConcurrentTasks: row.max_concurrent_tasks ?? null,
+      autoStart: row.auto_start === true,
+      skills: Array.isArray(row.skills) ? row.skills : [],
+    }));
   } catch (e) {
     console.error('[db] loadAgentConfigs error:', e.message);
     return null;
