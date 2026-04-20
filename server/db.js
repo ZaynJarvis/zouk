@@ -506,6 +506,82 @@ async function removeEmailAllowlist(email) {
   }
 }
 
+// ─── Agent activities ─────────────────────────────────────────────
+
+const ACTIVITY_KEEP_LIMIT = 100;
+
+async function saveActivityEntries(agentId, activity, detail, entries) {
+  if (!pool || !agentId || !Array.isArray(entries) || entries.length === 0) return;
+  try {
+    const placeholders = entries
+      .map((_, i) => `($1, $2, $3, $${i + 4}::jsonb)`)
+      .join(',');
+    const params = [agentId, activity || null, detail || null, ...entries.map(e => JSON.stringify(e))];
+    await pool.query(
+      `INSERT INTO agent_activities (agent_id, activity, detail, entry)
+       VALUES ${placeholders}`,
+      params
+    );
+  } catch (e) {
+    console.error('[db] saveActivityEntries error:', e.message);
+  }
+}
+
+async function loadAgentActivities(agentId, keep = ACTIVITY_KEEP_LIMIT) {
+  if (!pool || !agentId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT entry FROM agent_activities
+       WHERE agent_id = $1
+       ORDER BY id DESC
+       LIMIT $2`,
+      [agentId, keep]
+    );
+    // Return oldest-first so frontend can append in order.
+    return rows.map(r => r.entry).reverse();
+  } catch (e) {
+    console.error('[db] loadAgentActivities error:', e.message);
+    return [];
+  }
+}
+
+async function trimAgentActivities(agentId, keep = ACTIVITY_KEEP_LIMIT) {
+  if (!pool || !agentId) return;
+  try {
+    await pool.query(
+      `DELETE FROM agent_activities
+       WHERE agent_id = $1
+         AND id <= COALESCE((
+           SELECT id FROM agent_activities
+           WHERE agent_id = $1
+           ORDER BY id DESC
+           OFFSET $2 LIMIT 1
+         ), 0)`,
+      [agentId, keep]
+    );
+  } catch (e) {
+    console.error('[db] trimAgentActivities error:', e.message);
+  }
+}
+
+async function trimAllAgentActivities(keep = ACTIVITY_KEEP_LIMIT) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `DELETE FROM agent_activities a
+       USING (
+         SELECT agent_id, id,
+                row_number() OVER (PARTITION BY agent_id ORDER BY id DESC) AS rn
+         FROM agent_activities
+       ) ranked
+       WHERE a.id = ranked.id AND ranked.rn > $1`,
+      [keep]
+    );
+  } catch (e) {
+    console.error('[db] trimAllAgentActivities error:', e.message);
+  }
+}
+
 // ─── Auth sessions ────────────────────────────────────────────────
 
 async function saveSession(token, user) {
@@ -575,4 +651,8 @@ module.exports = {
   loadEmailAllowlist,
   addEmailAllowlist,
   removeEmailAllowlist,
+  saveActivityEntries,
+  loadAgentActivities,
+  trimAgentActivities,
+  trimAllAgentActivities,
 };

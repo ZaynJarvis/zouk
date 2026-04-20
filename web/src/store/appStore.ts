@@ -79,6 +79,8 @@ export function useAppStore() {
   currentUserRef.current = currentUser;
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const agentsRef = useRef(agents);
+  agentsRef.current = agents;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
@@ -573,6 +575,28 @@ export function useAppStore() {
     }
   }, [addToast]);
 
+  const loadAgentActivitiesAction = useCallback(async (agentId: string) => {
+    // Snapshot the live-entries count BEFORE the fetch. The server persists
+    // each entry before broadcasting the corresponding WS frame (save-then-
+    // broadcast, per-agent queue), so every live entry received up to this
+    // point is also visible to the fetch query on the server. After the fetch
+    // returns, any live entries at index >= baseLen arrived during the fetch
+    // window and must be appended to the fetched history.
+    const baseLen = agentsRef.current.find(a => a.id === agentId)?.entries?.length || 0;
+    try {
+      const fetched = await api.fetchAgentActivities(agentId, 100);
+      if (fetched.length === 0) return;
+      setAgents(prev => prev.map(a => {
+        if (a.id !== agentId) return a;
+        const live = a.entries || [];
+        const liveAfterBase = live.slice(baseLen);
+        return { ...a, entries: [...fetched, ...liveAfterBase] };
+      }));
+    } catch {
+      // Silent — Activity tab simply stays empty.
+    }
+  }, []);
+
   const updateCurrentUser = useCallback((name: string, picture?: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -716,6 +740,7 @@ export function useAppStore() {
     deleteAgent: deleteAgentAction,
     updateAgentConfig: updateAgentConfigAction,
     saveAgentConfig: saveAgentConfigAction,
+    loadAgentActivities: loadAgentActivitiesAction,
     wsSend,
     workspaceFiles, wsTreeCache, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,

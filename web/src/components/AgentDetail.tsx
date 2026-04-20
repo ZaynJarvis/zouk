@@ -244,7 +244,15 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
 }
 
 function ActivityTab({ agent }: { agent: ServerAgent }) {
+  const { loadAgentActivities } = useApp();
   const entries = agent.entries || [];
+
+  useEffect(() => {
+    // Fetch once per agent mount. The store action captures the pre-fetch live
+    // count and merges so nothing accumulated during the round trip is lost.
+    loadAgentActivities(agent.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id]);
 
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">

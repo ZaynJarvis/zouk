@@ -89,3 +89,15 @@ CREATE TABLE IF NOT EXISTS email_allowlist (
   added_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   added_by   TEXT
 );
+
+CREATE TABLE IF NOT EXISTS agent_activities (
+  id         BIGSERIAL PRIMARY KEY,
+  agent_id   TEXT NOT NULL REFERENCES agent_configs(id) ON DELETE CASCADE,
+  activity   TEXT,
+  detail     TEXT,
+  entry      JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS agent_activities_agent_id_idx
+  ON agent_activities (agent_id, id DESC);

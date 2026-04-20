@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   X, Bot, User as UserIcon, Activity, FolderOpen, Server, Settings as SettingsIcon, Zap, MessageCircle,
 } from 'lucide-react';
@@ -223,7 +223,14 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
 }
 
 function ActivityTab({ agent }: { agent: ServerAgent }) {
+  const { loadAgentActivities } = useApp();
   const entries = agent.entries || [];
+
+  useEffect(() => {
+    loadAgentActivities(agent.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id]);
+
   if (entries.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">

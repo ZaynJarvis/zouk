@@ -189,6 +189,17 @@ export async function fetchRuntimeModels(
   };
 }
 
+export async function fetchAgentActivities(
+  agentId: string,
+  limit = 100
+): Promise<import('../types').AgentEntry[]> {
+  const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/activities?limit=${limit}`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data.entries) ? data.entries : [];
+}
+
 export async function updateAgentConfig(agentId: string, updates: Record<string, unknown>): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}/config`;
   const res = await fetch(url, {

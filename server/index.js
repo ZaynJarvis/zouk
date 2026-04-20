@@ -1232,6 +1232,23 @@ app.get("/api/agents", (req, res) => {
   res.json({ agents, configs: agentConfigs });
 });
 
+// Get recent activity entries for an agent (used by the Activity tab).
+app.get("/api/agents/:id/activities", async (req, res) => {
+  const agentId = req.params.id;
+  if (!hasKnownAgentConfig(agentId)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
+  const rawLimit = parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 100;
+  try {
+    const entries = await db.loadAgentActivities(agentId, limit);
+    res.json({ entries });
+  } catch (e) {
+    console.error(`[api] /api/agents/${agentId}/activities error:`, e.message);
+    res.status(500).json({ error: "failed to load activities" });
+  }
+});
+
 // ─── Agent config CRUD ───────────────────────────────────────────
 
 // List all agent configs
@@ -1726,6 +1743,21 @@ function handleDaemonConnection(ws, apiKey) {
   ws.on("close", () => clearInterval(pingInterval));
 }
 
+// Per-agent serialization for save-then-broadcast of activity frames.
+// Ensures: (1) the DB write commits before the live WS broadcast, so a client
+// that fetches history via HTTP after receiving the WS event will see that
+// entry in the fetch result; (2) frames from the same agent broadcast in
+// arrival order even when awaits vary.
+const activityChains = new Map();
+function enqueueActivity(agentId, task) {
+  const prev = activityChains.get(agentId) || Promise.resolve();
+  const next = prev.catch(() => {}).then(task);
+  activityChains.set(agentId, next);
+  next.finally(() => {
+    if (activityChains.get(agentId) === next) activityChains.delete(agentId);
+  });
+}
+
 function handleDaemonMessage(ws, msg, connectedAgents) {
   switch (msg.type) {
     case "ready": {
@@ -1816,6 +1848,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         break;
       }
       const isNew = !store.agents[agentId];
+      const wasActive = !isNew && store.agents[agentId].status === "active";
       if (isNew) {
         store.agents[agentId] = buildRuntimeAgent(agentId, {
           status,
@@ -1846,6 +1879,11 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       }
       if (status === "active") {
         replayPendingDeliveries(agentId);
+        if (!wasActive) {
+          db.trimAgentActivities(agentId).catch((e) =>
+            console.error(`[db] trimAgentActivities(${agentId}) failed:`, e.message)
+          );
+        }
       }
       if (status === "inactive") {
         const resolver = pendingContextResets.get(agentId);
@@ -1869,7 +1907,16 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         console.log(`[agent:${agentId}] Ignoring activity from stale daemon connection on machine ${ws._machineId}`);
         break;
       }
-      broadcastToWeb({ type: "agent_activity", agentId, activity, detail, entries });
+      enqueueActivity(agentId, async () => {
+        if (Array.isArray(entries) && entries.length > 0) {
+          try {
+            await db.saveActivityEntries(agentId, activity, detail, entries);
+          } catch (e) {
+            console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
+          }
+        }
+        broadcastToWeb({ type: "agent_activity", agentId, activity, detail, entries });
+      });
       break;
     }
     case "agent:session": {
@@ -2497,6 +2544,11 @@ async function initFromDB() {
     }
 
     await profilePresets.hydrateFromDb();
+
+    // One-shot trim of any historical activity backlog — cheap at our scale.
+    db.trimAllAgentActivities().catch((e) =>
+      console.error("[db] trimAllAgentActivities at boot failed:", e.message)
+    );
 
     // Machine keys: DB wins over file when DB has entries
     if (dbKeys !== null && dbKeys.length > 0) {
