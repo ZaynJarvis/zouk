@@ -14,7 +14,6 @@ import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
 import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
-import { useVisualViewportLock } from './hooks/useVisualViewportLock';
 
 function GoogleAuthSync() {
   const { setHasGoogleAuth } = useApp();
@@ -38,7 +37,6 @@ function AppShell() {
   }, [setSidebarOpen]);
 
   useEdgeSwipeRight(() => setSidebarOpen(true), { enabled: !sidebarOpen });
-  useVisualViewportLock();
 
   if (!isLoggedIn) {
     return <LoginScreen />;
