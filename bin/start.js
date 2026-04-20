@@ -62,7 +62,8 @@ console.log(`
 ╚══════════════════════════════════════════════╝
 
 To connect a compatible daemon:
-  npx @slock-ai/daemon@latest --server-url http://localhost:${SERVER_PORT} --api-key test
+  # clone zouk-daemon first
+  npx tsx src/index.ts --server-url http://localhost:${SERVER_PORT} --api-key test
 `);
 
 if (!webOnly) {
