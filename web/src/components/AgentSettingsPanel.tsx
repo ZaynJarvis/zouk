@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useMemo } from 'react';
-import { Save, Square, Globe, Lock, Trash2, Camera, Server, Settings as SettingsIcon } from 'lucide-react';
+import { Save, Square, Play, Globe, Lock, Trash2, Camera, Server, Settings as SettingsIcon } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -14,7 +14,7 @@ export default function AgentSettingsPanel() {
   const {
     agents, configs, machines, profilePresets,
     closeRightPanel, agentSettingsId,
-    updateAgentConfig, stopAgent, deleteAgent, setAgentSettingsId, isGuest,
+    updateAgentConfig, stopAgent, startAgent, deleteAgent, setAgentSettingsId, isGuest,
   } = useApp();
 
   const liveAgent = agents.find((a) => a.id === agentSettingsId);
@@ -295,12 +295,26 @@ export default function AgentSettingsPanel() {
           >
             <Trash2 size={12} /> DELETE
           </button>
-          {agent.status === 'active' && (
+          {agent.status === 'active' ? (
             <button
               onClick={() => stopAgent(agent.id)}
               className="cyber-btn ml-auto flex items-center gap-1 px-3 py-1.5 border border-nc-red bg-nc-red/10 text-xs font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono"
             >
               <Square size={12} /> STOP
+            </button>
+          ) : (
+            <button
+              onClick={() => startAgent({
+                id: agent.id,
+                name: agent.name,
+                displayName: agent.displayName,
+                description: agent.description,
+                runtime: agent.runtime ?? 'claude',
+                model: agent.model,
+              })}
+              className="cyber-btn ml-auto flex items-center gap-1 px-3 py-1.5 border border-nc-green bg-nc-green/10 text-xs font-bold text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green font-mono"
+            >
+              <Play size={12} /> START
             </button>
           )}
         </div>

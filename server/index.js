@@ -449,6 +449,7 @@ const daemonConnections = new Set(); // all daemon ws connections (for sending a
 const webSockets = new Set(); // web UI connections
 const machines = new Map(); // machineId -> { id, hostname, os, runtimes, capabilities, connectedAt, agentIds }
 const pendingRuntimeModelRequests = new Map(); // requestId -> { resolve, timer }
+const pendingContextResets = new Map(); // agentId -> resolver (fires on daemon agent:status=inactive, for reset-context orchestration)
 const onlineHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest, count }
 
 // Per-agent queue of messages that arrived while the daemon socket was offline.
@@ -1573,6 +1574,40 @@ app.post("/api/agents/:id/stop", requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// Reset an agent's conversation context: SIGTERM the running process, wait for
+// it to exit, then cold-start with a null session_id. Workspace is preserved.
+app.post("/api/agents/:id/reset-context", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const savedConfig = agentConfigs.find((c) => c.id === id);
+  if (!savedConfig) return res.status(404).json({ error: "agent not found" });
+
+  const ws = daemonSockets.get(id);
+  const isActive = store.agents[id]?.status === "active";
+
+  if (isActive && ws && ws.readyState === 1) {
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        pendingContextResets.delete(id);
+        resolve();
+      }, 3000);
+      pendingContextResets.set(id, () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
+      if (store.agents[id]) {
+        store.agents[id].status = "stopping";
+        broadcastToWeb({ type: "agent_status", agentId: id, status: "stopping" });
+      }
+    });
+  }
+
+  const result = startAgentOnDaemon(id, savedConfig);
+  if (result.error) return res.status(400).json(result);
+  console.log(`[api] Context reset for agent ${id}`);
+  res.json({ success: true });
+});
+
 // Start all auto-start agents (called when daemon connects)
 function autoStartAgents() {
   const autoStart = agentConfigs.filter((c) => c.autoStart);
@@ -1812,6 +1847,13 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       if (status === "active") {
         replayPendingDeliveries(agentId);
       }
+      if (status === "inactive") {
+        const resolver = pendingContextResets.get(agentId);
+        if (resolver) {
+          pendingContextResets.delete(agentId);
+          resolver();
+        }
+      }
       console.log(`[agent:${agentId}] Status: ${status}`);
       break;
     }
@@ -1934,7 +1976,6 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
 const WS_AUTH_REQUIRED_TYPES = new Set([
   "agent:start",
   "agent:stop",
-  "agent:reset-workspace",
   "machine:workspace:delete",
   "machine:workspace:scan",
 ]);
@@ -2093,13 +2134,6 @@ function handleWebMessage(ws, msg) {
       const agentWs = daemonSockets.get(msg.agentId);
       if (agentWs && agentWs.readyState === 1) {
         agentWs.send(JSON.stringify({ type: "agent:stop", agentId: msg.agentId }));
-      }
-      break;
-    }
-    case "agent:reset-workspace": {
-      const agentWs = daemonSockets.get(msg.agentId);
-      if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:reset-workspace", agentId: msg.agentId }));
       }
       break;
     }

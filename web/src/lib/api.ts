@@ -152,6 +152,12 @@ export async function stopAgent(agentId: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to stop agent: ${res.status}`);
 }
 
+export async function resetAgentContext(agentId: string): Promise<void> {
+  const url = `${getBaseUrl()}/api/agents/${agentId}/reset-context`;
+  const res = await fetch(url, { method: 'POST', headers: getAuthHeaders() });
+  if (!res.ok) throw new Error(`Failed to reset agent context: ${res.status}`);
+}
+
 export async function deleteAgent(agentId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}`;
   const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
