@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect, type PointerEvent } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import {
@@ -91,6 +91,57 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       textareaRef.current.style.height = 'auto';
     }
   }, [text, sendMessage, threadTarget]);
+
+  // Mobile has no Shift+Enter; long-press Send to insert a newline instead.
+  const longPressTimer = useRef<number | null>(null);
+  const longPressedRef = useRef(false);
+
+  const insertNewlineAtCursor = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = text.slice(0, start) + '\n' + text.slice(end);
+    setText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const caret = start + 1;
+      el.setSelectionRange(caret, caret);
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    });
+  }, [text]);
+
+  const handleSendPointerDown = useCallback((e: PointerEvent<HTMLButtonElement>) => {
+    if (e.pointerType === 'mouse') return;
+    if (!text.trim()) return;
+    longPressedRef.current = false;
+    longPressTimer.current = window.setTimeout(() => {
+      longPressedRef.current = true;
+      insertNewlineAtCursor();
+    }, 450);
+  }, [insertNewlineAtCursor, text]);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleSendClick = useCallback(() => {
+    if (longPressedRef.current) {
+      longPressedRef.current = false;
+      return;
+    }
+    handleSubmit();
+  }, [handleSubmit]);
+
+  useEffect(() => () => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+    }
+  }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionQuery !== null && mentionMatches.length > 0) {
@@ -193,7 +244,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   if (isGuest) {
     return (
       <div className="flex-shrink-0 composer-outer safe-bottom">
-        <div className="composer-inner-pad px-5 pt-2 pb-2 sm:pb-4">
+        <div className="composer-inner-pad px-5 pt-2 pb-0 sm:pb-4">
           <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
             Sign in with Google to send messages
           </div>
@@ -204,7 +255,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   return (
     <div className="flex-shrink-0 composer-outer safe-bottom">
-      <div className="composer-inner-pad px-4 sm:px-6 pt-1 sm:pt-2 pb-2 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
+      <div className="composer-inner-pad px-4 sm:px-6 pt-1 sm:pt-2 pb-0 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
         {mentionQuery !== null && mentionMatches.length > 0 && (
           <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
             {mentionMatches.map((match, i) => (
@@ -233,19 +284,20 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </div>
         )}
 
-        <div className={`flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+        <div className={`composer-surface flex items-end border border-nc-border bg-nc-surface cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
           <textarea
             ref={textareaRef}
             value={text}
             onChange={handleChange}
             onSelect={handleSelect}
             onKeyDown={handleKeyDown}
+            enterKeyHint="send"
             placeholder={placeholder || `Message ${channelLabel}`}
             rows={1}
-            className="composer-textarea flex-1 min-w-0 px-3 py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[40px]"
+            className="composer-textarea flex-1 min-w-0 px-4 py-1.5 sm:px-3 sm:py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px]"
           />
 
-          <div className="flex items-center gap-2 px-2 pb-1.5 flex-shrink-0">
+          <div className="flex items-center gap-2 px-1.5 pb-1 sm:px-2 sm:pb-1.5 flex-shrink-0">
             {!text.trim() && (
               <span
                 aria-hidden="true"
@@ -256,10 +308,16 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             )}
 
             <button
-              onClick={handleSubmit}
+              onClick={handleSendClick}
+              onPointerDown={handleSendPointerDown}
+              onPointerUp={cancelLongPress}
+              onPointerLeave={cancelLongPress}
+              onPointerCancel={cancelLongPress}
               disabled={!text.trim()}
+              title="Tap to send · Hold for newline"
+              aria-label="Send message. Hold to insert newline."
               className={`
-                cyber-btn flex items-center justify-center h-7 px-3 gap-1.5 border border-nc-border flex-shrink-0 text-xs font-mono glitch-text transition-colors
+                cyber-btn flex items-center justify-center h-7 px-2.5 sm:px-3 gap-1.5 border border-nc-border flex-shrink-0 text-xs font-mono glitch-text transition-colors
                 ${text.trim()
                   ? 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan/50 hover:bg-nc-cyan/25'
                   : 'bg-nc-elevated text-nc-muted cursor-not-allowed'
