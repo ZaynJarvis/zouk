@@ -515,6 +515,15 @@ export function useAppStore() {
     }
   }, [addToast]);
 
+  const resetAgentContextAction = useCallback(async (agentId: string) => {
+    try {
+      await api.resetAgentContext(agentId);
+      addToast('Context reset', 'info');
+    } catch {
+      addToast('Failed to reset context', 'error');
+    }
+  }, [addToast]);
+
   const deleteAgentAction = useCallback(async (agentId: string) => {
     try {
       await api.deleteAgent(agentId);
@@ -703,6 +712,7 @@ export function useAppStore() {
     deleteChannel: deleteChannelAction,
     startAgent: startAgentAction,
     stopAgent: stopAgentAction,
+    resetAgentContext: resetAgentContextAction,
     deleteAgent: deleteAgentAction,
     updateAgentConfig: updateAgentConfigAction,
     saveAgentConfig: saveAgentConfigAction,

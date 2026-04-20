@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Globe, Lock, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2 } from 'lucide-react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Play, Globe, Lock, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2 } from 'lucide-react';
 import type { ServerAgent, ServerMachine, Skill } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -281,7 +281,7 @@ function SettingsTab({
   onStop: () => void;
   onDelete: () => void;
 }) {
-  const { isGuest, configs, profilePresets } = useApp();
+  const { isGuest, configs, profilePresets, startAgent } = useApp();
   // description / visibility / maxConcurrentTasks / autoStart only round-trip
   // through the saved config — the live ServerAgent payload doesn't carry
   // them. Reading from `agent.X` would wipe the user's saved value every time
@@ -669,13 +669,29 @@ function SettingsTab({
                 <Trash2 size={12} /> DELETE_AGENT
               </button>
             </ScanlineTear>
-            {agent.status === 'active' && (
+            {agent.status === 'active' ? (
               <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
                   onClick={onStop}
                   className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-red bg-nc-red/10 text-sm font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono"
                 >
                   <Square size={12} /> STOP_AGENT
+                </button>
+              </ScanlineTear>
+            ) : (
+              <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                <button
+                  onClick={() => startAgent({
+                    id: agent.id,
+                    name: agent.name,
+                    displayName: agent.displayName,
+                    description: agent.description,
+                    runtime: agent.runtime ?? 'claude',
+                    model: agent.model,
+                  })}
+                  className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-green bg-nc-green/10 text-sm font-bold text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green font-mono"
+                >
+                  <Play size={12} /> START_AGENT
                 </button>
               </ScanlineTear>
             )}

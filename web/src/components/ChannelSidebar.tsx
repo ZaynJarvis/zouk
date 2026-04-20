@@ -37,8 +37,8 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
-    createChannel, deleteChannel, currentUser, unreadCounts, wsSend, addToast, isGuest, theme,
-    authUser, setSidebarOpen, openAgentProfile, openAgentSettings,
+    createChannel, deleteChannel, currentUser, unreadCounts, isGuest, theme,
+    authUser, setSidebarOpen, openAgentProfile, openAgentSettings, resetAgentContext,
   } = useApp();
 
   const pick = (name: string, isDm?: boolean) => {
@@ -209,8 +209,7 @@ export default function ChannelSidebar() {
                       role="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        wsSend({ type: 'agent:reset-workspace', agentId: agent.id });
-                        addToast(`Resetting ${agent.name}...`, 'info');
+                        resetAgentContext(agent.id);
                       }}
                       className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-yellow transition-all"
                       title="Reset context"
