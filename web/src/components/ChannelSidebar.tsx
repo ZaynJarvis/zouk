@@ -12,8 +12,8 @@ import {
   resolveNavigationTheme,
 } from './navigation/themeVariants';
 
-function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
-  title: string; count?: number; collapsed: boolean; onToggle: () => void; onAdd?: () => void;
+function SectionHeader({ title, count, collapsed, onToggle, onAdd, forceShowButtons }: {
+  title: string; count?: number; collapsed: boolean; onToggle: () => void; onAdd?: () => void; forceShowButtons?: boolean;
 }) {
   const nc = isNightCity();
   return (
@@ -26,7 +26,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
         )}
       </button>
       {onAdd && (
-        <button onClick={onAdd} className={`opacity-0 group-hover:opacity-100 transition-all ${nc ? 'text-nc-muted hover:text-nc-cyan' : 'text-nc-muted hover:text-nc-text-bright'}`}>
+        <button onClick={onAdd} className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all ${nc ? 'text-nc-muted hover:text-nc-cyan' : 'text-nc-muted hover:text-nc-text-bright'}`}>
           <Plus size={14} />
         </button>
       )}
@@ -86,6 +86,8 @@ export default function ChannelSidebar() {
   const themeVariant = resolveNavigationTheme(theme, isNightCity());
   const channelSidebarTheme = channelSidebarThemeConfig[themeVariant];
 
+  const forceShowButtons = isMobileViewport() || isStandalonePWA();
+
   return (
     <div className={channelSidebarTheme.shell}>
       <div className={channelSidebarTheme.header}>
@@ -109,6 +111,7 @@ export default function ChannelSidebar() {
             collapsed={channelsCollapsed}
             onToggle={() => setChannelsCollapsed(!channelsCollapsed)}
             onAdd={isGuest ? undefined : () => setShowCreateChannel(!showCreateChannel)}
+            forceShowButtons={forceShowButtons}
           />
 
           {showCreateChannel && (
@@ -147,7 +150,7 @@ export default function ChannelSidebar() {
                       if (!window.confirm(`Delete channel #${ch.name}? This removes the channel from the workspace but keeps its messages in the database.`)) return;
                       deleteChannel(ch.id, ch.name);
                     }}
-                    className="ml-auto opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-all"
+                    className={`ml-auto ${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-all`}
                     title="Delete channel"
                   >
                     <Trash2 size={12} />
@@ -211,7 +214,7 @@ export default function ChannelSidebar() {
                         e.stopPropagation();
                         resetAgentContext(agent.id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-yellow transition-all"
+                      className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-yellow transition-all`}
                       title="Reset context"
                     >
                       <RotateCcw size={12} />
@@ -224,7 +227,7 @@ export default function ChannelSidebar() {
                         e.stopPropagation();
                         openAgentSettings(agent.id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all"
+                      className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
                       title={`Configure ${agent.displayName || agent.name}`}
                     >
                       <Settings size={12} />
