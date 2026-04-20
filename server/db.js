@@ -1,95 +1,107 @@
 /**
- * Supabase persistence layer for Zouk server.
+ * PostgreSQL persistence layer for Zouk server.
  *
- * Required env vars:
- *   SUPABASE_URL          - https://<project>.supabase.co
- *   SUPABASE_SERVICE_KEY  - service_role JWT (from Supabase Dashboard → Settings → API)
+ * Required env var:
+ *   DATABASE_URL  - PostgreSQL connection string
+ *                   e.g. postgresql://user:pass@host:5432/dbname
  *
- * Falls back gracefully to in-memory-only mode when env vars are absent.
+ * Falls back gracefully to in-memory-only mode when DATABASE_URL is absent.
  */
 
-const { createClient } = require('@supabase/supabase-js');
-const { Client } = require('pg');
+const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
-// Keep only a recent working set in memory on startup. This is enough for
-// channel history views and search context without bloating initial render/load.
 const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '800', 10);
 
-const enabled = Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
-const db = enabled
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-      auth: { persistSession: false },
+const enabled = Boolean(DATABASE_URL);
+const pool = enabled
+  ? new Pool({
+      connectionString: DATABASE_URL,
+      ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
     })
   : null;
 
 if (enabled) {
-  console.log('[db] Supabase persistence enabled');
+  console.log('[db] PostgreSQL persistence enabled');
 } else {
-  console.warn('[db] Supabase env vars missing — running in-memory only');
+  console.warn('[db] DATABASE_URL not set — running in-memory only');
 }
 
 // ─── Schema migration ─────────────────────────────────────────────
 
 async function migrate() {
-  if (!db) return;
-  if (!DATABASE_URL) {
-    console.warn('[db] DATABASE_URL not set — skipping auto-migration (tables must exist)');
-    return;
-  }
-  const pg = new Client({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  if (!pool) return;
+  const client = await pool.connect();
   try {
-    await pg.connect();
-    const sqlPath = path.join(__dirname, '..', 'SUPABASE_SETUP.sql');
+    const sqlPath = path.join(__dirname, '..', 'schema.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
-    await pg.query(sql);
+    await client.query(sql);
     console.log('[db] Auto-migration complete — all tables verified');
   } catch (e) {
     console.error('[db] Auto-migration error:', e.message);
   } finally {
-    await pg.end().catch(() => {});
+    client.release();
   }
 }
 
 // ─── Messages ─────────────────────────────────────────────────────
 
 async function saveMessage(msg) {
-  if (!db) return;
-  const { error } = await db.from('messages').upsert({
-    id: msg.id,
-    seq: msg.seq,
-    channel_name: msg.channelName,
-    channel_type: msg.channelType,
-    thread_id: msg.threadId || null,
-    sender_name: msg.senderName,
-    sender_type: msg.senderType,
-    content: msg.content,
-    created_at: msg.createdAt,
-    attachments: msg.attachments || [],
-    task_number: msg.taskNumber || null,
-    task_status: msg.taskStatus || null,
-    task_assignee_id: msg.taskAssigneeId || null,
-    task_assignee_type: msg.taskAssigneeType || null,
-  }, { onConflict: 'id' });
-  if (error) console.error('[db] saveMessage error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO messages (id, seq, channel_name, channel_type, thread_id, sender_name, sender_type, content, created_at, attachments, task_number, task_status, task_assignee_id, task_assignee_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       ON CONFLICT (id) DO UPDATE SET
+         seq = EXCLUDED.seq,
+         channel_name = EXCLUDED.channel_name,
+         channel_type = EXCLUDED.channel_type,
+         thread_id = EXCLUDED.thread_id,
+         sender_name = EXCLUDED.sender_name,
+         sender_type = EXCLUDED.sender_type,
+         content = EXCLUDED.content,
+         created_at = EXCLUDED.created_at,
+         attachments = EXCLUDED.attachments,
+         task_number = EXCLUDED.task_number,
+         task_status = EXCLUDED.task_status,
+         task_assignee_id = EXCLUDED.task_assignee_id,
+         task_assignee_type = EXCLUDED.task_assignee_type`,
+      [
+        msg.id,
+        msg.seq,
+        msg.channelName,
+        msg.channelType,
+        msg.threadId || null,
+        msg.senderName,
+        msg.senderType,
+        msg.content,
+        msg.createdAt,
+        JSON.stringify(msg.attachments || []),
+        msg.taskNumber || null,
+        msg.taskStatus || null,
+        msg.taskAssigneeId || null,
+        msg.taskAssigneeType || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveMessage error:', e.message);
+  }
 }
 
 async function loadMessages(limit = MESSAGE_BOOTSTRAP_LIMIT) {
-  if (!db) return [];
-  const { data, error } = await db
-    .from('messages')
-    .select('*')
-    .order('seq', { ascending: false })
-    .limit(limit);
-  if (error) {
-    console.error('[db] loadMessages error:', error.message);
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM (SELECT * FROM messages ORDER BY seq DESC LIMIT $1) sub ORDER BY seq ASC`,
+      [limit]
+    );
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] loadMessages error:', e.message);
     return [];
   }
-  return (data || []).reverse().map(rowToMessage);
 }
 
 function rowToMessage(row) {
@@ -115,308 +127,318 @@ function rowToMessage(row) {
 // ─── Channels ────────────────────────────────────────────────────
 
 async function saveChannel(ch) {
-  if (!db) return;
-  const { error } = await db.from('channels').upsert({
-    id: ch.id,
-    name: ch.name,
-    description: ch.description || '',
-    type: ch.type || 'channel',
-  }, { onConflict: 'id' });
-  if (error) console.error('[db] saveChannel error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO channels (id, name, description, type)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         type = EXCLUDED.type`,
+      [ch.id, ch.name, ch.description || '', ch.type || 'channel']
+    );
+  } catch (e) {
+    console.error('[db] saveChannel error:', e.message);
+  }
 }
 
 async function deleteChannel(id) {
-  if (!db) return;
-  const { error } = await db.from('channels').delete().eq('id', id);
-  if (error) console.error('[db] deleteChannel error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query('DELETE FROM channels WHERE id = $1', [id]);
+  } catch (e) {
+    console.error('[db] deleteChannel error:', e.message);
+  }
 }
 
 async function loadChannels() {
-  if (!db) return [];
-  const { data, error } = await db
-    .from('channels')
-    .select('*')
-    .order('name', { ascending: true });
-  if (error) {
-    console.error('[db] loadChannels error:', error.message);
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query('SELECT * FROM channels ORDER BY name ASC');
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      description: row.description || '',
+      type: row.type || 'channel',
+      members: [],
+    }));
+  } catch (e) {
+    console.error('[db] loadChannels error:', e.message);
     return [];
   }
-  return (data || []).map(row => ({
-    id: row.id,
-    name: row.name,
-    description: row.description || '',
-    type: row.type || 'channel',
-    members: [],
-  }));
 }
 
 // ─── Tasks ───────────────────────────────────────────────────────
 
 async function saveTask(task) {
-  if (!db) return;
-  const { error } = await db.from('tasks').upsert({
-    task_number: task.taskNumber,
-    channel_id: task.channelId || null,
-    channel_name: task.channelName || null,
-    title: task.title,
-    status: task.status || 'todo',
-    message_id: task.messageId || null,
-    claimed_by_name: task.claimedByName || null,
-    claimed_by_type: task.claimedByType || null,
-    created_by_name: task.createdByName || null,
-  }, { onConflict: 'task_number' });
-  if (error) console.error('[db] saveTask error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO tasks (task_number, channel_id, channel_name, title, status, message_id, claimed_by_name, claimed_by_type, created_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (task_number) DO UPDATE SET
+         channel_id = EXCLUDED.channel_id,
+         channel_name = EXCLUDED.channel_name,
+         title = EXCLUDED.title,
+         status = EXCLUDED.status,
+         message_id = EXCLUDED.message_id,
+         claimed_by_name = EXCLUDED.claimed_by_name,
+         claimed_by_type = EXCLUDED.claimed_by_type,
+         created_by_name = EXCLUDED.created_by_name`,
+      [
+        task.taskNumber,
+        task.channelId || null,
+        task.channelName || null,
+        task.title,
+        task.status || 'todo',
+        task.messageId || null,
+        task.claimedByName || null,
+        task.claimedByType || null,
+        task.createdByName || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveTask error:', e.message);
+  }
 }
 
 async function loadTasks() {
-  if (!db) return [];
-  const { data, error } = await db
-    .from('tasks')
-    .select('*')
-    .order('task_number', { ascending: true });
-  if (error) {
-    console.error('[db] loadTasks error:', error.message);
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query('SELECT * FROM tasks ORDER BY task_number ASC');
+    return rows.map(row => ({
+      taskNumber: row.task_number,
+      channelId: row.channel_id,
+      channelName: row.channel_name,
+      title: row.title,
+      status: row.status,
+      messageId: row.message_id,
+      claimedByName: row.claimed_by_name,
+      claimedByType: row.claimed_by_type,
+      createdByName: row.created_by_name,
+    }));
+  } catch (e) {
+    console.error('[db] loadTasks error:', e.message);
     return [];
   }
-  return (data || []).map(row => ({
-    taskNumber: row.task_number,
-    channelId: row.channel_id,
-    channelName: row.channel_name,
-    title: row.title,
-    status: row.status,
-    messageId: row.message_id,
-    claimedByName: row.claimed_by_name,
-    claimedByType: row.claimed_by_type,
-    createdByName: row.created_by_name,
-  }));
 }
 
 // ─── Sequence ────────────────────────────────────────────────────
 
 async function loadMaxSeq() {
-  if (!db) return 0;
-  const { data, error } = await db
-    .from('messages')
-    .select('seq')
-    .order('seq', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.error('[db] loadMaxSeq error:', error.message);
+  if (!pool) return 0;
+  try {
+    const { rows } = await pool.query('SELECT seq FROM messages ORDER BY seq DESC LIMIT 1');
+    return rows[0]?.seq || 0;
+  } catch (e) {
+    console.error('[db] loadMaxSeq error:', e.message);
     return 0;
   }
-  return data?.seq || 0;
 }
 
 async function loadMaxTaskNum() {
-  if (!db) return 0;
-  const { data, error } = await db
-    .from('tasks')
-    .select('task_number')
-    .order('task_number', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.error('[db] loadMaxTaskNum error:', error.message);
+  if (!pool) return 0;
+  try {
+    const { rows } = await pool.query('SELECT task_number FROM tasks ORDER BY task_number DESC LIMIT 1');
+    return rows[0]?.task_number || 0;
+  } catch (e) {
+    console.error('[db] loadMaxTaskNum error:', e.message);
     return 0;
   }
-  return data?.task_number || 0;
 }
 
 // ─── Agent configs ────────────────────────────────────────────────
 
 async function saveAgentConfig(config) {
-  if (!db) return;
-  const { error } = await db.from('agent_configs').upsert({
-    id: config.id,
-    name: config.name,
-    display_name: config.displayName || config.name,
-    runtime: config.runtime || 'claude',
-    model: config.model || null,
-    system_prompt: config.systemPrompt || config.description || null,
-    skills: config.skills || [],
-    work_dir: config.workDir || null,
-    description: config.description || null,
-    auto_start: config.autoStart || false,
-    picture: config.picture || null,
-    config_json: config,
-  }, { onConflict: 'id' });
-  if (error) console.error('[db] saveAgentConfig error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO agent_configs (id, name, display_name, runtime, model, system_prompt, skills, work_dir, description, auto_start, picture, config_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         display_name = EXCLUDED.display_name,
+         runtime = EXCLUDED.runtime,
+         model = EXCLUDED.model,
+         system_prompt = EXCLUDED.system_prompt,
+         skills = EXCLUDED.skills,
+         work_dir = EXCLUDED.work_dir,
+         description = EXCLUDED.description,
+         auto_start = EXCLUDED.auto_start,
+         picture = EXCLUDED.picture,
+         config_json = EXCLUDED.config_json`,
+      [
+        config.id,
+        config.name,
+        config.displayName || config.name,
+        config.runtime || 'claude',
+        config.model || null,
+        config.systemPrompt || config.description || null,
+        JSON.stringify(config.skills || []),
+        config.workDir || null,
+        config.description || null,
+        config.autoStart || false,
+        config.picture || null,
+        JSON.stringify(config),
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveAgentConfig error:', e.message);
+  }
 }
 
 async function deleteAgentConfig(id) {
-  if (!db) return;
-  const { error } = await db.from('agent_configs').delete().eq('id', id);
-  if (error) console.error('[db] deleteAgentConfig error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query('DELETE FROM agent_configs WHERE id = $1', [id]);
+  } catch (e) {
+    console.error('[db] deleteAgentConfig error:', e.message);
+  }
 }
 
 async function loadAgentConfigs() {
-  if (!db) return null; // null = not available, caller falls back to file
-  const { data, error } = await db
-    .from('agent_configs')
-    .select('config_json')
-    .order('name', { ascending: true });
-  if (error) {
-    console.error('[db] loadAgentConfigs error:', error.message);
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query('SELECT config_json FROM agent_configs ORDER BY name ASC');
+    return rows.map(row => row.config_json);
+  } catch (e) {
+    console.error('[db] loadAgentConfigs error:', e.message);
     return null;
   }
-  return (data || []).map(row => row.config_json);
 }
 
 // ─── Machine keys ─────────────────────────────────────────────────
 
 async function saveMachineKey(key) {
-  if (!db) return;
-  const { error } = await db.from('machine_keys').upsert({
-    id: key.id,
-    name: key.name,
-    raw_key: key.rawKey,
-    created_at: key.createdAt,
-    last_used_at: key.lastUsedAt || null,
-    revoked_at: key.revokedAt || null,
-    bound_fingerprint: key.boundFingerprint || null,
-  }, { onConflict: 'id' });
-  if (error) console.error('[db] saveMachineKey error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO machine_keys (id, name, raw_key, created_at, last_used_at, revoked_at, bound_fingerprint)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         raw_key = EXCLUDED.raw_key,
+         created_at = EXCLUDED.created_at,
+         last_used_at = EXCLUDED.last_used_at,
+         revoked_at = EXCLUDED.revoked_at,
+         bound_fingerprint = EXCLUDED.bound_fingerprint`,
+      [
+        key.id,
+        key.name,
+        key.rawKey,
+        key.createdAt,
+        key.lastUsedAt || null,
+        key.revokedAt || null,
+        key.boundFingerprint || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveMachineKey error:', e.message);
+  }
 }
 
 async function loadMachineKeys() {
-  if (!db) return null; // null = not available, caller falls back to file
-  const { data, error } = await db
-    .from('machine_keys')
-    .select('*')
-    .order('created_at', { ascending: true });
-  if (error) {
-    console.error('[db] loadMachineKeys error:', error.message);
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query('SELECT * FROM machine_keys ORDER BY created_at ASC');
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      rawKey: row.raw_key,
+      createdAt: row.created_at,
+      lastUsedAt: row.last_used_at || null,
+      revokedAt: row.revoked_at || null,
+      boundFingerprint: row.bound_fingerprint || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadMachineKeys error:', e.message);
     return null;
   }
-  return (data || []).map(row => ({
-    id: row.id,
-    name: row.name,
-    rawKey: row.raw_key,
-    createdAt: row.created_at,
-    lastUsedAt: row.last_used_at || null,
-    revokedAt: row.revoked_at || null,
-    boundFingerprint: row.bound_fingerprint || null,
-  }));
 }
 
 // ─── Agent profile presets ───────────────────────────────────────
 
 async function saveProfilePreset(preset) {
-  if (!db) return;
-  const { error } = await db.from('agent_profile_presets').upsert({
-    id: preset.id,
-    image: preset.image,
-    created_at: preset.createdAt,
-  }, { onConflict: 'id' });
-  if (error) console.error('[db] saveProfilePreset error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO agent_profile_presets (id, image, created_at)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (id) DO UPDATE SET
+         image = EXCLUDED.image,
+         created_at = EXCLUDED.created_at`,
+      [preset.id, preset.image, preset.createdAt]
+    );
+  } catch (e) {
+    console.error('[db] saveProfilePreset error:', e.message);
+  }
 }
 
 async function deleteProfilePreset(id) {
-  if (!db) return;
-  const { error } = await db.from('agent_profile_presets').delete().eq('id', id);
-  if (error) console.error('[db] deleteProfilePreset error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query('DELETE FROM agent_profile_presets WHERE id = $1', [id]);
+  } catch (e) {
+    console.error('[db] deleteProfilePreset error:', e.message);
+  }
 }
 
 async function loadProfilePresets() {
-  if (!db) return null;
-  const { data, error } = await db
-    .from('agent_profile_presets')
-    .select('*')
-    .order('created_at', { ascending: true });
-  if (error) {
-    console.error('[db] loadProfilePresets error:', error.message);
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query('SELECT * FROM agent_profile_presets ORDER BY created_at ASC');
+    return rows.map(row => ({
+      id: row.id,
+      image: row.image,
+      createdAt: row.created_at,
+    }));
+  } catch (e) {
+    console.error('[db] loadProfilePresets error:', e.message);
     return null;
   }
-  return (data || []).map(row => ({
-    id: row.id,
-    image: row.image,
-    createdAt: row.created_at,
-  }));
 }
 
 // ─── Auth sessions ────────────────────────────────────────────────
 
 async function saveSession(token, user) {
-  if (!db) return;
-  const { error } = await db.from('sessions').upsert({
-    token,
-    name: user.name,
-    email: user.email,
-    picture: user.picture || null,
-  }, { onConflict: 'token' });
-  if (error) console.error('[db] saveSession error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO sessions (token, name, email, picture)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (token) DO UPDATE SET
+         name = EXCLUDED.name,
+         email = EXCLUDED.email,
+         picture = EXCLUDED.picture`,
+      [token, user.name, user.email, user.picture || null]
+    );
+  } catch (e) {
+    console.error('[db] saveSession error:', e.message);
+  }
 }
 
 async function deleteSession(token) {
-  if (!db) return;
-  const { error } = await db.from('sessions').delete().eq('token', token);
-  if (error) console.error('[db] deleteSession error:', error.message);
+  if (!pool) return;
+  try {
+    await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
+  } catch (e) {
+    console.error('[db] deleteSession error:', e.message);
+  }
 }
 
 async function loadSessions() {
-  if (!db) return null;
-  const { data, error } = await db.from('sessions').select('token,name,email,picture');
-  if (error) {
-    console.error('[db] loadSessions error:', error.message);
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query('SELECT token, name, email, picture FROM sessions');
+    return rows.map(row => ({
+      token: row.token,
+      user: { name: row.name, email: row.email, picture: row.picture || null },
+    }));
+  } catch (e) {
+    console.error('[db] loadSessions error:', e.message);
     return null;
   }
-  return (data || []).map(row => ({
-    token: row.token,
-    user: { name: row.name, email: row.email, picture: row.picture || null },
-  }));
-}
-
-// ─── Email allowlist ──────────────────────────────────────────────
-
-async function loadEmailAllowlist() {
-  if (!db) return null;
-  const { data, error } = await db
-    .from('email_allowlist')
-    .select('email,added_at,added_by')
-    .order('added_at', { ascending: true });
-  if (error) {
-    console.error('[db] loadEmailAllowlist error:', error.message);
-    return null;
-  }
-  return (data || []).map(row => ({
-    email: row.email,
-    addedAt: row.added_at,
-    addedBy: row.added_by || null,
-  }));
-}
-
-async function addEmailAllowlist(email, addedBy) {
-  if (!db) return null;
-  const normalized = String(email || '').trim().toLowerCase();
-  if (!normalized) return null;
-  const { data, error } = await db
-    .from('email_allowlist')
-    .upsert({ email: normalized, added_by: addedBy || null }, { onConflict: 'email' })
-    .select('email,added_at,added_by')
-    .maybeSingle();
-  if (error) {
-    console.error('[db] addEmailAllowlist error:', error.message);
-    return null;
-  }
-  return data
-    ? { email: data.email, addedAt: data.added_at, addedBy: data.added_by || null }
-    : { email: normalized, addedAt: new Date().toISOString(), addedBy: addedBy || null };
-}
-
-async function removeEmailAllowlist(email) {
-  if (!db) return false;
-  const normalized = String(email || '').trim().toLowerCase();
-  if (!normalized) return false;
-  const { error } = await db
-    .from('email_allowlist')
-    .delete()
-    .eq('email', normalized);
-  if (error) {
-    console.error('[db] removeEmailAllowlist error:', error.message);
-    return false;
-  }
-  return true;
 }
 
 module.exports = {
@@ -442,7 +464,4 @@ module.exports = {
   saveSession,
   deleteSession,
   loadSessions,
-  loadEmailAllowlist,
-  addEmailAllowlist,
-  removeEmailAllowlist,
 };

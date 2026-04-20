@@ -35,8 +35,8 @@ Plain Node.js (CommonJS, no transpilation). Single entry point `index.js`.
   - `/ws` for browser clients (receives `init` payload with full state on connect)
   - `/daemon/connect` for daemon processes (authenticated via API key query param)
 - **In-memory store** (`store` object in index.js) — channels, messages, agents, tasks, attachments. This is the source of truth at runtime.
-- **Supabase persistence** (`db.js`) — optional. When `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are set, messages/channels/tasks/configs are persisted. Falls back to in-memory + JSON files in `data/` when absent.
-- **Agent lifecycle** — agents register via daemon WebSocket, server tracks status/activity and broadcasts to browser clients. Agent configs are persisted to `data/agent-configs.json` (or Supabase).
+- **PostgreSQL persistence** (`db.js`) — optional. When `DATABASE_URL` is set, messages/channels/tasks/configs are persisted. Falls back to in-memory + JSON files in `data/` when absent.
+- **Agent lifecycle** — agents register via daemon WebSocket, server tracks status/activity and broadcasts to browser clients. Agent configs are persisted to `data/agent-configs.json` (or PostgreSQL).
 - **Auth** — optional Google OAuth (`GOOGLE_CLIENT_ID`). Without it, the app runs in open/anonymous mode.
 
 ### Frontend (`web/`)
@@ -60,8 +60,8 @@ Browser connects via WebSocket -> receives `init` event with channels/agents/hum
 |---|---|---|
 | `VITE_SLOCK_SERVER_URL` | web | Override server URL (defaults to same origin) |
 | `PUBLIC_URL` | server | Public URL for agent callbacks (defaults to `http://localhost:PORT`) |
-| `SUPABASE_URL` | server | Enable Supabase persistence |
-| `SUPABASE_SERVICE_KEY` | server | Supabase service role key |
+| `DATABASE_URL` | server | PostgreSQL connection string — enables persistence |
+| `DATABASE_SSL` | server | Set to `false` to disable SSL (default: SSL with rejectUnauthorized=false) |
 | `GOOGLE_CLIENT_ID` | server | Enable Google OAuth login |
 | `PORT` / `SERVER_PORT` | server | Server port (default 7777) |
 | `WEB_PORT` | bin/start.js | Vite dev port (default 5173) |
