@@ -24,22 +24,61 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 
-// Email allowlist: when ALLOW is defined (comma-separated emails), only those
-// addresses can mint sessions; guest mode is disabled.
-const ALLOW_EMAILS = new Set(
+// Email allowlist — union of two sources, both granting equal access:
+//   1. `ALLOW` env (comma-separated emails, immutable without restart)
+//   2. `email_allowlist` Supabase table (managed via Settings UI, hot-reloaded)
+// When the union is non-empty, only listed addresses can mint sessions and
+// guest mode is disabled. Empty union = unrestricted (default).
+const ENV_ALLOW_EMAILS = new Set(
   (process.env.ALLOW || "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean)
 );
-const ALLOW_ACTIVE = ALLOW_EMAILS.size > 0;
-function isEmailAllowed(email) {
-  if (!ALLOW_ACTIVE) return true;
-  if (!email || typeof email !== "string") return false;
-  return ALLOW_EMAILS.has(email.trim().toLowerCase());
+// email -> { addedAt, addedBy } (populated async from DB at startup)
+const dbAllowEmails = new Map();
+
+function allowlistActive() {
+  return ENV_ALLOW_EMAILS.size > 0 || dbAllowEmails.size > 0;
 }
-if (ALLOW_ACTIVE) {
-  console.log(`[auth] Email allowlist active (${ALLOW_EMAILS.size} address(es))`);
+
+function isEmailAllowed(email) {
+  if (!allowlistActive()) return true;
+  if (!email || typeof email !== "string") return false;
+  const norm = email.trim().toLowerCase();
+  return ENV_ALLOW_EMAILS.has(norm) || dbAllowEmails.has(norm);
+}
+
+function normalizeEmailInput(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return null;
+  // Lightweight format check — full RFC validation is a rabbit hole; this
+  // catches typos without false-rejecting real addresses.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null;
+  if (trimmed.length > 254) return null;
+  return trimmed;
+}
+
+if (ENV_ALLOW_EMAILS.size > 0) {
+  console.log(`[auth] Email allowlist seeded from ALLOW env (${ENV_ALLOW_EMAILS.size} address(es))`);
+}
+
+async function loadEmailAllowlistFromDb() {
+  if (!db.enabled) return;
+  try {
+    const rows = await db.loadEmailAllowlist();
+    if (!rows) return;
+    dbAllowEmails.clear();
+    for (const row of rows) {
+      dbAllowEmails.set(row.email, { addedAt: row.addedAt, addedBy: row.addedBy });
+    }
+    if (rows.length > 0) {
+      console.log(`[auth] Loaded ${rows.length} allowlist entry(ies) from Supabase`);
+    }
+  } catch (e) {
+    console.warn("[auth] Failed to load email allowlist:", e.message);
+  }
 }
 const CONFIG_DIR = path.join(__dirname, "..", "data");
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
@@ -978,14 +1017,14 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 
 // Auth middleware: blocks guest (unauthenticated) users from write operations.
 // Also enforces the email allowlist on every request — a session minted before
-// ALLOW was set (or whose email was later removed from ALLOW) is rejected.
+// the allowlist became active (or whose email was later removed) is rejected.
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const user = token ? authSessions.get(token) : null;
   if (!user) {
     return res.status(403).json({ error: "Authentication required. Sign in with Google to perform this action." });
   }
-  if (ALLOW_ACTIVE && !isEmailAllowed(user.email)) {
+  if (allowlistActive() && !isEmailAllowed(user.email)) {
     return res.status(403).json({ error: "Email not authorized to access this server." });
   }
   next();
@@ -2065,7 +2104,65 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
 });
 
 app.get("/api/auth/config", (_req, res) => {
-  res.json({ googleClientId: GOOGLE_CLIENT_ID || null, allowlistActive: ALLOW_ACTIVE });
+  res.json({ googleClientId: GOOGLE_CLIENT_ID || null, allowlistActive: allowlistActive() });
+});
+
+// ─── Settings: email allowlist (admin UI for the DB source) ──────
+// Any authenticated user may view and edit the allowlist. Entries seeded from
+// the ALLOW env are read-only here (listed with source="env") — editing them
+// requires a server restart. DB entries are mutable.
+
+app.get("/api/settings/allowlist", requireAuth, (_req, res) => {
+  const env = [...ENV_ALLOW_EMAILS].map((email) => ({ email, source: "env" }));
+  const dbList = [...dbAllowEmails.entries()].map(([email, meta]) => ({
+    email,
+    source: "db",
+    addedAt: meta.addedAt,
+    addedBy: meta.addedBy || null,
+  }));
+  res.json({
+    env,
+    db: dbList,
+    allowlistActive: allowlistActive(),
+    dbWritable: db.enabled,
+  });
+});
+
+app.post("/api/settings/allowlist", requireAuth, async (req, res) => {
+  if (!db.enabled) {
+    return res.status(501).json({ error: "Database not configured — cannot persist allowlist entries. Use the ALLOW env var instead." });
+  }
+  const normalized = normalizeEmailInput(req.body?.email);
+  if (!normalized) {
+    return res.status(400).json({ error: "Invalid email address" });
+  }
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const addedBy = token ? authSessions.get(token)?.email || null : null;
+  const row = await db.addEmailAllowlist(normalized, addedBy);
+  if (!row) {
+    return res.status(500).json({ error: "Failed to add allowlist entry" });
+  }
+  dbAllowEmails.set(row.email, { addedAt: row.addedAt, addedBy: row.addedBy });
+  res.json({ ok: true, entry: { email: row.email, source: "db", addedAt: row.addedAt, addedBy: row.addedBy } });
+});
+
+app.delete("/api/settings/allowlist/:email", requireAuth, async (req, res) => {
+  if (!db.enabled) {
+    return res.status(501).json({ error: "Database not configured" });
+  }
+  const normalized = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
+  if (!normalized) {
+    return res.status(400).json({ error: "Invalid email address" });
+  }
+  if (!dbAllowEmails.has(normalized)) {
+    return res.status(404).json({ error: "Entry not found (env-seeded entries cannot be removed via API)" });
+  }
+  const ok = await db.removeEmailAllowlist(normalized);
+  if (!ok) {
+    return res.status(500).json({ error: "Failed to remove allowlist entry" });
+  }
+  dbAllowEmails.delete(normalized);
+  res.json({ ok: true });
 });
 
 // Guest session endpoint.
@@ -2074,9 +2171,9 @@ app.get("/api/auth/config", (_req, res) => {
 // When Google OAuth IS configured, we keep the old behaviour (token-less) so
 // the "Sign in with Google" prompt still appears.
 app.post("/api/auth/guest-session", async (req, res) => {
-  // Email allowlist disables guest access entirely — ALLOW implies "only these
-  // humans may enter", and guests have no email to check.
-  if (ALLOW_ACTIVE) {
+  // Email allowlist disables guest access entirely — an active allowlist implies
+  // "only these humans may enter", and guests have no email to check.
+  if (allowlistActive()) {
     return res.status(403).json({ error: "Guest access disabled on this server." });
   }
   const { name } = req.body || {};
@@ -2218,6 +2315,7 @@ function reconcileAgentsWithConfigs() {
   // above for the backstop).
   await initFromDB();
   await loadAuthSessions();
+  await loadEmailAllowlistFromDb();
   reconcileAgentsWithConfigs();
 
   if (mockData.shouldSeed(db)) {

@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS agent_profile_presets (
 ALTER TABLE agent_profile_presets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service role all" ON agent_profile_presets FOR ALL USING (true);
 
+-- Email allowlist table (admin-managed complement to the ALLOW env var)
+-- Both sources grant equal access; the server unions them at auth time.
+CREATE TABLE IF NOT EXISTS email_allowlist (
+  email      TEXT PRIMARY KEY,
+  added_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  added_by   TEXT
+);
+
+ALTER TABLE email_allowlist ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service role all" ON email_allowlist FOR ALL USING (true);
+
 -- Machine API keys table (replaces data/machine-keys.json for Railway)
 CREATE TABLE IF NOT EXISTS machine_keys (
   id          TEXT PRIMARY KEY,

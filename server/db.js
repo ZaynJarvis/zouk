@@ -367,6 +367,58 @@ async function loadSessions() {
   }));
 }
 
+// ─── Email allowlist ──────────────────────────────────────────────
+
+async function loadEmailAllowlist() {
+  if (!db) return null;
+  const { data, error } = await db
+    .from('email_allowlist')
+    .select('email,added_at,added_by')
+    .order('added_at', { ascending: true });
+  if (error) {
+    console.error('[db] loadEmailAllowlist error:', error.message);
+    return null;
+  }
+  return (data || []).map(row => ({
+    email: row.email,
+    addedAt: row.added_at,
+    addedBy: row.added_by || null,
+  }));
+}
+
+async function addEmailAllowlist(email, addedBy) {
+  if (!db) return null;
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return null;
+  const { data, error } = await db
+    .from('email_allowlist')
+    .upsert({ email: normalized, added_by: addedBy || null }, { onConflict: 'email' })
+    .select('email,added_at,added_by')
+    .maybeSingle();
+  if (error) {
+    console.error('[db] addEmailAllowlist error:', error.message);
+    return null;
+  }
+  return data
+    ? { email: data.email, addedAt: data.added_at, addedBy: data.added_by || null }
+    : { email: normalized, addedAt: new Date().toISOString(), addedBy: addedBy || null };
+}
+
+async function removeEmailAllowlist(email) {
+  if (!db) return false;
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const { error } = await db
+    .from('email_allowlist')
+    .delete()
+    .eq('email', normalized);
+  if (error) {
+    console.error('[db] removeEmailAllowlist error:', error.message);
+    return false;
+  }
+  return true;
+}
+
 module.exports = {
   enabled,
   migrate,
@@ -390,4 +442,7 @@ module.exports = {
   saveSession,
   deleteSession,
   loadSessions,
+  loadEmailAllowlist,
+  addEmailAllowlist,
+  removeEmailAllowlist,
 };
