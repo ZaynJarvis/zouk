@@ -220,6 +220,68 @@ function isDebugKey(key) {
   return key === "1007" || key === "test";
 }
 
+function findMachineKeyRecord(apiKey) {
+  return machineKeys.find((k) => k.rawKey === apiKey && !k.revokedAt) || null;
+}
+
+function resolveDaemonMachineId(apiKey) {
+  const keyRecord = findMachineKeyRecord(apiKey);
+  if (keyRecord?.id) return keyRecord.id;
+  return uuidv4();
+}
+
+function isPersistentMachineId(machineId) {
+  if (!machineId) return false;
+  return machineKeys.some((k) => !k.revokedAt && k.id === machineId);
+}
+
+function isLegacyEphemeralMachineId(machineId) {
+  if (!machineId) return false;
+  if (isPersistentMachineId(machineId)) return false;
+  if (machines.has(machineId)) return false;
+  return true;
+}
+
+function updateConfiguredAgentMachineId(agentId, machineId, reason = null) {
+  if (!agentId || !machineId) return false;
+  const cfg = agentConfigs.find((c) => c.id === agentId);
+  if (!cfg || cfg.machineId === machineId) return false;
+
+  const previousMachineId = cfg.machineId;
+  cfg.machineId = machineId;
+  saveAgentConfigs(agentConfigs);
+  db.saveAgentConfig(cfg);
+  console.log(
+    `[config] Agent ${agentId} machine affinity ${previousMachineId || "unset"} -> ${machineId}`
+    + (reason ? ` (${reason})` : "")
+  );
+  return true;
+}
+
+function evaluateAgentMachineAffinity(agentId, ws) {
+  const cfg = agentConfigs.find((c) => c.id === agentId);
+  const configuredMachineId = typeof cfg?.machineId === "string" && cfg.machineId.trim()
+    ? cfg.machineId.trim()
+    : null;
+
+  if (!configuredMachineId) {
+    return { allowed: true, migrated: false };
+  }
+
+  if (configuredMachineId === ws._machineId) {
+    return { allowed: true, migrated: false };
+  }
+
+  // Older configs stored a per-connection UUID. If the daemon reconnects with
+  // a stable machine-key-backed id, migrate that stale binding in place.
+  if (isLegacyEphemeralMachineId(configuredMachineId) && isPersistentMachineId(ws._machineId)) {
+    const migrated = updateConfiguredAgentMachineId(agentId, ws._machineId, "migrated legacy machine id");
+    return { allowed: true, migrated };
+  }
+
+  return { allowed: false, expectedMachineId: configuredMachineId };
+}
+
 const machineKeys = loadMachineKeys(); // persistent machine API keys
 
 // ─── In-memory store ──────────────────────────────────────────────
@@ -439,13 +501,24 @@ function purgeUnknownAgentState(agentId) {
   }
 }
 
-function sendAgentStop(agentId, preferredWs = null) {
+function sendAgentStop(
+  agentId,
+  preferredWs = null,
+  {
+    broadcast = preferredWs == null,
+    includeCurrentOwner = preferredWs == null,
+  } = {}
+) {
   const targets = new Set();
   if (preferredWs?.readyState === 1) targets.add(preferredWs);
-  const directWs = daemonSockets.get(agentId);
-  if (directWs?.readyState === 1) targets.add(directWs);
-  for (const ws of daemonConnections) {
-    if (ws.readyState === 1) targets.add(ws);
+  if (includeCurrentOwner) {
+    const directWs = daemonSockets.get(agentId);
+    if (directWs?.readyState === 1) targets.add(directWs);
+  }
+  if (broadcast) {
+    for (const ws of daemonConnections) {
+      if (ws.readyState === 1) targets.add(ws);
+    }
   }
   for (const ws of targets) {
     ws.send(JSON.stringify({ type: "agent:stop", agentId }));
@@ -1359,23 +1432,30 @@ app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
 
 function startAgentOnDaemon(id, config) {
   const runtime = config.runtime || "claude";
-  const requestedMachineId = config.machineId;
+  const requestedMachineId = typeof config.machineId === "string" && config.machineId.trim()
+    ? config.machineId.trim()
+    : undefined;
   const requestedWorkDir = typeof config.workDir === "string" && config.workDir.trim()
     ? config.workDir.trim()
     : undefined;
 
-  // Find the target daemon: prefer the one matching machineId, fall back to first with runtime
+  // Never spill a machine-pinned agent onto another host. That switches the
+  // workspace underneath the server's saved config.
   let targetWs = null;
-  for (const ws of daemonConnections) {
-    if (ws.readyState === 1 && ws._runtimes?.includes(runtime)) {
-      if (!requestedMachineId || ws._machineId === requestedMachineId) {
+  if (requestedMachineId) {
+    for (const ws of daemonConnections) {
+      if (ws.readyState === 1 && ws._machineId === requestedMachineId) {
         targetWs = ws;
         break;
       }
     }
-  }
-  // If a specific machine was requested but not found, fall back to any daemon with the runtime
-  if (!targetWs && requestedMachineId) {
+    if (!targetWs) {
+      return { error: `Requested machine ${requestedMachineId} is not connected` };
+    }
+    if (!targetWs._runtimes?.includes(runtime)) {
+      return { error: `Requested machine ${requestedMachineId} does not support runtime ${runtime}` };
+    }
+  } else {
     for (const ws of daemonConnections) {
       if (ws.readyState === 1 && ws._runtimes?.includes(runtime)) {
         targetWs = ws;
@@ -1440,6 +1520,8 @@ function startAgentOnDaemon(id, config) {
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
     db.saveAgentConfig(persisted);
+  } else {
+    updateConfiguredAgentMachineId(id, targetWs._machineId, "updated on agent start");
   }
 
   broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
@@ -1540,10 +1622,22 @@ function handleDaemonConnection(ws, apiKey) {
   ws._apiKey = apiKey;
   ws._runtimes = []; // store runtimes reported by this daemon
   ws._capabilities = [];
-  const machineId = uuidv4();
+  const keyRecord = findMachineKeyRecord(apiKey);
+  const machineId = resolveDaemonMachineId(apiKey);
   ws._machineId = machineId;
-  machines.set(machineId, { id: machineId, hostname: 'unknown', os: 'unknown', runtimes: [], capabilities: [], connectedAt: now(), agentIds: [] });
-  broadcastToWeb({ type: 'machine:connected', machine: machines.get(machineId) });
+  const existingMachine = machines.get(machineId);
+  const machineRecord = {
+    id: machineId,
+    alias: keyRecord?.name || existingMachine?.alias,
+    hostname: existingMachine?.hostname || 'unknown',
+    os: existingMachine?.os || 'unknown',
+    runtimes: existingMachine?.runtimes || [],
+    capabilities: existingMachine?.capabilities || [],
+    connectedAt: now(),
+    agentIds: [],
+  };
+  machines.set(machineId, machineRecord);
+  broadcastToWeb({ type: existingMachine ? 'machine:updated' : 'machine:connected', machine: machineRecord });
 
   ws.on("message", (data) => {
     try {
@@ -1557,9 +1651,15 @@ function handleDaemonConnection(ws, apiKey) {
   ws.on("close", () => {
     console.log("[daemon] Disconnected");
     daemonConnections.delete(ws);
-    machines.delete(ws._machineId);
-    broadcastToWeb({ type: 'machine:disconnected', machineId: ws._machineId });
+    const replacementConnected = Array.from(daemonConnections).some((otherWs) => (
+      otherWs.readyState === 1 && otherWs._machineId === ws._machineId
+    ));
+    if (!replacementConnected) {
+      machines.delete(ws._machineId);
+      broadcastToWeb({ type: 'machine:disconnected', machineId: ws._machineId });
+    }
     for (const agentId of connectedAgents) {
+      if (daemonSockets.get(agentId) !== ws) continue;
       if (store.agents[agentId]) {
         store.agents[agentId].status = "inactive";
         daemonSockets.delete(agentId);
@@ -1590,6 +1690,8 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       // Update machine record with real info from daemon
       const machine = machines.get(ws._machineId);
       if (machine) {
+        const keyRecord = findMachineKeyRecord(ws._apiKey);
+        if (keyRecord?.name) machine.alias = keyRecord.name;
         machine.hostname = msg.hostname || 'unknown';
         machine.os = msg.os || 'unknown';
         machine.runtimes = msg.runtimes || [];
@@ -1598,7 +1700,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       }
       // Machine binding: silently bind or reject based on hostname:os fingerprint
       if (!isDebugKey(ws._apiKey)) {
-        const keyRecord = machineKeys.find((k) => k.rawKey === ws._apiKey);
+        const keyRecord = findMachineKeyRecord(ws._apiKey);
         if (keyRecord) {
           const fingerprint = computeMachineFingerprint(msg.hostname, msg.os);
           if (!keyRecord.boundFingerprint) {
@@ -1622,8 +1724,17 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         for (const agentId of msg.runningAgents) {
           if (!hasKnownAgentConfig(agentId)) {
             purgeUnknownAgentState(agentId);
-            sendAgentStop(agentId, ws);
+            sendAgentStop(agentId, ws, { broadcast: false });
             continue;
+          }
+          const affinity = evaluateAgentMachineAffinity(agentId, ws);
+          if (!affinity.allowed) {
+            console.log(`[agent:${agentId}] Rejecting daemon adoption from machine ${ws._machineId}; expected ${affinity.expectedMachineId}`);
+            sendAgentStop(agentId, ws, { broadcast: false });
+            continue;
+          }
+          if (affinity.migrated) {
+            broadcastToWeb({ type: "config_updated", configs: agentConfigs });
           }
           connectedAgents.add(agentId);
           daemonSockets.set(agentId, ws);
@@ -1653,8 +1764,17 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       const { agentId, status } = msg;
       if (!hasKnownAgentConfig(agentId)) {
         purgeUnknownAgentState(agentId);
-        sendAgentStop(agentId, ws);
+        sendAgentStop(agentId, ws, { broadcast: false });
         break;
+      }
+      const affinity = evaluateAgentMachineAffinity(agentId, ws);
+      if (!affinity.allowed) {
+        console.log(`[agent:${agentId}] Ignoring status from machine ${ws._machineId}; expected ${affinity.expectedMachineId}`);
+        sendAgentStop(agentId, ws, { broadcast: false });
+        break;
+      }
+      if (affinity.migrated) {
+        broadcastToWeb({ type: "config_updated", configs: agentConfigs });
       }
       const isNew = !store.agents[agentId];
       if (isNew) {
@@ -1695,7 +1815,12 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       const { agentId, activity, detail, entries } = msg;
       if (!hasKnownAgentConfig(agentId)) {
         purgeUnknownAgentState(agentId);
-        sendAgentStop(agentId, ws);
+        sendAgentStop(agentId, ws, { broadcast: false });
+        break;
+      }
+      const ownerWs = daemonSockets.get(agentId);
+      if (ownerWs && ownerWs !== ws) {
+        console.log(`[agent:${agentId}] Ignoring activity from stale daemon connection on machine ${ws._machineId}`);
         break;
       }
       broadcastToWeb({ type: "agent_activity", agentId, activity, detail, entries });
@@ -1705,7 +1830,12 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       const { agentId, sessionId } = msg;
       if (!hasKnownAgentConfig(agentId)) {
         purgeUnknownAgentState(agentId);
-        sendAgentStop(agentId, ws);
+        sendAgentStop(agentId, ws, { broadcast: false });
+        break;
+      }
+      const ownerWs = daemonSockets.get(agentId);
+      if (ownerWs && ownerWs !== ws) {
+        console.log(`[agent:${agentId}] Ignoring session update from stale daemon connection on machine ${ws._machineId}`);
         break;
       }
       if (store.agents[agentId]) {
@@ -1719,6 +1849,11 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       break;
     }
     case "agent:workspace:file_tree": {
+      const ownerWs = daemonSockets.get(msg.agentId);
+      if (ownerWs && ownerWs !== ws) {
+        console.log(`[agent:${msg.agentId}] Ignoring workspace tree from stale daemon connection on machine ${ws._machineId}`);
+        break;
+      }
       const workDirChanged = updateAgentWorkDir(msg.agentId, msg.workDir);
       // Forward to web UI
       broadcastToWeb({
@@ -1735,10 +1870,20 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       break;
     }
     case "agent:workspace:file_content": {
+      const ownerWs = daemonSockets.get(msg.agentId);
+      if (ownerWs && ownerWs !== ws) {
+        console.log(`[agent:${msg.agentId}] Ignoring workspace file content from stale daemon connection on machine ${ws._machineId}`);
+        break;
+      }
       broadcastToWeb({ type: "workspace:file_content", agentId: msg.agentId, requestId: msg.requestId, content: msg.content });
       break;
     }
     case "agent:skills:list_result": {
+      const ownerWs = daemonSockets.get(msg.agentId);
+      if (ownerWs && ownerWs !== ws) {
+        console.log(`[agent:${msg.agentId}] Ignoring skills result from stale daemon connection on machine ${ws._machineId}`);
+        break;
+      }
       broadcastToWeb({ type: "skills:list_result", agentId: msg.agentId, global: msg.global, workspace: msg.workspace });
       break;
     }
@@ -1868,9 +2013,20 @@ function handleWebMessage(ws, msg) {
     case "agent:start": {
       // Trigger agent start via daemon — find a daemon with the right runtime
       let targetWs = daemonSockets.get(msg.agentId); // try existing agent socket first
+      const requestedMachineId = typeof msg.machineId === "string" && msg.machineId.trim()
+        ? msg.machineId.trim()
+        : (typeof msg.config?.machineId === "string" && msg.config.machineId.trim()
+          ? msg.config.machineId.trim()
+          : null);
+      if (targetWs && requestedMachineId && targetWs._machineId !== requestedMachineId) {
+        targetWs = null;
+      }
       if (!targetWs) {
         for (const dws of daemonConnections) {
-          if (dws.readyState === 1) { targetWs = dws; break; }
+          if (dws.readyState !== 1) continue;
+          if (requestedMachineId && dws._machineId !== requestedMachineId) continue;
+          targetWs = dws;
+          break;
         }
       }
       if (targetWs && targetWs.readyState === 1) {
