@@ -534,18 +534,28 @@ html[data-theme="night-city"] .cyber-btn {
   clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
 }
 
-html[data-theme="night-city"] .cyber-btn:hover,
 html[data-theme="night-city"] .cyber-btn:focus-visible {
   animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="night-city"] .cyber-btn:hover {
+    animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+  }
 }
 
 html[data-theme="night-city"] .cyber-btn-lg {
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
 
-html[data-theme="night-city"] .cyber-btn-lg:hover,
 html[data-theme="night-city"] .cyber-btn-lg:focus-visible {
   animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="night-city"] .cyber-btn-lg:hover {
+    animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+  }
 }
 
 /* Glitch hover artifact blocks */
@@ -563,13 +573,22 @@ html[data-theme="night-city"] .glitch-hover::after {
   filter: saturate(1.35);
 }
 
-html[data-theme="night-city"] .glitch-hover:hover,
 html[data-theme="night-city"] .glitch-hover:focus-visible {
   animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
 }
 
-html[data-theme="night-city"] .glitch-hover:hover::after {
+html[data-theme="night-city"] .glitch-hover:focus-visible::after {
   animation: cp-edge-blocks 480ms steps(8, jump-none) 1 30ms;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="night-city"] .glitch-hover:hover {
+    animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
+  }
+
+  html[data-theme="night-city"] .glitch-hover:hover::after {
+    animation: cp-edge-blocks 480ms steps(8, jump-none) 1 30ms;
+  }
 }
 
 /* Status chip bevels + hover animation */
@@ -583,9 +602,11 @@ html[data-theme="night-city"] .status-chip-sm {
   clip-path: polygon(0 0, calc(100% - 0.35rem) 0, 100% 0.35rem, 100% 100%, 0.35rem 100%, 0 calc(100% - 0.35rem));
 }
 
-html[data-theme="night-city"] .status-chip:hover,
-html[data-theme="night-city"] .status-chip-sm:hover {
-  animation: cp-hue-strobe 420ms linear 1;
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="night-city"] .status-chip:hover,
+  html[data-theme="night-city"] .status-chip-sm:hover {
+    animation: cp-hue-strobe 420ms linear 1;
+  }
 }
 
 /* Divider gradient */
@@ -633,10 +654,16 @@ html[data-theme="brutalist"] .cyber-btn {
   border-radius: 0;
 }
 
-html[data-theme="brutalist"] .cyber-btn:hover,
 html[data-theme="brutalist"] .cyber-btn:focus-visible {
   transform: translate(-1px, -1px);
   box-shadow: 3px 3px 0px 0px rgb(var(--nc-border));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="brutalist"] .cyber-btn:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 3px 3px 0px 0px rgb(var(--nc-border));
+  }
 }
 
 html[data-theme="brutalist"] .cyber-btn:active {
@@ -651,10 +678,16 @@ html[data-theme="brutalist"] .cyber-btn-lg {
   border-radius: 0;
 }
 
-html[data-theme="brutalist"] .cyber-btn-lg:hover,
 html[data-theme="brutalist"] .cyber-btn-lg:focus-visible {
   transform: translate(-1px, -1px);
   box-shadow: 5px 5px 0px 0px rgb(var(--nc-border-bright));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="brutalist"] .cyber-btn-lg:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0px 0px rgb(var(--nc-border-bright));
+  }
 }
 
 html[data-theme="brutalist"] .cyber-btn-lg:active {
