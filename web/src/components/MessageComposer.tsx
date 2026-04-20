@@ -63,15 +63,22 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         mention: a.name,
         type: 'agent',
         searchTerms: buildMentionSearchTerms(a.name, a.displayName),
+        picture: a.picture || undefined,
       });
     }
-    for (const h of humans) {
-      const label = h.name;
+    // Online humans first so the most useful targets surface at the top of the
+    // dropdown; offline (logged-in-before but not currently connected) humans
+    // are still selectable.
+    const onlineH = humans.filter((h) => h.online !== false);
+    const offlineH = humans.filter((h) => h.online === false);
+    for (const h of [...onlineH, ...offlineH]) {
       targets.push({
-        label,
+        label: h.name,
         mention: toMentionHandle(h.name),
         type: 'human',
         searchTerms: buildMentionSearchTerms(h.name),
+        picture: h.picture || h.gravatarUrl || undefined,
+        online: h.online !== false,
       });
     }
     return targets;
@@ -244,29 +251,44 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       <div className="composer-inner-pad px-4 sm:px-6 pt-1 sm:pt-2 pb-0 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
         {mentionQuery !== null && mentionMatches.length > 0 && (
           <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
-            {mentionMatches.map((match, i) => (
-              <button
-                key={`${match.type}:${match.mention}`}
-                onMouseDown={(e) => { e.preventDefault(); insertMention(match.mention); }}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
-                  i === mentionIndex
-                    ? 'bg-nc-cyan/10 text-nc-cyan'
-                    : 'text-nc-text hover:bg-nc-elevated'
-                }`}
-              >
-                {match.type === 'agent'
-                  ? <Bot size={14} className="flex-shrink-0 text-nc-green" />
-                  : <User size={14} className="flex-shrink-0 text-nc-cyan" />
-                }
-                <div className="min-w-0 flex flex-col">
-                  <span className="font-bold font-mono truncate">@{match.mention}</span>
-                  {match.label !== match.mention && (
-                    <span className="text-xs text-nc-muted truncate">{match.label}</span>
-                  )}
-                </div>
-                <span className="text-xs text-nc-muted ml-auto font-mono">{match.type}</span>
-              </button>
-            ))}
+            {mentionMatches.map((match, i) => {
+              const offline = match.type === 'human' && match.online === false;
+              return (
+                <button
+                  key={`${match.type}:${match.mention}`}
+                  onMouseDown={(e) => { e.preventDefault(); insertMention(match.mention); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
+                    i === mentionIndex
+                      ? 'bg-nc-cyan/10 text-nc-cyan'
+                      : 'text-nc-text hover:bg-nc-elevated'
+                  } ${offline ? 'opacity-60' : ''}`}
+                >
+                  <span className="relative w-5 h-5 flex-shrink-0 flex items-center justify-center">
+                    {match.picture ? (
+                      <img src={match.picture} alt="" className={`w-5 h-5 object-cover ${offline ? 'grayscale' : ''}`} />
+                    ) : match.type === 'agent' ? (
+                      <Bot size={14} className="text-nc-green" />
+                    ) : (
+                      <User size={14} className="text-nc-cyan" />
+                    )}
+                    {match.type === 'human' && (
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-nc-surface ${offline ? 'bg-nc-muted' : 'bg-nc-green'}`}
+                      />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex flex-col">
+                    <span className="font-bold font-mono truncate">@{match.mention}</span>
+                    {match.label !== match.mention && (
+                      <span className="text-xs text-nc-muted truncate">{match.label}</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-nc-muted ml-auto font-mono">
+                    {offline ? 'offline' : match.type}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
 

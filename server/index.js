@@ -451,6 +451,12 @@ const machines = new Map(); // machineId -> { id, hostname, os, runtimes, capabi
 const pendingRuntimeModelRequests = new Map(); // requestId -> { resolve, timer }
 const pendingContextResets = new Map(); // agentId -> resolver (fires on daemon agent:status=inactive, for reset-context orchestration)
 const onlineHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest, count }
+// Everyone we've ever seen as an authenticated user (seeded from `sessions` table on
+// startup, upserted on OAuth login + profile update). Lets the people list retain
+// users who are currently offline, and lets @mentions resolve to them.
+// Guests are intentionally NOT stored here — they vanish from the list when their
+// only WS connection drops.
+const allTimeHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest: false }
 
 // Per-agent queue of messages that arrived while the daemon socket was offline.
 // Drained on reconnect (see replayPendingDeliveries). Bounded per agent (oldest
@@ -540,10 +546,57 @@ function humanId(name) {
 }
 
 function currentHumans() {
-  return [...onlineHumans.values()]
-    .filter((human) => human.count > 0)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(({ count, ...human }) => human);
+  // Merge: everyone who's logged in before (allTimeHumans) + currently-connected
+  // guests (onlineHumans entries with no allTimeHumans counterpart). Each entry
+  // carries an `online` flag derived from onlineHumans counts.
+  const result = [];
+  const seen = new Set();
+  for (const human of allTimeHumans.values()) {
+    seen.add(human.name);
+    const presence = onlineHumans.get(human.name);
+    result.push({
+      id: human.id,
+      name: human.name,
+      picture: human.picture || undefined,
+      gravatarUrl: human.gravatarUrl || undefined,
+      guest: false,
+      online: !!(presence && presence.count > 0),
+    });
+  }
+  for (const presence of onlineHumans.values()) {
+    if (seen.has(presence.name)) continue;
+    if (presence.count <= 0) continue;
+    result.push({
+      id: presence.id || humanId(presence.name),
+      name: presence.name,
+      picture: presence.picture || undefined,
+      gravatarUrl: presence.gravatarUrl || undefined,
+      guest: !!presence.guest,
+      online: true,
+    });
+  }
+  result.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return result;
+}
+
+function upsertAllTimeHuman(human) {
+  if (!human?.name) return false;
+  const prev = allTimeHumans.get(human.name);
+  const next = {
+    id: human.id || humanId(human.name),
+    name: human.name,
+    picture: human.picture || prev?.picture || undefined,
+    gravatarUrl: human.gravatarUrl || prev?.gravatarUrl || undefined,
+    guest: false,
+  };
+  if (prev && prev.id === next.id && prev.picture === next.picture && prev.gravatarUrl === next.gravatarUrl) {
+    return false;
+  }
+  allTimeHumans.set(human.name, next);
+  return true;
 }
 
 function broadcastHumans() {
@@ -569,6 +622,8 @@ function addHumanPresence(human) {
       count: 1,
     });
   }
+  // An authenticated user connecting refreshes their persistent profile too.
+  if (!human.guest) upsertAllTimeHuman(human);
   broadcastHumans();
 }
 
@@ -2300,6 +2355,16 @@ app.post("/api/auth/google", async (req, res) => {
     authSessions.set(sessionToken, user);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
 
+    // Surface this user in the people list immediately, even before any WS
+    // connection. Lets others @-mention them while still offline.
+    const changed = upsertAllTimeHuman({
+      id: humanId(user.name),
+      name: user.name,
+      picture: user.picture || undefined,
+      gravatarUrl: user.gravatarUrl || undefined,
+    });
+    if (changed) broadcastHumans();
+
     res.json({ token: sessionToken, user });
   } catch (err) {
     console.error("[auth] Google token verification failed:", err.message);
@@ -2350,37 +2415,45 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
   if (!user.gravatarUrl && user.email) {
     user.gravatarUrl = gravatarUrl(user.email);
   }
-  if (oldName && oldName !== trimmed && onlineHumans.has(oldName)) {
-    const previous = onlineHumans.get(oldName);
-    onlineHumans.delete(oldName);
-    onlineHumans.set(trimmed, {
-      ...previous,
-      id: humanId(trimmed),
-      name: trimmed,
-      picture: user.picture || undefined,
-      gravatarUrl: user.gravatarUrl || undefined,
-      guest: false,
-    });
-    for (const client of webSockets) {
-      if (client._humanName === oldName) {
-        client._humanName = trimmed;
-        client._human = {
-          id: humanId(trimmed),
-          name: trimmed,
-          picture: user.picture || undefined,
-          gravatarUrl: user.gravatarUrl || undefined,
-          guest: false,
-        };
+  if (oldName && oldName !== trimmed) {
+    if (onlineHumans.has(oldName)) {
+      const previous = onlineHumans.get(oldName);
+      onlineHumans.delete(oldName);
+      onlineHumans.set(trimmed, {
+        ...previous,
+        id: humanId(trimmed),
+        name: trimmed,
+        picture: user.picture || undefined,
+        gravatarUrl: user.gravatarUrl || undefined,
+        guest: false,
+      });
+      for (const client of webSockets) {
+        if (client._humanName === oldName) {
+          client._humanName = trimmed;
+          client._human = {
+            id: humanId(trimmed),
+            name: trimmed,
+            picture: user.picture || undefined,
+            gravatarUrl: user.gravatarUrl || undefined,
+            guest: false,
+          };
+        }
       }
     }
-    broadcastHumans();
+    allTimeHumans.delete(oldName);
   } else if (onlineHumans.has(trimmed)) {
     const existing = onlineHumans.get(trimmed);
     existing.picture = user.picture || undefined;
     existing.gravatarUrl = user.gravatarUrl || undefined;
     existing.guest = false;
-    broadcastHumans();
   }
+  upsertAllTimeHuman({
+    id: humanId(trimmed),
+    name: trimmed,
+    picture: user.picture || undefined,
+    gravatarUrl: user.gravatarUrl || undefined,
+  });
+  broadcastHumans();
   db.saveSession(token, user).catch(e => console.warn("[auth] saveSession error:", e.message));
   res.json({ user });
 });
@@ -2602,6 +2675,18 @@ function reconcileAgentsWithConfigs() {
   // above for the backstop).
   await initFromDB();
   await loadAuthSessions();
+  // Seed allTimeHumans from authSessions so anyone who has logged in is in the
+  // people list immediately on boot (offline until they connect). Skip guest
+  // sessions — they're CI/anonymous and shouldn't appear in the persistent list.
+  for (const user of authSessions.values()) {
+    if (!user?.name || user.guest) continue;
+    upsertAllTimeHuman({
+      id: humanId(user.name),
+      name: user.name,
+      picture: user.picture || undefined,
+      gravatarUrl: user.gravatarUrl || (user.email ? gravatarUrl(user.email) : undefined),
+    });
+  }
   await loadEmailAllowlistFromDb();
   reconcileAgentsWithConfigs();
 
