@@ -81,3 +81,9 @@ CREATE TABLE IF NOT EXISTS machine_keys (
   bound_fingerprint TEXT
 );
 ALTER TABLE machine_keys ADD COLUMN IF NOT EXISTS bound_fingerprint TEXT;
+
+CREATE TABLE IF NOT EXISTS email_allowlist (
+  email      TEXT PRIMARY KEY,
+  added_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  added_by   TEXT
+);
