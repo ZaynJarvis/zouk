@@ -37,7 +37,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd }: {
 export default function ChannelSidebar() {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
-    createChannel, deleteChannel, currentUser, unreadCounts, wsSend, addToast, isGuest, theme,
+    createChannel, deleteChannel, currentUser, unreadCounts, wsConnected, isGuest, theme,
     authUser, setSidebarOpen, openAgentProfile, openAgentSettings, resetAgentContext,
   } = useApp();
 
