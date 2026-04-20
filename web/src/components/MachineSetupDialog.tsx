@@ -1,13 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Copy, Check, Trash2, Key, Server, Terminal } from 'lucide-react';
+import { Plus, Copy, Check, Trash2, Key, Server, Terminal, X } from 'lucide-react';
 import type { MachineApiKey, ServerMachine } from '../types';
 import * as api from '../lib/api';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
-import PanelShell from './panel/PanelShell';
-import PanelHeader from './panel/PanelHeader';
-
-const panelWidthClassName = 'w-screen lg:w-[30vw] lg:min-w-[380px] lg:max-w-[560px]';
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -90,20 +86,28 @@ export default function MachineSetupDialog({
     : `# clone zouk-daemon first\nnpx tsx src/index.ts --server-url ${serverUrl} --api-key <api_key>`;
 
   return (
-    <PanelShell widthClassName={panelWidthClassName} animated>
-      <PanelHeader
-        onClose={onClose}
-        className="shrink-0"
-        leftClassName="flex flex-col min-w-0"
-        closeTitle="Close"
-      >
-        <>
-          <h2 className="font-display font-black text-base text-nc-text-bright tracking-wider truncate">MACHINE_SETUP</h2>
-          <p className="text-2xs text-nc-muted font-mono truncate">Connect machines by running the daemon with an API key.</p>
-        </>
-      </PanelHeader>
+    <div
+      className="fixed inset-0 bg-nc-black/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in p-4 safe-top safe-bottom"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-nc-surface border border-nc-border shadow-nc-panel w-full max-w-[640px] max-h-[90vh] flex flex-col cyber-bevel animate-bounce-in">
+        <div className="flex justify-between items-center px-6 pt-5 pb-3 border-b border-nc-border shrink-0">
+          <div className="min-w-0">
+            <h2 className="font-display font-black text-xl text-nc-text-bright tracking-wider truncate">MACHINE_SETUP</h2>
+            <p className="text-xs text-nc-muted mt-0.5 font-mono truncate">Connect machines by running the daemon with an API key.</p>
+          </div>
+          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <button
+              onClick={onClose}
+              className="cyber-btn w-8 h-8 flex items-center justify-center border border-nc-border hover:border-nc-red hover:text-nc-red hover:bg-nc-red/10 text-nc-muted"
+              title="Close"
+            >
+              <X size={16} />
+            </button>
+          </ScanlineTear>
+        </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-5 space-y-5">
           <div>
             <label className="flex items-center gap-1.5 text-xs font-bold text-nc-muted mb-2 font-mono tracking-wider">
               <Terminal size={12} className="text-nc-green" /> DAEMON_COMMAND
@@ -237,7 +241,8 @@ export default function MachineSetupDialog({
             )}
           </div>
 
+        </div>
       </div>
-    </PanelShell>
+    </div>
   );
 }

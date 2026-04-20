@@ -250,10 +250,11 @@ export default function AgentsView() {
                 <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                   <button
                     onClick={() => setShowMachineSetup(true)}
-                    className="cyber-btn w-6 h-6 flex items-center justify-center border border-nc-border hover:border-nc-cyan hover:text-nc-cyan hover:bg-nc-cyan/10 text-nc-muted"
+                    className="cyber-btn flex items-center gap-1 px-2 h-6 border border-nc-green bg-nc-green/10 text-2xs font-bold font-mono text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green"
                     title="Machine Setup & API Keys"
                   >
                     <Settings size={10} />
+                    SETUP
                   </button>
                 </ScanlineTear>
               )}
