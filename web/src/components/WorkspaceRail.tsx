@@ -1,4 +1,4 @@
-import { Home, MessagesSquare, FolderOpen, Brain, Cpu, Settings } from 'lucide-react';
+import { Home, MessagesSquare, FolderOpen, Brain, Cpu, Settings, KanbanSquare } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { isNightCity, ncStyle } from '../lib/themeUtils';
@@ -34,6 +34,10 @@ export default function WorkspaceRail() {
 
         <button onClick={() => setViewMode('agents')} className={getWorkspaceRailButtonClass(themeVariant, 'agents', viewMode === 'agents')} title="Agents" aria-label="Agents">
           <Cpu size={20} />
+        </button>
+
+        <button onClick={() => setViewMode('tasks')} className={getWorkspaceRailButtonClass(themeVariant, 'tasks', viewMode === 'tasks')} title="Tasks" aria-label="Tasks">
+          <KanbanSquare size={20} />
         </button>
 
         <button onClick={toggleWorkspace} className={getWorkspaceRailButtonClass(themeVariant, 'workspace', wsOpen)} title="Workspace" aria-label="Workspace" aria-pressed={wsOpen}>
@@ -87,6 +91,17 @@ export default function WorkspaceRail() {
           aria-label="Agents"
         >
           <Cpu size={20} />
+        </button>
+      </ScanlineTear>
+
+      <ScanlineTear config={hoverConfig}>
+        <button
+          onClick={() => setViewMode('tasks')}
+          className={getWorkspaceRailButtonClass(themeVariant, 'tasks', viewMode === 'tasks')}
+          title="Tasks"
+          aria-label="Tasks"
+        >
+          <KanbanSquare size={20} />
         </button>
       </ScanlineTear>
 

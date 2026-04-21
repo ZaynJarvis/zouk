@@ -1539,6 +1539,42 @@ app.delete("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Read-only task list for the frontend kanban. Tasks don't carry their own
+// timestamps in the schema, so we derive createdAt/updatedAt from the system
+// messages stamped with each task_number (create → claim → status updates).
+app.get("/api/tasks", (req, res) => {
+  const taskTimes = new Map(); // taskNumber -> { createdAt, updatedAt }
+  for (const m of store.messages) {
+    if (!m.taskNumber) continue;
+    const cur = taskTimes.get(m.taskNumber);
+    if (!cur) {
+      taskTimes.set(m.taskNumber, { createdAt: m.createdAt, updatedAt: m.createdAt });
+    } else {
+      if (m.createdAt < cur.createdAt) cur.createdAt = m.createdAt;
+      if (m.createdAt > cur.updatedAt) cur.updatedAt = m.createdAt;
+    }
+  }
+
+  const tasks = store.tasks.map((t) => {
+    const times = taskTimes.get(t.taskNumber) || { createdAt: null, updatedAt: null };
+    return {
+      taskNumber: t.taskNumber,
+      channelId: t.channelId,
+      channelName: store.channels.find((c) => c.id === t.channelId)?.name || null,
+      title: t.title,
+      status: t.status,
+      messageId: t.messageId,
+      claimedByName: t.claimedByName,
+      claimedByType: t.claimedByType,
+      createdByName: t.createdByName,
+      createdAt: times.createdAt,
+      updatedAt: times.updatedAt,
+    };
+  });
+
+  res.json({ tasks });
+});
+
 // List connected machines (daemons)
 app.get("/api/machines", (req, res) => {
   const machineList = Array.from(machines.values()).map((m) => ({

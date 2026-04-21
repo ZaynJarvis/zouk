@@ -10,6 +10,7 @@ import RightPanel from './components/RightPanel';
 import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
+import TasksView from './components/TasksView';
 import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
@@ -99,6 +100,7 @@ function AppShell() {
               </>
             )}
             {viewMode === 'agents' && <AgentsView />}
+            {viewMode === 'tasks' && <TasksView />}
           </div>
           <div className="absolute inset-y-0 right-0 z-20 flex pointer-events-none">
             <div ref={rightPanelRef} className="pointer-events-auto h-full shadow-2xl">

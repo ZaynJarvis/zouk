@@ -220,7 +220,23 @@ export interface MemoryEntry {
   abstract?: string;
 }
 
-export type ViewMode = 'channel' | 'dm' | 'agents';
+export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done';
+
+export interface TaskRecord {
+  taskNumber: number;
+  channelId: string | null;
+  channelName: string | null;
+  title: string;
+  status: TaskStatus;
+  messageId: string | null;
+  claimedByName: string | null;
+  claimedByType: 'agent' | 'human' | null;
+  createdByName: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export type ViewMode = 'channel' | 'dm' | 'agents' | 'tasks';
 export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'memory' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
 export type Theme = 'night-city' | 'brutalist' | 'washington-post' | 'carbon' | 'graphite';
 

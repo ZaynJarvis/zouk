@@ -3,7 +3,7 @@ import { cx } from '../../lib/classNames';
 
 export type NavigationThemeVariant = 'night-city' | 'carbon' | 'washington-post' | 'brutalist' | 'graphite';
 type TopBarAccent = 'cyan' | 'green' | 'yellow';
-type RailButtonKey = 'home' | 'agents' | 'workspace' | 'memory' | 'settings';
+type RailButtonKey = 'home' | 'agents' | 'tasks' | 'workspace' | 'memory' | 'settings';
 type RailActionKey = Exclude<RailButtonKey, 'settings'>;
 
 export function resolveNavigationTheme(theme: Theme, nightCityEnabled: boolean): NavigationThemeVariant {
@@ -161,24 +161,28 @@ const workspaceRailActiveByTheme: Record<Exclude<NavigationThemeVariant, 'night-
   carbon: {
     home: 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan',
     agents: 'bg-nc-green/15 text-nc-green border-nc-green',
+    tasks: 'bg-nc-indigo/15 text-nc-indigo border-nc-indigo',
     workspace: 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta',
     memory: 'bg-nc-yellow/15 text-nc-yellow border-nc-yellow',
   },
   'washington-post': {
     home: 'bg-nc-red text-nc-surface border-nc-red',
     agents: 'bg-nc-indigo text-nc-surface border-nc-indigo',
+    tasks: 'bg-[#405268] text-nc-surface border-[#405268]',
     workspace: 'bg-nc-yellow text-nc-surface border-nc-yellow',
     memory: 'bg-[#405268] text-nc-surface border-[#405268]',
   },
   brutalist: {
     home: 'bg-nc-yellow text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
     agents: 'bg-nc-green text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
+    tasks: 'bg-nc-indigo text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
     workspace: 'bg-nc-cyan text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
     memory: 'bg-[#CC6600] text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
   },
   graphite: {
     home: 'bg-nc-cyan/[0.14] text-nc-cyan border-transparent',
     agents: 'bg-nc-green/[0.14] text-nc-green border-transparent',
+    tasks: 'bg-nc-indigo/[0.14] text-nc-indigo border-transparent',
     workspace: 'bg-nc-magenta/[0.14] text-nc-magenta border-transparent',
     memory: 'bg-nc-yellow/[0.14] text-nc-yellow border-transparent',
   },
@@ -187,6 +191,7 @@ const workspaceRailActiveByTheme: Record<Exclude<NavigationThemeVariant, 'night-
 const workspaceRailNightCityInactiveByKey: Record<RailButtonKey, string> = {
   home: 'text-nc-muted border-nc-border hover:text-nc-cyan hover:border-nc-cyan/50',
   agents: 'text-nc-muted border-nc-border hover:text-nc-green hover:border-nc-green/50',
+  tasks: 'text-nc-muted border-nc-border hover:text-nc-indigo hover:border-nc-indigo/50',
   workspace: 'text-nc-muted border-nc-border hover:text-nc-magenta hover:border-nc-magenta/50',
   memory: 'text-nc-muted border-nc-border hover:text-nc-yellow hover:border-nc-yellow/50',
   settings: 'text-nc-muted border-nc-border hover:text-nc-yellow hover:border-nc-yellow/50',
@@ -195,6 +200,7 @@ const workspaceRailNightCityInactiveByKey: Record<RailButtonKey, string> = {
 const workspaceRailNightCityActiveByKey: Record<RailActionKey, string> = {
   home: 'bg-nc-cyan/15 text-nc-cyan border-nc-cyan shadow-nc-cyan',
   agents: 'bg-nc-green/15 text-nc-green border-nc-green shadow-nc-green',
+  tasks: 'bg-nc-indigo/15 text-nc-indigo border-nc-indigo',
   workspace: 'bg-nc-magenta/15 text-nc-magenta border-nc-magenta shadow-nc-magenta',
   memory: 'bg-nc-yellow/15 text-nc-yellow border-nc-yellow shadow-nc-yellow',
 };
