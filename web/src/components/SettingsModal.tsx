@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Shield } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
+import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Shield, Link2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -7,8 +7,14 @@ import { themes, type ThemeId } from '../themes';
 import { resizeAndEncode } from '../lib/imageEncode';
 import * as api from '../lib/api';
 import type { AllowlistEntry } from '../lib/api';
+import {
+  getStoredLinkTransforms,
+  setStoredLinkTransforms,
+  subscribeLinkTransforms,
+  type LinkTransformRule,
+} from '../store/storage';
 
-type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'access' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'access' | 'links' | 'about';
 
 const PROFILE_PRESET_MAX = 30;
 
@@ -151,6 +157,7 @@ export default function SettingsModal() {
     { key: 'avatars', label: 'AVATARS', icon: Smile },
     { key: 'providers', label: 'PROVIDERS', icon: Server },
     { key: 'access', label: 'ACCESS', icon: Shield },
+    { key: 'links', label: 'LINKS', icon: Link2 },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
   const currentNavItem = navItems.find((item) => item.key === section) ?? navItems[0];
@@ -482,6 +489,8 @@ export default function SettingsModal() {
 
             {section === 'access' && <AccessSection authEmail={authUser?.email || null} />}
 
+            {section === 'links' && <LinkTransformsSection />}
+
             {section === 'about' && (
               <div className="max-w-md space-y-4">
                 <div className="cyber-panel-elevated p-4">
@@ -694,6 +703,177 @@ function AccessSection({ authEmail }: { authEmail: string | null }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function randomId(): string {
+  return 'r-' + Math.random().toString(36).slice(2, 10);
+}
+
+function validatePattern(pattern: string): string | null {
+  try {
+    new RegExp(pattern);
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : 'Invalid regex';
+  }
+}
+
+function LinkTransformsSection() {
+  const rules = useSyncExternalStore(subscribeLinkTransforms, getStoredLinkTransforms);
+  const [drafts, setDrafts] = useState<Record<string, { pattern: string; replacement: string }>>({});
+  const [newPattern, setNewPattern] = useState('');
+  const [newReplacement, setNewReplacement] = useState('');
+  const [testInput, setTestInput] = useState('https://github.com/ZaynJarvis/zouk/pull/142');
+
+  const getDraft = (rule: LinkTransformRule) =>
+    drafts[rule.id] ?? { pattern: rule.pattern, replacement: rule.replacement };
+
+  const setDraft = (id: string, update: Partial<{ pattern: string; replacement: string }>) => {
+    setDrafts(prev => {
+      const current = prev[id] ?? { pattern: '', replacement: '' };
+      return { ...prev, [id]: { ...current, ...update } };
+    });
+  };
+
+  const saveDraft = (rule: LinkTransformRule) => {
+    const draft = drafts[rule.id];
+    if (!draft) return;
+    if (validatePattern(draft.pattern)) return;
+    const next = rules.map(r => (r.id === rule.id ? { ...r, pattern: draft.pattern, replacement: draft.replacement } : r));
+    setStoredLinkTransforms(next);
+    setDrafts(({ [rule.id]: _, ...rest }) => rest);
+  };
+
+  const addRule = () => {
+    if (!newPattern.trim()) return;
+    if (validatePattern(newPattern)) return;
+    const next = [...rules, { id: randomId(), pattern: newPattern, replacement: newReplacement }];
+    setStoredLinkTransforms(next);
+    setNewPattern('');
+    setNewReplacement('');
+  };
+
+  const removeRule = (id: string) => {
+    setStoredLinkTransforms(rules.filter(r => r.id !== id));
+  };
+
+  const previewFor = (rule: LinkTransformRule): string => {
+    try {
+      const re = new RegExp(rule.pattern);
+      if (re.test(testInput)) return testInput.replace(re, rule.replacement);
+    } catch { /* invalid — handled inline */ }
+    return '—';
+  };
+
+  const newPatternError = newPattern ? validatePattern(newPattern) : null;
+
+  return (
+    <div className="max-w-xl space-y-5">
+      <div>
+        <p className="text-sm font-bold text-nc-text-bright tracking-wider">LINK_TRANSFORMS</p>
+        <p className="text-xs text-nc-muted font-mono mt-0.5">
+          Rewrite pasted URLs into short anchors. First matching rule wins. Pattern is a JS regex; replacement uses <code className="px-1 bg-nc-elevated">$1</code> etc. for capture groups.
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Preview against</label>
+        <input
+          value={testInput}
+          onChange={e => setTestInput(e.target.value)}
+          placeholder="https://example.com/..."
+          className="cyber-input w-full px-3 py-2 text-xs font-mono"
+        />
+      </div>
+
+      {rules.length === 0 ? (
+        <p className="text-xs font-mono text-nc-muted italic">No rules. Add one below.</p>
+      ) : (
+        <div className="space-y-2">
+          {rules.map(rule => {
+            const draft = getDraft(rule);
+            const dirty = draft.pattern !== rule.pattern || draft.replacement !== rule.replacement;
+            const patternError = validatePattern(draft.pattern);
+            return (
+              <div key={rule.id} className="cyber-panel-elevated p-3 space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <input
+                    value={draft.pattern}
+                    onChange={e => setDraft(rule.id, { pattern: e.target.value })}
+                    placeholder="^https://github\.com/.*/pull/(\d+).*$"
+                    className="cyber-input flex-1 min-w-0 px-2 py-1.5 text-xs font-mono"
+                  />
+                  <div className="flex items-center gap-2">
+                    <span className="text-nc-muted text-xs font-mono">→</span>
+                    <input
+                      value={draft.replacement}
+                      onChange={e => setDraft(rule.id, { replacement: e.target.value })}
+                      placeholder="#$1"
+                      className="cyber-input flex-1 sm:w-28 sm:flex-none min-w-0 px-2 py-1.5 text-xs font-mono"
+                    />
+                    <button
+                      onClick={() => saveDraft(rule)}
+                      disabled={!dirty || !!patternError}
+                      className="cyber-btn px-2.5 py-1.5 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan text-2xs font-bold tracking-wider disabled:opacity-40 flex-shrink-0"
+                    >
+                      SAVE
+                    </button>
+                    <button
+                      onClick={() => removeRule(rule.id)}
+                      className="p-1.5 text-nc-muted hover:text-nc-red flex-shrink-0"
+                      title="Remove rule"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-2xs font-mono text-nc-muted">
+                  <span>PREVIEW:</span>
+                  <span className="text-nc-cyan truncate">{previewFor(rule)}</span>
+                </div>
+                {patternError && (
+                  <p className="text-2xs font-mono text-nc-red">Invalid regex: {patternError}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="pt-4 border-t border-nc-border">
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Add rule</label>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <input
+            value={newPattern}
+            onChange={e => setNewPattern(e.target.value)}
+            placeholder="Pattern (JS regex)"
+            className="cyber-input flex-1 min-w-0 px-2 py-1.5 text-xs font-mono"
+          />
+          <div className="flex items-center gap-2">
+            <span className="text-nc-muted text-xs font-mono">→</span>
+            <input
+              value={newReplacement}
+              onChange={e => setNewReplacement(e.target.value)}
+              placeholder="Replacement"
+              className="cyber-input flex-1 sm:w-28 sm:flex-none min-w-0 px-2 py-1.5 text-xs font-mono"
+            />
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={addRule}
+                disabled={!newPattern.trim() || !!newPatternError}
+                className="cyber-btn px-3 py-1.5 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan text-2xs font-bold tracking-wider disabled:opacity-40 flex-shrink-0"
+              >
+                ADD
+              </button>
+            </ScanlineTear>
+          </div>
+        </div>
+        {newPatternError && (
+          <p className="text-2xs font-mono text-nc-red mt-1.5">Invalid regex: {newPatternError}</p>
+        )}
+      </div>
     </div>
   );
 }
