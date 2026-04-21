@@ -233,18 +233,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, []);
 
   const channelLabel = viewMode === 'dm' ? `@${activeChannelName}` : `#${activeChannelName}`;
-
-  if (isGuest) {
-    return (
-      <div className="flex-shrink-0 composer-outer safe-bottom">
-        <div className="composer-inner-pad px-5 pt-2 pb-0 sm:pb-4">
-          <div className="flex items-center justify-center gap-2 px-4 py-3 border border-nc-border bg-nc-elevated text-sm text-nc-muted">
-            Sign in with Google to send messages
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const composerPlaceholder = isGuest
+    ? 'Sign in to send messages'
+    : (placeholder || `Message ${channelLabel}`);
 
   return (
     <div className="flex-shrink-0 composer-outer safe-bottom">
@@ -317,12 +308,13 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             autoCapitalize="off"
             spellCheck={false}
             enterKeyHint="send"
-            placeholder={placeholder || `Message ${channelLabel}`}
+            disabled={isGuest}
+            placeholder={composerPlaceholder}
             rows={1}
-            className="composer-textarea flex-1 min-w-0 px-4 py-1.5 sm:px-3 sm:py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px]"
+            className="composer-textarea flex-1 min-w-0 px-4 py-1.5 sm:px-3 sm:py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed"
           />
 
-          {!text.trim() && (
+          {!text.trim() && !isGuest && (
             <span
               aria-hidden="true"
               className="text-2xs text-nc-muted/50 font-mono hidden sm:block pointer-events-none select-none self-center pr-3 flex-shrink-0"
