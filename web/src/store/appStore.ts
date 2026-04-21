@@ -136,6 +136,7 @@ export function useAppStore() {
   const humansRef = useRef(humans);
   humansRef.current = humans;
   const hasResolvedInitialViewRef = useRef(false);
+  const channelListReady = channels.length > 0;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
@@ -513,7 +514,7 @@ export function useAppStore() {
       }
     });
     return () => { cancelled = true; };
-  }, [activeChannelName, viewMode, channels.length > 0]);
+  }, [activeChannelName, viewMode, channelListReady]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages) return;
