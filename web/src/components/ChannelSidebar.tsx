@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { activityColors } from '../lib/activityStatus';
+import { agentStatus, humanStatus } from '../lib/avatarStatus';
+import StatusDot from './StatusDot';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -176,34 +177,39 @@ export default function ChannelSidebar() {
           {!agentsCollapsed && filteredAgents.map(agent => {
             const isActive = activeChannelName === agent.name && viewMode === 'dm';
             const unread = unreadCounts[agent.name] || 0;
+            const status = agentStatus(agent);
+            const isOffline = status === 'offline';
             return (
               <button
                 key={agent.id}
                 onClick={() => pick(agent.name, true)}
                 className={getChannelSidebarAgentItemClass(themeVariant, isActive, unread)}
               >
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openAgentProfile(agent.id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
+                <span className="relative w-5 h-5 flex-shrink-0">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
                       e.stopPropagation();
                       openAgentProfile(agent.id);
-                    }
-                  }}
-                  title={`View @${agent.displayName || agent.name} profile`}
-                  className="w-5 h-5 flex-shrink-0 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden font-display font-bold text-2xs text-nc-cyan hover:ring-1 hover:ring-nc-cyan cursor-pointer"
-                >
-                  {agent.picture ? (
-                    <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <Bot size={12} />
-                  )}
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openAgentProfile(agent.id);
+                      }
+                    }}
+                    title={`View @${agent.displayName || agent.name} profile`}
+                    className={`w-full h-full border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden font-display font-bold text-2xs text-nc-cyan hover:ring-1 hover:ring-nc-cyan cursor-pointer ${isOffline ? 'grayscale opacity-70' : ''}`}
+                  >
+                    {agent.picture ? (
+                      <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Bot size={12} />
+                    )}
+                  </span>
+                  <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                 </span>
                 <span className="truncate text-sm">{agent.displayName || agent.name}</span>
                 <div className="ml-auto flex items-center gap-1.5">
@@ -233,7 +239,6 @@ export default function ChannelSidebar() {
                       <Settings size={12} />
                     </span>
                   )}
-                  <span className={`w-2 h-2 flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
                   {unread > 0 && !isActive && (
                     <span className="bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
                       {unread}
@@ -260,14 +265,19 @@ export default function ChannelSidebar() {
             const commonRow = 'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-100 mb-1';
             const activeClass = 'bg-nc-magenta/10 border-l-2 border-nc-magenta text-nc-magenta font-bold';
             const idleClass = 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text';
+            const status = isSelf ? humanStatus({ online: true }) : humanStatus(h);
+            const isOffline = status === 'offline';
             const content = (
               <>
-                <div className="w-5 h-5 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden shrink-0">
-                  {h.picture || h.gravatarUrl ? (
-                    <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <User size={12} className="flex-shrink-0" />
-                  )}
+                <div className="relative w-5 h-5 shrink-0">
+                  <div className={`w-full h-full border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden ${isOffline ? 'grayscale opacity-70' : ''}`}>
+                    {h.picture || h.gravatarUrl ? (
+                      <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={12} className="flex-shrink-0" />
+                    )}
+                  </div>
+                  <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                 </div>
                 <span className="truncate text-sm">{h.name}</span>
                 {isSelf && (

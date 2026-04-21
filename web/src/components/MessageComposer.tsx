@@ -9,6 +9,8 @@ import {
   toMentionHandle,
   type MentionTarget,
 } from '../lib/mentions';
+import StatusDot from './StatusDot';
+import { agentStatus, humanStatus } from '../lib/avatarStatus';
 
 // Locate the @ that anchors the current mention query. Mirrors the lookbehind
 // in MENTION_QUERY_REGEX (start-of-string or whitespace) so we don't confuse
@@ -64,6 +66,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         type: 'agent',
         searchTerms: buildMentionSearchTerms(a.name, a.displayName),
         picture: a.picture || undefined,
+        status: agentStatus(a),
       });
     }
     // Online humans first so the most useful targets surface at the top of the
@@ -79,6 +82,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         searchTerms: buildMentionSearchTerms(h.name),
         picture: h.picture || h.gravatarUrl || undefined,
         online: h.online !== false,
+        status: humanStatus(h),
       });
     }
     return targets;
@@ -243,7 +247,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         {mentionQuery !== null && mentionMatches.length > 0 && (
           <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
             {mentionMatches.map((match, i) => {
-              const offline = match.type === 'human' && match.online === false;
+              const status = match.status ?? 'online';
+              const offline = status === 'offline';
+              const meta = status === 'working' ? 'working' : offline ? 'offline' : match.type;
               return (
                 <button
                   key={`${match.type}:${match.mention}`}
@@ -262,11 +268,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                     ) : (
                       <User size={14} className="text-nc-cyan" />
                     )}
-                    {match.type === 'human' && (
-                      <span
-                        className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-nc-surface ${offline ? 'bg-nc-muted' : 'bg-nc-green'}`}
-                      />
-                    )}
+                    <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                   </span>
                   <div className="min-w-0 flex flex-col">
                     <span className="font-bold font-mono truncate">@{match.mention}</span>
@@ -275,7 +277,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                     )}
                   </div>
                   <span className="text-xs text-nc-muted ml-auto font-mono">
-                    {offline ? 'offline' : match.type}
+                    {meta}
                   </span>
                 </button>
               );
