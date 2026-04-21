@@ -6,6 +6,7 @@ import StatusDot from './StatusDot';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
+import { contextUsageToneClass, formatContextUsageLine, formatContextUsageTitle } from '../lib/contextUsage';
 import {
   channelSidebarThemeConfig,
   getChannelSidebarAgentItemClass,
@@ -179,6 +180,9 @@ export default function ChannelSidebar() {
             const unread = unreadCounts[agent.name] || 0;
             const status = agentStatus(agent);
             const isOffline = status === 'offline';
+            const usageLabel = formatContextUsageLine(agent.contextUsage?.summary);
+            const usageTitle = formatContextUsageTitle(agent.contextUsage);
+            const usageTone = contextUsageToneClass(agent.contextUsage?.summary.percent);
             return (
               <button
                 key={agent.id}
@@ -213,6 +217,14 @@ export default function ChannelSidebar() {
                 </span>
                 <span className="truncate text-sm">{agent.displayName || agent.name}</span>
                 <div className="ml-auto flex items-center gap-1.5">
+                  {usageLabel && (
+                    <span
+                      className={`inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-[10px] font-mono leading-none ${usageTone}`}
+                      title={usageTitle}
+                    >
+                      {usageLabel}
+                    </span>
+                  )}
                   {agent.status === 'active' && !isGuest && (
                     <span
                       role="button"

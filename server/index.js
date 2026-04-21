@@ -156,6 +156,17 @@ function agentPayload(agentId) {
   };
 }
 
+function hydrateAgentContextUsage(agentId) {
+  if (!db.enabled || !store.agents[agentId] || store.agents[agentId].contextUsage) return;
+  db.loadLatestContextUsage(agentId).then((contextUsage) => {
+    if (!contextUsage || !store.agents[agentId] || store.agents[agentId].contextUsage) return;
+    store.agents[agentId].contextUsage = contextUsage;
+    broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
+  }).catch((e) => {
+    console.error(`[db] loadLatestContextUsage(${agentId}) failed:`, e.message);
+  });
+}
+
 function hasWorkspaceFsCapability(ws) {
   const capabilities = Array.isArray(ws?._capabilities) ? ws._capabilities : [];
   return capabilities.some((cap) => (
@@ -1942,6 +1953,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
             readyMachine.agentIds.push(agentId);
           }
           broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
+          hydrateAgentContextUsage(agentId);
           replayPendingDeliveries(agentId);
         }
       }
@@ -1990,6 +2002,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           broadcastToWeb({ type: "config_updated", configs: agentConfigs });
         }
       }
+      if (status === "active") hydrateAgentContextUsage(agentId);
       if (status === "active") {
         replayPendingDeliveries(agentId);
         if (!wasActive) {
@@ -2009,7 +2022,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       break;
     }
     case "agent:activity": {
-      const { agentId, activity, detail, entries } = msg;
+      const { agentId, activity, detail, entries, contextUsage } = msg;
       if (!hasKnownAgentConfig(agentId)) {
         purgeUnknownAgentState(agentId);
         sendAgentStop(agentId, ws, { broadcast: false });
@@ -2021,6 +2034,13 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         break;
       }
       enqueueActivity(agentId, async () => {
+        if (store.agents[agentId]) {
+          store.agents[agentId].activity = activity;
+          store.agents[agentId].activityDetail = detail;
+          if (contextUsage) {
+            store.agents[agentId].contextUsage = contextUsage;
+          }
+        }
         if (Array.isArray(entries) && entries.length > 0) {
           try {
             await db.saveActivityEntries(agentId, activity, detail, entries);
@@ -2028,7 +2048,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
             console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
           }
         }
-        broadcastToWeb({ type: "agent_activity", agentId, activity, detail, entries });
+        broadcastToWeb({ type: "agent_activity", agentId, activity, detail, entries, contextUsage });
       });
       break;
     }

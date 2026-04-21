@@ -53,6 +53,7 @@ export interface WsAgentActivityEvent {
   activity: AgentActivity;
   detail?: string;
   entries?: AgentEntry[];
+  contextUsage?: import('../types').AgentContextUsageSnapshot;
 }
 
 export interface WsDaemonEvent {

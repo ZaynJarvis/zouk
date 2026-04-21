@@ -545,6 +545,25 @@ async function loadAgentActivities(agentId, keep = ACTIVITY_KEEP_LIMIT) {
   }
 }
 
+async function loadLatestContextUsage(agentId) {
+  if (!pool || !agentId) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT entry FROM agent_activities
+       WHERE agent_id = $1
+         AND entry->>'kind' = 'context_usage'
+       ORDER BY id DESC
+       LIMIT 1`,
+      [agentId]
+    );
+    const entry = rows[0]?.entry;
+    return entry?.contextUsage || null;
+  } catch (e) {
+    console.error('[db] loadLatestContextUsage error:', e.message);
+    return null;
+  }
+}
+
 async function trimAgentActivities(agentId, keep = ACTIVITY_KEEP_LIMIT) {
   if (!pool || !agentId) return;
   try {
@@ -653,6 +672,7 @@ module.exports = {
   removeEmailAllowlist,
   saveActivityEntries,
   loadAgentActivities,
+  loadLatestContextUsage,
   trimAgentActivities,
   trimAllAgentActivities,
 };

@@ -48,6 +48,7 @@ export interface ServerAgent {
   workDir?: string;
   archivedAt?: string;
   autoStart?: boolean;
+  contextUsage?: AgentContextUsageSnapshot;
 }
 
 export interface AgentSkill {
@@ -99,13 +100,43 @@ export interface RuntimeConfig {
 
 export type AgentActivity = 'thinking' | 'working' | 'online' | 'offline' | 'error';
 
+export interface AgentContextUsageModel {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  usedTokens: number;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  percent?: number;
+  costUSD?: number;
+  webSearchRequests?: number;
+}
+
+export interface AgentContextUsageSnapshot {
+  updatedAt: string;
+  summary: AgentContextUsageModel;
+  models: AgentContextUsageModel[];
+  totalCostUSD?: number;
+}
+
+export type AgentEntryLevel = 'info' | 'success' | 'warning' | 'error';
+
 export interface AgentEntry {
-  kind: 'status' | 'thinking' | 'text' | 'tool_start';
+  kind: 'status' | 'note' | 'tool' | 'context_usage' | 'thinking' | 'text' | 'tool_start';
+  title?: string;
+  content?: string;
+  timestamp?: string;
+  level?: AgentEntryLevel;
   activity?: string;
   detail?: string;
   text?: string;
   toolName?: string;
-  toolInput?: Record<string, unknown>;
+  toolInput?: Record<string, unknown> | string;
+  toolInputSummary?: string;
+  contextUsage?: AgentContextUsageSnapshot;
+  meta?: Record<string, unknown>;
 }
 
 export interface ServerHuman {
