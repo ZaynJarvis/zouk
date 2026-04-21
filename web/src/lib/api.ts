@@ -166,6 +166,43 @@ export async function deleteChannel(channelId: string): Promise<{ success: true;
   return res.json();
 }
 
+export interface ChannelAgentMembership {
+  agentId: string;
+  agentName: string;
+  canRead: boolean;
+  subscribed: boolean;
+}
+
+export async function fetchChannelAgents(channelId: string): Promise<ChannelAgentMembership[]> {
+  const url = `${getBaseUrl()}/api/channels/${encodeURIComponent(channelId)}/agents`;
+  const res = await fetch(url, { headers: getAuthHeaders(), cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load channel agents: ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data.agents) ? data.agents : [];
+}
+
+export async function setChannelAgentMembership(
+  channelId: string,
+  agentId: string,
+  patch: { canRead?: boolean; subscribed?: boolean },
+): Promise<ChannelAgentMembership | null> {
+  const url = `${getBaseUrl()}/api/channels/${encodeURIComponent(channelId)}/agents/${encodeURIComponent(agentId)}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`Failed to update channel agent: ${res.status}`);
+  const data = await res.json();
+  return data.membership ?? null;
+}
+
+export async function removeChannelAgentMembership(channelId: string, agentId: string): Promise<void> {
+  const url = `${getBaseUrl()}/api/channels/${encodeURIComponent(channelId)}/agents/${encodeURIComponent(agentId)}`;
+  const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
+  if (!res.ok) throw new Error(`Failed to remove channel agent: ${res.status}`);
+}
+
 export async function startAgent(config: {
   id?: string;
   name: string;

@@ -7,9 +7,10 @@ import WorkspacePanel from './WorkspacePanel';
 import MemoryPanel from './MemoryPanel';
 import AgentSettingsPanel from './AgentSettingsPanel';
 import AgentProfilePanel from './AgentProfilePanel';
+import ChannelSettingsPanel from './ChannelSettingsPanel';
 
 export default function RightPanel() {
-  const { rightPanel, agentSettingsId, agentProfileId, closeRightPanel } = useApp();
+  const { rightPanel, agentSettingsId, agentProfileId, channelSettingsId, closeRightPanel } = useApp();
 
   useEffect(() => {
     if (!rightPanel) return;
@@ -40,6 +41,8 @@ export default function RightPanel() {
       return <AgentSettingsPanel key={agentSettingsId ?? 'none'} />;
     case 'agent_profile':
       return <AgentProfilePanel key={agentProfileId ?? 'none'} />;
+    case 'channel_settings':
+      return <ChannelSettingsPanel key={channelSettingsId ?? 'none'} />;
     default:
       return null;
   }
