@@ -27,6 +27,21 @@ import {
 } from './storage';
 import { applyTheme } from '../themes';
 
+function isKnownChannel(channels: ServerChannel[], name: string) {
+  return channels.some(channel => channel.name === name);
+}
+
+function isKnownDmTarget(
+  agents: ServerAgent[],
+  humans: ServerHuman[],
+  currentUser: string,
+  name: string,
+) {
+  if (!name) return false;
+  if (name === currentUser) return true;
+  return agents.some(agent => agent.name === name) || humans.some(human => human.name === name);
+}
+
 export function useAppStore() {
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
   const [currentUser, setCurrentUser] = useState(getStoredCurrentUser);
@@ -35,7 +50,7 @@ export function useAppStore() {
   const [humans, setHumans] = useState<ServerHuman[]>([]);
   const [configs, setConfigs] = useState<AgentConfig[]>([]);
   const [machines, setMachines] = useState<ServerMachine[]>([]);
-  const [activeChannelName, setActiveChannelName] = useState<string>('general');
+  const [activeChannelName, setActiveChannelName] = useState<string>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('channel');
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [agentDetailTab, setAgentDetailTab] = useState<'instructions' | 'workspace' | 'activity' | 'settings'>('instructions');
@@ -113,9 +128,6 @@ export function useAppStore() {
         setConfigs(e.configs || []);
         setMachines(e.machines || []);
         setProfilePresets(e.profilePresets || []);
-        if (e.channels?.length && !e.channels.find(c => c.name === activeChannelRef.current)) {
-          setActiveChannelName(e.channels[0].name);
-        }
         break;
       }
       case 'message':
@@ -365,6 +377,25 @@ export function useAppStore() {
     if (authToken) return;
     api.registerGuestSession(currentUser).catch(() => {});
   }, [wsConnected, isLoggedIn, authToken, currentUser]);
+
+  useEffect(() => {
+    // Keep the active conversation valid for the current mode. A reconnect
+    // replays `init`, so channel-only validation would incorrectly coerce DMs
+    // to the first public channel ("all"), which then gets fetched as `dm:@all`.
+    if (viewMode === 'channel') {
+      if (channels.length > 0 && !isKnownChannel(channels, activeChannelName)) {
+        setActiveChannelName(channels[0].name);
+      }
+      return;
+    }
+
+    if (viewMode !== 'dm') return;
+    if (isKnownDmTarget(agents, humans, currentUser, activeChannelName)) return;
+    if (channels.length === 0) return;
+
+    setViewMode('channel');
+    setActiveChannelName(channels[0].name);
+  }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
 
   useEffect(() => {
     let cancelled = false;
