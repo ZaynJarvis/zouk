@@ -535,10 +535,11 @@ function InlineThreadBlock({ parent, replies, replyCount }: { parent: MessageRec
       <button
         type="button"
         onClick={() => openThread(parent)}
+        title={`Reply in thread · ${totalLabel}`}
         className="mt-1 inline-flex items-center gap-1.5 text-xs font-mono font-bold text-nc-cyan hover:text-nc-text-bright transition-colors"
       >
         <MessageSquare size={12} />
-        Reply in thread · {totalLabel}
+        {totalLabel}
       </button>
     </div>
   );
@@ -606,10 +607,10 @@ export default function MessageItem({
           type="button"
           onClick={() => openThread(message)}
           title="Reply in thread"
-          className="absolute top-1.5 right-2 z-10 inline-flex items-center gap-1 px-1.5 py-1 text-[0.68rem] font-mono font-bold text-nc-muted bg-nc-elevated/80 border border-nc-border rounded-sm opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-nc-cyan hover:border-nc-cyan/50 transition-opacity"
+          aria-label="Reply in thread"
+          className="absolute top-1.5 right-2 z-10 inline-flex items-center justify-center p-1 text-nc-muted bg-nc-elevated/80 border border-nc-border rounded-sm opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-nc-cyan hover:border-nc-cyan/50 transition-opacity"
         >
-          <MessageSquare size={11} />
-          Reply in thread
+          <MessageSquare size={12} />
         </button>
       )}
       <div className={`flex gap-3 sm:gap-4 ${isGrouped ? 'py-0.5' : 'pt-5 pb-1'}`}>

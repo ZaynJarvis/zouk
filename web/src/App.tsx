@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AppProvider, useApp } from './store/AppContext';
 import WorkspaceRail from './components/WorkspaceRail';
@@ -28,7 +28,8 @@ function AllowlistSync({ active }: { active: boolean }) {
 }
 
 function AppShell() {
-  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel } = useApp();
+  const rightPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const onResize = () => { if (isMobileViewport()) setSidebarOpen(false); };
@@ -37,6 +38,26 @@ function AppShell() {
   }, [setSidebarOpen]);
 
   useEdgeSwipeRight(() => setSidebarOpen(true), { enabled: !sidebarOpen });
+
+  // Thread panel: click outside the panel closes it (same as the × button).
+  // Attached in the capture phase so it runs before React's bubble-phase onClick.
+  // That ordering lets `openThread` on a different message re-open the panel
+  // cleanly after this listener closes the current one. On mobile the panel is
+  // full-width so "outside" clicks naturally don't happen; touch scrolls never
+  // fire `click`, so they don't misfire a close.
+  // Only wired for 'thread'; other right panels keep their explicit-close UX.
+  useEffect(() => {
+    if (rightPanel !== 'thread') return;
+    const onClickOutside = (e: MouseEvent) => {
+      const panel = rightPanelRef.current;
+      if (!panel) return;
+      const target = e.target as Node | null;
+      if (target && panel.contains(target)) return;
+      closeRightPanel();
+    };
+    document.addEventListener('click', onClickOutside, true);
+    return () => document.removeEventListener('click', onClickOutside, true);
+  }, [rightPanel, closeRightPanel]);
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -80,7 +101,7 @@ function AppShell() {
             {viewMode === 'agents' && <AgentsView />}
           </div>
           <div className="absolute inset-y-0 right-0 z-20 flex pointer-events-none">
-            <div className="pointer-events-auto h-full shadow-2xl">
+            <div ref={rightPanelRef} className="pointer-events-auto h-full shadow-2xl">
               <RightPanel />
             </div>
           </div>

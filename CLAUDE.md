@@ -114,3 +114,16 @@ cd web && npm run build   # then restart the server (kill + node bin/start.js &)
 - The `"1007"` and `"test"` API keys are accepted for daemon auth in non-production mode.
 - Agent configs survive restarts via `data/agent-configs.json` (file-based) or Supabase `agent_configs` table.
 - DM channel names use canonical sorted pairs: `dm:alice,zeus`.
+
+### Hover-reveal UI on touch surfaces
+
+Tailwind config enables `hoverOnlyWhenSupported: true`, so `hover:` / `group-hover:` classes only generate rules inside `@media (hover: hover)`. On phones / PWA on phones (coarse pointer), any control styled purely as `opacity-0 group-hover:opacity-100` will stay hidden forever — there is no hover to trigger it.
+
+When you introduce a hover-revealed affordance (e.g. per-message quick actions, row-level trash icons, inline "reply in thread"), make it discoverable on touch in one of these ways:
+
+1. **Preferred — always-visible on touch**: add `[@media(pointer:coarse)]:opacity-100` alongside the hover class. The control is hidden on hover-capable devices (desktop) and always shown on coarse-pointer devices (phone, PWA, touchscreen tablets). Use Tailwind's arbitrary media-query syntax — `pointer-coarse:` is not a built-in Tailwind 3.4 variant.
+2. **If the control clutters dense touch UI**: gate behind an explicit tap — e.g. long-press or a dedicated "···" overflow button — rather than leaving it undiscoverable.
+
+Avoid combinations like `opacity-0 group-hover:opacity-100 focus:opacity-100` with nothing else: keyboard focus fills the gap for a11y but the touch user still can't find the control.
+
+Also note: `hover:` styles (color, bg) on touch are harmless because the rules aren't generated — you don't need to strip them. Only `hover:`-gated **visibility** needs a touch fallback.
