@@ -120,6 +120,10 @@ export function useAppStore() {
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getStoredAuth());
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
   const [allowlistActive, setAllowlistActive] = useState(false);
+  // Bumps whenever we see a task-bearing system message arrive. TasksView
+  // watches this as a "something changed, refetch" signal so the kanban stays
+  // live without dedicated polling.
+  const [tasksVersion, setTasksVersion] = useState(0);
 
   const wsRef = useRef<SlockWebSocket | null>(null);
   const activeChannelRef = useRef(activeChannelName);
@@ -218,6 +222,10 @@ export function useAppStore() {
         if (dmContext && msg.dm_parties && msg.dm_parties.length > 0
             && currentName && !msg.dm_parties.includes(currentName)) {
           break;
+        }
+
+        if (msg.task_number) {
+          setTasksVersion(v => v + 1);
         }
 
         if (msg.channel_type === 'thread') {
@@ -953,6 +961,7 @@ export function useAppStore() {
     allowlistActive, setAllowlistActive,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
+    tasksVersion,
   };
 }
 

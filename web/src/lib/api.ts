@@ -1,4 +1,4 @@
-import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord } from '../types';
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
@@ -458,4 +458,13 @@ export async function deleteProfilePreset(id: string): Promise<void> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error(`Failed to delete preset: ${res.status}`);
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────
+
+export async function fetchTasks(): Promise<TaskRecord[]> {
+  const res = await fetch(`${getBaseUrl()}/api/tasks`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.status}`);
+  const data = await res.json();
+  return Array.isArray(data.tasks) ? data.tasks : [];
 }
