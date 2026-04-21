@@ -179,12 +179,12 @@ async function testContextUsagePill(browser, opts, results) {
       },
     });
 
-    const pillVisible = await page.locator('text=20.5k/200k (10%)').first()
+    const pillVisible = await page.locator('text=20.5k/10%').first()
       .isVisible({ timeout: 5000 }).catch(() => false);
     if (pillVisible) {
       pass(results, 'context-usage-pill: agent sidebar shows compact usage summary');
     } else {
-      fail(results, 'context-usage-pill', 'Expected context usage pill was not visible in the agent list');
+      fail(results, 'context-usage-pill', 'Expected context usage text was not visible in the agent list');
     }
     await page.screenshot({ path: resolve(opts.out, 'smoke-03-context-usage.png') });
   } finally {
