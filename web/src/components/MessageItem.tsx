@@ -1,9 +1,18 @@
+import { useState } from 'react';
 import { Bot, Paperclip } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { MENTION_TOKEN_REGEX } from '../lib/mentions';
 import { highlightCode } from '../lib/highlight';
+import ImageLightbox from './ImageLightbox';
+
+// Treat an attachment as an image if the server provided a content type (the
+// canonical signal) or, as a fallback for pre-feature messages, by extension.
+function isImageAttachment(att: { filename: string; contentType?: string }): boolean {
+  if (att.contentType?.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|avif|heic|heif|bmp|svg)$/i.test(att.filename || '');
+}
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -448,6 +457,9 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
   const senderPicture = senderHuman?.picture || senderHuman?.gravatarUrl || senderAgent?.picture || selfPicture;
   const timestamp = message.timestamp || '';
   const color = getSenderColor(senderName);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const imageAttachments = (message.attachments || []).filter(isImageAttachment);
+  const fileAttachments = (message.attachments || []).filter((a) => !isImageAttachment(a));
 
   // System messages — compact, muted, centred
   if (isSystem) {
@@ -528,10 +540,32 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
             {message.content ? parseMarkdown(message.content) : null}
           </div>
 
-          {/* Attachments */}
-          {message.attachments && message.attachments.length > 0 && (
+          {/* Image attachments — inline thumbnails, click to open lightbox */}
+          {imageAttachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
-              {message.attachments.map(att => (
+              {imageAttachments.map((att, i) => (
+                <button
+                  key={att.id}
+                  type="button"
+                  onClick={() => setLightboxIndex(i)}
+                  className="block border border-nc-border bg-nc-black overflow-hidden hover:border-nc-cyan/60 transition-colors"
+                  aria-label={`Open ${att.filename}`}
+                >
+                  <img
+                    src={getAttachmentUrl(att.id)}
+                    alt={att.filename}
+                    className="max-w-[260px] sm:max-w-[320px] max-h-[240px] object-cover"
+                    loading="lazy"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Non-image attachments — keep the existing link chip */}
+          {fileAttachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {fileAttachments.map((att) => (
                 <a
                   key={att.id}
                   href={getAttachmentUrl(att.id)}
@@ -544,6 +578,18 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
                 </a>
               ))}
             </div>
+          )}
+
+          {lightboxIndex !== null && imageAttachments.length > 0 && (
+            <ImageLightbox
+              images={imageAttachments.map((a) => ({
+                id: a.id,
+                src: getAttachmentUrl(a.id),
+                alt: a.filename,
+              }))}
+              initialIndex={lightboxIndex}
+              onClose={() => setLightboxIndex(null)}
+            />
           )}
 
           {/* Task badge */}

@@ -791,6 +791,19 @@ const uploadDir = path.join(__dirname, "..", "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
+// Resolve an array of attachment ids (as stored in store.attachments) into the
+// thin {id, filename, contentType} shape that rides along with each message.
+// Unknown ids fall through as filename:"unknown" so messages never crash a
+// renderer that expects the array shape.
+function resolveAttachmentRefs(ids) {
+  if (!Array.isArray(ids)) return [];
+  return ids.map((aid) => {
+    const att = store.attachments[aid];
+    if (!att) return { id: aid, filename: "unknown" };
+    return { id: aid, filename: att.filename, contentType: att.contentType };
+  });
+}
+
 // ─── REST API: MCP tool endpoints ─────────────────────────────────
 
 // send_message
@@ -815,7 +828,7 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
     senderType: "agent",
     content,
     createdAt: now(),
-    attachments: (attachmentIds || []).map((aid) => store.attachments[aid] ? { id: aid, filename: store.attachments[aid].filename } : { id: aid, filename: "unknown" }),
+    attachments: resolveAttachmentRefs(attachmentIds),
   };
   store.messages.push(msg);
   db.saveMessage(msg);
@@ -1139,7 +1152,7 @@ app.post("/api/messages", requireAuth, (req, res) => {
   // Falls back to the legacy body.senderName, then to "local-user" for tooling.
   const token = req.headers.authorization?.replace("Bearer ", "");
   const authedName = token ? authSessions.get(token)?.name : null;
-  const { target, content, senderName: bodyName } = req.body;
+  const { target, content, senderName: bodyName, attachmentIds } = req.body;
   const senderName = authedName || bodyName || "local-user";
   const { channelName, channelType, threadId, dmPeer } = parseTarget(target, senderName);
   const ch = findOrCreateChannel(channelName, channelType);
@@ -1155,7 +1168,7 @@ app.post("/api/messages", requireAuth, (req, res) => {
     senderType: "human",
     content,
     createdAt: now(),
-    attachments: [],
+    attachments: resolveAttachmentRefs(attachmentIds),
   };
   store.messages.push(msg);
   db.saveMessage(msg);
@@ -1175,6 +1188,25 @@ app.post("/api/messages", requireAuth, (req, res) => {
   broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
   res.json({ messageId: msg.id, message: msg });
+});
+
+// Upload an attachment from the web UI. Shares the same in-memory store the
+// agent upload path writes to (store.attachments), so the returned id is
+// interchangeable — clients pass it back via POST /api/messages { attachmentIds }.
+app.post("/api/attachments", requireAuth, upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file" });
+  const id = uuidv4();
+  store.attachments[id] = {
+    filename: req.file.originalname,
+    buffer: req.file.buffer,
+    contentType: req.file.mimetype,
+  };
+  res.json({
+    id,
+    filename: req.file.originalname,
+    contentType: req.file.mimetype,
+    sizeBytes: req.file.size,
+  });
 });
 
 // Get messages for a channel

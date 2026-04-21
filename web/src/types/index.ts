@@ -9,7 +9,7 @@ export interface MessageRecord {
   sender_type?: 'agent' | 'human' | 'system';
   sender_name?: string;
   content?: string;
-  attachments?: Array<{ filename: string; id: string }>;
+  attachments?: Array<{ filename: string; id: string; contentType?: string }>;
   task_status?: string;
   task_number?: number;
   task_assignee_id?: string;

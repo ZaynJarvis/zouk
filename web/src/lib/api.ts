@@ -94,14 +94,45 @@ export async function fetchThreadMessages(
   return (data.messages || []).map(normalizeMessage);
 }
 
-export async function sendMessage(content: string, target: string, senderName: string): Promise<void> {
+export async function sendMessage(
+  content: string,
+  target: string,
+  senderName: string,
+  attachmentIds?: string[],
+): Promise<void> {
   const url = `${getBaseUrl()}/api/messages`;
+  const body: Record<string, unknown> = { content, target, senderName };
+  if (attachmentIds && attachmentIds.length > 0) body.attachmentIds = attachmentIds;
   const res = await fetch(url, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ content, target, senderName }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
+}
+
+export interface UploadedAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+export async function uploadAttachment(file: File): Promise<UploadedAttachment> {
+  const url = `${getBaseUrl()}/api/attachments`;
+  const form = new FormData();
+  form.append('file', file);
+  // Don't set Content-Type — fetch synthesizes the multipart boundary. Pulling
+  // the Authorization header out of getAuthHeaders() skips its JSON content-type.
+  const token = localStorage.getItem('zouk_auth_token');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(url, { method: 'POST', headers, body: form });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Failed to upload attachment: ${res.status} ${body}`);
+  }
+  return res.json();
 }
 
 export async function createChannel(name: string): Promise<{ channel: { id: string; name: string } }> {

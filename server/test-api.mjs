@@ -153,6 +153,60 @@ test('GET /api/messages: returns previously stored message', async () => {
   assert.ok(found, 'sent message must appear in message history');
 });
 
+// ─── Attachments ──────────────────────────────────────────────────────────────
+
+test('POST /api/attachments + POST /api/messages: image rides along as attachment', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-att-sender' }),
+  });
+  const { token } = await authRes.json();
+
+  // Upload a 1x1 PNG.
+  const png = Buffer.from(
+    '89504E470D0A1A0A0000000D49484452000000010000000108060000001F15C4890000000D4944415478DA636400000000050001AAAAAAAA0000000049454E44AE426082',
+    'hex',
+  );
+  const form = new FormData();
+  form.append('file', new Blob([png], { type: 'image/png' }), 'pixel.png');
+  const uploadRes = await fetch(`${BASE}/api/attachments`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const upload = await uploadRes.json();
+  assert.equal(uploadRes.status, 200);
+  assert.ok(upload.id, 'upload must return an id');
+  assert.equal(upload.contentType, 'image/png');
+
+  // Send a message with the attachment id.
+  const marker = `ci-att-probe-${Date.now()}`;
+  const sendRes = await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content: marker, attachmentIds: [upload.id] }),
+  });
+  const sent = await sendRes.json();
+  assert.equal(sendRes.status, 200);
+  assert.equal(sent.message.attachments?.length, 1);
+  assert.equal(sent.message.attachments[0].id, upload.id);
+  assert.equal(sent.message.attachments[0].filename, 'pixel.png');
+  assert.equal(sent.message.attachments[0].contentType, 'image/png');
+
+  // The attachment must be retrievable by id.
+  const getRes = await fetch(`${BASE}/api/attachments/${upload.id}`);
+  assert.equal(getRes.status, 200);
+  assert.equal(getRes.headers.get('content-type'), 'image/png');
+});
+
+test('POST /api/attachments without auth: returns 403', async () => {
+  const form = new FormData();
+  form.append('file', new Blob([Buffer.from('a')], { type: 'image/png' }), 'a.png');
+  const res = await fetch(`${BASE}/api/attachments`, { method: 'POST', body: form });
+  assert.equal(res.status, 403, 'unauthenticated uploads must be rejected');
+});
+
 // ─── Auth enforcement ─────────────────────────────────────────────────────────
 
 test('POST /api/messages without auth: returns 403', async () => {

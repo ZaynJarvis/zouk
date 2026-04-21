@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Bot, User, Menu } from 'lucide-react';
+import { Bot, User, Menu, ImagePlus, X } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
+import { uploadAttachment } from '../lib/api';
 import {
   buildMentionSearchTerms,
   filterMentionTargets,
@@ -9,6 +10,14 @@ import {
   toMentionHandle,
   type MentionTarget,
 } from '../lib/mentions';
+
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // mirrors server multer limit
+
+interface PendingImage {
+  key: string;        // stable react key + tag until upload finishes
+  file: File;
+  previewUrl: string; // blob URL for thumbnail preview
+}
 
 // Locate the @ that anchors the current mention query. Mirrors the lookbehind
 // in MENTION_QUERY_REGEX (start-of-string or whitespace) so we don't confuse
@@ -26,7 +35,7 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen, addToast } = useApp();
   const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
   const draftsRef = useRef<Map<string, string>>(new Map());
   const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
@@ -36,6 +45,17 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const [mentionIndex, setMentionIndex] = useState(0);
   const [focused, setFocused] = useState(false);
   const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const pendingImagesRef = useRef<PendingImage[]>([]);
+  pendingImagesRef.current = pendingImages;
+  const [isSending, setIsSending] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Revoke any outstanding preview blob URLs on unmount.
+  useEffect(() => {
+    return () => {
+      for (const p of pendingImagesRef.current) URL.revokeObjectURL(p.previewUrl);
+    };
+  }, []);
 
   useEffect(() => {
     const update = () => setIsMobileSurface(isMobileViewport() || isStandalonePWA());
@@ -48,7 +68,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     };
   }, []);
 
-  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen && !focused && !text.trim();
+  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen && !focused && !text.trim() && pendingImages.length === 0;
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
   const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
@@ -107,19 +127,88 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     });
   }, [text]);
 
+  const addImageFiles = useCallback((files: File[]) => {
+    if (isGuest || files.length === 0) return;
+    const accepted: PendingImage[] = [];
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        addToast(`${file.name || 'image'} is larger than 5MB`, 'error');
+        continue;
+      }
+      accepted.push({
+        key: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+      });
+    }
+    if (accepted.length > 0) setPendingImages((prev) => [...prev, ...accepted]);
+  }, [isGuest, addToast]);
+
+  const removePendingImage = useCallback((key: string) => {
+    setPendingImages((prev) => {
+      const hit = prev.find((p) => p.key === key);
+      if (hit) URL.revokeObjectURL(hit.previewUrl);
+      return prev.filter((p) => p.key !== key);
+    });
+  }, []);
+
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    const ok = await sendMessage(trimmed, threadTarget);
+    const images = pendingImagesRef.current;
+    if (!trimmed && images.length === 0) return;
+    if (isSending) return;
+    setIsSending(true);
+    let attachmentIds: string[] | undefined;
+    try {
+      if (images.length > 0) {
+        const uploads = await Promise.all(images.map((p) => uploadAttachment(p.file)));
+        attachmentIds = uploads.map((u) => u.id);
+      }
+    } catch {
+      addToast('Failed to upload image', 'error');
+      setIsSending(false);
+      return;
+    }
+    const ok = await sendMessage(trimmed, threadTarget, attachmentIds);
+    setIsSending(false);
     if (!ok) return;
     setText('');
+    for (const p of images) URL.revokeObjectURL(p.previewUrl);
+    setPendingImages([]);
     draftsRef.current.delete(draftKey);
     setMentionQuery(null);
     setSuppressedAtPos(null);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [text, sendMessage, threadTarget, draftKey]);
+  }, [text, sendMessage, threadTarget, draftKey, isSending, addToast]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (isGuest) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length === 0) return;
+    // Keep default behavior for accompanying text (no preventDefault unless we
+    // actually pulled images) — rich-text pastes with embedded images still
+    // drop their caption text into the textarea.
+    e.preventDefault();
+    addImageFiles(files);
+  }, [isGuest, addImageFiles]);
+
+  const handleFilePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    if (!list) return;
+    addImageFiles(Array.from(list));
+    e.target.value = ''; // allow selecting the same file again next time
+  }, [addImageFiles]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionQuery !== null && mentionMatches.length > 0) {
@@ -283,6 +372,31 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </div>
         )}
 
+        {pendingImages.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {pendingImages.map((img) => (
+              <div
+                key={img.key}
+                className="relative w-16 h-16 border border-nc-border bg-nc-black overflow-hidden group"
+              >
+                <img
+                  src={img.previewUrl}
+                  alt={img.file.name}
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => removePendingImage(img.key)}
+                  aria-label={`Remove ${img.file.name}`}
+                  className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center bg-nc-black/70 text-nc-text hover:bg-nc-red hover:text-white transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
           {showMobileSidebarBtn && (
             <button
@@ -295,12 +409,30 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             </button>
           )}
           <div className={`composer-surface flex-1 min-w-0 flex items-end gap-2 border border-nc-border bg-nc-black cyber-bevel-sm ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={handleFilePick}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isGuest}
+            aria-label="Attach image"
+            className="flex-shrink-0 self-end w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-nc-muted hover:text-nc-cyan disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <ImagePlus size={18} />
+          </button>
           <textarea
             ref={textareaRef}
             value={text}
             onChange={handleChange}
             onSelect={handleSelect}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             autoComplete="off"
@@ -311,10 +443,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             disabled={isGuest}
             placeholder={composerPlaceholder}
             rows={1}
-            className="composer-textarea flex-1 min-w-0 px-4 py-1.5 sm:px-3 sm:py-2 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed"
+            className="composer-textarea flex-1 min-w-0 py-1.5 sm:py-2 pr-4 sm:pr-3 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed"
           />
 
-          {!text.trim() && !isGuest && (
+          {!text.trim() && pendingImages.length === 0 && !isGuest && (
             <span
               aria-hidden="true"
               className="text-2xs text-nc-muted/50 font-mono hidden sm:block pointer-events-none select-none self-center pr-3 flex-shrink-0"
