@@ -579,8 +579,26 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
     );
   }
 
+  const hasInlineThread = (message.replies?.length ?? 0) > 0
+    || threadedMessageIds.has(message.id.slice(0, 8));
+  // Start-a-thread entry for messages that don't already surface one inline.
+  // Hidden by default so 0-reply messages don't add clutter; revealed on hover
+  // over the message row (and focus, for keyboard users).
+  const canStartThread = message.channel_type !== 'thread' && !hasInlineThread;
+
   return (
     <div className="group relative px-4 sm:px-6 hover:bg-nc-elevated/40 transition-colors duration-100 overflow-hidden">
+      {canStartThread && (
+        <button
+          type="button"
+          onClick={() => openThread(message)}
+          title="Reply in thread"
+          className="absolute top-1.5 right-2 z-10 inline-flex items-center gap-1 px-1.5 py-1 text-[0.68rem] font-mono font-bold text-nc-muted bg-nc-elevated/80 border border-nc-border rounded-sm opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-nc-cyan hover:border-nc-cyan/50 transition-opacity"
+        >
+          <MessageSquare size={11} />
+          Reply in thread
+        </button>
+      )}
       <div className={`flex gap-3 sm:gap-4 ${isGrouped ? 'py-0.5' : 'pt-5 pb-1'}`}>
         {/* Avatar column */}
         {isGrouped ? (
@@ -721,34 +739,14 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
             </div>
           )}
 
-          {/* Inline thread preview — appears on top-level messages that have replies */}
-          {message.channel_type !== 'thread' && (() => {
-            const replies = message.replies ?? [];
-            const known = replies.length > 0;
-            const badgeOnly = !known && threadedMessageIds.has(message.id.slice(0, 8));
-            if (known) {
-              return (
-                <InlineThreadBlock
-                  parent={message}
-                  replies={replies}
-                  replyCount={message.reply_count ?? replies.length}
-                />
-              );
-            }
-            if (badgeOnly) {
-              return (
-                <button
-                  type="button"
-                  onClick={() => openThread(message)}
-                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-mono font-bold text-nc-cyan hover:text-nc-text-bright transition-colors"
-                >
-                  <MessageSquare size={12} />
-                  Reply in thread
-                </button>
-              );
-            }
-            return null;
-          })()}
+          {/* Inline thread preview — only for parents that actually have replies. */}
+          {message.channel_type !== 'thread' && (message.replies?.length ?? 0) > 0 && (
+            <InlineThreadBlock
+              parent={message}
+              replies={message.replies!}
+              replyCount={message.reply_count ?? message.replies!.length}
+            />
+          )}
         </div>
       </div>
     </div>
