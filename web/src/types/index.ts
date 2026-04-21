@@ -4,6 +4,7 @@ export interface MessageRecord {
   channel_name: string;
   parent_channel_name?: string;
   parent_channel_type?: string;
+  parent_message_id?: string;
   message_id?: string;
   timestamp?: string;
   sender_type?: 'agent' | 'human' | 'system';
@@ -15,6 +16,8 @@ export interface MessageRecord {
   task_assignee_id?: string;
   task_assignee_type?: string;
   dm_parties?: string[];
+  replies?: MessageRecord[];
+  reply_count?: number;
 }
 
 export interface ServerChannel {

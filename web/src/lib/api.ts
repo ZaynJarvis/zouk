@@ -19,7 +19,14 @@ export function normalizeMessage(m: any): MessageRecord {
   const inferredThread = rawChannelType === 'thread' || !!rawThreadId;
   const parentChannelType = m.parent_channel_type || m.parentChannelType || (inferredThread ? (m.parentChannelType || m.parent_channel_type || 'channel') : undefined);
   const parentChannelNameRaw = m.parent_channel_name || m.parentChannelName || (inferredThread ? rawChannelName : undefined);
+  const parentMessageId = m.parent_message_id || m.parentMessageId || undefined;
   const dmParties: string[] | undefined = m.dmParties || m.dm_parties;
+  const rawReplies = Array.isArray(m.replies) ? m.replies : undefined;
+  const replyCount = typeof m.reply_count === 'number'
+    ? m.reply_count
+    : typeof m.replyCount === 'number'
+      ? m.replyCount
+      : undefined;
 
   return {
     id: m.id,
@@ -29,6 +36,7 @@ export function normalizeMessage(m: any): MessageRecord {
       : rawChannelName,
     parent_channel_name: inferredThread ? parentChannelNameRaw : undefined,
     parent_channel_type: inferredThread ? parentChannelType : undefined,
+    parent_message_id: inferredThread ? parentMessageId : undefined,
     message_id: m.message_id || m.messageId || m.id,
     timestamp: m.timestamp || m.createdAt,
     sender_type: m.sender_type || m.senderType,
@@ -40,6 +48,8 @@ export function normalizeMessage(m: any): MessageRecord {
     task_assignee_id: m.task_assignee_id || m.taskAssigneeId,
     task_assignee_type: m.task_assignee_type || m.taskAssigneeType,
     dm_parties: dmParties,
+    replies: rawReplies ? rawReplies.map(normalizeMessage) : undefined,
+    reply_count: replyCount,
   };
 }
 

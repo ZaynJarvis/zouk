@@ -386,7 +386,25 @@ function matchesTarget(msg, target, requesterName) {
     && (threadId ? msg.threadId === threadId : !msg.threadId);
 }
 
-function formatMessageForClient(msg, viewerName) {
+const INLINE_REPLY_PREVIEW_LIMIT = 3;
+
+function findThreadParentId(threadId) {
+  if (!threadId) return null;
+  const parent = store.messages.find((m) => !m.threadId && m.id.startsWith(threadId));
+  return parent ? parent.id : null;
+}
+
+function collectThreadReplies(parentMsg) {
+  if (!parentMsg || parentMsg.threadId) return { replies: [], replyCount: 0 };
+  const shortid = parentMsg.id.slice(0, 8);
+  const all = store.messages.filter(
+    (m) => m.threadId === shortid && m.channelId === parentMsg.channelId,
+  );
+  return { replies: all.slice(-INLINE_REPLY_PREVIEW_LIMIT), replyCount: all.length };
+}
+
+function formatMessageForClient(msg, viewerName, options = {}) {
+  const { includeReplies = false } = options;
   const isThread = !!msg.threadId;
   // For DMs: if viewerName provided, show peer name; otherwise include dm_parties
   const resolveDmName = (name) => {
@@ -394,7 +412,7 @@ function formatMessageForClient(msg, viewerName) {
     return dmPeerFrom(name, viewerName);
   };
   const parties = msg.channelType === "dm" ? dmChannelParties(msg.channelName) : null;
-  return {
+  const base = {
     id: msg.id,
     messageId: msg.id,
     senderName: msg.senderName,
@@ -408,6 +426,7 @@ function formatMessageForClient(msg, viewerName) {
       : null,
     parentChannelType: isThread ? msg.channelType : null,
     threadId: msg.threadId || null,
+    parentMessageId: isThread ? findThreadParentId(msg.threadId) : null,
     content: msg.content,
     createdAt: msg.createdAt,
     attachments: msg.attachments || [],
@@ -418,6 +437,12 @@ function formatMessageForClient(msg, viewerName) {
     // Include parties so frontend can resolve peer without viewerName
     ...(parties && !viewerName ? { dmParties: parties } : {}),
   };
+  if (includeReplies && !isThread) {
+    const { replies, replyCount } = collectThreadReplies(msg);
+    base.replies = replies.map((r) => formatMessageForClient(r, viewerName));
+    base.replyCount = replyCount;
+  }
+  return base;
 }
 
 function formatMessageForAgent(msg, recipientAgentId) {
@@ -432,6 +457,7 @@ function formatMessageForAgent(msg, recipientAgentId) {
     parent_channel_name: formatted.parentChannelName,
     parent_channel_type: formatted.parentChannelType,
     thread_id: formatted.threadId,
+    parent_message_id: formatted.parentMessageId,
     content: formatted.content,
     timestamp: formatted.createdAt,
     attachments: formatted.attachments,
@@ -1229,7 +1255,7 @@ app.get("/api/messages", (req, res) => {
   const windowStart = Math.max(0, windowEnd - limit);
   const msgs = filtered.slice(windowStart, windowEnd);
   res.json({
-    messages: msgs.map((m) => formatMessageForClient(m, sender)),
+    messages: msgs.map((m) => formatMessageForClient(m, sender, { includeReplies: true })),
     hasMore: windowStart > 0,
   });
 });

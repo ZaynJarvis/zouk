@@ -135,6 +135,8 @@ export function useAppStore() {
   channelsRef.current = channels;
   const humansRef = useRef(humans);
   humansRef.current = humans;
+  const activeThreadMessageRef = useRef(activeThreadMessage);
+  activeThreadMessageRef.current = activeThreadMessage;
   const hasResolvedInitialViewRef = useRef(false);
   const channelListReady = channels.length > 0;
 
@@ -205,16 +207,46 @@ export function useAppStore() {
         const msg = normalizeMessage(e.message);
 
         if (msg.channel_type === 'thread') {
-          setThreadMessages(prev => [...prev, msg]);
-          // Track which parent messages have threads
-          if (msg.parent_channel_name) {
-            setThreadedMessageIds(prev => {
-              const next = new Set(prev);
-              // The parent message ID can be derived from channel_name for thread messages
-              // Thread channel_name format includes the parent msg short ID
-              next.add(msg.channel_name);
-              return next;
-            });
+          const parentId = msg.parent_message_id;
+          const threadShortId = msg.channel_name;
+          const parentChannel = msg.parent_channel_name;
+
+          // Only append to the right-side ThreadPanel's list when the open thread matches.
+          const open = activeThreadMessageRef.current;
+          const threadIsOpen = !!open && (
+            (parentId && open.id === parentId)
+            || open.id.slice(0, 8) === threadShortId
+          );
+          if (threadIsOpen) {
+            setThreadMessages(prev => [...prev, msg]);
+          }
+
+          // Append the reply onto its parent's inline preview so the channel list
+          // reflects the new activity without needing the side panel open. Cap the
+          // preview window at 3 entries to stay compact.
+          setMessages(prev => prev.map(m => {
+            const matches = parentId ? m.id === parentId : m.id.slice(0, 8) === threadShortId;
+            if (!matches) return m;
+            const nextReplies = [...(m.replies ?? []), msg].slice(-3);
+            return { ...m, replies: nextReplies, reply_count: (m.reply_count ?? 0) + 1 };
+          }));
+
+          // Keep a set of shortIds so components can render a "has thread" badge
+          // even for historical messages we already had in state.
+          setThreadedMessageIds(prev => {
+            if (prev.has(threadShortId)) return prev;
+            const next = new Set(prev);
+            next.add(threadShortId);
+            return next;
+          });
+
+          // If the parent channel isn't currently focused, bump the unread badge
+          // on its sidebar entry so the user notices thread activity elsewhere.
+          if (parentChannel && parentChannel !== activeChannelRef.current) {
+            setUnreadCounts(prev => ({
+              ...prev,
+              [parentChannel]: (prev[parentChannel] || 0) + 1,
+            }));
           }
         } else {
           const isDmMessage = msg.channel_type === 'dm';
@@ -504,6 +536,16 @@ export function useAppStore() {
           const copy = { ...prev };
           delete copy[activeChannelName];
           return copy;
+        });
+        // Seed threadedMessageIds from any replies already attached to the
+        // fetched messages — lets the "has thread" badge survive page reloads
+        // and channel switches.
+        setThreadedMessageIds(prev => {
+          const next = new Set(prev);
+          for (const m of res.messages) {
+            if (m.replies && m.replies.length > 0) next.add(m.id.slice(0, 8));
+          }
+          return next;
         });
       }
     }).catch(() => {

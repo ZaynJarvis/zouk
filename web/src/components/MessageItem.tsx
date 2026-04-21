@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from 'react';
-import { Bot, Paperclip } from 'lucide-react';
+import { Bot, MessageSquare, Paperclip } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
@@ -490,9 +490,63 @@ function getSenderColor(name: string): string {
   return `rgb(var(${senderColorVars[Math.abs(hash) % senderColorVars.length]}))`;
 }
 
+// ── Inline thread preview ───────────────────────────────────────────────────
+function InlineThreadBlock({ parent, replies, replyCount }: { parent: MessageRecord; replies: MessageRecord[]; replyCount: number }) {
+  const { openThread, humans, agents, authUser, currentUser } = useApp();
+  const totalLabel = replyCount === 1 ? '1 reply' : `${replyCount} replies`;
+  return (
+    <div className="mt-2 border-l-2 border-nc-cyan/40 pl-3 py-1.5 bg-nc-cyan/[0.03] rounded-r-sm">
+      <ul className="space-y-1">
+        {replies.map((reply) => {
+          const name = reply.sender_name || 'unknown';
+          const isAgentReply = reply.sender_type === 'agent';
+          const human = !isAgentReply ? humans.find(h => h.name === name) : undefined;
+          const agent = isAgentReply ? agents.find(a => a.name === name || a.displayName === name) : undefined;
+          const isSelf = !isAgentReply && name === currentUser;
+          const picture = human?.picture || human?.gravatarUrl || agent?.picture || (isSelf ? authUser?.picture || authUser?.gravatarUrl : undefined);
+          const color = getSenderColor(name);
+          return (
+            <li key={reply.id}>
+              <button
+                type="button"
+                onClick={() => openThread(parent)}
+                className="w-full flex items-center gap-2 text-left hover:bg-nc-elevated/40 rounded-sm px-1 py-0.5 transition-colors"
+              >
+                <span
+                  className="w-5 h-5 flex-shrink-0 font-display font-bold text-[0.65rem] flex items-center justify-center select-none overflow-hidden rounded-sm"
+                  style={{ backgroundColor: `${color}20`, color }}
+                  aria-hidden="true"
+                >
+                  {picture ? (
+                    <img src={picture} alt="" className="w-full h-full object-cover" />
+                  ) : isAgentReply ? (
+                    <Bot size={11} />
+                  ) : (
+                    name.charAt(0).toUpperCase()
+                  )}
+                </span>
+                <span className="font-bold text-xs truncate" style={{ color }}>{name}</span>
+                <span className="text-xs text-nc-text truncate flex-1 min-w-0">{reply.content || ''}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <button
+        type="button"
+        onClick={() => openThread(parent)}
+        className="mt-1 inline-flex items-center gap-1.5 text-xs font-mono font-bold text-nc-cyan hover:text-nc-text-bright transition-colors"
+      >
+        <MessageSquare size={12} />
+        Reply in thread · {totalLabel}
+      </button>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 export default function MessageItem({ message, isGrouped = false }: { message: MessageRecord; isGrouped?: boolean }) {
-  const { humans, agents, configs, currentUser, authUser, openAgentProfile } = useApp();
+  const { humans, agents, configs, currentUser, authUser, openAgentProfile, openThread, threadedMessageIds } = useApp();
   const linkRules = useSyncExternalStore(subscribeLinkTransforms, getStoredLinkTransforms);
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
@@ -666,6 +720,35 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
               )}
             </div>
           )}
+
+          {/* Inline thread preview — appears on top-level messages that have replies */}
+          {message.channel_type !== 'thread' && (() => {
+            const replies = message.replies ?? [];
+            const known = replies.length > 0;
+            const badgeOnly = !known && threadedMessageIds.has(message.id.slice(0, 8));
+            if (known) {
+              return (
+                <InlineThreadBlock
+                  parent={message}
+                  replies={replies}
+                  replyCount={message.reply_count ?? replies.length}
+                />
+              );
+            }
+            if (badgeOnly) {
+              return (
+                <button
+                  type="button"
+                  onClick={() => openThread(message)}
+                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-mono font-bold text-nc-cyan hover:text-nc-text-bright transition-colors"
+                >
+                  <MessageSquare size={12} />
+                  Reply in thread
+                </button>
+              );
+            }
+            return null;
+          })()}
         </div>
       </div>
     </div>
