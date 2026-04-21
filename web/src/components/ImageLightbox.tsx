@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import FailableImage from './FailableImage';
 
 export interface LightboxImage {
   id: string;
@@ -45,10 +46,11 @@ export default function ImageLightbox({ images, initialIndex, onClose }: Props) 
       aria-modal="true"
       aria-label={current.alt}
     >
-      <img
+      <FailableImage
         src={current.src}
         alt={current.alt}
         className="max-w-full max-h-full lg:max-w-[90vw] lg:max-h-[90vh] object-contain select-none"
+        fallbackClassName="w-[240px] h-[180px] border border-nc-border"
         onClick={(e) => e.stopPropagation()}
         draggable={false}
       />

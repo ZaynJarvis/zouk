@@ -9,6 +9,7 @@ import { getStoredLinkTransforms, subscribeLinkTransforms, type LinkTransformRul
 import StatusDot from './StatusDot';
 import { agentStatus } from '../lib/avatarStatus';
 import ImageLightbox from './ImageLightbox';
+import FailableImage from './FailableImage';
 
 // Treat an attachment as an image if the server provided a content type (the
 // canonical signal) or, as a fallback for pre-feature messages, by extension.
@@ -697,10 +698,11 @@ export default function MessageItem({
                   className="block border border-nc-border bg-nc-black overflow-hidden hover:border-nc-cyan/60 transition-colors"
                   aria-label={`Open ${att.filename}`}
                 >
-                  <img
+                  <FailableImage
                     src={getAttachmentUrl(att.id)}
                     alt={att.filename}
                     className="max-w-[260px] sm:max-w-[320px] max-h-[240px] object-cover"
+                    fallbackClassName="w-40 h-28"
                     loading="lazy"
                   />
                 </button>
