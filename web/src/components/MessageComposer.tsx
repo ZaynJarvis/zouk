@@ -71,6 +71,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, []);
 
   const showMobileSidebarBtn = isMobileSurface && !sidebarOpen && !focused && !text.trim() && pendingImages.length === 0;
+  const showImageBtn = !text.trim();
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
   const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
@@ -411,7 +412,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             </button>
           )}
           <div
-            className={`composer-surface flex-1 min-w-0 flex items-end gap-2 border border-nc-border bg-nc-black cyber-bevel-sm cursor-text ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}
+            className={`composer-surface flex-1 min-w-0 flex items-end border border-nc-border bg-nc-black cyber-bevel-sm cursor-text ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}
             onClick={(e) => {
               // Clicking dead space around the textarea should focus the composer.
               // Skip interactive children so their native click behaviour
@@ -429,15 +430,23 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             onChange={handleFilePick}
             className="hidden"
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isGuest}
-            aria-label="Attach image"
-            className="flex-shrink-0 self-end w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-nc-muted hover:text-nc-cyan disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          <div
+            className={`flex-shrink-0 self-end overflow-hidden transition-[width,opacity] duration-150 ease-out ${
+              showImageBtn ? 'w-9 sm:w-10 opacity-100' : 'w-0 opacity-0'
+            }`}
+            aria-hidden={!showImageBtn}
           >
-            <ImagePlus size={18} />
-          </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isGuest}
+              tabIndex={showImageBtn ? 0 : -1}
+              aria-label="Attach image"
+              className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-nc-muted hover:text-nc-cyan disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ImagePlus size={18} />
+            </button>
+          </div>
           <textarea
             ref={textareaRef}
             value={text}
@@ -455,7 +464,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             disabled={isGuest}
             placeholder={composerPlaceholder}
             rows={1}
-            className="composer-textarea flex-1 min-w-0 py-1.5 sm:py-2 pr-4 sm:pr-3 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed"
+            className={`composer-textarea flex-1 min-w-0 py-1.5 sm:py-2 pr-3 sm:pr-3 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed transition-[padding] duration-150 ease-out ${showImageBtn ? 'pl-0' : 'pl-3'}`}
           />
           </div>
         </div>
