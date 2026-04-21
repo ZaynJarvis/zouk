@@ -81,7 +81,7 @@ export default function ImageLightbox({ images, initialIndex, onClose }: Props) 
         type="button"
         onClick={onClose}
         aria-label="Close image viewer"
-        className="absolute right-4 bottom-4 safe-bottom safe-right w-11 h-11 flex items-center justify-center bg-nc-surface text-nc-text border border-nc-border hover:border-nc-cyan hover:text-nc-cyan transition-colors shadow-nc-panel"
+        className="absolute right-4 bottom-4 safe-bottom safe-right w-10 h-10 flex items-center justify-center bg-nc-surface/70 text-nc-text hover:bg-nc-surface border border-nc-border"
       >
         <X size={20} />
       </button>
