@@ -367,11 +367,13 @@ html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 
-/* Phone-mode composer surface: fixed radius equal to half the single-line
+/* Phone/tablet composer surface: fixed radius equal to half the single-line
    surface height (textarea min-h 36px + 2px border = 38px → 19px). Renders
    as a pill when single-line and as a rounded rectangle when the textarea
-   grows, so the side-cap curvature stays consistent. */
-@media (max-width: 639.98px) {
+   grows, so the side-cap curvature stays consistent. Width breakpoint matches
+   the round menu FAB's `lg:hidden` visibility so both chrome pieces share the
+   same square-to-round transition. */
+@media (max-width: 1023.98px) {
   .composer-surface {
     border-radius: 19px;
   }
