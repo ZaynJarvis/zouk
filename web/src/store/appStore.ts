@@ -47,7 +47,6 @@ function isKnownDmTarget(
 
 function resolveDefaultChannelName(channels: ServerChannel[]) {
   if (isKnownChannel(channels, 'all')) return 'all';
-  if (isKnownChannel(channels, 'general')) return 'general';
   return channels[0]?.name || 'all';
 }
 
@@ -514,7 +513,7 @@ export function useAppStore() {
       }
     });
     return () => { cancelled = true; };
-  }, [activeChannelName, viewMode]);
+  }, [activeChannelName, viewMode, channels.length > 0]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages) return;
