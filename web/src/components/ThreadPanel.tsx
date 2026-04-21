@@ -16,7 +16,7 @@ export default function ThreadPanel() {
     : `#${activeThreadMessage.channel_name}:${shortId}`;
 
   return (
-    <PanelShell animated>
+    <PanelShell animated widthClassName="w-screen lg:w-[760px] lg:max-w-[46vw]">
       <PanelHeader onClose={closeRightPanel} leftClassName="flex items-center gap-2">
         <>
           <h3 className="font-display font-extrabold text-base text-nc-text-bright tracking-wider">THREAD</h3>
