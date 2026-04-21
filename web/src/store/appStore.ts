@@ -64,6 +64,20 @@ function getValidStoredLastView(
   return null;
 }
 
+function isValidSelection(
+  mode: ViewMode,
+  name: string,
+  channels: ServerChannel[],
+  agents: ServerAgent[],
+  humans: ServerHuman[],
+  currentUser: string,
+) {
+  if (mode === 'agents') return false;
+  if (mode === 'channel') return isKnownChannel(channels, name);
+  if (mode === 'dm') return isKnownDmTarget(agents, humans, currentUser, name);
+  return false;
+}
+
 export function useAppStore() {
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
   const [currentUser, setCurrentUser] = useState(getStoredCurrentUser);
@@ -118,6 +132,10 @@ export function useAppStore() {
   messagesRef.current = messages;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
+  const humansRef = useRef(humans);
+  humansRef.current = humans;
   const hasResolvedInitialViewRef = useRef(false);
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
@@ -460,9 +478,14 @@ export function useAppStore() {
   }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
 
   useEffect(() => {
-    if (viewMode === 'agents') return;
-    if (viewMode === 'channel' && !isKnownChannel(channels, activeChannelName)) return;
-    if (viewMode === 'dm' && !isKnownDmTarget(agents, humans, currentUser, activeChannelName)) return;
+    if (!isValidSelection(
+      viewMode,
+      activeChannelName,
+      channelsRef.current,
+      agentsRef.current,
+      humansRef.current,
+      currentUserRef.current,
+    )) return;
 
     let cancelled = false;
     // Clear immediately so that if the fetch fails (e.g. an intermediate proxy
@@ -491,7 +514,7 @@ export function useAppStore() {
       }
     });
     return () => { cancelled = true; };
-  }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
+  }, [activeChannelName, viewMode]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages) return;
