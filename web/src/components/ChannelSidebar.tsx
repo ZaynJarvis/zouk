@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Trash2 } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { agentStatus, humanStatus } from '../lib/avatarStatus';
 import StatusDot from './StatusDot';
@@ -236,7 +236,7 @@ export default function ChannelSidebar() {
                       className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
                       title={`Configure ${agent.displayName || agent.name}`}
                     >
-                      <Settings size={12} />
+                      <SlidersHorizontal size={12} />
                     </span>
                   )}
                   {unread > 0 && !isActive && (
