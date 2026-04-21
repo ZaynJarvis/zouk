@@ -21,6 +21,10 @@
  *   channels-in-sidebar— The WS init payload drives all initial UI state.
  *                        If the payload shape drifts from what the store
  *                        expects, the sidebar silently renders nothing.
+ *   context-usage-pill — Agent snapshots now carry current context usage for
+ *                        the sidebar pill. If that payload or rendering path
+ *                        drifts, users lose the quick "who should I reset?"
+ *                        signal.
  *   message-render     — A WS "message" event must produce a visible bubble.
  *                        This is the most-used realtime path; silent regressions
  *                        here mean users see no messages.
@@ -125,6 +129,70 @@ async function testChannelsInSidebar(browser, opts, results) {
 }
 
 /**
+ * Test: context-usage-pill
+ * The sidebar should render a compact used/total (%) pill beside agents whose
+ * init payload includes a contextUsage snapshot.
+ */
+async function testContextUsagePill(browser, opts, results) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  try {
+    await loadApp(page, opts.url, {
+      initOverride: {
+        agents: FAKE_AGENTS.map((agent) => (
+          agent.id === 'agent-hela-001'
+            ? {
+                ...agent,
+                contextUsage: {
+                  updatedAt: '2026-04-21T16:00:00.000Z',
+                  summary: {
+                    model: 'claude-sonnet-4-6',
+                    inputTokens: 3,
+                    outputTokens: 15,
+                    cacheReadInputTokens: 12532,
+                    cacheCreationInputTokens: 7930,
+                    usedTokens: 20480,
+                    contextWindow: 200000,
+                    maxOutputTokens: 32000,
+                    percent: 0.1024,
+                    costUSD: 0.0337311,
+                    webSearchRequests: 0,
+                  },
+                  models: [{
+                    model: 'claude-sonnet-4-6',
+                    inputTokens: 3,
+                    outputTokens: 15,
+                    cacheReadInputTokens: 12532,
+                    cacheCreationInputTokens: 7930,
+                    usedTokens: 20480,
+                    contextWindow: 200000,
+                    maxOutputTokens: 32000,
+                    percent: 0.1024,
+                    costUSD: 0.0337311,
+                    webSearchRequests: 0,
+                  }],
+                  totalCostUSD: 0.0337311,
+                },
+              }
+            : agent
+        )),
+      },
+    });
+
+    const pillVisible = await page.locator('text=20.5k/200k (10%)').first()
+      .isVisible({ timeout: 5000 }).catch(() => false);
+    if (pillVisible) {
+      pass(results, 'context-usage-pill: agent sidebar shows compact usage summary');
+    } else {
+      fail(results, 'context-usage-pill', 'Expected context usage pill was not visible in the agent list');
+    }
+    await page.screenshot({ path: resolve(opts.out, 'smoke-03-context-usage.png') });
+  } finally {
+    await ctx.close();
+  }
+}
+
+/**
  * Test: message-render
  * A WS "message" event injected after init must produce a visible chat bubble.
  * This validates the end-to-end realtime delivery path in the UI: WS event →
@@ -159,7 +227,7 @@ async function testMessageRender(browser, opts, results) {
     } else {
       fail(results, 'message-render', `Message "${PROBE}" not visible — WS message event not reflected in UI`);
     }
-    await page.screenshot({ path: resolve(opts.out, 'smoke-03-message.png') });
+    await page.screenshot({ path: resolve(opts.out, 'smoke-04-message.png') });
   } finally {
     await ctx.close();
   }
@@ -182,6 +250,7 @@ async function main() {
     // Run all smoke tests sequentially (they share a browser but separate contexts)
     await testAppBoots(browser, opts, results);
     await testChannelsInSidebar(browser, opts, results);
+    await testContextUsagePill(browser, opts, results);
     await testMessageRender(browser, opts, results);
   } finally {
     await browser.close();

@@ -295,7 +295,7 @@ export function useAppStore() {
         break;
       }
       case 'agent_activity': {
-        const e = event as { agentId: string; activity: string; detail?: string; entries?: unknown[] };
+        const e = event as { agentId: string; activity: string; detail?: string; entries?: unknown[]; contextUsage?: ServerAgent['contextUsage'] };
         // Daemon sends deltas — each message carries only the new trajectory
         // entries for this activity change (heartbeats omit `entries`). Append
         // to the running log instead of replacing so the Activity tab keeps
@@ -311,6 +311,7 @@ export function useAppStore() {
             activity: e.activity as ServerAgent['activity'],
             activityDetail: e.detail,
             entries: nextEntries,
+            contextUsage: e.contextUsage ?? a.contextUsage,
           };
         }));
         break;
