@@ -13,12 +13,14 @@ type StoredLastView = { name: string; mode: Extract<ViewMode, 'channel' | 'dm'> 
 
 export type LinkTransformRule = { id: string; pattern: string; replacement: string };
 
-// Preloaded on first load so pasted GitHub PR URLs render as `#NNN` out of the
-// box. Users can delete/edit this rule in Settings → Link Transforms.
+// Preloaded on first load so pasted zouk PR URLs render as `#NNN` out of the
+// box. Scoped to ZaynJarvis/zouk only — other GitHub PR URLs stay as plain
+// autolinks unless the user adds their own rule. Users can delete/edit this
+// rule in Settings → Link Transforms.
 const DEFAULT_LINK_TRANSFORMS: LinkTransformRule[] = [
   {
-    id: 'default-github-pr',
-    pattern: '^https://github\\.com/[^/]+/[^/]+/pull/(\\d+)(?:/[^?#]*)?(?:[?#].*)?$',
+    id: 'default-zouk-pr',
+    pattern: '^https://github\\.com/ZaynJarvis/zouk/pull/(\\d+)(?:/[^?#]*)?(?:[?#].*)?$',
     replacement: '#$1',
   },
 ];
