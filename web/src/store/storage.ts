@@ -6,9 +6,22 @@ const AUTH_TOKEN_KEY = 'zouk_auth_token';
 const AUTH_USER_KEY = 'zouk_auth_user';
 const THEME_STORAGE_KEY = 'zouk_theme';
 const LAST_VIEW_STORAGE_KEY = 'zouk_last_view';
+const LINK_TRANSFORMS_KEY = 'zouk_link_transforms';
 
 type StoredAuth = { token: string; user: AuthUser };
 type StoredLastView = { name: string; mode: Extract<ViewMode, 'channel' | 'dm'> };
+
+export type LinkTransformRule = { id: string; pattern: string; replacement: string };
+
+// Preloaded on first load so pasted GitHub PR URLs render as `#NNN` out of the
+// box. Users can delete/edit this rule in Settings → Link Transforms.
+const DEFAULT_LINK_TRANSFORMS: LinkTransformRule[] = [
+  {
+    id: 'default-github-pr',
+    pattern: '^https://github\\.com/[^/]+/[^/]+/pull/(\\d+)(?:/[^?#]*)?(?:[?#].*)?$',
+    replacement: '#$1',
+  },
+];
 
 function readJson<T>(key: string): T | null {
   const value = localStorage.getItem(key);
@@ -108,4 +121,32 @@ export function setStoredAuthUser(user: AuthUser) {
 
 export function clearStoredAuthUser() {
   localStorage.removeItem(AUTH_USER_KEY);
+}
+
+let cachedLinkTransforms: LinkTransformRule[] | null = null;
+const linkTransformListeners = new Set<() => void>();
+
+export function getStoredLinkTransforms(): LinkTransformRule[] {
+  if (cachedLinkTransforms) return cachedLinkTransforms;
+  const stored = readJson<LinkTransformRule[]>(LINK_TRANSFORMS_KEY);
+  if (stored) {
+    cachedLinkTransforms = stored.filter((r) => r && typeof r.pattern === 'string' && typeof r.replacement === 'string');
+    return cachedLinkTransforms;
+  }
+  // Seed defaults on first read, so the persisted store immediately reflects
+  // the preloaded rules (user can then edit/delete them).
+  writeJson(LINK_TRANSFORMS_KEY, DEFAULT_LINK_TRANSFORMS);
+  cachedLinkTransforms = DEFAULT_LINK_TRANSFORMS;
+  return cachedLinkTransforms;
+}
+
+export function setStoredLinkTransforms(rules: LinkTransformRule[]) {
+  cachedLinkTransforms = rules;
+  writeJson(LINK_TRANSFORMS_KEY, rules);
+  linkTransformListeners.forEach((l) => l());
+}
+
+export function subscribeLinkTransforms(listener: () => void): () => void {
+  linkTransformListeners.add(listener);
+  return () => linkTransformListeners.delete(listener);
 }
