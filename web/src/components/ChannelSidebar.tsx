@@ -6,7 +6,7 @@ import StatusDot from './StatusDot';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
-import { contextUsageTextTone, formatContextUsageCompact, formatContextUsageTitle } from '../lib/contextUsage';
+import { contextUsageTextTone, formatContextUsageCompact, formatContextUsageTitle, pickDisplayContextUsage } from '../lib/contextUsage';
 import {
   channelSidebarThemeConfig,
   getChannelSidebarAgentItemClass,
@@ -180,9 +180,10 @@ export default function ChannelSidebar() {
             const unread = unreadCounts[agent.name] || 0;
             const status = agentStatus(agent);
             const isOffline = status === 'offline';
-            const usageLabel = formatContextUsageCompact(agent.contextUsage?.summary);
-            const usageTitle = formatContextUsageTitle(agent.contextUsage);
-            const usageTone = contextUsageTextTone(agent.contextUsage?.summary.percent);
+            const usageDisplay = pickDisplayContextUsage(agent.contextUsage, agent.model);
+            const usageLabel = formatContextUsageCompact(usageDisplay);
+            const usageTitle = formatContextUsageTitle(agent.contextUsage, agent.model);
+            const usageTone = contextUsageTextTone(usageDisplay?.percent);
             return (
               <button
                 key={agent.id}

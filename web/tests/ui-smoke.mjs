@@ -131,12 +131,41 @@ async function testChannelsInSidebar(browser, opts, results) {
 /**
  * Test: context-usage-pill
  * The sidebar should render a compact used/total (%) pill beside agents whose
- * init payload includes a contextUsage snapshot.
+ * init payload includes a contextUsage snapshot. Snapshot includes a Haiku
+ * entry (sub-agent, cumulative tokens) with a higher percent than the primary
+ * Sonnet turn — the pill must still show the primary model's values, since
+ * Haiku's context window is independent of the main conversation.
  */
 async function testContextUsagePill(browser, opts, results) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await ctx.newPage();
   try {
+    const sonnetEntry = {
+      model: 'claude-sonnet-4-6',
+      inputTokens: 3,
+      outputTokens: 15,
+      cacheReadInputTokens: 12532,
+      cacheCreationInputTokens: 7930,
+      usedTokens: 20480,
+      contextWindow: 200000,
+      maxOutputTokens: 32000,
+      percent: 0.1024,
+      costUSD: 0.0337311,
+      webSearchRequests: 0,
+    };
+    const haikuEntry = {
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadInputTokens: 85000,
+      cacheCreationInputTokens: 5000,
+      usedTokens: 90000,
+      contextWindow: 200000,
+      maxOutputTokens: 8000,
+      percent: 0.45,
+      costUSD: 0.012,
+      webSearchRequests: 0,
+    };
     await loadApp(page, opts.url, {
       initOverride: {
         agents: FAKE_AGENTS.map((agent) => (
@@ -145,33 +174,13 @@ async function testContextUsagePill(browser, opts, results) {
                 ...agent,
                 contextUsage: {
                   updatedAt: '2026-04-21T16:00:00.000Z',
-                  summary: {
-                    model: 'claude-sonnet-4-6',
-                    inputTokens: 3,
-                    outputTokens: 15,
-                    cacheReadInputTokens: 12532,
-                    cacheCreationInputTokens: 7930,
-                    usedTokens: 20480,
-                    contextWindow: 200000,
-                    maxOutputTokens: 32000,
-                    percent: 0.1024,
-                    costUSD: 0.0337311,
-                    webSearchRequests: 0,
-                  },
-                  models: [{
-                    model: 'claude-sonnet-4-6',
-                    inputTokens: 3,
-                    outputTokens: 15,
-                    cacheReadInputTokens: 12532,
-                    cacheCreationInputTokens: 7930,
-                    usedTokens: 20480,
-                    contextWindow: 200000,
-                    maxOutputTokens: 32000,
-                    percent: 0.1024,
-                    costUSD: 0.0337311,
-                    webSearchRequests: 0,
-                  }],
-                  totalCostUSD: 0.0337311,
+                  // daemon sorts models[] by percent desc and sets summary = models[0].
+                  // Haiku's cumulative 45% outranks Sonnet's per-turn 10%, so the
+                  // summary shipped by the daemon points at Haiku. The pill must
+                  // ignore summary and pick the configured agent.model.
+                  summary: haikuEntry,
+                  models: [haikuEntry, sonnetEntry],
+                  totalCostUSD: 0.0457311,
                 },
               }
             : agent
@@ -182,9 +191,16 @@ async function testContextUsagePill(browser, opts, results) {
     const pillVisible = await page.locator('text=20.5k/10%').first()
       .isVisible({ timeout: 5000 }).catch(() => false);
     if (pillVisible) {
-      pass(results, 'context-usage-pill: agent sidebar shows compact usage summary');
+      pass(results, 'context-usage-pill: agent sidebar shows primary model usage, not Haiku');
     } else {
-      fail(results, 'context-usage-pill', 'Expected context usage text was not visible in the agent list');
+      fail(results, 'context-usage-pill', 'Expected Sonnet pill "20.5k/10%" was not visible — did Haiku leak through?');
+    }
+    const haikuLeaked = await page.locator('text=90k/45%').first()
+      .isVisible({ timeout: 500 }).catch(() => false);
+    if (haikuLeaked) {
+      fail(results, 'context-usage-pill-no-haiku', 'Haiku usage "90k/45%" leaked into the sidebar pill');
+    } else {
+      pass(results, 'context-usage-pill-no-haiku: Haiku entry correctly excluded from pill');
     }
     await page.screenshot({ path: resolve(opts.out, 'smoke-03-context-usage.png') });
   } finally {

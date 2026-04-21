@@ -50,11 +50,41 @@ export function contextUsageTextTone(percent?: number): string {
   return 'text-nc-muted';
 }
 
-export function formatContextUsageTitle(snapshot?: AgentContextUsageSnapshot): string {
+// Claude drivers report usage for every model that ran during the turn,
+// including Haiku (used for sub-agent/compaction work). For the sidebar pill
+// we only want the agent's configured primary model — Haiku's context window
+// is independent and its cumulative token counts don't represent "how full is
+// the main conversation." Prefer the configured `agent.model`; fall back to
+// the highest-percent entry that isn't Haiku.
+export function pickDisplayContextUsage(
+  snapshot?: AgentContextUsageSnapshot,
+  preferredModel?: string,
+): AgentContextUsageModel | undefined {
+  if (!snapshot) return undefined;
+  const { models, summary } = snapshot;
+  if (preferredModel) {
+    const exact = models.find(m => m.model === preferredModel);
+    if (exact) return exact;
+    const preferredLower = preferredModel.toLowerCase();
+    const fuzzy = models.find(m => {
+      const modelLower = m.model.toLowerCase();
+      return modelLower.includes(preferredLower) || preferredLower.includes(modelLower);
+    });
+    if (fuzzy) return fuzzy;
+  }
+  const nonHaiku = models.filter(m => !m.model.toLowerCase().includes('haiku'));
+  if (nonHaiku.length > 0) return nonHaiku[0];
+  return summary;
+}
+
+export function formatContextUsageTitle(
+  snapshot?: AgentContextUsageSnapshot,
+  preferredModel?: string,
+): string {
   if (!snapshot) return '';
-  const summary = snapshot.summary;
-  const total = summary.contextWindow?.toLocaleString() || 'unknown';
-  const percent = formatContextPercent(summary.percent);
+  const display = pickDisplayContextUsage(snapshot, preferredModel) ?? snapshot.summary;
+  const total = display.contextWindow?.toLocaleString() || 'unknown';
+  const percent = formatContextPercent(display.percent);
   const cost = typeof snapshot.totalCostUSD === 'number' ? ` · $${snapshot.totalCostUSD.toFixed(4)}` : '';
-  return `${summary.model} · ${summary.usedTokens.toLocaleString()} / ${total} tokens${percent ? ` (${percent})` : ''}${cost}`;
+  return `${display.model} · ${display.usedTokens.toLocaleString()} / ${total} tokens${percent ? ` (${percent})` : ''}${cost}`;
 }
