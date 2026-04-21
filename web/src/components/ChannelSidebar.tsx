@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { activityColors } from '../lib/activityStatus';
+import { STATUS_CLASS, agentStatus } from '../lib/avatarStatus';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
 import { isNightCity } from '../lib/themeUtils';
@@ -233,7 +233,7 @@ export default function ChannelSidebar() {
                       <Settings size={12} />
                     </span>
                   )}
-                  <span className={`w-2 h-2 flex-shrink-0 ${activityColors[agent.activity || 'offline']}`} />
+                  <span className={`w-2 h-2 flex-shrink-0 ${STATUS_CLASS[agentStatus(agent)]}`} />
                   {unread > 0 && !isActive && (
                     <span className="bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
                       {unread}

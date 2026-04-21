@@ -4,6 +4,8 @@ import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { MENTION_TOKEN_REGEX } from '../lib/mentions';
 import { highlightCode } from '../lib/highlight';
+import StatusDot from './StatusDot';
+import { agentStatus } from '../lib/avatarStatus';
 
 function formatTime(dateStr: string): string {
   const d = new Date(dateStr);
@@ -473,33 +475,43 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
             </span>
           </div>
         ) : isAgent && agentProfileId ? (
-          <button
-            type="button"
-            onClick={() => openAgentProfile(agentProfileId)}
-            title={`View @${senderName} profile`}
-            className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5 overflow-hidden transition-transform hover:scale-105 hover:ring-1 hover:ring-nc-cyan focus:outline-none focus:ring-1 focus:ring-nc-cyan"
-            style={{
-              backgroundColor: `${color}12`,
-              color,
-              boxShadow: `0 0 10px ${color}18`,
-            }}
-          >
-            {senderPicture ? (
-              <img src={senderPicture} alt="" className="w-full h-full object-cover" />
-            ) : <Bot size={15} />}
-          </button>
+          <div className="relative flex-shrink-0 mt-0.5">
+            <button
+              type="button"
+              onClick={() => openAgentProfile(agentProfileId)}
+              title={`View @${senderName} profile`}
+              className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden transition-transform hover:scale-105 hover:ring-1 hover:ring-nc-cyan focus:outline-none focus:ring-1 focus:ring-nc-cyan"
+              style={{
+                backgroundColor: `${color}12`,
+                color,
+                boxShadow: `0 0 10px ${color}18`,
+              }}
+            >
+              {senderPicture ? (
+                <img src={senderPicture} alt="" className="w-full h-full object-cover" />
+              ) : <Bot size={15} />}
+            </button>
+            {senderAgent && (
+              <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
+            )}
+          </div>
         ) : (
-          <div
-            className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5 overflow-hidden"
-            style={{
-              backgroundColor: `${color}12`,
-              color,
-              boxShadow: isAgent ? `0 0 10px ${color}18` : undefined,
-            }}
-          >
-            {senderPicture ? (
-              <img src={senderPicture} alt="" className="w-full h-full object-cover" />
-            ) : isAgent ? <Bot size={15} /> : senderName.charAt(0).toUpperCase()}
+          <div className="relative flex-shrink-0 mt-0.5">
+            <div
+              className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden"
+              style={{
+                backgroundColor: `${color}12`,
+                color,
+                boxShadow: isAgent ? `0 0 10px ${color}18` : undefined,
+              }}
+            >
+              {senderPicture ? (
+                <img src={senderPicture} alt="" className="w-full h-full object-cover" />
+              ) : isAgent ? <Bot size={15} /> : senderName.charAt(0).toUpperCase()}
+            </div>
+            {isAgent && senderAgent && (
+              <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
+            )}
           </div>
         )}
 

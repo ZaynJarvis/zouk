@@ -29,6 +29,8 @@ export function buildMentionSearchTerms(...values: Array<string | undefined>): s
   return [...terms];
 }
 
+import type { AvatarStatus } from './avatarStatus';
+
 export type MentionTarget = {
   label: string;
   mention: string;
@@ -36,6 +38,7 @@ export type MentionTarget = {
   searchTerms: string[];
   picture?: string;
   online?: boolean;
+  status?: AvatarStatus;
 };
 
 // Rank targets by how well they match the query.

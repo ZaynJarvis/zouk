@@ -2,7 +2,8 @@ import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings, X } fr
 import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
-import { activityColors } from '../lib/activityStatus';
+import StatusDot from './StatusDot';
+import { agentStatus } from '../lib/avatarStatus';
 import { isMobileViewport } from '../lib/layout';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
@@ -23,8 +24,8 @@ function AgentListItem({
   onOpenSettings: () => void;
   onDelete?: () => void;
 }) {
-  const activity = agent.activity || 'offline';
-  const isOffline = !agent.status || agent.status === 'inactive';
+  const status = agentStatus(agent);
+  const isOffline = status === 'offline';
 
   return (
     <button
@@ -35,19 +36,21 @@ function AgentListItem({
           : 'hover:bg-nc-elevated/50'
       }`}
     >
-      <div className="w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan shrink-0 overflow-hidden">
-        {agent.picture ? (
-          <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-        ) : (
-          (agent.displayName || agent.name).charAt(0).toUpperCase()
-        )}
+      <div className="relative w-8 h-8 shrink-0">
+        <div className={`w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan overflow-hidden ${isOffline ? 'grayscale opacity-70' : ''}`}>
+          {agent.picture ? (
+            <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+          ) : (
+            (agent.displayName || agent.name).charAt(0).toUpperCase()
+          )}
+        </div>
+        <StatusDot status={status} ringClass="border-nc-surface" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="truncate font-display font-bold text-sm text-nc-text-bright">
             {agent.displayName || agent.name}
           </span>
-          <span className={`w-2 h-2 shrink-0 ${activityColors[activity]}`} />
         </div>
         <div className="text-2xs text-nc-muted truncate font-mono">
           {formatRuntime(agent.runtime) || 'No runtime'} · {agent.model || '—'}

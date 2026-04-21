@@ -3,7 +3,9 @@ import { FileText, FolderOpen, Activity, Settings, Save, Square, Play, Globe, Lo
 import type { ServerAgent, ServerMachine, Skill } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
-import { activityColors, activityLabels } from '../lib/activityStatus';
+import { activityLabels } from '../lib/activityStatus';
+import StatusDot from './StatusDot';
+import { agentStatus } from '../lib/avatarStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { resizeAndEncode } from '../lib/imageEncode';
@@ -746,21 +748,21 @@ export default function AgentDetail({
             <ArrowLeft size={14} />
           </button>
         )}
-        <div
-          className="relative w-10 h-10 border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center shrink-0 font-display font-bold text-sm text-nc-cyan overflow-hidden"
-        >
-          {agent.picture ? (
-            <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-          ) : (
-            (agent.displayName || agent.name).charAt(0).toUpperCase()
-          )}
+        <div className="relative w-10 h-10 shrink-0">
+          <div className={`w-full h-full border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center font-display font-bold text-sm text-nc-cyan overflow-hidden ${!isActive ? 'grayscale opacity-70' : ''}`}>
+            {agent.picture ? (
+              <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+            ) : (
+              (agent.displayName || agent.name).charAt(0).toUpperCase()
+            )}
+          </div>
+          <StatusDot status={agentStatus(agent)} ringClass="border-nc-surface" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="font-display font-black text-lg text-nc-text-bright truncate tracking-wider">
               @{agent.displayName || agent.name}
             </h2>
-            <span className={`w-2.5 h-2.5 ${activityColors[activity]}`} />
             <span className="text-xs text-nc-muted font-mono hidden sm:inline">{isActive ? activityLabels[activity] : 'INACTIVE'}</span>
           </div>
           {agent.description && (
