@@ -14,18 +14,68 @@ import {
   clearStoredAuth,
   clearStoredAuthUser,
   clearStoredCurrentUser,
+  clearStoredLastView,
   createGuestUserName,
   getStoredAuth,
   getStoredAuthToken,
   getStoredCurrentUser,
+  getStoredLastView,
   getStoredTheme,
   setStoredAuth,
   setStoredAuthUser,
   setStoredAuthToken,
   setStoredCurrentUser,
+  setStoredLastView,
   setStoredTheme,
 } from './storage';
 import { applyTheme } from '../themes';
+
+function isKnownChannel(channels: ServerChannel[], name: string) {
+  return channels.some(channel => channel.name === name);
+}
+
+function isKnownDmTarget(
+  agents: ServerAgent[],
+  humans: ServerHuman[],
+  currentUser: string,
+  name: string,
+) {
+  if (!name) return false;
+  if (name === currentUser) return true;
+  return agents.some(agent => agent.name === name) || humans.some(human => human.name === name);
+}
+
+function resolveDefaultChannelName(channels: ServerChannel[]) {
+  if (isKnownChannel(channels, 'all')) return 'all';
+  return channels[0]?.name || 'all';
+}
+
+function getValidStoredLastView(
+  channels: ServerChannel[],
+  agents: ServerAgent[],
+  humans: ServerHuman[],
+  currentUser: string,
+) {
+  const stored = getStoredLastView();
+  if (!stored) return null;
+  if (stored.mode === 'channel' && isKnownChannel(channels, stored.name)) return stored;
+  if (stored.mode === 'dm' && isKnownDmTarget(agents, humans, currentUser, stored.name)) return stored;
+  return null;
+}
+
+function isValidSelection(
+  mode: ViewMode,
+  name: string,
+  channels: ServerChannel[],
+  agents: ServerAgent[],
+  humans: ServerHuman[],
+  currentUser: string,
+) {
+  if (mode === 'agents') return false;
+  if (mode === 'channel') return isKnownChannel(channels, name);
+  if (mode === 'dm') return isKnownDmTarget(agents, humans, currentUser, name);
+  return false;
+}
 
 export function useAppStore() {
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
@@ -35,7 +85,7 @@ export function useAppStore() {
   const [humans, setHumans] = useState<ServerHuman[]>([]);
   const [configs, setConfigs] = useState<AgentConfig[]>([]);
   const [machines, setMachines] = useState<ServerMachine[]>([]);
-  const [activeChannelName, setActiveChannelName] = useState<string>('general');
+  const [activeChannelName, setActiveChannelName] = useState<string>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('channel');
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [agentDetailTab, setAgentDetailTab] = useState<'instructions' | 'workspace' | 'activity' | 'settings'>('instructions');
@@ -81,6 +131,12 @@ export function useAppStore() {
   messagesRef.current = messages;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  const channelsRef = useRef(channels);
+  channelsRef.current = channels;
+  const humansRef = useRef(humans);
+  humansRef.current = humans;
+  const hasResolvedInitialViewRef = useRef(false);
+  const channelListReady = channels.length > 0;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
@@ -107,14 +163,38 @@ export function useAppStore() {
         break;
       case 'init': {
         const e = event as { channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
-        setChannels(e.channels || []);
-        setAgents(e.agents || []);
-        setHumans(e.humans || []);
+        const nextChannels = e.channels || [];
+        const nextAgents = e.agents || [];
+        const nextHumans = e.humans || [];
+        setChannels(nextChannels);
+        setAgents(nextAgents);
+        setHumans(nextHumans);
         setConfigs(e.configs || []);
         setMachines(e.machines || []);
         setProfilePresets(e.profilePresets || []);
-        if (e.channels?.length && !e.channels.find(c => c.name === activeChannelRef.current)) {
-          setActiveChannelName(e.channels[0].name);
+        if (!hasResolvedInitialViewRef.current) {
+          hasResolvedInitialViewRef.current = true;
+          const stored = getValidStoredLastView(nextChannels, nextAgents, nextHumans, currentUserRef.current);
+          if (stored) {
+            setViewMode(stored.mode);
+            setActiveChannelName(stored.name);
+          } else {
+            setViewMode('channel');
+            setActiveChannelName(resolveDefaultChannelName(nextChannels));
+          }
+          break;
+        }
+
+        if (viewModeRef.current === 'channel') {
+          if (!isKnownChannel(nextChannels, activeChannelRef.current)) {
+            setActiveChannelName(resolveDefaultChannelName(nextChannels));
+          }
+          break;
+        }
+
+        if (viewModeRef.current === 'dm' && !isKnownDmTarget(nextAgents, nextHumans, currentUserRef.current, activeChannelRef.current)) {
+          setViewMode('channel');
+          setActiveChannelName(resolveDefaultChannelName(nextChannels));
         }
         break;
       }
@@ -222,7 +302,7 @@ export function useAppStore() {
         setChannels(prev => {
           const next = prev.filter(c => c.id !== e.channelId);
           if (viewModeRef.current === 'channel' && activeChannelRef.current === e.channelName) {
-            const fallback = next[0]?.name || 'all';
+            const fallback = resolveDefaultChannelName(next);
             setActiveChannelName(fallback);
             setMessages([]);
             setThreadMessages([]);
@@ -367,6 +447,46 @@ export function useAppStore() {
   }, [wsConnected, isLoggedIn, authToken, currentUser]);
 
   useEffect(() => {
+    // Keep the active conversation valid for the current mode. A reconnect
+    // replays `init`, so channel-only validation would incorrectly coerce DMs
+    // to the first public channel ("all"), which then gets fetched as `dm:@all`.
+    if (viewMode === 'channel') {
+      if (channels.length > 0 && !isKnownChannel(channels, activeChannelName)) {
+        setActiveChannelName(resolveDefaultChannelName(channels));
+      }
+      return;
+    }
+
+    if (viewMode !== 'dm') return;
+    if (isKnownDmTarget(agents, humans, currentUser, activeChannelName)) return;
+    if (channels.length === 0) return;
+
+    setViewMode('channel');
+    setActiveChannelName(resolveDefaultChannelName(channels));
+  }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
+
+  useEffect(() => {
+    if (viewMode === 'channel') {
+      if (!isKnownChannel(channels, activeChannelName)) return;
+      setStoredLastView({ mode: 'channel', name: activeChannelName });
+      return;
+    }
+
+    if (viewMode !== 'dm') return;
+    if (!isKnownDmTarget(agents, humans, currentUser, activeChannelName)) return;
+    setStoredLastView({ mode: 'dm', name: activeChannelName });
+  }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
+
+  useEffect(() => {
+    if (!isValidSelection(
+      viewMode,
+      activeChannelName,
+      channelsRef.current,
+      agentsRef.current,
+      humansRef.current,
+      currentUserRef.current,
+    )) return;
+
     let cancelled = false;
     // Clear immediately so that if the fetch fails (e.g. an intermediate proxy
     // returns a cached 304 for a different URL), the previous channel's
@@ -394,7 +514,7 @@ export function useAppStore() {
       }
     });
     return () => { cancelled = true; };
-  }, [activeChannelName, viewMode]);
+  }, [activeChannelName, viewMode, channelListReady]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages) return;
@@ -680,9 +800,17 @@ export function useAppStore() {
     }
     clearStoredAuth();
     clearStoredCurrentUser();
+    clearStoredLastView();
+    hasResolvedInitialViewRef.current = false;
     setAuthToken(null);
     setAuthUser(null);
     setIsLoggedIn(false);
+    setViewMode('channel');
+    setActiveChannelName('all');
+    setMessages([]);
+    setThreadMessages([]);
+    setActiveThreadMessage(null);
+    setRightPanel(null);
     // Generate new random name for next guest session
     const name = createGuestUserName();
     setStoredCurrentUser(name);
