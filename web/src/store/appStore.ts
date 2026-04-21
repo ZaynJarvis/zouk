@@ -205,6 +205,19 @@ export function useAppStore() {
         const e = event as { message: MessageRecord };
         if (!e.message) break;
         const msg = normalizeMessage(e.message);
+        const currentName = currentUserRef.current;
+        const isSelfMessage = !!currentName && msg.sender_name === currentName;
+
+        // Defense-in-depth for stray DM broadcasts: if the server ever lets a
+        // DM through to a non-party (legacy payload, future multi-tab edge
+        // case), drop it so we don't bump unread for a conversation we aren't
+        // part of.
+        const dmContext = msg.channel_type === 'dm'
+          || (msg.channel_type === 'thread' && msg.parent_channel_type === 'dm');
+        if (dmContext && msg.dm_parties && msg.dm_parties.length > 0
+            && currentName && !msg.dm_parties.includes(currentName)) {
+          break;
+        }
 
         if (msg.channel_type === 'thread') {
           const parentId = msg.parent_message_id;
@@ -242,7 +255,8 @@ export function useAppStore() {
 
           // If the parent channel isn't currently focused, bump the unread badge
           // on its sidebar entry so the user notices thread activity elsewhere.
-          if (parentChannel && parentChannel !== activeChannelRef.current) {
+          // Skip for self-replies — a user's own thread reply isn't a notification.
+          if (parentChannel && parentChannel !== activeChannelRef.current && !isSelfMessage) {
             setUnreadCounts(prev => ({
               ...prev,
               [parentChannel]: (prev[parentChannel] || 0) + 1,
@@ -273,7 +287,9 @@ export function useAppStore() {
             // Update channel_name to peer name for consistent frontend display
             if (isDmMessage) msg.channel_name = conversationKey;
             setMessages(prev => [...prev, msg]);
-          } else {
+          } else if (!isSelfMessage) {
+            // Don't bump unread for our own echo — sending from another channel
+            // or another tab shouldn't light up the destination we sent to.
             setUnreadCounts(prev => ({
               ...prev,
               [conversationKey]: (prev[conversationKey] || 0) + 1,

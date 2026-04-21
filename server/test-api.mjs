@@ -19,6 +19,9 @@
  *                    here means chat history disappears on reload.
  *   auth-rejected  — requireAuth must block unauthenticated writes. If this
  *                    breaks, the access model collapses.
+ *   dm-broadcast-  — WS DM broadcasts must reach only the two parties. If this
+ *     scoping        regresses, unrelated users see "notification" badges for
+ *                    conversations they aren't in.
  */
 
 import { test, before, after } from 'node:test';
@@ -27,6 +30,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import WebSocket from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEST_PORT = 17779;
@@ -334,4 +338,80 @@ test('search_messages: DM content does not leak via search to non-parties', asyn
     !items.some((m) => m.content === marker),
     'non-party agent (reviewer) must not find DM content via search',
   );
+});
+
+// ─── WS DM broadcast scoping ──────────────────────────────────────────────────
+
+async function openAuthedWs(token) {
+  const ws = new WebSocket(`ws://localhost:${TEST_PORT}/ws?token=${token}`);
+  await new Promise((resolve, reject) => {
+    ws.once('open', resolve);
+    ws.once('error', reject);
+  });
+  // Drain the init frame so .once('message') below catches real traffic.
+  await new Promise((resolve) => ws.once('message', resolve));
+  return ws;
+}
+
+function waitForMessageOrTimeout(ws, predicate, timeoutMs = 600) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      ws.off('message', onMsg);
+      resolve(null);
+    }, timeoutMs);
+    const onMsg = (raw) => {
+      try {
+        const ev = JSON.parse(raw.toString());
+        if (predicate(ev)) {
+          clearTimeout(timer);
+          ws.off('message', onMsg);
+          resolve(ev);
+        }
+      } catch (_) {}
+    };
+    ws.on('message', onMsg);
+  });
+}
+
+test('WS broadcast: DM messages reach only the two parties', async () => {
+  const sessionFor = async (name) => {
+    const res = await fetch(`${BASE}/api/auth/guest-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    return (await res.json()).token;
+  };
+  const aliceToken = await sessionFor('dmtest-alice');
+  const bobToken = await sessionFor('dmtest-bob');
+  const carolToken = await sessionFor('dmtest-carol');
+
+  const aliceWs = await openAuthedWs(aliceToken);
+  const bobWs = await openAuthedWs(bobToken);
+  const carolWs = await openAuthedWs(carolToken);
+
+  const marker = `dm-scope-probe-${Date.now()}`;
+  const isProbeMsg = (ev) => ev.type === 'message' && ev.message?.content === marker;
+
+  // alice → bob DM. alice must receive her own echo (client relies on it to
+  // render). bob must receive it (he's the recipient). carol must NOT.
+  const alicePromise = waitForMessageOrTimeout(aliceWs, isProbeMsg);
+  const bobPromise = waitForMessageOrTimeout(bobWs, isProbeMsg);
+  const carolPromise = waitForMessageOrTimeout(carolWs, isProbeMsg);
+
+  await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
+    body: JSON.stringify({ target: 'dm:@dmtest-bob', content: marker }),
+  });
+
+  const [aliceGot, bobGot, carolGot] = await Promise.all([alicePromise, bobPromise, carolPromise]);
+
+  aliceWs.close();
+  bobWs.close();
+  carolWs.close();
+
+  assert.ok(aliceGot, 'sender (alice) must receive her own DM echo');
+  assert.ok(bobGot, 'recipient (bob) must receive the DM');
+  assert.equal(carolGot, null, 'uninvolved party (carol) must NOT receive the DM');
 });
