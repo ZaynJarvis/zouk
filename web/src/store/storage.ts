@@ -1,12 +1,14 @@
 import type { AuthUser } from '../lib/api';
-import type { Theme } from '../types';
+import type { Theme, ViewMode } from '../types';
 
 const CURRENT_USER_KEY = 'zouk_current_user';
 const AUTH_TOKEN_KEY = 'zouk_auth_token';
 const AUTH_USER_KEY = 'zouk_auth_user';
 const THEME_STORAGE_KEY = 'zouk_theme';
+const LAST_VIEW_STORAGE_KEY = 'zouk_last_view';
 
 type StoredAuth = { token: string; user: AuthUser };
+type StoredLastView = { name: string; mode: Extract<ViewMode, 'channel' | 'dm'> };
 
 function readJson<T>(key: string): T | null {
   const value = localStorage.getItem(key);
@@ -37,6 +39,21 @@ export function getStoredTheme(): Theme {
 
 export function setStoredTheme(theme: Theme) {
   localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
+export function getStoredLastView(): StoredLastView | null {
+  const stored = readJson<StoredLastView>(LAST_VIEW_STORAGE_KEY);
+  if (!stored?.name) return null;
+  if (stored.mode !== 'channel' && stored.mode !== 'dm') return null;
+  return stored;
+}
+
+export function setStoredLastView(view: StoredLastView) {
+  writeJson(LAST_VIEW_STORAGE_KEY, view);
+}
+
+export function clearStoredLastView() {
+  localStorage.removeItem(LAST_VIEW_STORAGE_KEY);
 }
 
 export function getStoredCurrentUser(): string {

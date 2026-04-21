@@ -14,15 +14,18 @@ import {
   clearStoredAuth,
   clearStoredAuthUser,
   clearStoredCurrentUser,
+  clearStoredLastView,
   createGuestUserName,
   getStoredAuth,
   getStoredAuthToken,
   getStoredCurrentUser,
+  getStoredLastView,
   getStoredTheme,
   setStoredAuth,
   setStoredAuthUser,
   setStoredAuthToken,
   setStoredCurrentUser,
+  setStoredLastView,
   setStoredTheme,
 } from './storage';
 import { applyTheme } from '../themes';
@@ -40,6 +43,25 @@ function isKnownDmTarget(
   if (!name) return false;
   if (name === currentUser) return true;
   return agents.some(agent => agent.name === name) || humans.some(human => human.name === name);
+}
+
+function resolveDefaultChannelName(channels: ServerChannel[]) {
+  if (isKnownChannel(channels, 'all')) return 'all';
+  if (isKnownChannel(channels, 'general')) return 'general';
+  return channels[0]?.name || 'all';
+}
+
+function getValidStoredLastView(
+  channels: ServerChannel[],
+  agents: ServerAgent[],
+  humans: ServerHuman[],
+  currentUser: string,
+) {
+  const stored = getStoredLastView();
+  if (!stored) return null;
+  if (stored.mode === 'channel' && isKnownChannel(channels, stored.name)) return stored;
+  if (stored.mode === 'dm' && isKnownDmTarget(agents, humans, currentUser, stored.name)) return stored;
+  return null;
 }
 
 export function useAppStore() {
@@ -96,6 +118,7 @@ export function useAppStore() {
   messagesRef.current = messages;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  const hasResolvedInitialViewRef = useRef(false);
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
 
@@ -122,12 +145,39 @@ export function useAppStore() {
         break;
       case 'init': {
         const e = event as { channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
-        setChannels(e.channels || []);
-        setAgents(e.agents || []);
-        setHumans(e.humans || []);
+        const nextChannels = e.channels || [];
+        const nextAgents = e.agents || [];
+        const nextHumans = e.humans || [];
+        setChannels(nextChannels);
+        setAgents(nextAgents);
+        setHumans(nextHumans);
         setConfigs(e.configs || []);
         setMachines(e.machines || []);
         setProfilePresets(e.profilePresets || []);
+        if (!hasResolvedInitialViewRef.current) {
+          hasResolvedInitialViewRef.current = true;
+          const stored = getValidStoredLastView(nextChannels, nextAgents, nextHumans, currentUserRef.current);
+          if (stored) {
+            setViewMode(stored.mode);
+            setActiveChannelName(stored.name);
+          } else {
+            setViewMode('channel');
+            setActiveChannelName(resolveDefaultChannelName(nextChannels));
+          }
+          break;
+        }
+
+        if (viewModeRef.current === 'channel') {
+          if (!isKnownChannel(nextChannels, activeChannelRef.current)) {
+            setActiveChannelName(resolveDefaultChannelName(nextChannels));
+          }
+          break;
+        }
+
+        if (viewModeRef.current === 'dm' && !isKnownDmTarget(nextAgents, nextHumans, currentUserRef.current, activeChannelRef.current)) {
+          setViewMode('channel');
+          setActiveChannelName(resolveDefaultChannelName(nextChannels));
+        }
         break;
       }
       case 'message':
@@ -234,7 +284,7 @@ export function useAppStore() {
         setChannels(prev => {
           const next = prev.filter(c => c.id !== e.channelId);
           if (viewModeRef.current === 'channel' && activeChannelRef.current === e.channelName) {
-            const fallback = next[0]?.name || 'all';
+            const fallback = resolveDefaultChannelName(next);
             setActiveChannelName(fallback);
             setMessages([]);
             setThreadMessages([]);
@@ -384,7 +434,7 @@ export function useAppStore() {
     // to the first public channel ("all"), which then gets fetched as `dm:@all`.
     if (viewMode === 'channel') {
       if (channels.length > 0 && !isKnownChannel(channels, activeChannelName)) {
-        setActiveChannelName(channels[0].name);
+        setActiveChannelName(resolveDefaultChannelName(channels));
       }
       return;
     }
@@ -394,10 +444,26 @@ export function useAppStore() {
     if (channels.length === 0) return;
 
     setViewMode('channel');
-    setActiveChannelName(channels[0].name);
+    setActiveChannelName(resolveDefaultChannelName(channels));
   }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
 
   useEffect(() => {
+    if (viewMode === 'channel') {
+      if (!isKnownChannel(channels, activeChannelName)) return;
+      setStoredLastView({ mode: 'channel', name: activeChannelName });
+      return;
+    }
+
+    if (viewMode !== 'dm') return;
+    if (!isKnownDmTarget(agents, humans, currentUser, activeChannelName)) return;
+    setStoredLastView({ mode: 'dm', name: activeChannelName });
+  }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
+
+  useEffect(() => {
+    if (viewMode === 'agents') return;
+    if (viewMode === 'channel' && !isKnownChannel(channels, activeChannelName)) return;
+    if (viewMode === 'dm' && !isKnownDmTarget(agents, humans, currentUser, activeChannelName)) return;
+
     let cancelled = false;
     // Clear immediately so that if the fetch fails (e.g. an intermediate proxy
     // returns a cached 304 for a different URL), the previous channel's
@@ -425,7 +491,7 @@ export function useAppStore() {
       }
     });
     return () => { cancelled = true; };
-  }, [activeChannelName, viewMode]);
+  }, [activeChannelName, agents, channels, currentUser, humans, viewMode]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages) return;
@@ -711,9 +777,17 @@ export function useAppStore() {
     }
     clearStoredAuth();
     clearStoredCurrentUser();
+    clearStoredLastView();
+    hasResolvedInitialViewRef.current = false;
     setAuthToken(null);
     setAuthUser(null);
     setIsLoggedIn(false);
+    setViewMode('channel');
+    setActiveChannelName('all');
+    setMessages([]);
+    setThreadMessages([]);
+    setActiveThreadMessage(null);
+    setRightPanel(null);
     // Generate new random name for next guest session
     const name = createGuestUserName();
     setStoredCurrentUser(name);
