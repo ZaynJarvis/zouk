@@ -1,4 +1,4 @@
-import { Hash, PanelRightOpen, PanelRightClose, Menu, Home, Cpu, Settings } from 'lucide-react';
+import { Hash, PanelRightOpen, PanelRightClose, Menu, Home, Cpu, KanbanSquare, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -60,6 +60,17 @@ export default function TopBar() {
               aria-label="Agents"
             >
               <Cpu size={16} />
+            </button>
+          </ScanlineTear>
+
+          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <button
+              onClick={() => setViewMode('tasks')}
+              className={getTopBarMobileIconButtonClass(themeVariant, 'indigo', viewMode === 'tasks')}
+              title="Tasks"
+              aria-label="Tasks"
+            >
+              <KanbanSquare size={16} />
             </button>
           </ScanlineTear>
 
