@@ -1,7 +1,7 @@
 import type { Theme } from '../../types';
 import { cx } from '../../lib/classNames';
 
-export type NavigationThemeVariant = 'night-city' | 'carbon' | 'washington-post' | 'brutalist';
+export type NavigationThemeVariant = 'night-city' | 'carbon' | 'washington-post' | 'brutalist' | 'graphite';
 type TopBarAccent = 'cyan' | 'green' | 'yellow';
 type RailButtonKey = 'home' | 'agents' | 'workspace' | 'memory' | 'settings';
 type RailActionKey = Exclude<RailButtonKey, 'settings'>;
@@ -9,6 +9,7 @@ type RailActionKey = Exclude<RailButtonKey, 'settings'>;
 export function resolveNavigationTheme(theme: Theme, nightCityEnabled: boolean): NavigationThemeVariant {
   if (nightCityEnabled) return 'night-city';
   if (theme === 'carbon' || theme === 'washington-post') return theme;
+  if (theme === 'graphite') return 'graphite';
   return 'brutalist';
 }
 
@@ -33,6 +34,11 @@ const topBarMobileBaseByTheme: Record<NavigationThemeVariant, Record<TopBarAccen
     green: 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright',
     yellow: 'border-2 border-nc-border text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright',
   },
+  graphite: {
+    cyan: 'border-transparent text-nc-muted hover:bg-white/[0.04] hover:text-nc-text-bright rounded-full',
+    green: 'border-transparent text-nc-muted hover:bg-white/[0.04] hover:text-nc-text-bright rounded-full',
+    yellow: 'border-transparent text-nc-muted hover:bg-white/[0.04] hover:text-nc-text-bright rounded-full',
+  },
 };
 
 const topBarMobileActiveByTheme: Record<NavigationThemeVariant, Record<TopBarAccent, string>> = {
@@ -56,12 +62,18 @@ const topBarMobileActiveByTheme: Record<NavigationThemeVariant, Record<TopBarAcc
     green: 'bg-nc-green text-nc-text-bright border-nc-border-bright',
     yellow: '',
   },
+  graphite: {
+    cyan: 'bg-nc-cyan/[0.14] text-nc-cyan border-transparent',
+    green: 'bg-nc-green/[0.14] text-nc-green border-transparent',
+    yellow: '',
+  },
 };
 
 export function getTopBarShellClass(themeVariant: NavigationThemeVariant): string {
   return cx(
     'safe-top bg-nc-surface scanline-overlay flex-shrink-0',
     themeVariant === 'brutalist' ? 'border-b-[3px] border-nc-border-bright' : 'border-b border-nc-border',
+    themeVariant === 'graphite' && 'border-white/[0.04]',
   );
 }
 
@@ -84,6 +96,15 @@ export function getTopBarRightPanelButtonClass(themeVariant: NavigationThemeVari
       active
         ? 'border-nc-yellow bg-nc-yellow/15 text-nc-yellow shadow-nc-yellow'
         : 'border-nc-border text-nc-muted hover:border-nc-yellow/50 hover:text-nc-yellow',
+    );
+  }
+
+  if (themeVariant === 'graphite') {
+    return cx(
+      'w-8 h-8 rounded-full border-transparent flex items-center justify-center transition-colors duration-150',
+      active
+        ? 'bg-nc-yellow/[0.14] text-nc-yellow'
+        : 'text-nc-muted hover:bg-white/[0.04] hover:text-nc-text-bright',
     );
   }
 
@@ -127,6 +148,13 @@ export const workspaceRailThemeConfig: Record<
     homeLabel: 'Home',
     homeButtonTitle: 'Home',
   },
+  graphite: {
+    shell: 'w-[72px] h-full flex flex-col items-center py-4 gap-3 bg-nc-deep border-r border-white/[0.04]',
+    logo: 'w-10 h-10 rounded-full bg-white/[0.08] font-display font-semibold text-lg flex items-center justify-center text-nc-text-bright',
+    divider: 'w-8 my-1 border-t border-white/[0.04]',
+    homeLabel: 'Home',
+    homeButtonTitle: 'Home',
+  },
 };
 
 const workspaceRailActiveByTheme: Record<Exclude<NavigationThemeVariant, 'night-city'>, Record<Exclude<RailButtonKey, 'settings'>, string>> = {
@@ -147,6 +175,12 @@ const workspaceRailActiveByTheme: Record<Exclude<NavigationThemeVariant, 'night-
     agents: 'bg-nc-green text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
     workspace: 'bg-nc-cyan text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
     memory: 'bg-[#CC6600] text-nc-text-bright border-nc-border-bright shadow-[2px_2px_0px_0px_rgb(var(--nc-border-bright))]',
+  },
+  graphite: {
+    home: 'bg-nc-cyan/[0.14] text-nc-cyan border-transparent',
+    agents: 'bg-nc-green/[0.14] text-nc-green border-transparent',
+    workspace: 'bg-nc-magenta/[0.14] text-nc-magenta border-transparent',
+    memory: 'bg-nc-yellow/[0.14] text-nc-yellow border-transparent',
   },
 };
 
@@ -182,6 +216,14 @@ export function getWorkspaceRailButtonClass(
       'cyber-btn w-10 h-10 border flex items-center justify-center',
       workspaceRailNightCityInactiveByKey[key],
     );
+  }
+
+  if (themeVariant === 'graphite') {
+    const common = 'w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-150';
+    if (key !== 'settings' && active) {
+      return cx(common, workspaceRailActiveByTheme.graphite[key]);
+    }
+    return cx(common, 'text-nc-muted hover:bg-white/[0.04] hover:text-nc-text-bright');
   }
 
   const common = themeVariant === 'brutalist'
@@ -241,6 +283,14 @@ export const channelSidebarThemeConfig: Record<
     unreadBadge: 'text-2xs font-black px-1.5 py-0.5 border bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]',
     scrollerPadding: 'px-2',
   },
+  graphite: {
+    shell: 'w-[260px] h-full flex flex-col overflow-hidden bg-nc-surface border-r border-white/[0.04]',
+    header: 'safe-top flex-shrink-0 border-b border-white/[0.04]',
+    titleClass: 'font-display font-semibold text-[1.1rem] leading-none text-nc-text-bright truncate tracking-tight',
+    titleStyle: 'plain',
+    unreadBadge: 'text-2xs font-semibold px-1.5 py-0.5 bg-white/[0.1] text-nc-text-bright rounded-full',
+    scrollerPadding: 'px-2',
+  },
 };
 
 const channelSidebarChannelActiveByTheme: Record<NavigationThemeVariant, string> = {
@@ -248,6 +298,7 @@ const channelSidebarChannelActiveByTheme: Record<NavigationThemeVariant, string>
   carbon: 'bg-nc-cyan/10 border-l-2 border-nc-cyan text-nc-text-bright font-semibold',
   'washington-post': 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]',
   brutalist: 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1',
+  graphite: 'bg-nc-cyan/[0.12] text-nc-cyan font-medium rounded-md mx-1',
 };
 
 const channelSidebarChannelUnreadByTheme: Record<NavigationThemeVariant, string> = {
@@ -255,6 +306,7 @@ const channelSidebarChannelUnreadByTheme: Record<NavigationThemeVariant, string>
   carbon: 'font-semibold text-nc-text-bright hover:bg-nc-elevated',
   'washington-post': 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]',
   brutalist: 'font-semibold text-nc-text-bright hover:bg-nc-elevated',
+  graphite: 'font-semibold text-nc-text-bright hover:bg-white/[0.04] rounded-md mx-1',
 };
 
 const channelSidebarChannelIdleByTheme: Record<NavigationThemeVariant, string> = {
@@ -262,6 +314,7 @@ const channelSidebarChannelIdleByTheme: Record<NavigationThemeVariant, string> =
   carbon: 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text',
   'washington-post': 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright',
   brutalist: 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text-bright',
+  graphite: 'text-nc-muted hover:bg-white/[0.03] hover:text-nc-text-bright rounded-md mx-1',
 };
 
 const channelSidebarAgentActiveByTheme: Record<NavigationThemeVariant, string> = {
@@ -269,6 +322,7 @@ const channelSidebarAgentActiveByTheme: Record<NavigationThemeVariant, string> =
   carbon: 'bg-nc-green/10 border-l-2 border-nc-green text-nc-text-bright font-semibold',
   'washington-post': 'bg-[#f7f0e6] text-[#7c2430] font-semibold border-l-2 border-[#7c2430]',
   brutalist: 'bg-nc-yellow text-nc-text-bright font-bold border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A] mx-1',
+  graphite: 'bg-nc-green/[0.12] text-nc-green font-medium rounded-md mx-1',
 };
 
 const channelSidebarAgentUnreadByTheme: Record<NavigationThemeVariant, string> = {
@@ -276,6 +330,7 @@ const channelSidebarAgentUnreadByTheme: Record<NavigationThemeVariant, string> =
   carbon: 'font-semibold text-nc-text-bright hover:bg-nc-elevated',
   'washington-post': 'font-semibold text-nc-text-bright hover:bg-[#f7f0e6]',
   brutalist: 'font-semibold text-nc-text-bright hover:bg-nc-elevated',
+  graphite: 'font-semibold text-nc-text-bright hover:bg-white/[0.04] rounded-md mx-1',
 };
 
 const channelSidebarAgentIdleByTheme: Record<NavigationThemeVariant, string> = {
@@ -283,6 +338,7 @@ const channelSidebarAgentIdleByTheme: Record<NavigationThemeVariant, string> = {
   carbon: 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text',
   'washington-post': 'text-nc-muted hover:bg-[#f7f0e6] hover:text-nc-text-bright',
   brutalist: 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text',
+  graphite: 'text-nc-muted hover:bg-white/[0.03] hover:text-nc-text-bright rounded-md mx-1',
 };
 
 export function getChannelSidebarChannelItemClass(

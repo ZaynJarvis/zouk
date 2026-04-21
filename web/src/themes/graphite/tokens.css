@@ -1,0 +1,36 @@
+html[data-theme="graphite"] {
+  /* Surfaces — pure grayscale, R=G=B. Every panel / sidebar / border sits
+     on this neutral ramp; no hue cast on chrome. */
+  --nc-black: 10 10 12;         /* #0a0a0c — app base */
+  --nc-deep: 15 15 17;          /* #0f0f11 — rail / deep recesses */
+  --nc-surface: 21 22 26;       /* #15161a — panels, sidebar */
+  --nc-elevated: 28 29 34;      /* #1c1d22 — raised panels, dropdowns */
+  --nc-border: 38 39 43;        /* #26272b — structural dividers */
+  --nc-border-bright: 68 70 75; /* #44464b — emphasized borders */
+  --nc-panel: 18 19 22;         /* #121316 — inputs, composer inner */
+
+  /* Semantic accents — muted but legible. All live in a 35–45% saturation,
+     45–65% lightness band so they feel like one family (never neon), but
+     stay distinguishable for sender color, agent/system chips, syntax, and
+     status dots. Think Linear / Notion dark — not glassmorphism.com. */
+  --nc-cyan: 122 165 192;       /* steel blue     — info / primary */
+  --nc-green: 125 172 138;      /* sage           — success / terminal / agent */
+  --nc-yellow: 194 166 115;     /* muted honey    — warning */
+  --nc-red: 215 122 122;        /* muted coral    — destructive */
+  --nc-magenta: 176 133 169;    /* muted mauve    — emphasis */
+  --nc-indigo: 127 133 168;     /* muted periwinkle — secondary */
+
+  /* Text ramp — graphite's real hierarchy driver */
+  --nc-text: 190 192 198;
+  --nc-text-bright: 242 243 246;
+  --nc-muted: 132 134 140;
+
+  /* Selection — inverse block */
+  --nc-selection-bg: 240 242 245;
+  --nc-selection-text: 10 10 12;
+
+  /* Typography — sans only, tight */
+  --nc-font-display: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+  --nc-font-body: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+  --nc-font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+}

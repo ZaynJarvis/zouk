@@ -3,12 +3,14 @@ import { nightCity } from './night-city';
 import { brutalist } from './brutalist';
 import { washingtonPost } from './washington-post';
 import { carbon } from './carbon';
+import { graphite } from './graphite';
 import NightCityThemeSelectButton from './night-city/ThemeSelectButton';
 import BrutalistThemeSelectButton from './brutalist/ThemeSelectButton';
 import WashingtonPostThemeSelectButton from './washington-post/ThemeSelectButton';
 import CarbonThemeSelectButton from './carbon/ThemeSelectButton';
+import GraphiteThemeSelectButton from './graphite/ThemeSelectButton';
 
-export type ThemeId = 'night-city' | 'brutalist' | 'washington-post' | 'carbon';
+export type ThemeId = 'night-city' | 'brutalist' | 'washington-post' | 'carbon' | 'graphite';
 
 export interface ThemeSelectButtonProps {
   selected: boolean;
@@ -33,6 +35,7 @@ export const themes: ThemeDefinition[] = [
   { ...brutalist, ThemeSelectButton: BrutalistThemeSelectButton },
   { ...washingtonPost, ThemeSelectButton: WashingtonPostThemeSelectButton },
   { ...carbon, ThemeSelectButton: CarbonThemeSelectButton },
+  { ...graphite, ThemeSelectButton: GraphiteThemeSelectButton },
 ];
 
 export const DEFAULT_THEME: ThemeId = 'washington-post';

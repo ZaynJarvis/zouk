@@ -873,6 +873,225 @@ html[data-theme="brutalist"] [class*="shadow-nc-"] {
   80.1%, 100% { opacity: 0; transform: translate3d(0, 0, 0); }
 }
 
+/* ==========================================================================
+   Graphite theme — pure grayscale, typography-led
+   Only applied when data-theme="graphite" is set on <html>.
+
+   Signature: true monochromatic (R=G=B base tokens), flat body (no gradient,
+   no noise), hairline borders (rgba(255,255,255,.04–.08)), circular avatars,
+   subtly rounded sidebar items (6–10px), compact chips, chromeless scrollbars,
+   180ms ease-out transitions only — no hover lift, no glow. Contrast and
+   typography do the work of color. Contrast hierarchy: text-bright > text >
+   muted; tonal surface steps: black → deep → surface → elevated.
+   ========================================================================== */
+
+/* Body — pure flat. Confidence is quiet; no gradient mesh, no noise grain. */
+html[data-theme="graphite"] body {
+  background: rgb(var(--nc-black));
+  font-family: var(--nc-font-body);
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme="graphite"] .app-shell,
+html[data-theme="graphite"] .login-shell {
+  background-color: rgb(var(--nc-black)) !important;
+}
+
+/* Panels — flat surface, hairline border, mild rounding, no shadow */
+html[data-theme="graphite"] .cyber-panel,
+html[data-theme="graphite"] .cyber-panel-elevated {
+  background: rgb(var(--nc-surface));
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+html[data-theme="graphite"] .cyber-panel-elevated {
+  background: rgb(var(--nc-elevated));
+  border-color: rgb(255 255 255 / 0.08);
+}
+
+/* TopBar — flat, single hairline at the bottom, no scanline animation.
+   (scanline-overlay's ::before is scoped to night-city only, safe here.) */
+html[data-theme="graphite"] .scanline-overlay {
+  background: rgb(var(--nc-surface)) !important;
+  border-bottom: 1px solid rgb(255 255 255 / 0.04) !important;
+  box-shadow: none;
+}
+
+/* Sidebar & rail chrome are already driven by the 'graphite' branch in
+   themeVariants.ts (hairline border-r, bg-nc-surface/bg-nc-deep) so no
+   extra CSS is needed here. */
+
+/* Buttons — no hover translate, no glow, just tone shift */
+html[data-theme="graphite"] .cyber-btn,
+html[data-theme="graphite"] .cyber-btn-lg {
+  border-radius: 8px;
+  box-shadow: none;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="graphite"] .cyber-btn:hover,
+  html[data-theme="graphite"] .cyber-btn-lg:hover {
+    background: rgb(255 255 255 / 0.05);
+  }
+}
+
+/* Composer — flat, rounded, subtle focus line (no halo) */
+html[data-theme="graphite"] .composer-surface {
+  background: rgb(var(--nc-panel)) !important;
+  border: 1px solid rgb(255 255 255 / 0.06) !important;
+  border-radius: 12px;
+  box-shadow: none;
+  transition: border-color 180ms ease;
+}
+
+/* Override MessageComposer's focus-within:border-nc-cyan with a neutral line */
+html[data-theme="graphite"] .focus-within\:border-nc-cyan:focus-within {
+  border-color: rgb(255 255 255 / 0.35) !important;
+  box-shadow: none;
+}
+
+/* Inputs — flat with single tight focus line */
+html[data-theme="graphite"] .cyber-input {
+  background: rgb(var(--nc-panel));
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 8px;
+  box-shadow: none;
+  transition: border-color 180ms ease;
+}
+
+html[data-theme="graphite"] .cyber-input:focus {
+  border-color: rgb(255 255 255 / 0.35);
+  box-shadow: none;
+}
+
+/* Status chips — small rounded rectangles (not pills), flat */
+html[data-theme="graphite"] .status-chip,
+html[data-theme="graphite"] .status-chip-sm {
+  border-radius: 4px;
+  border-color: rgb(255 255 255 / 0.08);
+  box-shadow: none;
+  letter-spacing: 0.06em;
+  font-family: var(--nc-font-body);
+  font-weight: 600;
+}
+
+/* Tones — Graphite keeps semantic color but at muted saturation. Surfaces
+   stay grayscale; tones are the one place color earns its keep (AGENT
+   badges, status chips, destructive actions) because monochrome wipes
+   out too much signal. Each tone uses the same recipe: 12% tinted bg,
+   40% tinted border, full (muted) text color. */
+html[data-theme="graphite"] .tone-critical {
+  background: rgb(var(--nc-red) / 0.12);
+  border-color: rgb(var(--nc-red) / 0.4);
+  color: rgb(var(--nc-red));
+}
+
+html[data-theme="graphite"] .tone-terminal {
+  background: rgb(var(--nc-green) / 0.12);
+  border-color: rgb(var(--nc-green) / 0.4);
+  color: rgb(var(--nc-green));
+}
+
+html[data-theme="graphite"] .tone-telemetry {
+  background: rgb(var(--nc-cyan) / 0.12);
+  border-color: rgb(var(--nc-cyan) / 0.4);
+  color: rgb(var(--nc-cyan));
+}
+
+html[data-theme="graphite"] .tone-indigo {
+  background: rgb(var(--nc-indigo) / 0.14);
+  border-color: rgb(var(--nc-indigo) / 0.4);
+  color: rgb(var(--nc-indigo));
+}
+
+html[data-theme="graphite"] .tone-warning {
+  background: rgb(var(--nc-yellow) / 0.12);
+  border-color: rgb(var(--nc-yellow) / 0.4);
+  color: rgb(var(--nc-yellow));
+}
+
+html[data-theme="graphite"] .tone-neutral {
+  background: rgb(255 255 255 / 0.05);
+  border-color: rgb(255 255 255 / 0.1);
+  color: rgb(var(--nc-text-bright));
+}
+
+/* Divider — 1px hairline, flat */
+html[data-theme="graphite"] .cyber-divider {
+  height: 1px;
+  background: rgb(255 255 255 / 0.06);
+}
+
+/* Border glow → just a hairline, no halo */
+html[data-theme="graphite"] .cyber-border-glow {
+  border-color: rgb(255 255 255 / 0.2);
+  box-shadow: none;
+}
+
+/* Selection — inverse block, no color */
+html[data-theme="graphite"] ::selection {
+  background-color: rgb(var(--nc-selection-bg));
+  color: rgb(var(--nc-selection-text));
+}
+
+/* ============================================================
+   Shape-level overrides — Graphite reshapes structure, not just palette.
+
+   Avatars across MessageItem, MembersPanel, SettingsModal, DetailsPanel,
+   and Agent* panels all render as a size-bounded div whose class list
+   contains both `font-display` and `overflow-hidden` (the div is the
+   image clip box, showing initials or Bot icon as a fallback). That
+   compound selector is unique to avatars in this codebase.
+   ============================================================ */
+html[data-theme="graphite"] .font-display.overflow-hidden {
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+
+/* Message row hover — far more restrained than bg-nc-elevated/40 */
+html[data-theme="graphite"] .hover\:bg-nc-elevated\/40:hover {
+  background-color: rgb(255 255 255 / 0.025);
+}
+
+/* Scrollbars — minimal, neutral, thin */
+html[data-theme="graphite"] * {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.1) transparent;
+}
+
+html[data-theme="graphite"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html[data-theme="graphite"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html[data-theme="graphite"] ::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.08);
+  border-radius: 999px;
+  transition: background 180ms ease;
+}
+
+html[data-theme="graphite"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.18);
+}
+
+/* Reduced motion — graphite has almost no motion, but honor the pref */
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="graphite"] *,
+  html[data-theme="graphite"] *::before,
+  html[data-theme="graphite"] *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
 @layer utilities {
   .line-clamp-2 {
     overflow: hidden;
