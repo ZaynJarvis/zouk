@@ -14,7 +14,6 @@ import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
 import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
-import type { RightPanel as RightPanelState, ViewMode } from './types';
 
 function GoogleAuthSync() {
   const { setHasGoogleAuth } = useApp();
@@ -28,44 +27,8 @@ function AllowlistSync({ active }: { active: boolean }) {
   return null;
 }
 
-function BottomSafeAreaFill({
-  viewMode,
-  rightPanel,
-  sidebarOpen,
-  settingsOpen,
-}: {
-  viewMode: ViewMode;
-  rightPanel: RightPanelState;
-  sidebarOpen: boolean;
-  settingsOpen: boolean;
-}) {
-  let backgroundClass = 'bg-nc-black';
-  let layerClass = 'z-10';
-
-  if (settingsOpen) {
-    backgroundClass = 'bg-nc-black/70';
-    layerClass = 'z-[45]';
-  } else if (sidebarOpen) {
-    backgroundClass = 'bg-black/40';
-    layerClass = 'z-[35]';
-  } else if (rightPanel) {
-    backgroundClass = rightPanel === 'thread' ? 'bg-nc-black' : 'bg-nc-surface';
-    layerClass = 'z-[25]';
-  } else if (viewMode === 'agents') {
-    backgroundClass = 'bg-nc-surface';
-  }
-
-  return (
-    <div
-      aria-hidden="true"
-      className={`lg:hidden fixed inset-x-0 bottom-0 pointer-events-none transition-colors duration-200 ${backgroundClass} ${layerClass}`}
-      style={{ height: 'env(safe-area-inset-bottom, 0px)' }}
-    />
-  );
-}
-
 function AppShell() {
-  const { viewMode, rightPanel, sidebarOpen, setSidebarOpen, settingsOpen, isLoggedIn } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn } = useApp();
 
   useEffect(() => {
     const onResize = () => { if (isMobileViewport()) setSidebarOpen(false); };
@@ -126,12 +89,6 @@ function AppShell() {
 
       <SettingsModal />
       <ToastContainer />
-      <BottomSafeAreaFill
-        viewMode={viewMode}
-        rightPanel={rightPanel}
-        sidebarOpen={sidebarOpen}
-        settingsOpen={settingsOpen}
-      />
     </div>
   );
 }

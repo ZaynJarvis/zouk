@@ -1,7 +1,8 @@
 import { Search, User, Bot } from 'lucide-react';
 import { useState } from 'react';
 import { useApp } from '../store/AppContext';
-import { activityColors } from '../lib/activityStatus';
+import StatusDot from './StatusDot';
+import { agentStatus, humanStatus } from '../lib/avatarStatus';
 import PanelShell from './panel/PanelShell';
 import PanelHeader from './panel/PanelHeader';
 
@@ -49,7 +50,8 @@ export default function MembersPanel() {
             </div>
             {filteredHumans.map(h => {
               const avatar = h.picture || h.gravatarUrl;
-              const offline = h.online === false;
+              const status = humanStatus(h);
+              const offline = status === 'offline';
               return (
                 <div key={h.id} className={`w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left ${offline ? 'opacity-60' : ''}`}>
                   <div className="relative w-8 h-8 flex-shrink-0">
@@ -60,10 +62,7 @@ export default function MembersPanel() {
                         <User size={14} />
                       </div>
                     )}
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-nc-bg ${offline ? 'bg-nc-muted' : 'bg-nc-green'}`}
-                      title={offline ? 'offline' : 'online'}
-                    />
+                    <StatusDot status={status} />
                   </div>
                   <span className="text-sm font-semibold text-nc-text-bright truncate">{h.name}</span>
                 </div>
@@ -77,15 +76,25 @@ export default function MembersPanel() {
             <div className="px-4 py-1 text-xs font-bold uppercase tracking-wider text-nc-muted font-mono">
               Agents ({filteredAgents.length})
             </div>
-            {filteredAgents.map(a => (
-              <div key={a.id} className="w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left">
-                <div className="w-8 h-8 border border-nc-green/30 bg-nc-green/10 font-display font-bold text-xs flex items-center justify-center text-nc-green">
-                  <Bot size={14} />
+            {filteredAgents.map(a => {
+              const status = agentStatus(a);
+              const offline = status === 'offline';
+              return (
+                <div key={a.id} className={`w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left ${offline ? 'opacity-60' : ''}`}>
+                  <div className="relative w-8 h-8 flex-shrink-0">
+                    {a.picture ? (
+                      <img src={a.picture} alt="" className={`w-8 h-8 object-cover border border-nc-green/30 ${offline ? 'grayscale' : ''}`} />
+                    ) : (
+                      <div className="w-8 h-8 border border-nc-green/30 bg-nc-green/10 font-display font-bold text-xs flex items-center justify-center text-nc-green">
+                        <Bot size={14} />
+                      </div>
+                    )}
+                    <StatusDot status={status} />
+                  </div>
+                  <span className="text-sm font-semibold text-nc-text-bright truncate">{a.displayName || a.name}</span>
                 </div>
-                <span className="text-sm font-semibold text-nc-text-bright truncate">{a.displayName || a.name}</span>
-                <span className={`ml-auto w-2 h-2 flex-shrink-0 ${activityColors[a.activity || 'offline']}`} />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

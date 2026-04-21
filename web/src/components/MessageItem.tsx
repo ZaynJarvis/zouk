@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Bot, Paperclip } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { MENTION_TOKEN_REGEX } from '../lib/mentions';
 import { highlightCode } from '../lib/highlight';
+import { getStoredLinkTransforms, subscribeLinkTransforms, type LinkTransformRule } from '../store/storage';
+import StatusDot from './StatusDot';
+import { agentStatus } from '../lib/avatarStatus';
 import ImageLightbox from './ImageLightbox';
 
 // Treat an attachment as an image if the server provided a content type (the
@@ -19,13 +22,46 @@ function formatTime(dateStr: string): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-// ── Inline renderer: bold, italic, inline-code, @mentions ──────────────────
+// ── Inline renderer: bold, italic, inline-code, @mentions, URLs ────────────
 type MentionSegment = { kind: 'mention'; start: number; end: number; handle: string };
 type InlineSegment = { kind: 'inline'; start: number; end: number; raw: string };
+type LinkSegment = { kind: 'link'; start: number; end: number; href: string; display: string };
 
-function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
-  const segments: (MentionSegment | InlineSegment)[] = [];
+// Trailing punctuation is often sentence punctuation, not part of the URL.
+function stripTrailingPunct(url: string): { url: string; trail: string } {
+  const m = url.match(/^(.*?)([.,;:!?)]+)$/);
+  if (!m) return { url, trail: '' };
+  return { url: m[1], trail: m[2] };
+}
+
+function applyLinkTransforms(url: string, rules: LinkTransformRule[]): string {
+  for (const rule of rules) {
+    try {
+      const re = new RegExp(rule.pattern);
+      if (re.test(url)) return url.replace(re, rule.replacement);
+    } catch {
+      // Invalid pattern — skip.
+    }
+  }
+  return url;
+}
+
+function renderInline(text: string, keyPrefix: string, linkRules: LinkTransformRule[]): React.ReactNode[] {
+  const segments: (MentionSegment | InlineSegment | LinkSegment)[] = [];
   let m: RegExpExecArray | null;
+
+  // URLs first so subsequent inline regexes don't chew up chars inside the
+  // URL (e.g. underscores, asterisks in query strings).
+  const urlRegexG = /\bhttps?:\/\/[^\s<>`"]+/g;
+  while ((m = urlRegexG.exec(text)) !== null) {
+    const raw = m[0];
+    const { url, trail } = stripTrailingPunct(raw);
+    const start = m.index;
+    const end = start + url.length;
+    const display = applyLinkTransforms(url, linkRules);
+    segments.push({ kind: 'link', start, end, href: url, display });
+    urlRegexG.lastIndex = end + trail.length;
+  }
 
   // Mentions — `new RegExp(source, flags)` replaces the pattern's flags
   // entirely, so we must re-specify `u` or `\p{L}`/`\p{N}` become invalid.
@@ -37,7 +73,9 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     const boundary = m[1] ?? '';
     const handle = m[2] ?? '';
     const start = m.index + boundary.length;
-    segments.push({ kind: 'mention', start, end: start + 1 + handle.length, handle });
+    const end = start + 1 + handle.length;
+    if (segments.some(s => start < s.end && end > s.start)) continue;
+    segments.push({ kind: 'mention', start, end, handle });
   }
 
   // Order matters: longer/specific tokens first so `**` isn't eaten by `*`.
@@ -63,6 +101,18 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
         <span key={`${keyPrefix}-m-${seg.start}`} className="text-nc-cyan font-semibold">
           @{seg.handle}
         </span>
+      );
+    } else if (seg.kind === 'link') {
+      nodes.push(
+        <a
+          key={`${keyPrefix}-l-${seg.start}`}
+          href={seg.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-nc-cyan hover:underline break-all"
+        >
+          {seg.display}
+        </a>
       );
     } else {
       const raw = seg.raw;
@@ -91,7 +141,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
 }
 
 // ── Block-level markdown parser ─────────────────────────────────────────────
-function parseMarkdown(content: string): React.ReactNode[] {
+function parseMarkdown(content: string, linkRules: LinkTransformRule[]): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   let key = 0;
 
@@ -102,7 +152,7 @@ function parseMarkdown(content: string): React.ReactNode[] {
 
   while ((match = codeBlockRegex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      nodes.push(...parseBlocks(content.slice(lastIndex, match.index), key));
+      nodes.push(...parseBlocks(content.slice(lastIndex, match.index), key, linkRules));
       key += 100;
     }
     const lang = match[1] || '';
@@ -137,7 +187,7 @@ function parseMarkdown(content: string): React.ReactNode[] {
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < content.length) {
-    nodes.push(...parseBlocks(content.slice(lastIndex), key));
+    nodes.push(...parseBlocks(content.slice(lastIndex), key, linkRules));
   }
 
   return nodes;
@@ -186,7 +236,7 @@ function isTableStart(lines: string[], i: number): boolean {
   );
 }
 
-function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
+function parseBlocks(text: string, keyBase: number, linkRules: LinkTransformRule[]): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   // Normalise line endings, split into lines
   const lines = text.split('\n');
@@ -223,7 +273,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
             margin: marginByLevel[level - 1],
           }}
         >
-          {renderInline(hMatch[2], `h-${k}`)}
+          {renderInline(hMatch[2], `h-${k}`, linkRules)}
         </div>
       );
       i++;
@@ -240,7 +290,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
       nodes.push(
         <blockquote key={`bq-${k++}`} className="border-l-[3px] border-nc-cyan/60 bg-nc-cyan/[0.04] pl-3 pr-2 py-1.5 my-2 text-nc-muted rounded-r-sm" style={{ lineHeight: 1.55 }}>
           {bqLines.map((l, idx) => (
-            <p key={idx} className="my-0.5">{renderInline(l, `bq-${k}-${idx}`)}</p>
+            <p key={idx} className="my-0.5">{renderInline(l, `bq-${k}-${idx}`, linkRules)}</p>
           ))}
         </blockquote>
       );
@@ -286,7 +336,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
               <span className="text-nc-cyan flex-shrink-0 select-none" aria-hidden="true" style={{ width: '0.9em', textAlign: 'center' }}>
                 {item.depth === 0 ? '•' : '▸'}
               </span>
-              <span className="flex-1">{renderInline(item.text, `ul-${k}-${idx}`)}</span>
+              <span className="flex-1">{renderInline(item.text, `ul-${k}-${idx}`, linkRules)}</span>
             </li>
           ))}
         </ul>
@@ -319,7 +369,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
               <span className="text-nc-cyan font-mono flex-shrink-0 tabular-nums" style={{ minWidth: '1.4em', textAlign: 'right' }}>
                 {item.num}.
               </span>
-              <span className="flex-1">{renderInline(item.text, `ol-${k}-${idx}`)}</span>
+              <span className="flex-1">{renderInline(item.text, `ol-${k}-${idx}`, linkRules)}</span>
             </li>
           ))}
         </ol>
@@ -350,7 +400,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
                     className="border border-nc-border/70 px-2 py-1 font-display font-bold text-nc-text-bright"
                     style={{ textAlign: aligns[idx] || 'left' }}
                   >
-                    {renderInline(h, `tbl-${tk}-h-${idx}`)}
+                    {renderInline(h, `tbl-${tk}-h-${idx}`, linkRules)}
                   </th>
                 ))}
               </tr>
@@ -365,7 +415,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
                         className="border border-nc-border/70 px-2 py-1 text-nc-text align-top"
                         style={{ textAlign: aligns[cIdx] || 'left' }}
                       >
-                        {renderInline(row[cIdx] ?? '', `tbl-${tk}-${rIdx}-${cIdx}`)}
+                        {renderInline(row[cIdx] ?? '', `tbl-${tk}-${rIdx}-${cIdx}`, linkRules)}
                       </td>
                     ))}
                   </tr>
@@ -402,7 +452,7 @@ function parseBlocks(text: string, keyBase: number): React.ReactNode[] {
           className="text-nc-text my-1 whitespace-pre-wrap break-words"
           style={{ fontFamily: 'var(--nc-font-message)', lineHeight: 1.55, overflowWrap: 'anywhere' }}
         >
-          {renderInline(paraText, `p-${k}`)}
+          {renderInline(paraText, `p-${k}`, linkRules)}
         </p>
       );
     }
@@ -443,6 +493,7 @@ function getSenderColor(name: string): string {
 // ── Component ────────────────────────────────────────────────────────────────
 export default function MessageItem({ message, isGrouped = false }: { message: MessageRecord; isGrouped?: boolean }) {
   const { humans, agents, configs, currentUser, authUser, openAgentProfile } = useApp();
+  const linkRules = useSyncExternalStore(subscribeLinkTransforms, getStoredLinkTransforms);
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
@@ -485,33 +536,43 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
             </span>
           </div>
         ) : isAgent && agentProfileId ? (
-          <button
-            type="button"
-            onClick={() => openAgentProfile(agentProfileId)}
-            title={`View @${senderName} profile`}
-            className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5 overflow-hidden transition-transform hover:scale-105 hover:ring-1 hover:ring-nc-cyan focus:outline-none focus:ring-1 focus:ring-nc-cyan"
-            style={{
-              backgroundColor: `${color}12`,
-              color,
-              boxShadow: `0 0 10px ${color}18`,
-            }}
-          >
-            {senderPicture ? (
-              <img src={senderPicture} alt="" className="w-full h-full object-cover" />
-            ) : <Bot size={15} />}
-          </button>
+          <div className="relative flex-shrink-0 mt-0.5">
+            <button
+              type="button"
+              onClick={() => openAgentProfile(agentProfileId)}
+              title={`View @${senderName} profile`}
+              className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden transition-transform hover:scale-105 hover:ring-1 hover:ring-nc-cyan focus:outline-none focus:ring-1 focus:ring-nc-cyan"
+              style={{
+                backgroundColor: `${color}12`,
+                color,
+                boxShadow: `0 0 10px ${color}18`,
+              }}
+            >
+              {senderPicture ? (
+                <img src={senderPicture} alt="" className="w-full h-full object-cover" />
+              ) : <Bot size={15} />}
+            </button>
+            {senderAgent && (
+              <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
+            )}
+          </div>
         ) : (
-          <div
-            className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none flex-shrink-0 mt-0.5 overflow-hidden"
-            style={{
-              backgroundColor: `${color}12`,
-              color,
-              boxShadow: isAgent ? `0 0 10px ${color}18` : undefined,
-            }}
-          >
-            {senderPicture ? (
-              <img src={senderPicture} alt="" className="w-full h-full object-cover" />
-            ) : isAgent ? <Bot size={15} /> : senderName.charAt(0).toUpperCase()}
+          <div className="relative flex-shrink-0 mt-0.5">
+            <div
+              className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden"
+              style={{
+                backgroundColor: `${color}12`,
+                color,
+                boxShadow: isAgent ? `0 0 10px ${color}18` : undefined,
+              }}
+            >
+              {senderPicture ? (
+                <img src={senderPicture} alt="" className="w-full h-full object-cover" />
+              ) : isAgent ? <Bot size={15} /> : senderName.charAt(0).toUpperCase()}
+            </div>
+            {isAgent && senderAgent && (
+              <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
+            )}
           </div>
         )}
 
@@ -537,7 +598,7 @@ export default function MessageItem({ message, isGrouped = false }: { message: M
 
           {/* Rendered content */}
           <div className="min-w-0 msg-body">
-            {message.content ? parseMarkdown(message.content) : null}
+            {message.content ? parseMarkdown(message.content, linkRules) : null}
           </div>
 
           {/* Image attachments — inline thumbnails, click to open lightbox */}
