@@ -18,7 +18,7 @@ import { resolve } from 'path';
 import { mkdirSync } from 'fs';
 import { loadApp } from './qa-lib.mjs';
 
-const THEMES = ['night-city', 'brutalist', 'washington-post', 'carbon'];
+const THEMES = ['night-city', 'brutalist', 'washington-post', 'carbon', 'graphite'];
 
 function parseArgs() {
   const args = process.argv.slice(2);

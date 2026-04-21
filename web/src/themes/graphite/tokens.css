@@ -20,6 +20,14 @@ html[data-theme="graphite"] {
   --nc-magenta: 176 133 169;    /* muted mauve    — emphasis */
   --nc-indigo: 127 133 168;     /* muted periwinkle — secondary */
 
+  /* Semantic (toasts / status) — mirror of the accent palette above.
+     Contract: green-for-ok, red-for-error across every theme. Shade can
+     drift per theme; hue family cannot. */
+  --nc-success: 125 172 138;    /* sage, mirror of --nc-green */
+  --nc-error:   215 122 122;    /* coral, mirror of --nc-red */
+  --nc-warning: 194 166 115;    /* honey, mirror of --nc-yellow */
+  --nc-info:    122 165 192;    /* steel blue, mirror of --nc-cyan */
+
   /* Text ramp — graphite's real hierarchy driver */
   --nc-text: 190 192 198;
   --nc-text-bright: 242 243 246;
