@@ -413,9 +413,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           <div
             className={`composer-surface flex-1 min-w-0 flex items-end gap-2 border border-nc-border bg-nc-black cyber-bevel-sm cursor-text ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}
             onClick={(e) => {
-              // Clicking dead space next to the textarea (e.g. the "Enter to send"
-              // hint on the right) should focus the composer instead of doing
-              // nothing. Skip interactive children so their native click behaviour
+              // Clicking dead space around the textarea should focus the composer.
+              // Skip interactive children so their native click behaviour
               // (image attach button, textarea itself) still wins.
               const target = e.target as HTMLElement;
               if (target.closest('button, a, textarea, input')) return;
@@ -458,15 +457,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             rows={1}
             className="composer-textarea flex-1 min-w-0 py-1.5 sm:py-2 pr-4 sm:pr-3 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed"
           />
-
-          {!text.trim() && pendingImages.length === 0 && !isGuest && (
-            <span
-              aria-hidden="true"
-              className="text-2xs text-nc-muted/50 font-mono hidden sm:block pointer-events-none select-none self-center pr-3 flex-shrink-0"
-            >
-              Enter to send · Shift+Enter for newline
-            </span>
-          )}
           </div>
         </div>
       </div>
