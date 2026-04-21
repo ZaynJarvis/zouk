@@ -568,8 +568,25 @@ function replayPendingDeliveries(agentId) {
 function broadcastToWeb(event) {
   const data = JSON.stringify(event);
   for (const ws of webSockets) {
-    if (ws.readyState === 1) ws.send(data);
+    if (ws.readyState !== 1) continue;
+    if (!shouldDeliverEventToWebViewer(event, ws)) continue;
+    ws.send(data);
   }
+}
+
+// DM messages must only reach the two parties; everything else (channel posts,
+// agent/machine/task/config updates) continues to broadcast globally.
+function shouldDeliverEventToWebViewer(event, ws) {
+  if (event.type !== "message" && event.type !== "new_message") return true;
+  const msg = event.message;
+  if (!msg) return true;
+  const isDm = msg.channelType === "dm" || msg.parentChannelType === "dm";
+  if (!isDm) return true;
+  const parties = msg.dmParties;
+  if (!parties || parties.length === 0) return true;
+  const viewer = ws._humanName;
+  if (!viewer) return false;
+  return parties.includes(viewer);
 }
 
 const profilePresets = createProfilePresetsStore({
@@ -2188,7 +2205,9 @@ const WS_AUTH_REQUIRED_TYPES = new Set([
 function handleWebConnection(ws, authenticated, token = null) {
   ws._authenticated = !!authenticated;
   ws._authToken = token;
-  ws._humanName = null;
+  // Seed from the auth session so DM broadcasts can be filtered immediately;
+  // setWebPresence() will overwrite this with the canonical presence identity.
+  ws._humanName = token ? (authSessions.get(token)?.name || null) : null;
   ws._human = null;
   webSockets.add(ws);
   console.log(`[web] Client connected (authenticated: ${ws._authenticated})`);
