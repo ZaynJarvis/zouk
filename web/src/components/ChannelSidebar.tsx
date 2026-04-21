@@ -217,14 +217,6 @@ export default function ChannelSidebar() {
                 </span>
                 <span className="truncate text-sm">{agent.displayName || agent.name}</span>
                 <div className="ml-auto flex items-center gap-1.5">
-                  {usageLabel && (
-                    <span
-                      className={`shrink-0 text-[10px] font-mono leading-none ${usageTone}`}
-                      title={usageTitle}
-                    >
-                      {usageLabel}
-                    </span>
-                  )}
                   {agent.status === 'active' && !isGuest && (
                     <span
                       role="button"
@@ -254,6 +246,14 @@ export default function ChannelSidebar() {
                   {unread > 0 && !isActive && (
                     <span className="bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
                       {unread}
+                    </span>
+                  )}
+                  {usageLabel && (
+                    <span
+                      className={`shrink-0 text-[10px] font-mono leading-none ${usageTone}`}
+                      title={usageTitle}
+                    >
+                      {usageLabel}
                     </span>
                   )}
                 </div>
