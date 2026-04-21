@@ -185,6 +185,55 @@ async function loadChannels() {
   }
 }
 
+// ─── Channel ↔ Agent membership ──────────────────────────────────
+
+async function saveChannelAgent({ channelId, agentId, canRead = true, subscribed = true }) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO channel_agents (channel_id, agent_id, can_read, subscribed, updated_at)
+       VALUES ($1,$2,$3,$4, now())
+       ON CONFLICT (channel_id, agent_id) DO UPDATE SET
+         can_read   = EXCLUDED.can_read,
+         subscribed = EXCLUDED.subscribed,
+         updated_at = now()`,
+      [channelId, agentId, !!canRead, !!subscribed]
+    );
+  } catch (e) {
+    console.error('[db] saveChannelAgent error:', e.message);
+  }
+}
+
+async function deleteChannelAgent(channelId, agentId) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      'DELETE FROM channel_agents WHERE channel_id = $1 AND agent_id = $2',
+      [channelId, agentId]
+    );
+  } catch (e) {
+    console.error('[db] deleteChannelAgent error:', e.message);
+  }
+}
+
+async function loadChannelAgents() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      'SELECT channel_id, agent_id, can_read, subscribed FROM channel_agents'
+    );
+    return rows.map(row => ({
+      channelId: row.channel_id,
+      agentId: row.agent_id,
+      canRead: row.can_read,
+      subscribed: row.subscribed,
+    }));
+  } catch (e) {
+    console.error('[db] loadChannelAgents error:', e.message);
+    return [];
+  }
+}
+
 // ─── Tasks ───────────────────────────────────────────────────────
 
 async function saveTask(task) {
@@ -651,6 +700,9 @@ module.exports = {
   saveChannel,
   deleteChannel,
   loadChannels,
+  saveChannelAgent,
+  deleteChannelAgent,
+  loadChannelAgents,
   saveTask,
   loadTasks,
   loadMaxSeq,

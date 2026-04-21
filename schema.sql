@@ -101,3 +101,20 @@ CREATE TABLE IF NOT EXISTS agent_activities (
 
 CREATE INDEX IF NOT EXISTS agent_activities_agent_id_idx
   ON agent_activities (agent_id, id DESC);
+
+-- channel_agents — N:M membership between channels and agents. Drives who
+-- receives WS push (`subscribed`) and who can read history / check_messages
+-- (`can_read`). Without a row for (channel, agent), the agent is treated as
+-- NOT a member of that channel.
+CREATE TABLE IF NOT EXISTS channel_agents (
+  channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  agent_id   TEXT NOT NULL REFERENCES agent_configs(id) ON DELETE CASCADE,
+  can_read   BOOLEAN NOT NULL DEFAULT true,
+  subscribed BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel_id, agent_id)
+);
+
+CREATE INDEX IF NOT EXISTS channel_agents_agent_idx
+  ON channel_agents (agent_id);

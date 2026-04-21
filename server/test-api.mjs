@@ -222,10 +222,11 @@ test('POST /api/messages without auth: returns 403', async () => {
   assert.equal(res.status, 403, 'unauthenticated writes must be rejected with 403');
 });
 
-// ─── DM target gating (Phase 1 fix) ────────────────────────────────────────────
+// ─── DM target gating ──────────────────────────────────────────────────────────
 // Regression: check_messages used to return every message in the store
 // regardless of target, so any agent calling it saw DMs between other pairs.
-// After the fix, the /receive, /history, and /search paths gate DMs by party.
+// Membership-based gating (DM seeds only the two parties) enforces this on
+// the /receive, /history, and /search paths.
 
 test('check_messages: DM between human and one agent is not visible to other agents', async () => {
   // Drain all mock agents' /receive so backlog doesn't mask the result.
@@ -414,4 +415,188 @@ test('WS broadcast: DM messages reach only the two parties', async () => {
   assert.ok(aliceGot, 'sender (alice) must receive her own DM echo');
   assert.ok(bobGot, 'recipient (bob) must receive the DM');
   assert.equal(carolGot, null, 'uninvolved party (carol) must NOT receive the DM');
+});
+
+// ─── Channel ↔ Agent membership ───────────────────────────────────────────────
+// These tests cover the PM-broadcast-v2 fix: only agents that are members of a
+// channel should see messages in that channel via the pull path
+// (check_messages / history / search) and the push path (WS deliver). Mock
+// data seeds three agents (reviewer, bugbot, deployer) into four channels
+// (all, engineering, design, ops).
+
+const MOCK_AGENT = 'agent-mock-reviewer';
+const OTHER_AGENT = 'agent-mock-bugbot';
+
+test('subscriptions: mock agents are seeded into every regular channel', async () => {
+  const { status, body } = await json(await fetch(
+    `${BASE}/internal/agent/${MOCK_AGENT}/subscriptions`,
+  ));
+  assert.equal(status, 200);
+  const names = new Set(body.subscriptions.map(s => s.channelName));
+  for (const expected of ['all', 'engineering', 'design', 'ops']) {
+    assert.ok(names.has(expected), `seeded membership on #${expected} expected`);
+  }
+  // All default seeds should be both readable and subscribed.
+  for (const s of body.subscriptions) {
+    assert.equal(s.canRead, true);
+    assert.equal(s.subscribed, true);
+  }
+});
+
+test('PATCH /internal/.../subscriptions flips canRead + visibility in history', async () => {
+  // Seed a unique marker so we know which message to look for.
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'membership-tester' }),
+  });
+  const { token } = await authRes.json();
+  const marker = `membership-probe-${Date.now()}`;
+  await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#engineering', content: marker }),
+  });
+
+  // Subscribed agent sees it in history.
+  const before = await json(await fetch(
+    `${BASE}/internal/agent/${MOCK_AGENT}/history?channel=%23engineering&limit=50`,
+  ));
+  assert.equal(before.status, 200);
+  assert.ok(
+    before.body.messages.some(m => m.content === marker),
+    'subscribed agent should see the marker in #engineering history'
+  );
+
+  // Flip canRead=false and subscribed=false for this agent.
+  const patched = await json(await fetch(
+    `${BASE}/internal/agent/${MOCK_AGENT}/subscriptions`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelName: 'engineering', canRead: false, subscribed: false }),
+    }
+  ));
+  assert.equal(patched.status, 200);
+  assert.equal(patched.body.membership, null, 'both flags false must remove the row');
+
+  // Unsubscribed agent no longer sees #engineering history.
+  const after = await json(await fetch(
+    `${BASE}/internal/agent/${MOCK_AGENT}/history?channel=%23engineering&limit=50`,
+  ));
+  assert.equal(after.status, 200);
+  assert.ok(
+    !after.body.messages.some(m => m.content === marker),
+    'unsubscribed agent must not see #engineering history'
+  );
+
+  // Other agent still sees it.
+  const other = await json(await fetch(
+    `${BASE}/internal/agent/${OTHER_AGENT}/history?channel=%23engineering&limit=50`,
+  ));
+  assert.equal(other.status, 200);
+  assert.ok(
+    other.body.messages.some(m => m.content === marker),
+    'other subscribed agent should still see #engineering history'
+  );
+
+  // Re-subscribe for cleanliness / later tests.
+  await fetch(
+    `${BASE}/internal/agent/${MOCK_AGENT}/subscriptions`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelName: 'engineering', canRead: true, subscribed: true }),
+    }
+  );
+});
+
+test('check_messages: only members of the channel see its messages', async () => {
+  // Drain any pending backlog for both agents so we're measuring incremental delivery.
+  await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/receive`);
+  await fetch(`${BASE}/internal/agent/${OTHER_AGENT}/receive`);
+
+  // Unsubscribe OTHER_AGENT from #ops while MOCK_AGENT stays subscribed.
+  await fetch(
+    `${BASE}/internal/agent/${OTHER_AGENT}/subscriptions`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelName: 'ops', canRead: false, subscribed: false }),
+    }
+  );
+
+  // Send a message to #ops.
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ops-poster' }),
+  });
+  const { token } = await authRes.json();
+  const marker = `ops-probe-${Date.now()}`;
+  await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#ops', content: marker }),
+  });
+
+  // Subscribed agent's check_messages should include it.
+  const member = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/receive`));
+  assert.equal(member.status, 200);
+  assert.ok(
+    member.body.messages.some(m => m.content === marker),
+    'member agent must receive the #ops message via check_messages'
+  );
+
+  // Unsubscribed agent's check_messages MUST NOT include it.
+  const nonMember = await json(await fetch(`${BASE}/internal/agent/${OTHER_AGENT}/receive`));
+  assert.equal(nonMember.status, 200);
+  assert.ok(
+    !nonMember.body.messages.some(m => m.content === marker),
+    'non-member agent must NOT see #ops message via check_messages (the PM-broadcast bug)'
+  );
+
+  // Restore.
+  await fetch(
+    `${BASE}/internal/agent/${OTHER_AGENT}/subscriptions`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelName: 'ops', canRead: true, subscribed: true }),
+    }
+  );
+});
+
+test('DM between two agents: only the two parties are seeded as members', async () => {
+  // Sending any DM message to create the channel. We use the /api/messages
+  // path but need an auth token first.
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'reviewer' }),
+  });
+  const { token } = await authRes.json();
+  const marker = `dm-probe-${Date.now()}`;
+  const dmSend = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: 'dm:@bugbot', content: marker }),
+  }));
+  assert.equal(dmSend.status, 200);
+
+  // The recipient agent (bugbot) must see it via check_messages.
+  const recipient = await json(await fetch(`${BASE}/internal/agent/${OTHER_AGENT}/receive`));
+  assert.equal(recipient.status, 200);
+  assert.ok(
+    recipient.body.messages.some(m => m.content === marker),
+    'DM recipient must see the message via check_messages'
+  );
+
+  // A third, uninvolved agent must NOT see it.
+  const third = await json(await fetch(`${BASE}/internal/agent/agent-mock-deployer/receive`));
+  assert.equal(third.status, 200);
+  assert.ok(
+    !third.body.messages.some(m => m.content === marker),
+    'uninvolved agent must NOT see a DM between two other agents'
+  );
 });

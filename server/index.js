@@ -280,6 +280,10 @@ const store = {
   humans: [],
   attachments: {}, // id -> { filename, buffer, contentType }
   agentReadSeq: {}, // agentId -> last seq delivered/read
+  // channelAgents: channelId -> Map<agentId, { canRead, subscribed }>
+  // Absence of (channelId, agentId) = agent is NOT a member of that channel.
+  // subscribed controls WS-push wakeup; canRead controls /receive, /history, /search visibility.
+  channelAgents: new Map(),
   seq: 0,
   taskSeq: 0,
 };
@@ -298,23 +302,142 @@ function now() {
 }
 
 function findOrCreateChannel(name, type = "channel") {
-  if (type === "dm") {
-    return {
-      id: `dm-${name}`,
+  let ch = store.channels.find((c) => c.name === name && (c.type || "channel") === (type || "channel"));
+  if (!ch) {
+    const idPrefix = type === "dm" ? "dm-" : "ch-";
+    ch = {
+      id: `${idPrefix}${uuidv4().substring(0, 8)}`,
       name,
       description: "",
-      type: "dm",
+      type: type || "channel",
       members: [],
     };
-  }
-
-  let ch = store.channels.find((c) => c.name === name);
-  if (!ch) {
-    ch = { id: `ch-${uuidv4().substring(0, 8)}`, name, description: "", type: type || "channel", members: [] };
     store.channels.push(ch);
     db.saveChannel(ch);
+    seedMembershipOnChannelCreate(ch);
   }
   return ch;
+}
+
+// ─── Channel ↔ Agent membership helpers ───────────────────────────
+// membership row: { canRead: bool, subscribed: bool }
+// Missing row = not a member.
+
+function getMembership(channelId, agentId) {
+  const ca = store.channelAgents.get(channelId);
+  return ca ? ca.get(agentId) : undefined;
+}
+
+function setMembership(channelId, agentId, { canRead = true, subscribed = true } = {}) {
+  let ca = store.channelAgents.get(channelId);
+  if (!ca) {
+    ca = new Map();
+    store.channelAgents.set(channelId, ca);
+  }
+  const existing = ca.get(agentId);
+  if (existing && existing.canRead === !!canRead && existing.subscribed === !!subscribed) return false;
+  ca.set(agentId, { canRead: !!canRead, subscribed: !!subscribed });
+  db.saveChannelAgent({ channelId, agentId, canRead: !!canRead, subscribed: !!subscribed });
+  return true;
+}
+
+function removeMembership(channelId, agentId) {
+  const ca = store.channelAgents.get(channelId);
+  if (ca) {
+    ca.delete(agentId);
+    if (ca.size === 0) store.channelAgents.delete(channelId);
+  }
+  db.deleteChannelAgent(channelId, agentId);
+}
+
+function purgeAgentMemberships(agentId) {
+  for (const ca of store.channelAgents.values()) {
+    ca.delete(agentId);
+  }
+  // DB FK cascade handles row removal when agent_configs is deleted.
+}
+
+function purgeChannelMemberships(channelId) {
+  store.channelAgents.delete(channelId);
+  // DB FK cascade handles row removal when channels is deleted.
+}
+
+function subscribedAgentIdsFor(channelId) {
+  const ca = store.channelAgents.get(channelId);
+  if (!ca) return [];
+  const out = [];
+  for (const [agentId, row] of ca) {
+    if (row.subscribed) out.push(agentId);
+  }
+  return out;
+}
+
+function agentCanRead(channelId, agentId) {
+  const row = getMembership(channelId, agentId);
+  return !!(row && row.canRead);
+}
+
+// Is a given stored message visible to an agent? Looks the channel up by
+// the message's channelId (falling back to (name,type)) and then consults
+// the membership table. Unknown channels fail closed.
+function messageVisibleToAgent(msg, agentId) {
+  const ch = msg.channelId
+    ? store.channels.find((c) => c.id === msg.channelId)
+    : store.channels.find((c) => c.name === msg.channelName && (c.type || "channel") === (msg.channelType || "channel"));
+  if (!ch) return false;
+  return agentCanRead(ch.id, agentId);
+}
+
+// Seed membership when a channel is created.
+//   DM: only the two parties (if they resolve to agents) are members.
+//   Regular channel: all active+configured agents are members by default.
+//                    (Preserves legacy "broadcast to everyone" behavior; ops
+//                    can unsubscribe later via the API.)
+function seedMembershipOnChannelCreate(channel) {
+  if ((channel.type || "channel") === "dm") {
+    const parties = dmChannelParties(channel.name) || [];
+    for (const partyName of parties) {
+      const agentId = agentIdByName(partyName);
+      if (agentId) setMembership(channel.id, agentId, { canRead: true, subscribed: true });
+    }
+    return;
+  }
+  for (const agentId of Object.keys(store.agents)) {
+    setMembership(channel.id, agentId, { canRead: true, subscribed: true });
+  }
+  // Also seed configured agents that don't yet have a runtime entry, so the
+  // membership carries across restarts.
+  for (const cfg of agentConfigs) {
+    if (!store.agents[cfg.id]) {
+      setMembership(channel.id, cfg.id, { canRead: true, subscribed: true });
+    }
+  }
+}
+
+function agentIdByName(name) {
+  if (!name) return null;
+  const lowered = String(name).toLowerCase();
+  for (const cfg of agentConfigs) {
+    if ((cfg.name || "").toLowerCase() === lowered) return cfg.id;
+    if ((cfg.displayName || "").toLowerCase() === lowered) return cfg.id;
+  }
+  for (const [id, a] of Object.entries(store.agents)) {
+    if ((a.name || "").toLowerCase() === lowered) return id;
+    if ((a.displayName || "").toLowerCase() === lowered) return id;
+  }
+  return null;
+}
+
+// Seed a newly-created/registered agent into all existing non-DM channels so
+// they start out subscribed everywhere (legacy behavior). DMs are NOT seeded
+// here — DMs only have 2 members by construction.
+function seedAgentIntoRegularChannels(agentId) {
+  for (const ch of store.channels) {
+    if ((ch.type || "channel") === "dm") continue;
+    if (!getMembership(ch.id, agentId)) {
+      setMembership(ch.id, agentId, { canRead: true, subscribed: true });
+    }
+  }
 }
 
 // ─── Canonical DM channel helpers ─────────────────────────────────
@@ -808,34 +931,25 @@ function extractMentions(content) {
   return mentions;
 }
 
-// Visibility gate for agent-scoped read paths. For DMs, only the two parties
-// (matched by agent name/displayName) may see the message. Channels currently
-// remain visible to every agent until explicit channel↔agent membership lands.
-function messageVisibleToAgent(message, agent) {
-  if (!agent) return false;
-  if (message.channelType !== "dm") return true;
-  const parties = dmChannelParties(message.channelName);
-  if (!parties) return false;
-  const loweredParties = parties.map((p) => p.toLowerCase());
-  const names = [agent.name, agent.displayName]
-    .filter(Boolean)
-    .map((n) => String(n).toLowerCase());
-  return names.some((n) => loweredParties.includes(n));
-}
-
 function deliverToAllAgents(message, excludeAgent = null) {
   const mentions = extractMentions(message.content || "");
   const hasSpecificMention = mentions.some((m) =>
     Object.values(store.agents).some((a) => agentMatchesMention(a, m))
   );
 
-  for (const agentId of Object.keys(store.agents)) {
+  // Resolve the channel row so we can ask who's subscribed. Messages always
+  // carry channelId (set at write time); fall back to name/type lookup in
+  // case of old records.
+  const ch = message.channelId
+    ? store.channels.find((c) => c.id === message.channelId)
+    : store.channels.find((c) => c.name === message.channelName && (c.type || "channel") === (message.channelType || "channel"));
+
+  const subscribedIds = ch ? subscribedAgentIdsFor(ch.id) : [];
+
+  for (const agentId of subscribedIds) {
     if (excludeAgent && agentId === excludeAgent) continue;
     const agent = store.agents[agentId];
     if (!agent || agent.status !== "active") continue;
-
-    // DM gate — only the two parties may receive a DM.
-    if (!messageVisibleToAgent(message, agent)) continue;
 
     // If message mentions specific agent(s), only deliver to them
     if (hasSpecificMention) {
@@ -911,18 +1025,17 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
 app.get("/internal/agent/:agentId/receive", (req, res) => {
   const { agentId } = req.params;
   const lastRead = store.agentReadSeq[agentId] || 0;
-  const agentForGate = store.agents[agentId] || { name: agentPayload(agentId)?.name || agentId };
   const selfName = agentPayload(agentId)?.name || agentId;
-  // Return only messages after the agent's last read seq, excluding agent's own
-  // messages and DMs the agent isn't a party to.
+  // Filter to messages the agent is allowed to see: later than lastRead,
+  // not from self, AND in a channel the agent is a member of (can_read).
   const unread = store.messages
-    .filter((m) =>
+    .filter((m) => (
       m.seq > lastRead
       && m.senderName !== selfName
-      && messageVisibleToAgent(m, agentForGate)
-    )
+      && messageVisibleToAgent(m, agentId)
+    ))
     .map((m) => formatMessageForAgent(m, agentId));
-  // Update read position
+  // Update read position (across all messages so we never revisit old seqs)
   if (store.messages.length > 0) {
     store.agentReadSeq[agentId] = store.messages[store.messages.length - 1].seq;
   }
@@ -931,13 +1044,18 @@ app.get("/internal/agent/:agentId/receive", (req, res) => {
 
 // list_server
 app.get("/internal/agent/:agentId/server", (req, res) => {
+  const { agentId } = req.params;
   const channels = store.channels
     .filter((ch) => (ch.type || "channel") === "channel")
-    .map((ch) => ({
-      name: ch.name,
-      description: ch.description || "",
-      joined: true,
-    }));
+    .map((ch) => {
+      const row = getMembership(ch.id, agentId);
+      return {
+        name: ch.name,
+        description: ch.description || "",
+        joined: !!(row && row.canRead),
+        subscribed: !!(row && row.subscribed),
+      };
+    });
   const agents = Object.keys(store.agents).map((id) => {
     const p = agentPayload(id);
     return { name: p?.name || id, status: p?.status || "inactive" };
@@ -945,15 +1063,58 @@ app.get("/internal/agent/:agentId/server", (req, res) => {
   res.json({ channels, agents, humans: store.humans });
 });
 
+// list the agent's channel memberships (subscriptions)
+app.get("/internal/agent/:agentId/subscriptions", (req, res) => {
+  const { agentId } = req.params;
+  const out = [];
+  for (const ch of store.channels) {
+    const row = getMembership(ch.id, agentId);
+    if (!row) continue;
+    out.push({
+      channelId: ch.id,
+      channelName: ch.name,
+      channelType: ch.type || "channel",
+      canRead: !!row.canRead,
+      subscribed: !!row.subscribed,
+    });
+  }
+  res.json({ subscriptions: out });
+});
+
+// update a single subscription. Body: { channelId?, channelName?, channelType?, canRead?, subscribed? }
+// Either channelId or (channelName[, channelType]) must be provided.
+app.patch("/internal/agent/:agentId/subscriptions", (req, res) => {
+  const { agentId } = req.params;
+  const { channelId, channelName, channelType = "channel", canRead, subscribed } = req.body || {};
+  let ch;
+  if (channelId) {
+    ch = store.channels.find((c) => c.id === channelId);
+  } else if (channelName) {
+    ch = store.channels.find((c) => c.name === channelName && (c.type || "channel") === channelType);
+  }
+  if (!ch) return res.status(404).json({ error: "channel_not_found" });
+  const existing = getMembership(ch.id, agentId) || { canRead: true, subscribed: true };
+  const next = {
+    canRead: canRead === undefined ? existing.canRead : !!canRead,
+    subscribed: subscribed === undefined ? existing.subscribed : !!subscribed,
+  };
+  // If both flags end up false, remove the row entirely (not a member).
+  if (!next.canRead && !next.subscribed) {
+    removeMembership(ch.id, agentId);
+    return res.json({ ok: true, membership: null });
+  }
+  setMembership(ch.id, agentId, next);
+  res.json({ ok: true, membership: { channelId: ch.id, channelName: ch.name, ...next } });
+});
+
 // read_history
 app.get("/internal/agent/:agentId/history", (req, res) => {
   const { agentId } = req.params;
   const { channel, limit = 50, before, after, around } = req.query;
   const agentName = store.agents[agentId]?.name || agentId;
-  const agentForGate = store.agents[agentId] || { name: agentName };
-  let msgs = store.messages.filter(
-    (m) => matchesTarget(m, channel, agentName) && messageVisibleToAgent(m, agentForGate),
-  );
+  let msgs = store.messages.filter((m) => (
+    matchesTarget(m, channel, agentName) && messageVisibleToAgent(m, agentId)
+  ));
   const limitNum = parseInt(limit);
 
   if (around) {
@@ -988,11 +1149,10 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
 app.get("/internal/agent/:agentId/search", (req, res) => {
   const { agentId } = req.params;
   const agentName = store.agents[agentId]?.name || agentId;
-  const agentForGate = store.agents[agentId] || { name: agentName };
   const { q, limit = 10, channel } = req.query;
-  // Gate out DMs that the requesting agent is not a party to — otherwise
-  // ?q= could be used to fish private DM content out of other agents' pairs.
-  let msgs = store.messages.filter((m) => messageVisibleToAgent(m, agentForGate));
+  // Always limit search to channels the agent can read so DM / private-channel
+  // content can't leak via the search path.
+  let msgs = store.messages.filter((m) => messageVisibleToAgent(m, agentId));
   if (channel) {
     msgs = msgs.filter((m) => matchesTarget(m, channel, agentName));
   }
@@ -1252,17 +1412,10 @@ app.post("/api/messages", requireAuth, (req, res) => {
   store.messages.push(msg);
   db.saveMessage(msg);
 
-  // For DMs, deliver only to the target agent; for channels, deliver to all
-  if (channelType === "dm" && dmPeer) {
-    for (const [agentId, agent] of Object.entries(store.agents)) {
-      if (agent.name === dmPeer || agent.displayName === dmPeer) {
-        deliverToAgent(agentId, msg);
-        break;
-      }
-    }
-  } else {
-    deliverToAllAgents(msg);
-  }
+  // Delivery is fully driven by channel_agents membership now — DMs have
+  // exactly the two parties as subscribers, so deliverToAllAgents won't
+  // over-fan on them. See seedMembershipOnChannelCreate.
+  deliverToAllAgents(msg);
   // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
   broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
@@ -1336,9 +1489,54 @@ app.delete("/api/channels/:id", requireAuth, async (req, res) => {
   if (idx < 0) return res.status(404).json({ error: "Channel not found" });
 
   const [channel] = store.channels.splice(idx, 1);
+  purgeChannelMemberships(channel.id);
   await db.deleteChannel(channel.id);
   broadcastToWeb({ type: "channel_deleted", channelId: channel.id, channelName: channel.name });
   res.json({ success: true, channel });
+});
+
+// List agents subscribed to a channel. Used by the admin UI.
+app.get("/api/channels/:id/agents", requireAuth, (req, res) => {
+  const { id } = req.params;
+  const ch = store.channels.find((c) => c.id === id);
+  if (!ch) return res.status(404).json({ error: "Channel not found" });
+  const ca = store.channelAgents.get(ch.id);
+  const rows = ca
+    ? [...ca.entries()].map(([agentId, m]) => ({
+        agentId,
+        agentName: agentPayload(agentId)?.name || agentId,
+        canRead: m.canRead,
+        subscribed: m.subscribed,
+      }))
+    : [];
+  res.json({ agents: rows });
+});
+
+// Set (or remove) a single agent's membership on a channel. Admin-facing.
+app.patch("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
+  const { id, agentId } = req.params;
+  const { canRead, subscribed } = req.body || {};
+  const ch = store.channels.find((c) => c.id === id);
+  if (!ch) return res.status(404).json({ error: "Channel not found" });
+  const existing = getMembership(ch.id, agentId) || { canRead: true, subscribed: true };
+  const next = {
+    canRead: canRead === undefined ? existing.canRead : !!canRead,
+    subscribed: subscribed === undefined ? existing.subscribed : !!subscribed,
+  };
+  if (!next.canRead && !next.subscribed) {
+    removeMembership(ch.id, agentId);
+    return res.json({ ok: true, membership: null });
+  }
+  setMembership(ch.id, agentId, next);
+  res.json({ ok: true, membership: { channelId: ch.id, agentId, ...next } });
+});
+
+app.delete("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
+  const { id, agentId } = req.params;
+  const ch = store.channels.find((c) => c.id === id);
+  if (!ch) return res.status(404).json({ error: "Channel not found" });
+  removeMembership(ch.id, agentId);
+  res.json({ ok: true });
 });
 
 // List connected machines (daemons)
@@ -1508,6 +1706,7 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
     saveAgentConfigs(agentConfigs);
     db.deleteAgentConfig(id);
   }
+  purgeAgentMemberships(id);
   purgeUnknownAgentState(id);
   broadcastToWeb({ type: "agent_status", agentId: id, status: "deleted" });
   broadcastToWeb({ type: "config_updated", configs: agentConfigs });
@@ -1713,6 +1912,10 @@ function startAgentOnDaemon(id, config) {
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
     db.saveAgentConfig(persisted);
+    // New agent → subscribe to every regular (non-DM) channel so the legacy
+    // "visible everywhere by default" behavior is preserved. Humans can
+    // unsubscribe via the /subscriptions API.
+    seedAgentIntoRegularChannels(id);
   }
   // Existing configs: machineId is immutable — no rewrite on restart.
 
@@ -2694,7 +2897,7 @@ async function initFromDB() {
   try {
     await db.migrate();
 
-    const [maxSeq, maxTaskNum, msgs, channels, tasks, dbConfigs, dbKeys] = await Promise.all([
+    const [maxSeq, maxTaskNum, msgs, channels, tasks, dbConfigs, dbKeys, channelAgents] = await Promise.all([
       db.loadMaxSeq(),
       db.loadMaxTaskNum(),
       db.loadMessages(),
@@ -2702,6 +2905,7 @@ async function initFromDB() {
       db.loadTasks(),
       db.loadAgentConfigs(),
       db.loadMachineKeys(),
+      db.loadChannelAgents(),
     ]);
 
     if (maxSeq > store.seq) store.seq = maxSeq;
@@ -2726,6 +2930,37 @@ async function initFromDB() {
       store.tasks = tasks;
       console.log(`[db] Loaded ${tasks.length} tasks`);
     }
+
+    // channel_agents memberships — populate in-memory map from DB rows.
+    for (const row of (channelAgents || [])) {
+      let ca = store.channelAgents.get(row.channelId);
+      if (!ca) {
+        ca = new Map();
+        store.channelAgents.set(row.channelId, ca);
+      }
+      ca.set(row.agentId, { canRead: !!row.canRead, subscribed: !!row.subscribed });
+    }
+    if (channelAgents && channelAgents.length > 0) {
+      console.log(`[db] Loaded ${channelAgents.length} channel_agents memberships`);
+    }
+
+    // Backfill: any non-DM channel that has zero memberships gets every
+    // configured agent subscribed. Preserves legacy "broadcast to all" for
+    // existing deployments on first boot with this code, after which humans
+    // can unsubscribe via the API.
+    for (const ch of store.channels) {
+      if ((ch.type || "channel") === "dm") continue;
+      const ca = store.channelAgents.get(ch.id);
+      if (ca && ca.size > 0) continue;
+      for (const cfg of agentConfigs) {
+        setMembership(ch.id, cfg.id, { canRead: true, subscribed: true });
+      }
+    }
+
+    // Persist the default `all` channel if it's not already in DB — so it has
+    // a row for channel_agents to FK against and doesn't drift between runs.
+    const allCh = store.channels.find((c) => c.name === "all" && (c.type || "channel") === "channel");
+    if (allCh) await db.saveChannel(allCh);
 
     // Agent configs: DB wins over file when DB has entries
     if (dbConfigs !== null && dbConfigs.length > 0) {
@@ -2820,6 +3055,17 @@ function reconcileAgentsWithConfigs() {
       addHumanPresence,
       findOrCreateChannel,
     });
+    // Mock seeds push channels and agents in an order that skips the
+    // per-channel-create seeding hook, so do a once-over here to backfill
+    // memberships for every mock agent on every mock channel.
+    for (const ch of store.channels) {
+      if ((ch.type || "channel") === "dm") continue;
+      for (const cfg of agentConfigs) {
+        if (!getMembership(ch.id, cfg.id)) {
+          setMembership(ch.id, cfg.id, { canRead: true, subscribed: true });
+        }
+      }
+    }
   }
 
   server.listen(PORT, () => {
