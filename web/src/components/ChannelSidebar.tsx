@@ -41,6 +41,7 @@ export default function ChannelSidebar() {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, isGuest, theme,
     authUser, setSidebarOpen, openAgentProfile, openAgentSettings, resetAgentContext,
+    openChannelSettings,
   } = useApp();
 
   const pick = (name: string, isDm?: boolean) => {
@@ -144,6 +145,19 @@ export default function ChannelSidebar() {
               >
                 <Hash size={14} className="flex-shrink-0" />
                 <span className="truncate text-sm">{ch.name}</span>
+                {!isGuest && (
+                  <span
+                    role="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openChannelSettings(ch.id);
+                    }}
+                    className={`ml-auto ${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
+                    title={`Configure #${ch.name}`}
+                  >
+                    <Settings size={12} />
+                  </span>
+                )}
                 {!isGuest && ch.name !== 'all' && (
                   <span
                     role="button"
@@ -152,14 +166,14 @@ export default function ChannelSidebar() {
                       if (!window.confirm(`Delete channel #${ch.name}? This removes the channel from the workspace but keeps its messages in the database.`)) return;
                       deleteChannel(ch.id, ch.name);
                     }}
-                    className={`ml-auto ${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-all`}
+                    className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-all`}
                     title="Delete channel"
                   >
                     <Trash2 size={12} />
                   </span>
                 )}
                 {unread > 0 && !isActive && (
-                  <span className={`${!isGuest && ch.name !== 'all' ? '' : 'ml-auto '}bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center`}>
+                  <span className={`${!isGuest ? '' : 'ml-auto '}bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center`}>
                     {unread}
                   </span>
                 )}

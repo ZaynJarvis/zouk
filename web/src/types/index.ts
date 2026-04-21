@@ -221,7 +221,7 @@ export interface MemoryEntry {
 }
 
 export type ViewMode = 'channel' | 'dm' | 'agents';
-export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'memory' | 'agent_settings' | 'agent_profile' | null;
+export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'memory' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
 export type Theme = 'night-city' | 'brutalist' | 'washington-post' | 'carbon' | 'graphite';
 
 export interface Toast {

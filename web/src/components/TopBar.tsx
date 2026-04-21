@@ -14,8 +14,11 @@ export default function TopBar() {
   const {
     activeChannelName, viewMode, setViewMode,
     rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
-    theme, setSettingsOpen,
+    theme, setSettingsOpen, channels, openChannelSettings, isGuest,
   } = useApp();
+  const activeChannel = viewMode === 'channel'
+    ? channels.find((c) => c.name === activeChannelName) ?? null
+    : null;
   const themeVariant = resolveNavigationTheme(theme, isNightCity());
   const nc = themeVariant === 'night-city';
   const wapo = themeVariant === 'washington-post';
@@ -94,6 +97,18 @@ export default function TopBar() {
         <div className="flex-1" />
 
         <div className="flex items-center gap-1">
+          {activeChannel && !isGuest && (
+            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+              <button
+                onClick={() => openChannelSettings(activeChannel.id)}
+                className={getTopBarRightPanelButtonClass(themeVariant, rightPanel === 'channel_settings')}
+                title={`Configure #${activeChannel.name}`}
+                aria-label={`Configure channel ${activeChannel.name}`}
+              >
+                <Settings size={16} />
+              </button>
+            </ScanlineTear>
+          )}
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
               onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}
