@@ -16,6 +16,13 @@ html[data-theme="night-city"] {
   --nc-magenta: 224 64 251;
   --nc-indigo: 14 14 231;
 
+  /* Semantic (toasts / status) — must stay green-for-ok, red-for-error.
+     Themes may tune shade/brightness but cannot swap the hue family. */
+  --nc-success: 115 248 85;
+  --nc-error: 247 80 73;
+  --nc-warning: 255 216 74;
+  --nc-info: 94 246 255;
+
   /* Text */
   --nc-text: 200 214 229;
   --nc-text-bright: 232 240 248;

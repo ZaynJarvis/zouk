@@ -8,11 +8,15 @@ const icons = {
   info: Info,
 };
 
+// Use the semantic --nc-{success,error,warning,info} tokens rather than the
+// accent palette: accent `nc-cyan` is the same as `nc-red` in washington-post,
+// which made info toasts look like errors. The semantic tokens are
+// contract-bound to stay green-for-ok, red-for-error across every theme.
 const styles = {
-  success: 'border-nc-green bg-nc-green/90 text-nc-black',
-  warning: 'border-nc-yellow bg-nc-yellow/90 text-nc-black',
-  error: 'border-nc-red bg-nc-red/90 text-white',
-  info: 'border-nc-cyan bg-nc-cyan/90 text-nc-black',
+  success: 'border-nc-success bg-nc-success/90 text-nc-black',
+  warning: 'border-nc-warning bg-nc-warning/90 text-nc-black',
+  error: 'border-nc-error bg-nc-error/90 text-white',
+  info: 'border-nc-info bg-nc-info/90 text-nc-black',
 };
 
 export default function ToastContainer() {

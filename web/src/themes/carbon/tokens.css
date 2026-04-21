@@ -16,6 +16,14 @@ html[data-theme="carbon"] {
   --nc-magenta: 168 130 181;
   --nc-indigo: 90 110 148;
 
+  /* Semantic (toasts / status) — must stay green-for-ok, red-for-error.
+     Muted steel palette, but pushed a notch toward pure hues so success
+     reads green and error reads red at a glance. */
+  --nc-success: 106 173 121;
+  --nc-error: 209 92 86;
+  --nc-warning: 196 166 94;
+  --nc-info: 136 181 196;
+
   /* Text — muted3 #abb1b8 for body, light #f4f5f5 for emphasis */
   --nc-text: 171 177 184;
   --nc-text-bright: 244 245 245;

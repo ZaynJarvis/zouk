@@ -16,6 +16,14 @@ html[data-theme="washington-post"] {
   --nc-magenta: 116 79 103;
   --nc-indigo: 51 63 89;
 
+  /* Semantic (toasts / status) — must stay green-for-ok, red-for-error.
+     Editorial palette leans muted; these are the green/red that still
+     read as green/red against the cream surface. */
+  --nc-success: 46 110 65;
+  --nc-error: 160 44 44;
+  --nc-warning: 191 152 76;
+  --nc-info: 51 63 89;
+
   /* Text */
   --nc-text: 44 36 30;
   --nc-text-bright: 16 16 16;
