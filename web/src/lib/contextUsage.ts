@@ -21,6 +21,13 @@ export function formatContextUsageLine(usage?: AgentContextUsageModel): string {
   return `${formatTokenCount(usage.usedTokens)}/${total}${percent ? ` (${percent})` : ''}`;
 }
 
+export function formatContextUsageCompact(usage?: AgentContextUsageModel): string {
+  if (!usage) return '';
+  const used = formatTokenCount(usage.usedTokens);
+  const percent = formatContextPercent(usage.percent);
+  return percent ? `${used}/${percent}` : used;
+}
+
 export function contextUsageToneClass(percent?: number): string {
   if (typeof percent !== 'number' || !Number.isFinite(percent)) {
     return 'border-nc-border bg-nc-elevated text-nc-muted';
@@ -32,6 +39,15 @@ export function contextUsageToneClass(percent?: number): string {
     return 'border-nc-yellow/40 bg-nc-yellow/10 text-nc-yellow';
   }
   return 'border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan';
+}
+
+export function contextUsageTextTone(percent?: number): string {
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) {
+    return 'text-nc-muted';
+  }
+  if (percent >= 0.8) return 'text-nc-red';
+  if (percent >= 0.6) return 'text-nc-yellow';
+  return 'text-nc-muted';
 }
 
 export function formatContextUsageTitle(snapshot?: AgentContextUsageSnapshot): string {
