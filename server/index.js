@@ -2944,14 +2944,22 @@ async function initFromDB() {
       console.log(`[db] Loaded ${channelAgents.length} channel_agents memberships`);
     }
 
-    // Backfill: any non-DM channel that has zero memberships gets every
-    // configured agent subscribed. Preserves legacy "broadcast to all" for
-    // existing deployments on first boot with this code, after which humans
-    // can unsubscribe via the API.
+    // Backfill for first boot on this code: channels without any membership
+    // rows get seeded the same way seedMembershipOnChannelCreate would have
+    // handled them — regular channels get every configured agent, DMs get
+    // only the two parties. Without this, existing DMs would be invisible
+    // after deploy (fail-closed visibility on empty membership).
     for (const ch of store.channels) {
-      if ((ch.type || "channel") === "dm") continue;
       const ca = store.channelAgents.get(ch.id);
       if (ca && ca.size > 0) continue;
+      if ((ch.type || "channel") === "dm") {
+        const parties = dmChannelParties(ch.name) || [];
+        for (const partyName of parties) {
+          const agentId = agentIdByName(partyName);
+          if (agentId) setMembership(ch.id, agentId, { canRead: true, subscribed: true });
+        }
+        continue;
+      }
       for (const cfg of agentConfigs) {
         setMembership(ch.id, cfg.id, { canRead: true, subscribed: true });
       }
