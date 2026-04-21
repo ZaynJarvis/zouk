@@ -18,7 +18,7 @@ import { resolve } from 'path';
 import { mkdirSync } from 'fs';
 import { loadApp } from './qa-lib.mjs';
 
-const THEMES = ['night-city', 'brutalist', 'washington-post', 'carbon'];
+const THEMES = ['night-city', 'brutalist', 'washington-post', 'carbon', 'graphite'];
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -54,11 +54,22 @@ async function shootTheme(browser, baseUrl, outDir, theme) {
       warning: 'border-nc-warning bg-nc-warning/90 text-nc-black',
       error:   'border-nc-error bg-nc-error/90 text-white',
     };
+    // Inline the lucide SVG paths used by ToastContainer.tsx so the screenshot
+    // faithfully reflects the real glyphs. Bare Check/X avoid the visible
+    // white ring that CheckCircle/AlertCircle would draw on colored toasts.
+    const svg = (paths) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+    const glyphs = {
+      success: svg('<path d="M20 6 9 17l-5-5"/>'),
+      info:    svg('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'),
+      warning: svg('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
+      error:   svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
+    };
     const rows = [
-      { type: 'success', icon: '✓', label: 'Changes saved' },
-      { type: 'info',    icon: 'i', label: 'Heads up — preview only' },
-      { type: 'warning', icon: '!', label: 'Queue is filling up' },
-      { type: 'error',   icon: '×', label: 'Failed to sync' },
+      { type: 'success', label: 'Changes saved' },
+      { type: 'info',    label: 'Heads up — preview only' },
+      { type: 'warning', label: 'Queue is filling up' },
+      { type: 'error',   label: 'Failed to sync' },
     ];
     for (const r of rows) {
       const el = document.createElement('div');
@@ -66,7 +77,7 @@ async function shootTheme(browser, baseUrl, outDir, theme) {
         'pointer-events-auto w-full flex items-center gap-2 px-3 py-2.5 border text-sm font-bold shadow-lg backdrop-blur-md ' +
         classMap[r.type];
       el.innerHTML =
-        `<span class="inline-flex items-center justify-center w-4 h-4 border border-current font-mono text-[10px]">${r.icon}</span>` +
+        glyphs[r.type] +
         `<span class="flex-1 font-mono text-xs">${r.label}</span>`;
       wrap.appendChild(el);
     }

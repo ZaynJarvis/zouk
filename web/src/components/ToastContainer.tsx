@@ -1,10 +1,13 @@
-import { CheckCircle, AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { Check, AlertTriangle, X, Info } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 
+// Bare glyphs for success/error so the icon doesn't carry its own circular
+// outline — on the error toast (white-on-red) a lucide CheckCircle/AlertCircle
+// ring reads as an unwanted white border around the symbol.
 const icons = {
-  success: CheckCircle,
+  success: Check,
   warning: AlertTriangle,
-  error: AlertCircle,
+  error: X,
   info: Info,
 };
 
