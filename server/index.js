@@ -791,22 +791,34 @@ function extractMentions(content) {
   return mentions;
 }
 
+// Visibility gate for agent-scoped read paths. For DMs, only the two parties
+// (matched by agent name/displayName) may see the message. Channels currently
+// remain visible to every agent until explicit channel↔agent membership lands.
+function messageVisibleToAgent(message, agent) {
+  if (!agent) return false;
+  if (message.channelType !== "dm") return true;
+  const parties = dmChannelParties(message.channelName);
+  if (!parties) return false;
+  const loweredParties = parties.map((p) => p.toLowerCase());
+  const names = [agent.name, agent.displayName]
+    .filter(Boolean)
+    .map((n) => String(n).toLowerCase());
+  return names.some((n) => loweredParties.includes(n));
+}
+
 function deliverToAllAgents(message, excludeAgent = null) {
   const mentions = extractMentions(message.content || "");
   const hasSpecificMention = mentions.some((m) =>
     Object.values(store.agents).some((a) => agentMatchesMention(a, m))
   );
-  const dmPeer = message.channelType === "dm" ? message.channelName.replace(/^dm-/, "") : null;
 
   for (const agentId of Object.keys(store.agents)) {
     if (excludeAgent && agentId === excludeAgent) continue;
     const agent = store.agents[agentId];
     if (!agent || agent.status !== "active") continue;
 
-    if (dmPeer) {
-      const isDmTarget = agent.name === dmPeer || agent.displayName === dmPeer;
-      if (!isDmTarget) continue;
-    }
+    // DM gate — only the two parties may receive a DM.
+    if (!messageVisibleToAgent(message, agent)) continue;
 
     // If message mentions specific agent(s), only deliver to them
     if (hasSpecificMention) {
@@ -882,9 +894,16 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
 app.get("/internal/agent/:agentId/receive", (req, res) => {
   const { agentId } = req.params;
   const lastRead = store.agentReadSeq[agentId] || 0;
-  // Return only messages after the agent's last read seq, excluding agent's own messages
+  const agentForGate = store.agents[agentId] || { name: agentPayload(agentId)?.name || agentId };
+  const selfName = agentPayload(agentId)?.name || agentId;
+  // Return only messages after the agent's last read seq, excluding agent's own
+  // messages and DMs the agent isn't a party to.
   const unread = store.messages
-    .filter((m) => m.seq > lastRead && m.senderName !== (agentPayload(agentId)?.name || agentId))
+    .filter((m) =>
+      m.seq > lastRead
+      && m.senderName !== selfName
+      && messageVisibleToAgent(m, agentForGate)
+    )
     .map((m) => formatMessageForAgent(m, agentId));
   // Update read position
   if (store.messages.length > 0) {
@@ -914,7 +933,10 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
   const { agentId } = req.params;
   const { channel, limit = 50, before, after, around } = req.query;
   const agentName = store.agents[agentId]?.name || agentId;
-  let msgs = store.messages.filter((m) => matchesTarget(m, channel, agentName));
+  const agentForGate = store.agents[agentId] || { name: agentName };
+  let msgs = store.messages.filter(
+    (m) => matchesTarget(m, channel, agentName) && messageVisibleToAgent(m, agentForGate),
+  );
   const limitNum = parseInt(limit);
 
   if (around) {
@@ -949,8 +971,11 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
 app.get("/internal/agent/:agentId/search", (req, res) => {
   const { agentId } = req.params;
   const agentName = store.agents[agentId]?.name || agentId;
+  const agentForGate = store.agents[agentId] || { name: agentName };
   const { q, limit = 10, channel } = req.query;
-  let msgs = store.messages;
+  // Gate out DMs that the requesting agent is not a party to — otherwise
+  // ?q= could be used to fish private DM content out of other agents' pairs.
+  let msgs = store.messages.filter((m) => messageVisibleToAgent(m, agentForGate));
   if (channel) {
     msgs = msgs.filter((m) => matchesTarget(m, channel, agentName));
   }

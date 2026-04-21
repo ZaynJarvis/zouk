@@ -217,3 +217,121 @@ test('POST /api/messages without auth: returns 403', async () => {
   });
   assert.equal(res.status, 403, 'unauthenticated writes must be rejected with 403');
 });
+
+// ─── DM target gating (Phase 1 fix) ────────────────────────────────────────────
+// Regression: check_messages used to return every message in the store
+// regardless of target, so any agent calling it saw DMs between other pairs.
+// After the fix, the /receive, /history, and /search paths gate DMs by party.
+
+test('check_messages: DM between human and one agent is not visible to other agents', async () => {
+  // Drain all mock agents' /receive so backlog doesn't mask the result.
+  for (const id of ['agent-mock-reviewer', 'agent-mock-bugbot', 'agent-mock-deployer']) {
+    await fetch(`${BASE}/internal/agent/${id}/receive`);
+  }
+
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'dm-tester' }),
+  });
+  const { token } = await authRes.json();
+
+  const marker = `dm-gate-probe-${Date.now()}`;
+  const sent = await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: 'dm:@reviewer', content: marker }),
+  });
+  assert.equal(sent.status, 200);
+
+  const { body: recipientBody } = await json(
+    await fetch(`${BASE}/internal/agent/agent-mock-reviewer/receive`),
+  );
+  assert.ok(
+    recipientBody.messages.some((m) => m.content === marker),
+    'DM recipient (reviewer) must see the message via check_messages',
+  );
+
+  for (const nonParty of ['agent-mock-bugbot', 'agent-mock-deployer']) {
+    const { body } = await json(await fetch(`${BASE}/internal/agent/${nonParty}/receive`));
+    assert.ok(
+      !body.messages.some((m) => m.content === marker),
+      `non-party agent ${nonParty} must NOT see DM between dm-tester and reviewer`,
+    );
+  }
+});
+
+test('read_history: non-party agent cannot read another pair\'s DM history', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'dm-history-tester' }),
+  });
+  const { token } = await authRes.json();
+
+  const marker = `dm-history-probe-${Date.now()}`;
+  await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: 'dm:@bugbot', content: marker }),
+  });
+
+  // Recipient agent sees its own DM history.
+  const recipient = await json(await fetch(
+    `${BASE}/internal/agent/agent-mock-bugbot/history?channel=${encodeURIComponent('dm:@dm-history-tester')}&limit=50`,
+  ));
+  assert.equal(recipient.status, 200);
+  assert.ok(
+    recipient.body.messages.some((m) => m.content === marker),
+    'DM recipient (bugbot) must see marker in its own DM history',
+  );
+
+  // Unrelated agent (reviewer) querying the same DM target returns nothing:
+  // matchesTarget + the DM-party gate combine so history is never fished.
+  const unrelated = await json(await fetch(
+    `${BASE}/internal/agent/agent-mock-reviewer/history?channel=${encodeURIComponent('dm:@dm-history-tester')}&limit=50`,
+  ));
+  assert.equal(unrelated.status, 200);
+  assert.ok(
+    !unrelated.body.messages.some((m) => m.content === marker),
+    'non-party agent (reviewer) must not see another pair\'s DM via history',
+  );
+});
+
+test('search_messages: DM content does not leak via search to non-parties', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'dm-search-tester' }),
+  });
+  const { token } = await authRes.json();
+
+  const marker = `dm-search-probe-${Date.now()}`;
+  await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: 'dm:@deployer', content: marker }),
+  });
+
+  // Deployer (party) finds it.
+  const partyHit = await json(await fetch(
+    `${BASE}/internal/agent/agent-mock-deployer/search?q=${encodeURIComponent(marker)}&limit=10`,
+  ));
+  assert.equal(partyHit.status, 200);
+  assert.ok(
+    partyHit.body.messages?.some?.((m) => m.content === marker)
+      ?? partyHit.body.results?.some?.((m) => m.content === marker),
+    'DM party (deployer) must find its own DM via search',
+  );
+
+  // Reviewer (non-party) cannot find it even by searching its text.
+  const nonPartyHit = await json(await fetch(
+    `${BASE}/internal/agent/agent-mock-reviewer/search?q=${encodeURIComponent(marker)}&limit=10`,
+  ));
+  assert.equal(nonPartyHit.status, 200);
+  const items = nonPartyHit.body.messages || nonPartyHit.body.results || [];
+  assert.ok(
+    !items.some((m) => m.content === marker),
+    'non-party agent (reviewer) must not find DM content via search',
+  );
+});
