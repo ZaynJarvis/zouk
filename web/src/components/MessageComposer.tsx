@@ -12,6 +12,7 @@ import {
 } from '../lib/mentions';
 import StatusDot from './StatusDot';
 import { agentStatus, humanStatus } from '../lib/avatarStatus';
+import FailableImage from './FailableImage';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // mirrors server multer limit
 
@@ -377,7 +378,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                 key={img.key}
                 className="relative w-16 h-16 border border-nc-border bg-nc-black overflow-hidden group"
               >
-                <img
+                <FailableImage
                   src={img.previewUrl}
                   alt={img.file.name}
                   className="w-full h-full object-cover"
