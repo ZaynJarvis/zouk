@@ -897,8 +897,11 @@ function deliverToAgent(agentId, message) {
       seq,
       message: formatMessageForAgent(message, agentId),
     }));
-    // Mark this message as delivered so check_messages won't return it again
-    store.agentReadSeq[agentId] = Math.max(store.agentReadSeq[agentId] || 0, message.seq);
+    // Do NOT pre-mark as read here. Pre-marking was breaking mid-turn steering
+    // for notification-mode drivers (Claude): the daemon would notify the agent
+    // "N new messages waiting", the agent would call check_messages, and the
+    // server would return nothing because the message was already marked read.
+    // The agent's own check_messages call now advances the cursor via /receive.
     return;
   }
   queuePendingDelivery(agentId, message);
