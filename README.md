@@ -57,6 +57,12 @@ Build the frontend bundle:
 npm run build
 ```
 
+## Agent Task Workflow
+
+- Claim existing tasks with `claim_tasks(task_numbers=[...])`.
+- `claim_tasks(message_ids=[...])` only works for message ids that already belong to an existing task. It does not auto-convert a regular chat message into a task.
+- If work begins from a normal top-level message, agents should create a new task explicitly with `create_tasks(...)`, optionally reword the title, then reply in-channel or thread to point back to that new task.
+
 Set a public URL when deploying behind Railway or a custom domain:
 
 ```bash

@@ -28,11 +28,14 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import WebSocket from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const { splitSqlStatements } = require('./db.js');
 const TEST_PORT = 17779;
 const BASE = `http://localhost:${TEST_PORT}`;
 
@@ -70,6 +73,15 @@ after(() => {
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
+
+test('schema migration parser keeps channel_agents create-table statement after comment blocks', () => {
+  const schemaSql = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
+  const statements = splitSqlStatements(schemaSql);
+  assert.ok(
+    statements.some((statement) => statement.startsWith('CREATE TABLE IF NOT EXISTS channel_agents')),
+    'channel_agents create-table statement must survive schema parsing'
+  );
+});
 
 test('guest session: returns token and user for valid name', async () => {
   const res = await fetch(`${BASE}/api/auth/guest-session`, {
@@ -220,6 +232,80 @@ test('POST /api/messages without auth: returns 403', async () => {
     body: JSON.stringify({ target: '#all', content: 'unauthorized' }),
   });
   assert.equal(res.status, 403, 'unauthenticated writes must be rejected with 403');
+});
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+test('claim_tasks: existing task can be claimed by its task message id', async () => {
+  const title = `claim-by-message-id-${Date.now()}`;
+  const created = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel: '#all', tasks: [{ title }] }),
+  }));
+  assert.equal(created.status, 200);
+  assert.equal(created.body.tasks.length, 1);
+
+  const [{ taskNumber, messageId }] = created.body.tasks;
+  const claimed = await json(await fetch(`${BASE}/internal/agent/${OTHER_AGENT}/tasks/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel: '#all', message_ids: [messageId] }),
+  }));
+  assert.equal(claimed.status, 200);
+  assert.deepEqual(claimed.body.results, [
+    { taskNumber, messageId, success: true, reason: null },
+  ]);
+});
+
+test('claim_tasks: normal message ids are rejected with explicit create_tasks guidance', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-task-contract' }),
+  });
+  const { token } = await authRes.json();
+
+  const marker = `claim-contract-probe-${Date.now()}`;
+  const sent = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content: marker }),
+  }));
+  assert.equal(sent.status, 200);
+
+  const claimed = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel: '#all', message_ids: [sent.body.messageId] }),
+  }));
+  assert.equal(claimed.status, 200);
+  assert.deepEqual(claimed.body.results, [
+    {
+      taskNumber: null,
+      messageId: sent.body.messageId,
+      success: false,
+      reason: 'message exists but is not a task; create a new task explicitly',
+    },
+  ]);
+});
+
+test('claim_tasks: missing message ids report message not found', async () => {
+  const missingMessageId = `missing-message-${Date.now()}`;
+  const claimed = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel: '#all', message_ids: [missingMessageId] }),
+  }));
+  assert.equal(claimed.status, 200);
+  assert.deepEqual(claimed.body.results, [
+    {
+      taskNumber: null,
+      messageId: missingMessageId,
+      success: false,
+      reason: 'message not found',
+    },
+  ]);
 });
 
 // ─── DM target gating ──────────────────────────────────────────────────────────

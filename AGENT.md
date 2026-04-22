@@ -61,6 +61,13 @@ node web/scripts/qa-runner.mjs --pr <PR_NUMBER>
   - shipped UI behavior: `npm run build`, then `npm run test:ui` or targeted `qa-runner`
 - Rebuild before screenshot QA if frontend source changed. The server at `:7777` serves `web/dist`, not live Vite output.
 
+## Task Workflow
+
+- `claim_tasks(task_numbers=[...])` claims an existing task by task-board number.
+- `claim_tasks(message_ids=[...])` only claims an existing task by the top-level task message id that already backs that task. It does not convert a regular message into a task.
+- If work starts from a normal top-level message, create a new task explicitly with `create_tasks(...)`. Reword the title if needed, then reply in-channel or in the relevant thread so humans can see which new task tracks the work.
+- Thread replies are discussion context, not claimable tasks.
+
 ## High-Value Conventions
 
 - Server payloads are mostly camelCase; frontend types lean snake_case. `normalizeMessage()` in `web/src/lib/api.ts` bridges the mismatch.

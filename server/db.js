@@ -31,6 +31,18 @@ if (enabled) {
 
 // ─── Schema migration ─────────────────────────────────────────────
 
+function splitSqlStatements(sql) {
+  const withoutLineComments = sql
+    .split('\n')
+    .map((line) => line.replace(/^\s*--.*$/, ''))
+    .join('\n');
+
+  return withoutLineComments
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
+}
+
 async function migrate() {
   if (!pool) return;
   const client = await pool.connect();
@@ -39,10 +51,7 @@ async function migrate() {
     const sql = fs.readFileSync(sqlPath, 'utf8');
     // Run each statement individually — PgBouncer and some poolers reject
     // multi-statement queries sent as a single string.
-    const statements = sql
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
+    const statements = splitSqlStatements(sql);
     let errors = 0;
     for (const stmt of statements) {
       try {
@@ -695,6 +704,7 @@ async function loadSessions() {
 module.exports = {
   enabled,
   migrate,
+  splitSqlStatements,
   saveMessage,
   loadMessages,
   saveChannel,
