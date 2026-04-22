@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { agentStatus, humanStatus } from '../lib/avatarStatus';
 import StatusDot from './StatusDot';
