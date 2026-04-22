@@ -1251,28 +1251,42 @@ app.post("/internal/agent/:agentId/tasks", (req, res) => {
 });
 
 // claim_tasks
+// Claims existing tasks by task number or by the backing task-message id.
+// This route does not convert ordinary messages into tasks.
 app.post("/internal/agent/:agentId/tasks/claim", (req, res) => {
   const { agentId } = req.params;
   const { channel, task_numbers, message_ids } = req.body;
   const agentName = store.agents[agentId]?.name || agentId;
 
-  // Resolve tasks from both task_numbers and message_ids
+  // Resolve tasks from both task_numbers and message_ids.
+  // message_ids only match existing task messages; agents should use
+  // create_tasks for ordinary messages that need to become tasks.
   const tasksToProcess = [];
   if (task_numbers) {
     for (const num of task_numbers) {
       const task = store.tasks.find((t) => t.taskNumber === num);
-      tasksToProcess.push({ task, taskNumber: num });
+      const reason = task ? null : "task not found";
+      tasksToProcess.push({ task, taskNumber: num, reason });
     }
   }
   if (message_ids) {
     for (const mid of message_ids) {
       const task = store.tasks.find((t) => t.messageId === mid);
-      tasksToProcess.push({ task, messageId: mid, taskNumber: task?.taskNumber });
+      if (task) {
+        tasksToProcess.push({ task, messageId: mid, taskNumber: task.taskNumber, reason: null });
+        continue;
+      }
+
+      const message = store.messages.find((m) => m.id === mid);
+      const reason = message
+        ? "message exists but is not a task; create a new task explicitly"
+        : "message not found";
+      tasksToProcess.push({ task: null, messageId: mid, taskNumber: message?.taskNumber ?? null, reason });
     }
   }
 
-  const results = tasksToProcess.map(({ task, taskNumber, messageId }) => {
-    if (!task) return { taskNumber, messageId, success: false, reason: "task not found" };
+  const results = tasksToProcess.map(({ task, taskNumber, messageId, reason }) => {
+    if (!task) return { taskNumber, messageId, success: false, reason };
     const num = task.taskNumber;
     if (task.claimedByName && task.claimedByName !== agentName) {
       return { taskNumber: num, messageId: task.messageId, success: false, reason: `already claimed by @${task.claimedByName}` };
