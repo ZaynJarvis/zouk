@@ -895,10 +895,15 @@ function deliverToAgent(agentId, message) {
       type: "agent:deliver",
       agentId,
       seq,
+      messageSeq: message.seq,
       message: formatMessageForAgent(message, agentId),
     }));
-    // Mark this message as delivered so check_messages won't return it again
-    store.agentReadSeq[agentId] = Math.max(store.agentReadSeq[agentId] || 0, message.seq);
+    // Do NOT pre-mark as read here. The daemon will either:
+    //   - send agent:mark-read after a direct stdin delivery (busyDeliveryMode === 'direct'),
+    //   - rely on the agent calling check_messages for notification-mode drivers,
+    //   - or drain the inbox via turn_end and send agent:mark-read then.
+    // Pre-marking was causing mid-turn notifications to be useless: the agent would
+    // call check_messages and see nothing, then only receive the message at turn_end.
     return;
   }
   queuePendingDelivery(agentId, message);
@@ -2353,6 +2358,18 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
     }
     case "agent:deliver:ack": {
       // Acknowledged delivery, no-op
+      break;
+    }
+    case "agent:mark-read": {
+      const { agentId, seq } = msg;
+      if (!agentId || typeof seq !== "number") break;
+      if (!hasKnownAgentConfig(agentId)) break;
+      const ownerWs = daemonSockets.get(agentId);
+      if (ownerWs && ownerWs !== ws) {
+        console.log(`[agent:${agentId}] Ignoring mark-read from stale daemon connection on machine ${ws._machineId}`);
+        break;
+      }
+      store.agentReadSeq[agentId] = Math.max(store.agentReadSeq[agentId] || 0, seq);
       break;
     }
     case "agent:workspace:file_tree": {
