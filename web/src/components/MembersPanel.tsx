@@ -1,18 +1,43 @@
 import { Search, User, Bot } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import StatusDot from './StatusDot';
 import { agentStatus, humanStatus } from '../lib/avatarStatus';
 import PanelShell from './panel/PanelShell';
 import PanelHeader from './panel/PanelHeader';
+import { fetchChannelAgents } from '../lib/api';
 
 export default function MembersPanel() {
-  const { humans, agents, messages, closeRightPanel } = useApp();
+  const { humans, agents, channels, activeChannelName, messages, closeRightPanel } = useApp();
   const [filter, setFilter] = useState('');
+  const [memberAgentIds, setMemberAgentIds] = useState<Set<string> | null>(null);
 
+  const activeChannel = channels.find(c => c.name === activeChannelName);
+
+  useEffect(() => {
+    if (!activeChannel) {
+      setMemberAgentIds(null);
+      return;
+    }
+    let cancelled = false;
+    fetchChannelAgents(activeChannel.id)
+      .then(rows => {
+        if (!cancelled) setMemberAgentIds(new Set(rows.filter(r => r.canRead).map(r => r.agentId)));
+      })
+      .catch(() => {
+        if (!cancelled) setMemberAgentIds(null);
+      });
+    return () => { cancelled = true; };
+  }, [activeChannel?.id]);
+
+  // Humans: no server-side membership model yet, derive from visible senders
   const senderNames = new Set(messages.map(m => m.sender_name).filter(Boolean));
   const channelHumans = humans.filter(h => senderNames.has(h.name));
-  const channelAgents = agents.filter(a => senderNames.has(a.name) || senderNames.has(a.displayName));
+
+  // Agents: use channel_agents membership when available, fall back to sender heuristic
+  const channelAgents = memberAgentIds !== null
+    ? agents.filter(a => memberAgentIds.has(a.id))
+    : agents.filter(a => senderNames.has(a.name) || senderNames.has(a.displayName));
 
   const filteredHumans = channelHumans.filter(h =>
     h.name.toLowerCase().includes(filter.toLowerCase())
