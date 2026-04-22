@@ -377,31 +377,34 @@ function agentCanRead(channelId, agentId) {
   return !!(row && row.canRead);
 }
 
-// Is a given stored message visible to an agent? Looks the channel up by
-// the message's channelId (falling back to (name,type)) and then consults
-// the membership table. Unknown channels fail closed.
+// Is a given stored message visible to an agent? DMs are gated by the
+// canonical party list encoded in the channel name (`dm:a,b`) — the
+// channel_agents table is bypassed to avoid seed/backfill races that
+// leave an agent party without a membership row. Non-DM channels still
+// consult the membership table. Unknown channels fail closed.
 function messageVisibleToAgent(msg, agentId) {
   const ch = msg.channelId
     ? store.channels.find((c) => c.id === msg.channelId)
     : store.channels.find((c) => c.name === msg.channelName && (c.type || "channel") === (msg.channelType || "channel"));
   if (!ch) return false;
+  if ((ch.type || "channel") === "dm") {
+    const parties = dmChannelParties(ch.name) || [];
+    const agentName = agentPayload(agentId)?.name
+      || agentConfigs.find((c) => c.id === agentId)?.name;
+    if (!agentName) return false;
+    return parties.some((p) => String(p).toLowerCase() === String(agentName).toLowerCase());
+  }
   return agentCanRead(ch.id, agentId);
 }
 
 // Seed membership when a channel is created.
-//   DM: only the two parties (if they resolve to agents) are members.
+//   DM: no rows — DM visibility/delivery is driven by the canonical party
+//       list in the channel name, not channel_agents.
 //   Regular channel: all active+configured agents are members by default.
 //                    (Preserves legacy "broadcast to everyone" behavior; ops
 //                    can unsubscribe later via the API.)
 function seedMembershipOnChannelCreate(channel) {
-  if ((channel.type || "channel") === "dm") {
-    const parties = dmChannelParties(channel.name) || [];
-    for (const partyName of parties) {
-      const agentId = agentIdByName(partyName);
-      if (agentId) setMembership(channel.id, agentId, { canRead: true, subscribed: true });
-    }
-    return;
-  }
+  if ((channel.type || "channel") === "dm") return;
   for (const agentId of Object.keys(store.agents)) {
     setMembership(channel.id, agentId, { canRead: true, subscribed: true });
   }
@@ -947,7 +950,17 @@ function deliverToAllAgents(message, excludeAgent = null) {
     ? store.channels.find((c) => c.id === message.channelId)
     : store.channels.find((c) => c.name === message.channelName && (c.type || "channel") === (message.channelType || "channel"));
 
-  const subscribedIds = ch ? subscribedAgentIdsFor(ch.id) : [];
+  // DMs derive subscribers from the canonical party list — bypasses
+  // channel_agents so a missing seed row can't strand the agent party.
+  let subscribedIds;
+  if (ch && (ch.type || "channel") === "dm") {
+    const parties = dmChannelParties(ch.name) || [];
+    subscribedIds = parties
+      .map((p) => agentIdByName(p))
+      .filter(Boolean);
+  } else {
+    subscribedIds = ch ? subscribedAgentIdsFor(ch.id) : [];
+  }
 
   for (const agentId of subscribedIds) {
     if (excludeAgent && agentId === excludeAgent) continue;
@@ -1415,9 +1428,8 @@ app.post("/api/messages", requireAuth, (req, res) => {
   store.messages.push(msg);
   db.saveMessage(msg);
 
-  // Delivery is fully driven by channel_agents membership now — DMs have
-  // exactly the two parties as subscribers, so deliverToAllAgents won't
-  // over-fan on them. See seedMembershipOnChannelCreate.
+  // Regular channel delivery uses channel_agents membership; DM delivery
+  // resolves parties from the canonical channel name inside deliverToAllAgents.
   deliverToAllAgents(msg);
   // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
   broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
@@ -2983,22 +2995,15 @@ async function initFromDB() {
       console.log(`[db] Loaded ${channelAgents.length} channel_agents memberships`);
     }
 
-    // Backfill for first boot on this code: channels without any membership
-    // rows get seeded the same way seedMembershipOnChannelCreate would have
-    // handled them — regular channels get every configured agent, DMs get
-    // only the two parties. Without this, existing DMs would be invisible
-    // after deploy (fail-closed visibility on empty membership).
+    // Backfill for first boot on this code: regular channels without any
+    // membership rows get seeded the same way seedMembershipOnChannelCreate
+    // would have handled them — every configured agent joins. DMs skip the
+    // table entirely; visibility and delivery consult the canonical party
+    // list in the channel name instead.
     for (const ch of store.channels) {
+      if ((ch.type || "channel") === "dm") continue;
       const ca = store.channelAgents.get(ch.id);
       if (ca && ca.size > 0) continue;
-      if ((ch.type || "channel") === "dm") {
-        const parties = dmChannelParties(ch.name) || [];
-        for (const partyName of parties) {
-          const agentId = agentIdByName(partyName);
-          if (agentId) setMembership(ch.id, agentId, { canRead: true, subscribed: true });
-        }
-        continue;
-      }
       for (const cfg of agentConfigs) {
         setMembership(ch.id, cfg.id, { canRead: true, subscribed: true });
       }

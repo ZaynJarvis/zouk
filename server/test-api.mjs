@@ -600,3 +600,72 @@ test('DM between two agents: only the two parties are seeded as members', async 
     'uninvolved agent must NOT see a DM between two other agents'
   );
 });
+
+// ─── DM bypasses channel_agents ───────────────────────────────────────────────
+// Regression: even when no channel_agents row exists for the agent party of a
+// DM channel (e.g., because the channel was created before PR #168 shipped and
+// the backfill missed this pair), the DM must still be delivered to the agent
+// party. Visibility/delivery resolve DM parties from the canonical channel
+// name (`dm:a,b`), not the membership table.
+
+test('DM delivery survives missing channel_agents row (no seed needed)', async () => {
+  // Send a DM from a fresh human to `reviewer` to force channel creation.
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'dm-bypass-tester' }),
+  });
+  const { token } = await authRes.json();
+  const marker = `dm-bypass-probe-${Date.now()}`;
+
+  await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: 'dm:@reviewer', content: marker }),
+  });
+
+  // The DM channel must NOT have written a channel_agents row for the
+  // agent party — DM routing is table-free by design now.
+  const subs = await json(
+    await fetch(`${BASE}/internal/agent/agent-mock-reviewer/subscriptions`),
+  );
+  assert.equal(subs.status, 200);
+  const dmSub = subs.body.subscriptions.find(
+    (s) => s.channelType === 'dm' && s.channelName.includes('dm-bypass-tester'),
+  );
+  assert.equal(
+    dmSub,
+    undefined,
+    'DM channels must not write channel_agents rows anymore',
+  );
+
+  // Drain so the next receive is incremental.
+  await fetch(`${BASE}/internal/agent/agent-mock-reviewer/receive`);
+
+  // Send a second DM to exercise delivery path with the table empty.
+  const marker2 = `dm-bypass-probe2-${Date.now()}`;
+  await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: 'dm:@reviewer', content: marker2 }),
+  });
+
+  const recipient = await json(
+    await fetch(`${BASE}/internal/agent/agent-mock-reviewer/receive`),
+  );
+  assert.equal(recipient.status, 200);
+  assert.ok(
+    recipient.body.messages.some((m) => m.content === marker2),
+    'DM recipient must see the message even without a channel_agents row',
+  );
+
+  // Non-party agent must still not see it (party-list gate holds).
+  const nonParty = await json(
+    await fetch(`${BASE}/internal/agent/agent-mock-deployer/receive`),
+  );
+  assert.equal(nonParty.status, 200);
+  assert.ok(
+    !nonParty.body.messages.some((m) => m.content === marker2),
+    'non-party agent must NOT see DM even when table-free',
+  );
+});
