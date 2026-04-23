@@ -8,7 +8,7 @@ import { activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import StatusDot from './StatusDot';
-import { agentStatus } from '../lib/avatarStatus';
+import { agentStatus, avatarPaletteClass } from '../lib/avatarStatus';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
@@ -25,20 +25,21 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
   const { machines, openAgentSettings, selectChannel } = useApp();
   const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
   const activity = agent.activity || 'offline';
+  const status = agentStatus(agent);
   const isActive = agent.status === 'active';
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
       <div className="flex items-start gap-3">
         <div className="relative w-16 h-16 shrink-0">
-          <div className={`w-full h-full border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center overflow-hidden font-display font-bold text-xl text-nc-cyan ${!isActive ? 'grayscale opacity-70' : ''}`}>
+          <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-xl ${avatarPaletteClass(status)}`}>
             {agent.picture ? (
               <img src={agent.picture} alt="" className="w-full h-full object-cover" />
             ) : (
               (agent.displayName || agent.name).charAt(0).toUpperCase()
             )}
           </div>
-          <StatusDot status={agentStatus(agent)} ringClass="border-nc-surface" />
+          <StatusDot status={status} ringClass="border-nc-surface" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="font-display font-black text-lg text-nc-text-bright truncate tracking-wider">

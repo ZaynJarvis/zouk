@@ -5,7 +5,7 @@ import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { activityLabels } from '../lib/activityStatus';
 import StatusDot from './StatusDot';
-import { agentStatus } from '../lib/avatarStatus';
+import { agentStatus, avatarPaletteClass } from '../lib/avatarStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { resizeAndEncode } from '../lib/imageEncode';
@@ -749,7 +749,7 @@ export default function AgentDetail({
           </button>
         )}
         <div className="relative w-10 h-10 shrink-0">
-          <div className={`w-full h-full border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center font-display font-bold text-sm text-nc-cyan overflow-hidden ${!isActive ? 'grayscale opacity-70' : ''}`}>
+          <div className={`w-full h-full border flex items-center justify-center font-display font-bold text-sm overflow-hidden ${avatarPaletteClass(agentStatus(agent))}`}>
             {agent.picture ? (
               <img src={agent.picture} alt="" className="w-full h-full object-cover" />
             ) : (

@@ -2,7 +2,7 @@ import { Search, User, Bot } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import StatusDot from './StatusDot';
-import { agentStatus, humanStatus } from '../lib/avatarStatus';
+import { agentStatus, avatarPaletteClass, humanStatus } from '../lib/avatarStatus';
 import PanelShell from './panel/PanelShell';
 import PanelHeader from './panel/PanelHeader';
 import { fetchChannelAgents } from '../lib/api';
@@ -80,13 +80,13 @@ export default function MembersPanel() {
               return (
                 <div key={h.id} className={`w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left ${offline ? 'opacity-60' : ''}`}>
                   <div className="relative w-8 h-8 flex-shrink-0">
-                    {avatar ? (
-                      <img src={avatar} alt="" className={`w-8 h-8 object-cover border border-nc-cyan/30 ${offline ? 'grayscale' : ''}`} />
-                    ) : (
-                      <div className="w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan">
+                    <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(status)}`}>
+                      {avatar ? (
+                        <img src={avatar} alt="" className="w-full h-full object-cover" />
+                      ) : (
                         <User size={14} />
-                      </div>
-                    )}
+                      )}
+                    </div>
                     <StatusDot status={status} />
                   </div>
                   <span className="text-sm font-semibold text-nc-text-bright truncate">{h.name}</span>
@@ -107,13 +107,13 @@ export default function MembersPanel() {
               return (
                 <div key={a.id} className={`w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left ${offline ? 'opacity-60' : ''}`}>
                   <div className="relative w-8 h-8 flex-shrink-0">
-                    {a.picture ? (
-                      <img src={a.picture} alt="" className={`w-8 h-8 object-cover border border-nc-green/30 ${offline ? 'grayscale' : ''}`} />
-                    ) : (
-                      <div className="w-8 h-8 border border-nc-green/30 bg-nc-green/10 font-display font-bold text-xs flex items-center justify-center text-nc-green">
+                    <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(status, 'green')}`}>
+                      {a.picture ? (
+                        <img src={a.picture} alt="" className="w-full h-full object-cover" />
+                      ) : (
                         <Bot size={14} />
-                      </div>
-                    )}
+                      )}
+                    </div>
                     <StatusDot status={status} />
                   </div>
                   <span className="text-sm font-semibold text-nc-text-bright truncate">{a.displayName || a.name}</span>

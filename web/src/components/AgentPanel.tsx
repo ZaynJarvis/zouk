@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
 import StatusDot from './StatusDot';
-import { agentStatus } from '../lib/avatarStatus';
+import { agentStatus, avatarPaletteClass } from '../lib/avatarStatus';
 import { isMobileViewport } from '../lib/layout';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
@@ -37,7 +37,7 @@ function AgentListItem({
       }`}
     >
       <div className="relative w-8 h-8 shrink-0">
-        <div className={`w-8 h-8 border border-nc-cyan/30 bg-nc-cyan/10 font-display font-bold text-xs flex items-center justify-center text-nc-cyan overflow-hidden ${isOffline ? 'grayscale opacity-70' : ''}`}>
+        <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(status)}`}>
           {agent.picture ? (
             <img src={agent.picture} alt="" className="w-full h-full object-cover" />
           ) : (

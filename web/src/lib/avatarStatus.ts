@@ -18,3 +18,18 @@ export const STATUS_CLASS: Record<AvatarStatus, string> = {
   online: 'bg-nc-green',
   working: 'bg-nc-yellow animate-pulse',
 };
+
+// Offline swaps the whole palette to nc-muted (not just a grayscale filter) —
+// `grayscale` on washington-post's low-saturation cyan/green tokens leaves
+// icon-only avatars nearly identical to active ones.
+export function avatarPaletteClass(
+  status: AvatarStatus,
+  family: 'cyan' | 'green' = 'cyan',
+): string {
+  if (status === 'offline') {
+    return 'border-nc-muted/30 bg-nc-muted/10 text-nc-muted grayscale opacity-50';
+  }
+  return family === 'green'
+    ? 'border-nc-green/30 bg-nc-green/10 text-nc-green'
+    : 'border-nc-cyan/30 bg-nc-cyan/10 text-nc-cyan';
+}

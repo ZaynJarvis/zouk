@@ -350,9 +350,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                     {match.picture ? (
                       <img src={match.picture} alt="" className={`w-5 h-5 object-cover ${offline ? 'grayscale' : ''}`} />
                     ) : match.type === 'agent' ? (
-                      <Bot size={14} className="text-nc-green" />
+                      <Bot size={14} className={offline ? 'text-nc-muted' : 'text-nc-green'} />
                     ) : (
-                      <User size={14} className="text-nc-cyan" />
+                      <User size={14} className={offline ? 'text-nc-muted' : 'text-nc-cyan'} />
                     )}
                     <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                   </span>
