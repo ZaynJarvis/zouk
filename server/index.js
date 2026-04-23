@@ -11,6 +11,7 @@ const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const db = require("./db");
 const { createStore: createProfilePresetsStore, MAX_PRESETS: PROFILE_PRESET_MAX } = require("./profilePresets");
+const { createStorage } = require("./storage");
 const mockData = require("./mockData");
 
 function gravatarUrl(email) {
@@ -278,7 +279,6 @@ const store = {
   tasks: [], // { taskNumber, channelId, title, status, messageId, claimedByName, claimedByType, createdByName }
   agents: {}, // agentId -> { name, displayName, runtime, model, status, sessionId, ws }
   humans: [],
-  attachments: {}, // id -> { filename, buffer, contentType }
   agentReadSeq: {}, // agentId -> last seq delivered/read
   // channelAgents: channelId -> Map<agentId, { canRead, subscribed }>
   // Absence of (channelId, agentId) = agent is NOT a member of that channel.
@@ -983,20 +983,20 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-const uploadDir = path.join(__dirname, "..", "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const attachmentStorage = createStorage(
+  process.env.ZOUK_UPLOADS_DIR || path.join(__dirname, "..", "uploads")
+);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-// Resolve an array of attachment ids (as stored in store.attachments) into the
-// thin {id, filename, contentType} shape that rides along with each message.
-// Unknown ids fall through as filename:"unknown" so messages never crash a
-// renderer that expects the array shape.
+// Resolve an array of attachment ids into the thin {id, filename, contentType}
+// shape that rides along with each message. Unknown ids fall through as
+// filename:"unknown" so messages never crash a renderer that expects the shape.
 function resolveAttachmentRefs(ids) {
   if (!Array.isArray(ids)) return [];
   return ids.map((aid) => {
-    const att = store.attachments[aid];
-    if (!att) return { id: aid, filename: "unknown" };
-    return { id: aid, filename: att.filename, contentType: att.contentType };
+    const meta = attachmentStorage.statSync(aid);
+    if (!meta) return { id: aid, filename: "unknown" };
+    return { id: aid, filename: meta.filename, contentType: meta.contentType };
   });
 }
 
@@ -1378,23 +1378,32 @@ app.post("/internal/agent/:agentId/resolve-channel", (req, res) => {
 });
 
 // upload
-app.post("/internal/agent/:agentId/upload", upload.single("file"), (req, res) => {
+app.post("/internal/agent/:agentId/upload", upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
   const id = uuidv4();
-  store.attachments[id] = {
-    filename: req.file.originalname,
-    buffer: req.file.buffer,
-    contentType: req.file.mimetype,
-  };
+  try {
+    await attachmentStorage.put(id, req.file.buffer, {
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to persist attachment", detail: err.message });
+  }
   res.json({ id, filename: req.file.originalname, sizeBytes: req.file.size });
 });
 
 // view_file (attachment download)
 app.get("/api/attachments/:attachmentId", (req, res) => {
-  const att = store.attachments[req.params.attachmentId];
-  if (!att) return res.status(404).json({ error: "Not found" });
-  res.set("Content-Type", att.contentType);
-  res.send(att.buffer);
+  const id = req.params.attachmentId;
+  const meta = attachmentStorage.statSync(id);
+  if (!meta || !attachmentStorage.existsSync(id)) {
+    return res.status(404).json({ error: "Not found" });
+  }
+  res.set("Content-Type", meta.contentType || "application/octet-stream");
+  attachmentStorage.stream(id).on("error", () => {
+    if (!res.headersSent) res.status(500).end();
+    else res.destroy();
+  }).pipe(res);
 });
 
 // ─── Web API: for the frontend ────────────────────────────────────
@@ -1451,17 +1460,20 @@ app.post("/api/messages", requireAuth, (req, res) => {
   res.json({ messageId: msg.id, message: msg });
 });
 
-// Upload an attachment from the web UI. Shares the same in-memory store the
-// agent upload path writes to (store.attachments), so the returned id is
-// interchangeable — clients pass it back via POST /api/messages { attachmentIds }.
-app.post("/api/attachments", requireAuth, upload.single("file"), (req, res) => {
+// Upload an attachment from the web UI. Shares the same on-disk storage the
+// agent upload path writes to, so the returned id is interchangeable — clients
+// pass it back via POST /api/messages { attachmentIds }.
+app.post("/api/attachments", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
   const id = uuidv4();
-  store.attachments[id] = {
-    filename: req.file.originalname,
-    buffer: req.file.buffer,
-    contentType: req.file.mimetype,
-  };
+  try {
+    await attachmentStorage.put(id, req.file.buffer, {
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to persist attachment", detail: err.message });
+  }
   res.json({
     id,
     filename: req.file.originalname,
