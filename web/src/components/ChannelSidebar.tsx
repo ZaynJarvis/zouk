@@ -230,45 +230,47 @@ export default function ChannelSidebar() {
                   </span>
                   <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                 </span>
-                <span className="truncate text-sm">{agent.displayName || agent.name}</span>
-                <div className="ml-auto flex items-center gap-1.5">
-                  {agent.status === 'active' && !isGuest && (
-                    <span
-                      role="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        resetAgentContext(agent.id);
-                      }}
-                      className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-yellow transition-all`}
-                      title="Reset context"
-                    >
-                      <RotateCcw size={12} />
-                    </span>
-                  )}
-                  {!isGuest && (
-                    <span
-                      role="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openAgentSettings(agent.id);
-                      }}
-                      className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
-                      title={`Configure ${agent.displayName || agent.name}`}
-                    >
-                      <SlidersHorizontal size={12} />
-                    </span>
-                  )}
+                <span className="min-w-0 flex-1 truncate text-sm">{agent.displayName || agent.name}</span>
+                <div className="ml-auto flex shrink-0 items-center gap-1.5">
                   {unread > 0 && !isActive && (
-                    <span className="bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
+                    <span className="shrink-0 bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
                       {unread}
                     </span>
                   )}
                   {usageLabel && (
                     <span
-                      className={`shrink-0 text-[10px] font-mono leading-none ${usageTone}`}
+                      className={`shrink-0 text-right text-[10px] font-mono leading-none ${usageTone}`}
                       title={usageTitle}
                     >
                       {usageLabel}
+                    </span>
+                  )}
+                  {!isGuest && (
+                    <span className="flex shrink-0 items-center gap-1">
+                      {agent.status === 'active' && (
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            resetAgentContext(agent.id);
+                          }}
+                          className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-yellow transition-all`}
+                          title="Reset context"
+                        >
+                          <RotateCcw size={12} />
+                        </span>
+                      )}
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAgentSettings(agent.id);
+                        }}
+                        className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
+                        title={`Configure ${agent.displayName || agent.name}`}
+                      >
+                        <SlidersHorizontal size={12} />
+                      </span>
                     </span>
                   )}
                 </div>
