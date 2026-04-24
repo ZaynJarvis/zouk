@@ -230,8 +230,21 @@ export default function ChannelSidebar() {
                   </span>
                   <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                 </span>
-                <span className="truncate text-sm">{agent.displayName || agent.name}</span>
-                <div className="ml-auto flex items-center gap-1.5">
+                <span className="truncate text-sm min-w-0">{agent.displayName || agent.name}</span>
+                {unread > 0 && !isActive && (
+                  <span className="flex-shrink-0 bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
+                    {unread}
+                  </span>
+                )}
+                <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                  {usageLabel && (
+                    <span
+                      className={`shrink-0 text-[10px] font-mono leading-none ${usageTone}`}
+                      title={usageTitle}
+                    >
+                      {usageLabel}
+                    </span>
+                  )}
                   {agent.status === 'active' && !isGuest && (
                     <span
                       role="button"
@@ -256,19 +269,6 @@ export default function ChannelSidebar() {
                       title={`Configure ${agent.displayName || agent.name}`}
                     >
                       <SlidersHorizontal size={12} />
-                    </span>
-                  )}
-                  {unread > 0 && !isActive && (
-                    <span className="bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
-                      {unread}
-                    </span>
-                  )}
-                  {usageLabel && (
-                    <span
-                      className={`shrink-0 text-[10px] font-mono leading-none ${usageTone}`}
-                      title={usageTitle}
-                    >
-                      {usageLabel}
                     </span>
                   )}
                 </div>
