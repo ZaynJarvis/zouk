@@ -9,6 +9,7 @@ export function humanStatus(h: Pick<ServerHuman, 'online'>): AvatarStatus {
 export function agentStatus(a: Pick<ServerAgent, 'status' | 'activity'>): AvatarStatus {
   if (!a.status || a.status === 'inactive') return 'offline';
   const activity: AgentActivity | undefined = a.activity;
+  if (activity === 'offline') return 'offline';
   if (activity === 'thinking' || activity === 'working' || activity === 'error') return 'working';
   return 'online';
 }
