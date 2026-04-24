@@ -9,9 +9,12 @@ export function humanStatus(h: Pick<ServerHuman, 'online'>): AvatarStatus {
 export function agentStatus(a: Pick<ServerAgent, 'status' | 'activity'>): AvatarStatus {
   if (!a.status || a.status === 'inactive') return 'offline';
   const activity: AgentActivity | undefined = a.activity;
-  if (activity === 'offline') return 'offline';
   if (activity === 'thinking' || activity === 'working' || activity === 'error') return 'working';
-  return 'online';
+  if (activity === 'online') return 'online';
+  // Undefined or 'offline' → offline. Mirrors the `agent.activity || 'offline'`
+  // label fallback used in AgentProfilePanel/AgentDetail so the dot does not
+  // contradict the OFFLINE text sitting next to it.
+  return 'offline';
 }
 
 export const STATUS_CLASS: Record<AvatarStatus, string> = {
