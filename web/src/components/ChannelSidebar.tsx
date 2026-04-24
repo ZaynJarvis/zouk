@@ -231,7 +231,7 @@ export default function ChannelSidebar() {
                   <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                 </span>
                 <span className="truncate text-sm min-w-0">{agent.displayName || agent.name}</span>
-                {unread > 0 && !isActive && (
+                {unread > 0 && !isActive && isGuest && (
                   <span className="flex-shrink-0 bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
                     {unread}
                   </span>
@@ -259,16 +259,26 @@ export default function ChannelSidebar() {
                     </span>
                   )}
                   {!isGuest && (
-                    <span
-                      role="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openAgentSettings(agent.id);
-                      }}
-                      className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
-                      title={`Configure ${agent.displayName || agent.name}`}
-                    >
-                      <SlidersHorizontal size={12} />
+                    <span className="relative inline-flex">
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAgentSettings(agent.id);
+                        }}
+                        className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
+                        title={`Configure ${agent.displayName || agent.name}`}
+                      >
+                        <SlidersHorizontal size={12} />
+                      </span>
+                      {unread > 0 && !isActive && (
+                        <span
+                          className="pointer-events-none absolute -top-1 -right-1 min-w-[14px] h-[14px] px-[3px] flex items-center justify-center border border-nc-surface bg-nc-red text-nc-text-bright text-[9px] font-black leading-none"
+                          aria-label={`${unread} unread`}
+                        >
+                          {unread > 9 ? '9+' : unread}
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>

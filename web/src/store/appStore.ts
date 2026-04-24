@@ -628,9 +628,31 @@ export function useAppStore() {
     setViewMode(isDm ? 'dm' : 'channel');
     setThreadMessages([]);
     setActiveThreadMessage(null);
-    if (rightPanel === 'thread') setRightPanel(null);
+    // Mobile has no concept of a parallel "sidebar" — a new conversation fully
+    // replaces whatever was open (profile/settings/thread/etc.). Desktop keeps
+    // other panels but still drops thread so replies don't orphan.
+    if (isMobileViewport()) {
+      setRightPanel(null);
+      setAgentSettingsId(null);
+      setAgentProfileId(null);
+      setChannelSettingsId(null);
+    } else if (rightPanel === 'thread') {
+      setRightPanel(null);
+    }
     closeSidebarOnMobile();
   }, [closeSidebarOnMobile, rightPanel]);
+
+  const navigateToView = useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    if (isMobileViewport()) {
+      setRightPanel(null);
+      setActiveThreadMessage(null);
+      setThreadMessages([]);
+      setAgentSettingsId(null);
+      setAgentProfileId(null);
+      setChannelSettingsId(null);
+    }
+  }, []);
 
   const sendMessageAction = useCallback(async (
     content: string,
@@ -937,7 +959,7 @@ export function useAppStore() {
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
     channels, agents, humans, configs, machines,
     activeChannelName, selectChannel,
-    viewMode, setViewMode,
+    viewMode, setViewMode, navigateToView,
     rightPanel, setRightPanel,
     agentDetailTab, setAgentDetailTab,
     selectedAgentId, setSelectedAgentId,
