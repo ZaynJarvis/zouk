@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, Toast,
-  WorkspaceFile, MemoryEntry, AgentProfilePreset,
+  WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -114,6 +114,10 @@ export function useAppStore() {
   // Memory trees per agent: agentId -> uri -> entries (for recursive tree rendering)
   const [memoryTreeCache, setMemoryTreeCache] = useState<Record<string, Record<string, MemoryEntry[]>>>({});
   const [memoryFileContent, setMemoryFileContent] = useState<{ agentId: string; uri: string; content: string } | null>(null);
+  // Skill discovery per agent: agentId -> { global, workspace } as surfaced by
+  // the daemon's listSkills. Separate cache (not mixed into ServerAgent) because
+  // it is lazy-loaded per detail-tab open, not pushed with agent state.
+  const [skillsCache, setSkillsCache] = useState<Record<string, { global: AgentAvailableSkill[]; workspace: AgentAvailableSkill[] }>>({});
   const [profilePresets, setProfilePresets] = useState<AgentProfilePreset[]>([]);
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user || null);
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
@@ -463,6 +467,14 @@ export function useAppStore() {
       case 'memory:content': {
         const e = event as { agentId: string; requestId: string; uri: string; content: string };
         setMemoryFileContent({ agentId: e.agentId, uri: e.uri || e.requestId, content: e.content });
+        break;
+      }
+      case 'skills:list_result': {
+        const e = event as { agentId: string; global?: AgentAvailableSkill[]; workspace?: AgentAvailableSkill[] };
+        setSkillsCache(prev => ({
+          ...prev,
+          [e.agentId]: { global: e.global || [], workspace: e.workspace || [] },
+        }));
         break;
       }
     }
@@ -916,6 +928,10 @@ export function useAppStore() {
     wsRef.current?.send({ type: 'memory:read', agentId, requestId: uri, uri });
   }, []);
 
+  const requestSkills = useCallback((agentId: string, runtime?: string | null) => {
+    wsRef.current?.send({ type: 'skills:list', agentId, runtime: runtime || null });
+  }, []);
+
   return {
     theme, setTheme,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
@@ -954,6 +970,7 @@ export function useAppStore() {
     requestWorkspaceFiles, requestFileContent,
     memoryTreeCache, memoryFileContent,
     requestMemoryList, requestMemoryContent,
+    skillsCache, requestSkills,
     profilePresets,
     addProfilePreset: addProfilePresetAction,
     removeProfilePreset: removeProfilePresetAction,

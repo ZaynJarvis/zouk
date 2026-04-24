@@ -73,6 +73,17 @@ export interface Skill {
   content?: string;
 }
 
+// Skill surfaced by the daemon's listSkills scan (reads SKILL.md / command
+// markdown from the runtime home dir and agent workspace). Distinct from
+// AgentSkill which models the user-curated subset saved into an agent config.
+export interface AgentAvailableSkill {
+  name: string;
+  displayName: string;
+  description: string;
+  userInvocable: boolean;
+  sourcePath?: string;
+}
+
 export interface AgentTask {
   id: string;
   agentId: string;

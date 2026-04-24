@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { FileText, FolderOpen, Activity, Settings, Save, Square, Play, Globe, Lock, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2 } from 'lucide-react';
-import type { ServerAgent, ServerMachine, Skill } from '../types';
+import type { ServerAgent, ServerMachine } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
 import { activityLabels } from '../lib/activityStatus';
@@ -23,13 +23,6 @@ const TAB_CONFIG: { key: Tab; label: string; icon: typeof FileText }[] = [
   { key: 'settings', label: 'CONFIG', icon: Settings },
 ];
 
-const AVAILABLE_SKILLS: Skill[] = [
-  { id: 's1', name: 'Code Review', description: 'Reviews code for quality and security issues' },
-  { id: 's2', name: 'Bug Triage', description: 'Analyzes and categorizes bug reports' },
-  { id: 's3', name: 'E2E Testing', description: 'Writes and runs end-to-end tests' },
-  { id: 's4', name: 'Security Audit', description: 'Scans code for security vulnerabilities' },
-];
-
 function InstructionsTab({
   agent,
   onUpdate,
@@ -40,20 +33,31 @@ function InstructionsTab({
   // Instructions and skills only round-trip through the saved config — the
   // live ServerAgent payload doesn't carry them. Reading from `agent.X` would
   // wipe the user's saved value every time this tab remounts.
-  const { configs } = useApp();
+  const { configs, skillsCache, requestSkills } = useApp();
   const savedConfig = configs.find((c) => c.id === agent.id);
   const persistedInstructions = savedConfig?.instructions ?? agent.instructions ?? '';
   const persistedSkills = savedConfig?.skills ?? agent.skills ?? [];
   const [instructions, setInstructions] = useState(persistedInstructions);
   const isDirty = instructions !== persistedInstructions;
 
+  // The daemon scans SKILL.md + command markdown from the agent's runtime
+  // home dir + workspace and answers skills:list. Request lazily on mount;
+  // the daemon-side dedup already merges global+workspace.
+  useEffect(() => {
+    if (agent.status !== 'active') return;
+    requestSkills(agent.id, agent.runtime);
+  }, [agent.id, agent.status, agent.runtime, requestSkills]);
+
+  const discovered = skillsCache[agent.id];
+  const availableFromDaemon = [...(discovered?.global || []), ...(discovered?.workspace || [])];
+
   const assignedSkills = persistedSkills;
   const assignedIds = new Set(assignedSkills.map((s) => s.id));
-  const availableSkills = AVAILABLE_SKILLS.filter((s) => !assignedIds.has(s.id));
+  const availableSkills = availableFromDaemon.filter((s) => !assignedIds.has(s.name));
   const [showPicker, setShowPicker] = useState(false);
 
-  const handleAddSkill = (skill: Skill) => {
-    onUpdate({ skills: [...assignedSkills, { id: skill.id, name: skill.name, description: skill.description }] });
+  const handleAddSkill = (skill: { name: string; displayName: string; description: string }) => {
+    onUpdate({ skills: [...assignedSkills, { id: skill.name, name: skill.displayName || skill.name, description: skill.description }] });
     setShowPicker(false);
   };
 
@@ -101,24 +105,34 @@ function InstructionsTab({
         </ScanlineTear>
       </div>
 
-      {showPicker && availableSkills.length > 0 && (
-        <div className="mb-3 border border-nc-border bg-nc-panel overflow-hidden">
-          {availableSkills.map((skill) => (
-            <button
-              key={skill.id}
-              onClick={() => handleAddSkill(skill)}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-nc-elevated transition-colors border-b border-nc-border last:border-b-0"
-            >
-              <div className="w-7 h-7 border border-nc-yellow/30 bg-nc-yellow/10 flex items-center justify-center shrink-0">
-                <Zap size={12} className="text-nc-yellow" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="font-bold text-sm text-nc-text-bright">{skill.name}</span>
-                {skill.description && <p className="text-xs text-nc-muted truncate font-mono">{skill.description}</p>}
-              </div>
-            </button>
-          ))}
-        </div>
+      {showPicker && (
+        availableSkills.length > 0 ? (
+          <div className="mb-3 border border-nc-border bg-nc-panel overflow-hidden">
+            {availableSkills.map((skill) => (
+              <button
+                key={skill.name}
+                onClick={() => handleAddSkill(skill)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-nc-elevated transition-colors border-b border-nc-border last:border-b-0"
+              >
+                <div className="w-7 h-7 border border-nc-yellow/30 bg-nc-yellow/10 flex items-center justify-center shrink-0">
+                  <Zap size={12} className="text-nc-yellow" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="font-bold text-sm text-nc-text-bright">{skill.displayName || skill.name}</span>
+                  {skill.description && <p className="text-xs text-nc-muted truncate font-mono">{skill.description}</p>}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="mb-3 p-3 border border-nc-border bg-nc-panel text-xs text-nc-muted font-mono">
+            {agent.status === 'active'
+              ? discovered
+                ? 'No skills found in runtime home or workspace.'
+                : 'Scanning agent workspace for skills...'
+              : 'Start the agent to scan its workspace for skills.'}
+          </div>
+        )
       )}
 
       {assignedSkills.length > 0 && (
