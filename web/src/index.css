@@ -950,6 +950,13 @@ html[data-theme="graphite"] .composer-surface {
   transition: border-color 180ms ease;
 }
 
+/* Phone/tablet: match base themes' pill radius so mobile chrome is uniform. */
+@media (max-width: 1023.98px) {
+  html[data-theme="graphite"] .composer-surface {
+    border-radius: 19px;
+  }
+}
+
 /* Override MessageComposer's focus-within:border-nc-cyan with a neutral line */
 html[data-theme="graphite"] .focus-within\:border-nc-cyan:focus-within {
   border-color: rgb(255 255 255 / 0.35) !important;

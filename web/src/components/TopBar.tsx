@@ -1,4 +1,4 @@
-import { Hash, PanelRightOpen, PanelRightClose, Menu, Home, Cpu, KanbanSquare, Settings } from 'lucide-react';
+import { Hash, PanelRightOpen, PanelRightClose, Home, Cpu, KanbanSquare, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -13,7 +13,7 @@ import {
 export default function TopBar() {
   const {
     activeChannelName, viewMode, setViewMode,
-    rightPanel, setRightPanel, closeRightPanel, sidebarOpen, setSidebarOpen,
+    rightPanel, setRightPanel, closeRightPanel,
     theme, setSettingsOpen, channels, openChannelSettings, isGuest,
   } = useApp();
   const activeChannel = viewMode === 'channel'
@@ -27,19 +27,6 @@ export default function TopBar() {
   return (
     <div className={getTopBarShellClass(themeVariant)}>
       <div className={`h-12 sm:h-14 flex items-center px-2 sm:px-4 gap-2 sm:gap-3`}>
-        {!inHomeView && (
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={`lg:hidden ${getTopBarMobileIconButtonClass(themeVariant, 'cyan')}`}
-              aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
-              aria-expanded={sidebarOpen}
-            >
-              <Menu size={16} />
-            </button>
-          </ScanlineTear>
-        )}
-
         <div className="lg:hidden flex items-center gap-1">
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
@@ -109,7 +96,7 @@ export default function TopBar() {
 
         <div className="flex items-center gap-1">
           {activeChannel && !isGuest && (
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <ScanlineTear className="hidden lg:block" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
               <button
                 onClick={() => openChannelSettings(activeChannel.id)}
                 className={getTopBarRightPanelButtonClass(themeVariant, rightPanel === 'channel_settings')}

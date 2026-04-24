@@ -46,7 +46,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   textRef.current = text;
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [focused, setFocused] = useState(false);
   const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const pendingImagesRef = useRef<PendingImage[]>([]);
@@ -71,7 +70,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     };
   }, []);
 
-  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen && !focused && !text.trim() && pendingImages.length === 0;
+  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen;
   const showImageBtn = !text.trim();
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
@@ -450,8 +449,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             onSelect={handleSelect}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
