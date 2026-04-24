@@ -127,6 +127,13 @@ export interface WsMemoryContentEvent {
   error?: string;
 }
 
+export interface WsSkillsListResultEvent {
+  type: 'skills:list_result';
+  agentId: string;
+  global: import('../types').AgentAvailableSkill[];
+  workspace: import('../types').AgentAvailableSkill[];
+}
+
 export type WsEvent =
   | WsInitEvent
   | WsMessageEvent
@@ -144,6 +151,7 @@ export type WsEvent =
   | WsWorkspaceFileContentEvent
   | WsMemoryListResultEvent
   | WsMemoryContentEvent
+  | WsSkillsListResultEvent
   | WsProfilePresetsUpdatedEvent
   | { type: string; [key: string]: unknown };
 
