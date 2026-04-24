@@ -13,6 +13,7 @@ const AGENTS = [
   { id: 'ag-think', name: 'thinking-bot', displayName: 'Thinking Bot', runtime: 'claude', model: 'claude-sonnet-4-6', status: 'active', activity: 'thinking', activityDetail: '', machineId: 'm1' },
   { id: 'ag-idle', name: 'idle-bot', displayName: 'Idle Bot', runtime: 'claude', model: 'claude-sonnet-4-6', status: 'active', activity: 'online', machineId: 'm1' },
   { id: 'ag-off', name: 'offline-bot', displayName: 'Offline Bot', runtime: 'claude', model: 'claude-sonnet-4-6', status: 'inactive', activity: 'offline', machineId: 'm1' },
+  { id: 'ag-off-active', name: 'offline-active-bot', displayName: 'Offline (Active) Bot', runtime: 'claude', model: 'claude-sonnet-4-6', status: 'active', activity: 'offline', machineId: 'm1' },
 ];
 
 const CONFIGS = AGENTS.map(a => ({ id: a.id, name: a.name, displayName: a.displayName, runtime: a.runtime, model: a.model, description: `${a.displayName} demo agent`, picture: null }));

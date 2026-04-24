@@ -25,7 +25,7 @@ function AgentListItem({
   onDelete?: () => void;
 }) {
   const status = agentStatus(agent);
-  const isOffline = status === 'offline';
+  const isInactive = agent.status === 'inactive';
 
   return (
     <button
@@ -72,7 +72,7 @@ function AgentListItem({
       >
         <Settings size={13} />
       </span>
-      {isOffline && onDelete && (
+      {isInactive && onDelete && (
         <span
           role="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
