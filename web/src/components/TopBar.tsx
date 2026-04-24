@@ -12,7 +12,7 @@ import {
 
 export default function TopBar() {
   const {
-    activeChannelName, viewMode, setViewMode,
+    activeChannelName, viewMode, navigateToView,
     rightPanel, setRightPanel, closeRightPanel,
     theme, setSettingsOpen, channels, openChannelSettings, isGuest,
   } = useApp();
@@ -30,7 +30,7 @@ export default function TopBar() {
         <div className="lg:hidden flex items-center gap-1">
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
-              onClick={() => setViewMode('channel')}
+              onClick={() => navigateToView('channel')}
               className={getTopBarMobileIconButtonClass(themeVariant, 'cyan', inHomeView)}
               title="Home"
               aria-label="Home"
@@ -41,7 +41,7 @@ export default function TopBar() {
 
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
-              onClick={() => setViewMode('agents')}
+              onClick={() => navigateToView('agents')}
               className={getTopBarMobileIconButtonClass(themeVariant, 'green', viewMode === 'agents')}
               title="Agents"
               aria-label="Agents"
@@ -52,7 +52,7 @@ export default function TopBar() {
 
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
-              onClick={() => setViewMode('tasks')}
+              onClick={() => navigateToView('tasks')}
               className={getTopBarMobileIconButtonClass(themeVariant, 'indigo', viewMode === 'tasks')}
               title="Tasks"
               aria-label="Tasks"
@@ -107,7 +107,7 @@ export default function TopBar() {
               </button>
             </ScanlineTear>
           )}
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <ScanlineTear className="hidden lg:block" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
               onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}
               className={getTopBarRightPanelButtonClass(themeVariant, !!rightPanel)}
