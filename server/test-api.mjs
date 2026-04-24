@@ -39,6 +39,10 @@ const { splitSqlStatements } = require('./db.js');
 const TEST_PORT = 17779;
 const BASE = `http://localhost:${TEST_PORT}`;
 
+// Tests write real bytes through the attachment storage layer; keep them out of
+// the dev workspace's uploads/ dir so re-runs stay clean.
+const TEST_UPLOADS_DIR = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-test-uploads-'));
+
 let serverProc = null;
 
 async function waitForServer(timeout = 10_000) {
@@ -60,7 +64,7 @@ async function json(res) {
 
 before(async () => {
   serverProc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: { ...process.env, PORT: String(TEST_PORT), NODE_ENV: 'test' },
+    env: { ...process.env, PORT: String(TEST_PORT), NODE_ENV: 'test', ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   serverProc.stdout.resume();
@@ -70,6 +74,7 @@ before(async () => {
 
 after(() => {
   serverProc?.kill('SIGTERM');
+  fs.rmSync(TEST_UPLOADS_DIR, { recursive: true, force: true });
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -221,6 +226,85 @@ test('POST /api/attachments without auth: returns 403', async () => {
   form.append('file', new Blob([Buffer.from('a')], { type: 'image/png' }), 'a.png');
   const res = await fetch(`${BASE}/api/attachments`, { method: 'POST', body: form });
   assert.equal(res.status, 403, 'unauthenticated uploads must be rejected');
+});
+
+test('attachments persist across server restart', async () => {
+  // Reason: pre-change uploads lived only in-memory. This test spawns a fresh
+  // server in an isolated uploads dir, uploads a blob, kills the process, and
+  // confirms a new server on the same dir can still serve the same id.
+  const tmpDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-att-'));
+  const restartPort = TEST_PORT + 1;
+  const restartBase = `http://localhost:${restartPort}`;
+
+  async function bootServer() {
+    const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+      env: { ...process.env, PORT: String(restartPort), NODE_ENV: 'test', ZOUK_UPLOADS_DIR: tmpDir },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    proc.stdout.resume();
+    proc.stderr.resume();
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(`${restartBase}/api/channels`);
+        if (r.ok) return proc;
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    proc.kill('SIGKILL');
+    throw new Error('restart-persistence server did not become ready');
+  }
+
+  async function waitForExit(proc) {
+    if (proc.exitCode != null) return;
+    await new Promise((resolve) => proc.once('exit', resolve));
+  }
+
+  let proc1, proc2;
+  try {
+    proc1 = await bootServer();
+
+    const authRes = await fetch(`${restartBase}/api/auth/guest-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ci-restart' }),
+    });
+    const { token } = await authRes.json();
+
+    const payload = Buffer.from('restart-persists');
+    const form = new FormData();
+    form.append('file', new Blob([payload], { type: 'text/plain' }), 'note.txt');
+    const uploadRes = await fetch(`${restartBase}/api/attachments`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const upload = await uploadRes.json();
+    assert.equal(uploadRes.status, 200);
+    assert.ok(upload.id);
+
+    proc1.kill('SIGTERM');
+    await waitForExit(proc1);
+    proc1 = null;
+
+    proc2 = await bootServer();
+    const getRes = await fetch(`${restartBase}/api/attachments/${upload.id}`);
+    assert.equal(getRes.status, 200, 'attachment must survive server restart');
+    // Whatever content-type multer inferred at upload time (FormData blob may
+    // tack on "; charset=utf-8"); we only care that the prefix round-trips.
+    assert.ok(
+      (getRes.headers.get('content-type') || '').startsWith('text/plain'),
+      'content-type must round-trip after restart',
+    );
+    const got = Buffer.from(await getRes.arrayBuffer());
+    assert.equal(got.toString('utf8'), 'restart-persists');
+  } finally {
+    proc1?.kill('SIGKILL');
+    proc2?.kill('SIGKILL');
+    if (proc1) await waitForExit(proc1).catch(() => {});
+    if (proc2) await waitForExit(proc2).catch(() => {});
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
 
 // ─── Auth enforcement ─────────────────────────────────────────────────────────
