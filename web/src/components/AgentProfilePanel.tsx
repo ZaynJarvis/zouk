@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  X, Bot, User as UserIcon, Activity, FolderOpen, Server, Settings as SettingsIcon, Zap, MessageCircle,
+  X, Bot, User as UserIcon, Activity, FolderOpen, Settings as SettingsIcon, MessageCircle,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
@@ -13,137 +13,137 @@ import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
 
-type Tab = 'profile' | 'workspace' | 'activity';
+type Tab = 'profile' | 'workspace';
 
 const TAB_CONFIG: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: 'profile', label: 'PROFILE', icon: UserIcon },
   { key: 'workspace', label: 'FILES', icon: FolderOpen },
-  { key: 'activity', label: 'ACTIVITY', icon: Activity },
 ];
 
 function ProfileTab({ agent }: { agent: ServerAgent }) {
-  const { machines, openAgentSettings, selectChannel } = useApp();
+  const { machines, openAgentSettings, selectChannel, loadAgentActivities } = useApp();
   const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
   const activity = agent.activity || 'offline';
   const status = agentStatus(agent);
   const isActive = agent.status === 'active';
+  const entries = agent.entries || [];
+
+  useEffect(() => {
+    loadAgentActivities(agent.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id]);
+
+  const runtimeLabel = formatRuntime(agent.runtime) || 'Unknown';
+  const machineLabel = machine?.alias || machine?.hostname;
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
-      <div className="flex items-start gap-3">
-        <div className="relative w-16 h-16 shrink-0">
-          <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-xl ${avatarPaletteClass(status)}`}>
-            {agent.picture ? (
-              <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-            ) : (
-              (agent.displayName || agent.name).charAt(0).toUpperCase()
-            )}
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="shrink-0 overflow-y-auto scrollbar-thin px-4 pt-3 pb-2 space-y-3 max-h-[55%]">
+        <div className="flex items-start gap-3">
+          <div className="relative w-12 h-12 shrink-0">
+            <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-base ${avatarPaletteClass(status)}`}>
+              {agent.picture ? (
+                <img src={agent.picture} alt="" className="w-full h-full object-cover" />
+              ) : (
+                (agent.displayName || agent.name).charAt(0).toUpperCase()
+              )}
+            </div>
+            <StatusDot status={status} ringClass="border-nc-surface" />
           </div>
-          <StatusDot status={status} ringClass="border-nc-surface" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="font-display font-black text-base text-nc-text-bright truncate tracking-wider">
+                @{agent.displayName || agent.name}
+              </div>
+              <span className="text-2xs bg-nc-green/10 text-nc-green border border-nc-green/30 px-1.5 py-0.5 font-bold uppercase font-mono leading-none shrink-0">
+                Agent
+              </span>
+            </div>
+            <div className="text-2xs text-nc-muted font-mono mt-0.5 truncate">
+              {isActive ? activityLabels[activity] : 'INACTIVE'}
+              {agent.activityDetail && isActive ? ` · ${agent.activityDetail}` : ''}
+            </div>
+          </div>
+          <div className="flex gap-1 shrink-0">
+            <button
+              onClick={() => selectChannel(agent.name, true)}
+              title="Message"
+              className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-cyan bg-nc-cyan/10 text-nc-cyan hover:bg-nc-cyan/20"
+            >
+              <MessageCircle size={13} />
+            </button>
+            <button
+              onClick={() => openAgentSettings(agent.id)}
+              title="Config"
+              className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-border bg-nc-panel text-nc-muted hover:text-nc-cyan hover:border-nc-cyan"
+            >
+              <SettingsIcon size={13} />
+            </button>
+          </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="font-display font-black text-lg text-nc-text-bright truncate tracking-wider">
-            @{agent.displayName || agent.name}
-          </div>
-          <div className="text-2xs bg-nc-green/10 text-nc-green border border-nc-green/30 inline-block px-1.5 py-0.5 font-bold uppercase font-mono leading-none mt-1">
-            Agent
-          </div>
-          <div className="text-xs text-nc-muted font-mono mt-1.5">
-            {isActive ? activityLabels[activity] : 'INACTIVE'}
-            {agent.activityDetail && isActive ? ` · ${agent.activityDetail}` : ''}
-          </div>
-        </div>
-      </div>
 
-      <div className="flex gap-2">
-        <button
-          onClick={() => selectChannel(agent.name, true)}
-          className="cyber-btn flex items-center gap-1.5 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-xs font-bold text-nc-cyan hover:bg-nc-cyan/20 font-mono"
-        >
-          <MessageCircle size={12} /> MESSAGE
-        </button>
-        <button
-          onClick={() => openAgentSettings(agent.id)}
-          className="cyber-btn flex items-center gap-1.5 px-3 py-1.5 border border-nc-border bg-nc-panel text-xs font-bold text-nc-muted hover:text-nc-cyan hover:border-nc-cyan font-mono"
-        >
-          <SettingsIcon size={12} /> CONFIG
-        </button>
-      </div>
+        {agent.description && (
+          <p className="text-xs text-nc-text leading-relaxed">{agent.description}</p>
+        )}
 
-      {agent.description && (
-        <div>
-          <div className="text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">DESCRIPTION</div>
-          <p className="text-sm text-nc-text leading-relaxed">{agent.description}</p>
+        <div className="text-2xs font-mono text-nc-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+          <span className="text-nc-text-bright">{runtimeLabel}</span>
+          {agent.model && (
+            <>
+              <span>·</span>
+              <span className="text-nc-text-bright truncate">{agent.model}</span>
+            </>
+          )}
+          {machineLabel && (
+            <>
+              <span>·</span>
+              <span className="text-nc-green truncate">@{machineLabel}</span>
+            </>
+          )}
         </div>
-      )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <div className="text-xs font-bold text-nc-muted mb-1 font-mono tracking-wider">RUNTIME</div>
-          <div className="text-sm text-nc-text-bright font-mono">
-            {formatRuntime(agent.runtime) || 'Unknown'}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs font-bold text-nc-muted mb-1 font-mono tracking-wider">MODEL</div>
-          <div className="text-sm text-nc-text-bright font-mono truncate">
-            {agent.model || '—'}
-          </div>
-        </div>
-      </div>
-
-      {machine && (
-        <div>
-          <div className="flex items-center gap-1.5 text-xs font-bold text-nc-muted mb-1 font-mono tracking-wider">
-            <Server size={11} className="text-nc-green" /> MACHINE
-          </div>
-          <div className="flex items-center gap-2 px-3 py-2 border border-nc-border bg-nc-elevated">
-            <span className="w-2 h-2 bg-nc-green shrink-0" />
-            <span className="font-bold text-sm text-nc-text-bright font-mono truncate">
-              {machine.alias || machine.hostname}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {agent.channels && agent.channels.length > 0 && (
-        <div>
-          <div className="text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CHANNELS</div>
-          <div className="flex flex-wrap gap-1.5">
-            {agent.channels.map((ch) => (
-              <span key={ch} className="px-2 py-0.5 border border-nc-cyan/30 bg-nc-cyan/10 text-xs font-bold text-nc-cyan font-mono">
+        {((agent.channels && agent.channels.length > 0) || (agent.skills && agent.skills.length > 0)) && (
+          <div className="flex flex-wrap gap-1">
+            {agent.channels?.map((ch) => (
+              <span key={`c-${ch}`} className="px-1.5 py-0.5 border border-nc-cyan/30 bg-nc-cyan/10 text-2xs font-bold text-nc-cyan font-mono">
                 #{ch}
               </span>
             ))}
-          </div>
-        </div>
-      )}
-
-      {agent.skills && agent.skills.length > 0 && (
-        <div>
-          <div className="text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">SKILLS</div>
-          <div className="space-y-1.5">
-            {agent.skills.map((s) => (
-              <div key={s.id} className="flex items-start gap-2 p-2 border border-nc-border bg-nc-panel">
-                <Zap size={12} className="text-nc-yellow shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm text-nc-text-bright">{s.name}</div>
-                  {s.description && <div className="text-xs text-nc-muted font-mono">{s.description}</div>}
-                </div>
-              </div>
+            {agent.skills?.map((s) => (
+              <span
+                key={`s-${s.id}`}
+                title={s.description || s.name}
+                className="px-1.5 py-0.5 border border-nc-yellow/30 bg-nc-yellow/10 text-2xs font-bold text-nc-yellow font-mono"
+              >
+                {s.name}
+              </span>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {agent.workDir && (
-        <div>
-          <div className="text-xs font-bold text-nc-muted mb-1 font-mono tracking-wider">WORK_DIR</div>
-          <div className="p-2 border border-nc-border bg-nc-elevated text-xs font-mono text-nc-green break-all">
+        {agent.workDir && (
+          <div className="text-2xs font-mono text-nc-green truncate" title={agent.workDir}>
             {agent.workDir}
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      <div className="shrink-0 border-t border-nc-border px-4 py-1.5 flex items-center gap-1.5">
+        <Activity size={11} className="text-nc-green" />
+        <span className="text-2xs font-bold text-nc-muted font-mono tracking-wider">ACTIVITY</span>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+        {entries.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center py-8 px-4">
+            <Activity size={20} className="text-nc-muted mb-2" />
+            <p className="text-xs text-nc-muted font-bold font-mono">NO_ACTIVITY</p>
+            <p className="text-2xs text-nc-muted mt-1 font-mono">Activity will appear here when the agent starts working.</p>
+          </div>
+        ) : (
+          <AgentActivityFeed entries={entries} className="p-3 space-y-1" />
+        )}
+      </div>
     </div>
   );
 }
@@ -228,29 +228,6 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   );
 }
 
-function ActivityTab({ agent }: { agent: ServerAgent }) {
-  const { loadAgentActivities } = useApp();
-  const entries = agent.entries || [];
-
-  useEffect(() => {
-    loadAgentActivities(agent.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent.id]);
-
-  if (entries.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-        <Activity size={24} className="text-nc-muted mb-2" />
-        <p className="text-sm text-nc-muted font-bold font-mono">NO_ACTIVITY</p>
-        <p className="text-xs text-nc-muted mt-1 font-mono">Activity will appear here when the agent starts working.</p>
-      </div>
-    );
-  }
-  return (
-    <AgentActivityFeed entries={entries} className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-1" />
-  );
-}
-
 export default function AgentProfilePanel() {
   const { agents, configs, closeRightPanel, agentProfileId } = useApp();
   const [tab, setTab] = useState<Tab>('profile');
@@ -328,7 +305,6 @@ export default function AgentProfilePanel() {
       <div className="flex-1 min-h-0 flex flex-col">
         {tab === 'profile' && <ProfileTab agent={agent} />}
         {tab === 'workspace' && <WorkspaceTab agent={agent} />}
-        {tab === 'activity' && <ActivityTab agent={agent} />}
       </div>
     </div>
   );
