@@ -839,3 +839,169 @@ test('DM delivery survives missing channel_agents row (no seed needed)', async (
     'non-party agent must NOT see DM even when table-free',
   );
 });
+
+// ─── Thread index + sliding window + stats ────────────────────────────────────
+
+test('thread index: parent + replies surface via includeReplies in O(1)', async () => {
+  // Reason: pre-fix this lookup was a full store.messages scan per message.
+  // The index swap is the real fix; this test catches a regression where
+  // messagesByShortId / repliesByThreadId stop being maintained on push.
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-thread' }),
+  });
+  const { token } = await authRes.json();
+
+  const parentMarker = `ci-thread-parent-${Date.now()}`;
+  const parentRes = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content: parentMarker }),
+  }));
+  assert.equal(parentRes.status, 200);
+  const parentId = parentRes.body.message.id;
+  const shortId = parentId.slice(0, 8);
+
+  // Three replies in the parent's thread.
+  const replyMarkers = [];
+  for (let i = 0; i < 3; i++) {
+    const m = `ci-thread-reply-${i}-${Date.now()}`;
+    replyMarkers.push(m);
+    const r = await fetch(`${BASE}/api/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ target: `#all:${shortId}`, content: m }),
+    });
+    assert.equal(r.status, 200);
+  }
+
+  // GET /api/messages includes replies inline (the O(L*N) hot path pre-fix).
+  // The repliesByThreadId index drives parent.replies + replyCount.
+  const histRes = await json(await fetch(`${BASE}/api/messages`, {
+    headers: { 'X-Channel': '#all', 'X-Limit': '50' },
+  }));
+  assert.equal(histRes.status, 200);
+  const parent = histRes.body.messages.find((m) => m.id === parentId);
+  assert.ok(parent, 'parent message must be in history');
+  assert.equal(parent.replyCount, 3, 'replyCount must reflect all replies');
+  assert.equal(parent.replies.length, 3, 'inline replies must include all three');
+  for (const m of replyMarkers) {
+    assert.ok(parent.replies.some((r) => r.content === m), `reply "${m}" must surface inline`);
+  }
+
+  // The flat /api/messages?#all view filters out thread replies (matchesTarget
+  // requires no threadId for a non-thread target). Pull the thread itself to
+  // verify findThreadParentId routes via messagesByShortId — each reply must
+  // round-trip with parentMessageId pointing at the parent.
+  const threadRes = await json(await fetch(`${BASE}/api/messages`, {
+    headers: { 'X-Channel': `#all:${shortId}`, 'X-Limit': '20' },
+  }));
+  assert.equal(threadRes.status, 200);
+  assert.equal(threadRes.body.messages.length, 3, 'thread must show 3 replies');
+  for (const r of threadRes.body.messages) {
+    assert.equal(r.parentMessageId, parentId, 'parentMessageId must round-trip via index');
+  }
+});
+
+test('GET /api/_internal/stats: auth-gated diagnostic counters', async () => {
+  // Reason: this endpoint is the operator escape hatch when "feels slow"
+  // reports come in. It must stay auth-gated AND keep its core fields
+  // (messages count, cap, index sizes) so curl-based investigations work.
+  const noAuth = await fetch(`${BASE}/api/_internal/stats`);
+  assert.equal(noAuth.status, 403, 'stats must reject unauthenticated callers');
+
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-stats' }),
+  });
+  const { token } = await authRes.json();
+
+  const { status, body } = await json(await fetch(`${BASE}/api/_internal/stats`, {
+    headers: { Authorization: `Bearer ${token}` },
+  }));
+  assert.equal(status, 200);
+  assert.ok(typeof body.store.messages === 'number');
+  assert.ok(typeof body.store.messagesCap === 'number' && body.store.messagesCap > 0);
+  assert.ok(typeof body.indexes.messagesById === 'number');
+  assert.ok(typeof body.indexes.messagesByShortId === 'number');
+  assert.equal(
+    body.indexes.messagesById, body.store.messages,
+    'messagesById index must size-match store.messages — out-of-sync = silent perf regression'
+  );
+});
+
+test('store.messages sliding window evicts oldest beyond MAX_IN_MEMORY_MESSAGES', async () => {
+  // Reason: without an upper bound, store.messages grew with total traffic
+  // and every history fetch slowed proportionally. This test boots a server
+  // with a deliberately tiny cap, sends more messages than the cap, and
+  // confirms the cap actually holds.
+  const capPort = TEST_PORT + 2;
+  const capBase = `http://localhost:${capPort}`;
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      PORT: String(capPort),
+      NODE_ENV: 'test',
+      ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+      MAX_IN_MEMORY_MESSAGES: '5',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(`${capBase}/api/channels`);
+        if (r.ok) break;
+      } catch (_) {}
+      await new Promise((r) => setTimeout(r, 150));
+    }
+
+    const authRes = await fetch(`${capBase}/api/auth/guest-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'ci-cap' }),
+    });
+    const { token } = await authRes.json();
+
+    // Push 12 messages — 7 over the cap.
+    for (let i = 0; i < 12; i++) {
+      await fetch(`${capBase}/api/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ target: '#all', content: `cap-probe-${i}` }),
+      });
+    }
+
+    const stats = await json(await fetch(`${capBase}/api/_internal/stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }));
+    assert.equal(stats.status, 200);
+    assert.equal(stats.body.store.messagesCap, 5, 'cap env must be respected');
+    assert.ok(stats.body.store.messages <= 5, `messages must be capped at 5, saw ${stats.body.store.messages}`);
+    assert.equal(
+      stats.body.indexes.messagesById, stats.body.store.messages,
+      'index must shrink when messages are evicted',
+    );
+
+    // Newest 5 must still be reachable.
+    const histRes = await json(await fetch(`${capBase}/api/messages`, {
+      headers: { 'X-Channel': '#all', 'X-Limit': '20' },
+    }));
+    assert.equal(histRes.status, 200);
+    const contents = histRes.body.messages.map((m) => m.content);
+    assert.ok(contents.includes('cap-probe-11'), 'newest message must remain');
+    assert.ok(!contents.includes('cap-probe-0'), 'oldest message must be evicted');
+  } finally {
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+  }
+});

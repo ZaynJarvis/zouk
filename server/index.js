@@ -288,6 +288,76 @@ const store = {
   taskSeq: 0,
 };
 
+// In-memory secondary indexes over store.messages. These exist purely so
+// hot-path lookups (parent-of-thread, replies-of-thread) don't have to scan
+// the whole array on every formatMessageForClient call. They are maintained
+// in lockstep with store.messages via appendMessage / setStoreMessages, and
+// must NEVER be mutated directly outside indexMessage / unindexMessage.
+const messagesById = new Map();         // full id   -> msg
+const messagesByShortId = new Map();    // id.slice(0,8) -> msg (parent lookup; threadId is always an 8-char shortid)
+const repliesByThreadId = new Map();    // 8-char threadId -> Message[] (replies, push order = seq order)
+
+// Sliding window cap. Without one, store.messages grew unbounded and
+// every history fetch scaled with total accumulated traffic, not channel
+// size. 5000 is well above the 800-message bootstrap so the eviction
+// floor sits comfortably below the user-visible history horizon.
+const MAX_IN_MEMORY_MESSAGES = parseInt(process.env.MAX_IN_MEMORY_MESSAGES || '5000', 10);
+
+function indexMessage(msg) {
+  if (!msg) return;
+  messagesById.set(msg.id, msg);
+  messagesByShortId.set(msg.id.slice(0, 8), msg);
+  if (msg.threadId) {
+    let arr = repliesByThreadId.get(msg.threadId);
+    if (!arr) {
+      arr = [];
+      repliesByThreadId.set(msg.threadId, arr);
+    }
+    arr.push(msg);
+  }
+}
+
+function unindexMessage(msg) {
+  if (!msg) return;
+  if (messagesById.get(msg.id) === msg) messagesById.delete(msg.id);
+  // Only clear the short-id slot if it still points at this exact message —
+  // a brand-new message could (astronomically rarely) share an 8-char prefix.
+  const short = msg.id.slice(0, 8);
+  if (messagesByShortId.get(short) === msg) messagesByShortId.delete(short);
+  if (msg.threadId) {
+    const arr = repliesByThreadId.get(msg.threadId);
+    if (arr) {
+      const idx = arr.indexOf(msg);
+      if (idx >= 0) arr.splice(idx, 1);
+      if (arr.length === 0) repliesByThreadId.delete(msg.threadId);
+    }
+  }
+}
+
+function rebuildMessageIndex() {
+  messagesById.clear();
+  messagesByShortId.clear();
+  repliesByThreadId.clear();
+  for (const msg of store.messages) indexMessage(msg);
+}
+
+// Wrapper for store.messages.push: keeps indexes in sync and enforces the
+// sliding-window cap. All hot-path message inserts go through this.
+function appendMessage(msg) {
+  store.messages.push(msg);
+  indexMessage(msg);
+  while (store.messages.length > MAX_IN_MEMORY_MESSAGES) {
+    const evicted = store.messages.shift();
+    unindexMessage(evicted);
+  }
+}
+
+// Replace the entire array (boot-from-DB path). Resets indexes after.
+function setStoreMessages(msgs) {
+  store.messages = msgs;
+  rebuildMessageIndex();
+}
+
 function nextSeq() {
   return ++store.seq;
 }
@@ -527,17 +597,22 @@ const INLINE_REPLY_PREVIEW_LIMIT = 3;
 
 function findThreadParentId(threadId) {
   if (!threadId) return null;
-  const parent = store.messages.find((m) => !m.threadId && m.id.startsWith(threadId));
-  return parent ? parent.id : null;
+  // threadId is always an 8-char shortid (see parseTarget). Any message whose
+  // id starts with that prefix gets indexed by its prefix in messagesByShortId,
+  // so this is an O(1) lookup that replaces a full store.messages scan.
+  const parent = messagesByShortId.get(threadId);
+  return parent && !parent.threadId ? parent.id : null;
 }
 
 function collectThreadReplies(parentMsg) {
   if (!parentMsg || parentMsg.threadId) return { replies: [], replyCount: 0 };
   const shortid = parentMsg.id.slice(0, 8);
-  const all = store.messages.filter(
-    (m) => m.threadId === shortid && m.channelId === parentMsg.channelId,
-  );
-  return { replies: all.slice(-INLINE_REPLY_PREVIEW_LIMIT), replyCount: all.length };
+  const all = repliesByThreadId.get(shortid) || [];
+  // channelId guard preserves the original semantics — if two parents share
+  // an 8-char prefix in different channels, we still attribute replies to the
+  // right one. The reply array is small per-thread so this is cheap.
+  const matched = all.filter((m) => m.channelId === parentMsg.channelId);
+  return { replies: matched.slice(-INLINE_REPLY_PREVIEW_LIMIT), replyCount: matched.length };
 }
 
 function formatMessageForClient(msg, viewerName, options = {}) {
@@ -1026,7 +1101,7 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
     createdAt: now(),
     attachments: resolveAttachmentRefs(attachmentIds),
   };
-  store.messages.push(msg);
+  appendMessage(msg);
   db.saveMessage(msg);
 
   // Deliver to other agents
@@ -1253,7 +1328,7 @@ app.post("/internal/agent/:agentId/tasks", (req, res) => {
       taskNumber: taskNum,
       taskStatus: "todo",
     };
-    store.messages.push(msg);
+    appendMessage(msg);
     db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
@@ -1317,7 +1392,7 @@ app.post("/internal/agent/:agentId/tasks/claim", (req, res) => {
       content: `📌 ${agentName} claimed #${num} "${task.title}"`,
       createdAt: now(), attachments: [], taskNumber: num, taskStatus: "in_progress",
     };
-    store.messages.push(msg);
+    appendMessage(msg);
     db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
@@ -1360,7 +1435,7 @@ app.post("/internal/agent/:agentId/tasks/update-status", (req, res) => {
       content: `${emoji} ${agentName} moved #${task_number} "${task.title}" to ${status}`,
       createdAt: now(), attachments: [], taskNumber: task_number, taskStatus: status,
     };
-    store.messages.push(msg);
+    appendMessage(msg);
     db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
   }
@@ -1448,7 +1523,7 @@ app.post("/api/messages", requireAuth, (req, res) => {
     createdAt: now(),
     attachments: resolveAttachmentRefs(attachmentIds),
   };
-  store.messages.push(msg);
+  appendMessage(msg);
   db.saveMessage(msg);
 
   // Regular channel delivery uses channel_agents membership; DM delivery
@@ -2864,6 +2939,37 @@ app.get("/api/auth/config", (_req, res) => {
   res.json({ googleClientId: GOOGLE_CLIENT_ID || null, allowlistActive: allowlistActive() });
 });
 
+// Internal diagnostics: in-memory store sizes + index counts. Auth-gated so
+// random visitors can't fingerprint server load, but cheap enough to curl
+// when investigating "feels slow" reports.
+app.get("/api/_internal/stats", requireAuth, (_req, res) => {
+  let threadReplyTotal = 0;
+  for (const arr of repliesByThreadId.values()) threadReplyTotal += arr.length;
+  res.json({
+    timestamp: now(),
+    seq: store.seq,
+    taskSeq: store.taskSeq,
+    store: {
+      messages: store.messages.length,
+      messagesCap: MAX_IN_MEMORY_MESSAGES,
+      channels: store.channels.length,
+      tasks: store.tasks.length,
+      agents: Object.keys(store.agents).length,
+    },
+    indexes: {
+      messagesById: messagesById.size,
+      messagesByShortId: messagesByShortId.size,
+      threads: repliesByThreadId.size,
+      threadReplies: threadReplyTotal,
+    },
+    sockets: {
+      web: webSockets.size,
+      daemon: daemonSockets.size,
+      pendingDeliveryAgents: pendingDeliveries.size,
+    },
+  });
+});
+
 // ─── Settings: email allowlist (admin UI for the DB source) ──────
 // Any authenticated user may view and edit the allowlist. Entries seeded from
 // the ALLOW env are read-only here (listed with source="env") — editing them
@@ -2989,7 +3095,7 @@ async function initFromDB() {
     if (maxTaskNum > store.taskSeq) store.taskSeq = maxTaskNum;
 
     if (msgs.length > 0) {
-      store.messages = msgs;
+      setStoreMessages(msgs);
       console.log(`[db] Loaded ${msgs.length} messages`);
     }
 
@@ -3133,6 +3239,9 @@ function reconcileAgentsWithConfigs() {
       addHumanPresence,
       findOrCreateChannel,
     });
+    // Mock seed pushes onto store.messages directly (it's a one-shot bootstrap
+    // path), so the secondary indexes need a rebuild after it runs.
+    rebuildMessageIndex();
     // Mock seeds push channels and agents in an order that skips the
     // per-channel-create seeding hook, so do a once-over here to backfill
     // memberships for every mock agent on every mock channel.
