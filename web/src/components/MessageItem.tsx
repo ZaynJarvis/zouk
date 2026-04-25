@@ -588,6 +588,10 @@ export default function MessageItem({
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
   const senderHuman = !isAgent && !isSystem ? humans.find(h => h.name === senderName) : undefined;
+  // Trigger API messages arrive as senderType='human' + senderName='system'.
+  // The name is reserved (see RESERVED_USER_NAMES on the server) so no real
+  // human can match — treat them as synthetic and render an empty-frame avatar.
+  const isSyntheticSystem = !isAgent && !isSystem && senderName === 'system' && !senderHuman;
   const senderAgent = isAgent ? agents.find(a => a.name === senderName || a.displayName === senderName) : undefined;
   const senderAgentConfig = isAgent && !senderAgent
     ? configs.find(c => c.name === senderName || c.displayName === senderName)
@@ -665,6 +669,10 @@ export default function MessageItem({
             {senderAgent && (
               <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
             )}
+          </div>
+        ) : isSyntheticSystem ? (
+          <div className="w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 mt-0.5">
+            <div className={`w-8 h-8 sm:w-9 sm:h-9 border border-nc-border ${avatarRadius}`} />
           </div>
         ) : (
           <div className="relative w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 mt-0.5">

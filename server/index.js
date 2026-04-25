@@ -229,6 +229,15 @@ function validateApiKey(key) {
   return machineKeys.some((k) => k.rawKey === key && !k.revokedAt);
 }
 
+// Reserved usernames cannot be registered or renamed-to. The trigger API uses
+// `system` as a synthetic sender, so we keep the name unambiguously off-limits
+// to humans — that way @system mentions and the empty-frame avatar fallback
+// can rely on "no human or agent owns this name".
+const RESERVED_USER_NAMES = new Set(["system"]);
+function isReservedName(name) {
+  return RESERVED_USER_NAMES.has(String(name || "").trim().toLowerCase());
+}
+
 // Stable fingerprint for machine binding: SHA-256(hostname:os)
 function computeMachineFingerprint(hostname, os) {
   const input = [hostname, os].filter(Boolean).join(':').toLowerCase();
@@ -1667,6 +1676,33 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// Single insert path for human-style messages — POST /api/messages and
+// POST /api/trigger both go through this so any new downstream side-effect
+// (mention-fanout, broadcast, persistence) lands in lockstep.
+function insertUserMessage({ channelId, channelName, channelType, threadId, senderName, senderType, content, attachments }) {
+  const msg = {
+    id: uuidv4(),
+    seq: nextSeq(),
+    channelId,
+    channelName,
+    channelType,
+    threadId: threadId || null,
+    senderName,
+    senderType,
+    content,
+    createdAt: now(),
+    attachments: attachments || [],
+  };
+  appendMessage(msg);
+  db.saveMessage(msg);
+  // Regular channel delivery uses channel_agents membership; DM delivery
+  // resolves parties from the canonical channel name inside deliverToAllAgents.
+  deliverToAllAgents(msg);
+  // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
+  broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+  return msg;
+}
+
 // Send message from web UI (human user)
 app.post("/api/messages", requireAuth, (req, res) => {
   // Prefer the authenticated user's name over any body field so a stale client
@@ -1676,30 +1712,79 @@ app.post("/api/messages", requireAuth, (req, res) => {
   const authedName = token ? authSessions.get(token)?.name : null;
   const { target, content, senderName: bodyName, attachmentIds } = req.body;
   const senderName = authedName || bodyName || "local-user";
-  const { channelName, channelType, threadId, dmPeer } = parseTarget(target, senderName);
+  const { channelName, channelType, threadId } = parseTarget(target, senderName);
   const ch = findOrCreateChannel(channelName, channelType);
 
-  const msg = {
-    id: uuidv4(),
-    seq: nextSeq(),
+  const msg = insertUserMessage({
     channelId: ch.id,
     channelName,
     channelType,
-    threadId: threadId || null,
+    threadId,
     senderName,
     senderType: "human",
     content,
-    createdAt: now(),
     attachments: resolveAttachmentRefs(attachmentIds),
-  };
-  appendMessage(msg);
-  db.saveMessage(msg);
+  });
 
-  // Regular channel delivery uses channel_agents membership; DM delivery
-  // resolves parties from the canonical channel name inside deliverToAllAgents.
-  deliverToAllAgents(msg);
-  // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
-  broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+  res.json({ messageId: msg.id, message: msg });
+});
+
+// Auth middleware for the external trigger API — validates the X-API-Key
+// header against the existing machine_keys table, the same store used today
+// for daemon WS connect. Debug keys ("1007"/"test", non-prod only) are
+// accepted via validateApiKey() but have no DB record to bump.
+function requireMachineKey(req, res, next) {
+  const apiKey = req.headers["x-api-key"];
+  if (!apiKey) {
+    return res.status(401).json({ error: "Missing X-API-Key header" });
+  }
+  if (!validateApiKey(apiKey)) {
+    return res.status(401).json({ error: "Invalid or revoked API key" });
+  }
+  const keyRecord = findMachineKeyRecord(apiKey);
+  if (keyRecord) {
+    keyRecord.lastUsedAt = now();
+    saveMachineKeys(machineKeys);
+    db.saveMachineKey(keyRecord);
+  }
+  next();
+}
+
+// POST /api/trigger — let external systems inject a message that behaves
+// exactly like a human-sent one (full deliverToAllAgents + broadcastToWeb
+// fanout, mention parsing, agent wakeup). Public channels only — no DM,
+// no attachments. Sender is hardcoded to "system"; the name is reserved
+// (see RESERVED_USER_NAMES) so it can't collide with a real user.
+app.post("/api/trigger", requireMachineKey, (req, res) => {
+  const { target, content } = req.body || {};
+  if (typeof target !== "string" || !target.startsWith("#")) {
+    return res.status(400).json({ error: "target must be a public channel like '#general' (DMs not supported)" });
+  }
+  if (typeof content !== "string" || !content.trim()) {
+    return res.status(400).json({ error: "content required" });
+  }
+  const senderName = "system";
+  const { channelName, channelType, threadId } = parseTarget(target, senderName);
+  if (channelType !== "channel") {
+    return res.status(400).json({ error: "trigger only supports public channels (no DMs)" });
+  }
+  // Require channel to already exist — external systems shouldn't spawn new
+  // channels by accident. Caller should create via the web UI first.
+  const ch = store.channels.find((c) => c.name === channelName && (c.type || "channel") === "channel");
+  if (!ch) {
+    return res.status(404).json({ error: `channel #${channelName} not found` });
+  }
+
+  const msg = insertUserMessage({
+    channelId: ch.id,
+    channelName,
+    channelType: "channel",
+    threadId,
+    senderName,
+    senderType: "human",
+    content,
+    attachments: [],
+  });
 
   res.json({ messageId: msg.id, message: msg });
 });
@@ -3040,6 +3125,10 @@ app.post("/api/auth/google", async (req, res) => {
     const sessionToken = crypto.randomBytes(32).toString("hex");
     // Use email prefix as default display name (e.g. "zaynjarvis" from "zaynjarvis@gmail.com")
     const emailPrefix = payload.email.split("@")[0];
+    if (isReservedName(emailPrefix)) {
+      console.log(`[auth] Rejected login: email prefix "${emailPrefix}" is reserved`);
+      return res.status(403).json({ error: "Reserved username — please contact an admin." });
+    }
     const grav = gravatarUrl(payload.email);
     const user = {
       name: emailPrefix,
@@ -3091,6 +3180,9 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
     return res.status(400).json({ error: "name required" });
   }
   const trimmed = name.trim();
+  if (isReservedName(trimmed)) {
+    return res.status(400).json({ error: `"${trimmed}" is a reserved username and cannot be used.` });
+  }
   const user = authSessions.get(token);
   if (!user) return res.status(401).json({ error: "Not authenticated" });
   const oldName = user.name;
@@ -3358,6 +3450,9 @@ app.post("/api/auth/guest-session", async (req, res) => {
   }
   const trimmed = name.trim();
   if (trimmed.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
+  if (isReservedName(trimmed)) {
+    return res.status(400).json({ error: `"${trimmed}" is a reserved username and cannot be used.` });
+  }
 
   // In open/dev mode (no Google OAuth), mint a real session so guests aren't
   // blocked from write operations (sending messages, etc.).
