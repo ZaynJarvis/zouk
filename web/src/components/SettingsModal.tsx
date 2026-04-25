@@ -730,7 +730,12 @@ function formatRelativeIn(ts: number): string {
 }
 
 function clientStatus(client: WsClientStats, threshold: number): { label: string; tone: 'ok' | 'warn' | 'bad' } {
-  if (client.blockedUntil > Date.now()) return { label: client.manualBlock ? 'REVOKED' : 'AUTO-BLOCKED', tone: 'bad' };
+  if (client.blockedUntil > Date.now()) {
+    if (client.manualBlock) return { label: 'REVOKED', tone: 'bad' };
+    if (client.kind === 'invalid_token') return { label: 'BAD-TOKEN', tone: 'bad' };
+    return { label: 'AUTO-BLOCKED', tone: 'bad' };
+  }
+  if (client.kind === 'invalid_token') return { label: 'BAD-TOKEN', tone: 'warn' };
   if (client.connectsLastMinute >= threshold) return { label: 'STORMING', tone: 'bad' };
   if (client.connectsLastMinute >= Math.max(3, Math.floor(threshold / 2))) return { label: 'CHATTY', tone: 'warn' };
   if (client.openCount > 0) return { label: 'CONNECTED', tone: 'ok' };
@@ -832,7 +837,11 @@ function ConnectionsSection() {
           const isSelf = resp?.callerId === client.id;
           const isBlocked = client.blockedUntil > Date.now();
           const blockTimeLeft = isBlocked ? formatRelativeIn(client.blockedUntil) : null;
-          const label = client.ownerName || client.ownerEmail || (client.kind === 'ip' ? `guest@${client.ip || '?'}` : `(no session) ${client.id.slice(0, 8)}`);
+          const label = client.ownerName
+            || client.ownerEmail
+            || (client.kind === 'ip' ? `guest@${client.ip || '?'}`
+              : client.kind === 'invalid_token' ? `bad-token@${client.ip || '?'}`
+              : `(no session) ${client.id.slice(0, 8)}`);
           return (
             <div
               key={client.id}
@@ -853,6 +862,7 @@ function ConnectionsSection() {
                     {isSelf && <span className="text-2xs font-mono text-nc-cyan border border-nc-cyan/50 px-1">YOU</span>}
                     <span className={`text-2xs font-mono font-bold ${toneClass} border border-current/50 px-1`}>{status.label}</span>
                     {client.kind === 'ip' && <span className="text-2xs font-mono text-nc-muted border border-nc-border px-1">IP</span>}
+                    {client.kind === 'invalid_token' && <span className="text-2xs font-mono text-nc-red border border-nc-red/50 px-1">INVALID_TOKEN</span>}
                     {client.sessionExists === false && client.kind === 'token' && (
                       <span className="text-2xs font-mono text-nc-muted border border-nc-border px-1">SESSION_GONE</span>
                     )}

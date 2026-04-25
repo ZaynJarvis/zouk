@@ -388,7 +388,7 @@ export async function removeAllowlistEntry(email: string): Promise<void> {
 
 export interface WsClientStats {
   id: string;
-  kind: 'token' | 'ip';
+  kind: 'token' | 'ip' | 'invalid_token';
   ownerName: string | null;
   ownerEmail: string | null;
   ownerPicture: string | null;

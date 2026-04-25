@@ -700,6 +700,11 @@ const WS_RATE_BLOCK_THRESHOLD = Number(process.env.WS_RATE_BLOCK_THRESHOLD || 12
 const WS_BLOCK_DURATION_MS = 5 * 60_000;
 const WS_TRACKER_TTL_MS = 24 * 60 * 60 * 1000;
 const WS_REVOKE_BLOCK_MS = 24 * 60 * 60 * 1000;
+// Invalid token = client sent ?token=… but it isn't in authSessions. Almost
+// always a stale tab after revoke/logout/deploy. The client's own retry
+// budget will keep firing it; harshly throttle to make it cheap.
+const WS_INVALID_TOKEN_THRESHOLD = Number(process.env.WS_INVALID_TOKEN_THRESHOLD || 3);
+const WS_INVALID_BLOCK_MS = 24 * 60 * 60 * 1000;
 
 const wsTrackers = new Map(); // fingerprint -> entry
 
@@ -761,6 +766,49 @@ function recordWsConnectAttempt(token, ip) {
   }
   entry.openCount += 1;
   return { allow: true, entry };
+}
+
+// Tracks /ws upgrades that arrived with a token the server doesn't recognize.
+// These are *always* rejected; the tracker exists so we can escalate to a long
+// block once the misbehaving client has burned through WS_INVALID_TOKEN_THRESHOLD
+// strikes — no point letting them keep wasting TLS handshakes for 24h.
+function recordInvalidTokenAttempt(token, ip) {
+  const nowMs = Date.now();
+  const fp = tokenFingerprint(token);
+  const key = `bad:${fp}`;
+  let entry = wsTrackers.get(key);
+  if (!entry) {
+    entry = {
+      key,
+      kind: "invalid_token",
+      token: null,
+      ip: ip || null,
+      openCount: 0,
+      totalConnects: 0,
+      totalDisconnects: 0,
+      totalRejections: 0,
+      lastConnectAt: 0,
+      lastDisconnectAt: 0,
+      lastRejectionAt: 0,
+      recentConnects: [],
+      blockedUntil: 0,
+      blockReason: null,
+      manualBlock: false,
+      firstSeenAt: nowMs,
+    };
+    wsTrackers.set(key, entry);
+  }
+  if (ip) entry.ip = ip;
+  pruneRecentConnects(entry, nowMs);
+  entry.recentConnects.push(nowMs);
+  entry.totalRejections += 1;
+  entry.lastRejectionAt = nowMs;
+  if (!entry.manualBlock && entry.recentConnects.length > WS_INVALID_TOKEN_THRESHOLD && entry.blockedUntil < nowMs + WS_INVALID_BLOCK_MS) {
+    entry.blockedUntil = nowMs + WS_INVALID_BLOCK_MS;
+    entry.blockReason = `invalid token: ${entry.recentConnects.length} bad attempts in ${WS_RATE_WINDOW_MS / 1000}s`;
+    console.warn(`[ws-tracker] invalid-token block ${key} for ${WS_INVALID_BLOCK_MS / 1000}s — ${entry.blockReason}`);
+  }
+  return entry;
 }
 
 function recordWsDisconnect(entry) {
@@ -2292,13 +2340,31 @@ server.on("upgrade", (request, socket, head) => {
   } else if (parsed.pathname === "/ws") {
     // Web UI WebSocket connection — check optional auth token
     const wsToken = parsed.searchParams.get("token");
-    const wsAuthenticated = !!(wsToken && authSessions.has(wsToken));
-    // Defend the event loop: a runaway client (stale tab, buggy reconnect)
-    // can saturate the single replica with init-payload work. Rate-limit by
-    // token; fall back to remote IP for guests.
     const remoteIp = (request.headers["x-forwarded-for"] || "").toString().split(",")[0].trim()
       || request.socket.remoteAddress
       || null;
+    // Reject upgrades that present a token the server doesn't know. Without
+    // this gate, a stale tab whose session was revoked/logged-out keeps
+    // hammering the server and the upgrade succeeds as a "guest" — same
+    // expensive init payload, just under a different label. Outright reject
+    // and escalate to a 24h block after a few strikes.
+    if (wsToken && !authSessions.has(wsToken)) {
+      const entry = recordInvalidTokenAttempt(wsToken, remoteIp);
+      const blocked = entry.blockedUntil > Date.now();
+      const reason = (blocked ? entry.blockReason : "invalid or expired token").replace(/[\r\n]/g, " ").slice(0, 120);
+      socket.write(
+        `HTTP/1.1 ${blocked ? "429 Too Many Requests" : "401 Unauthorized"}\r\n` +
+        "Connection: close\r\n" +
+        `X-Block-Reason: ${reason}\r\n` +
+        "Content-Length: 0\r\n\r\n"
+      );
+      socket.destroy();
+      return;
+    }
+    const wsAuthenticated = !!wsToken; // implied: token present AND in authSessions
+    // Defend the event loop: a runaway client (stale tab, buggy reconnect)
+    // can saturate the single replica with init-payload work. Rate-limit by
+    // token; fall back to remote IP for guests.
     const trackerToken = wsAuthenticated ? wsToken : null;
     const decision = recordWsConnectAttempt(trackerToken, remoteIp);
     if (!decision.allow) {
