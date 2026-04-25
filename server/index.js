@@ -680,6 +680,109 @@ function formatMessageForAgent(msg, recipientAgentId) {
   };
 }
 
+// ─── WS connect-storm tracker ─────────────────────────────────────
+// One bad client (stale tab, runaway daemon, buggy reconnect loop) can saturate
+// the single-replica event loop just by re-opening /ws over and over. Each
+// connect runs handleWebConnection which sends a full init payload sync. We
+// observed ~40 conn/s in production → ~12s p50 latency on unrelated HTTP.
+//
+// Defence is two-pronged:
+//   1. Rate-limit /ws upgrades per token (or per IP for guests). Auto-block
+//      any source that exceeds WS_RATE_BLOCK_THRESHOLD opens within
+//      WS_RATE_WINDOW_MS for WS_BLOCK_DURATION_MS.
+//   2. Defer the init send via setImmediate so a burst is interleaved with
+//      other event-loop work instead of monopolizing one tick.
+//
+// Tracker entries are surfaced via /api/_internal/ws-clients so the operator
+// can see who's misbehaving and revoke the offending session from Settings.
+const WS_RATE_WINDOW_MS = 60_000;
+const WS_RATE_BLOCK_THRESHOLD = Number(process.env.WS_RATE_BLOCK_THRESHOLD || 12);
+const WS_BLOCK_DURATION_MS = 5 * 60_000;
+const WS_TRACKER_TTL_MS = 24 * 60 * 60 * 1000;
+const WS_REVOKE_BLOCK_MS = 24 * 60 * 60 * 1000;
+
+const wsTrackers = new Map(); // fingerprint -> entry
+
+function tokenFingerprint(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex").slice(0, 16);
+}
+
+function pruneRecentConnects(entry, nowMs) {
+  const cutoff = nowMs - WS_RATE_WINDOW_MS;
+  while (entry.recentConnects.length && entry.recentConnects[0] < cutoff) {
+    entry.recentConnects.shift();
+  }
+}
+
+function recordWsConnectAttempt(token, ip) {
+  const nowMs = Date.now();
+  const kind = token ? "token" : "ip";
+  const key = token ? tokenFingerprint(token) : `ip:${ip || "unknown"}`;
+  let entry = wsTrackers.get(key);
+  if (!entry) {
+    entry = {
+      key,
+      kind,
+      token: token || null,
+      ip: ip || null,
+      openCount: 0,
+      totalConnects: 0,
+      totalDisconnects: 0,
+      totalRejections: 0,
+      lastConnectAt: 0,
+      lastDisconnectAt: 0,
+      lastRejectionAt: 0,
+      recentConnects: [],
+      blockedUntil: 0,
+      blockReason: null,
+      manualBlock: false,
+      firstSeenAt: nowMs,
+    };
+    wsTrackers.set(key, entry);
+  }
+  // Refresh ip in case the same token now connects from a different network
+  if (ip) entry.ip = ip;
+  pruneRecentConnects(entry, nowMs);
+  if (entry.blockedUntil > nowMs) {
+    entry.totalRejections += 1;
+    entry.lastRejectionAt = nowMs;
+    return { allow: false, entry, reason: entry.blockReason || "blocked" };
+  }
+  entry.recentConnects.push(nowMs);
+  entry.totalConnects += 1;
+  entry.lastConnectAt = nowMs;
+  if (entry.recentConnects.length > WS_RATE_BLOCK_THRESHOLD) {
+    entry.blockedUntil = nowMs + WS_BLOCK_DURATION_MS;
+    entry.blockReason = `auto: ${entry.recentConnects.length} connects in ${WS_RATE_WINDOW_MS / 1000}s (limit ${WS_RATE_BLOCK_THRESHOLD})`;
+    console.warn(`[ws-tracker] auto-blocked ${entry.kind}=${entry.key} for ${WS_BLOCK_DURATION_MS / 1000}s — ${entry.blockReason}`);
+    entry.totalRejections += 1;
+    entry.lastRejectionAt = nowMs;
+    return { allow: false, entry, reason: entry.blockReason };
+  }
+  entry.openCount += 1;
+  return { allow: true, entry };
+}
+
+function recordWsDisconnect(entry) {
+  if (!entry) return;
+  entry.totalDisconnects += 1;
+  entry.lastDisconnectAt = Date.now();
+  if (entry.openCount > 0) entry.openCount -= 1;
+}
+
+function pruneOldWsTrackers(nowMs = Date.now()) {
+  for (const [key, entry] of wsTrackers) {
+    if (entry.openCount > 0) continue;
+    if (entry.blockedUntil > nowMs) continue;
+    if (entry.manualBlock) continue;
+    const lastActivity = Math.max(entry.lastConnectAt, entry.lastDisconnectAt, entry.lastRejectionAt);
+    if (lastActivity && (nowMs - lastActivity) > WS_TRACKER_TTL_MS) {
+      wsTrackers.delete(key);
+    }
+  }
+}
+setInterval(() => pruneOldWsTrackers(), 60 * 60 * 1000).unref?.();
+
 // ─── WebSocket: daemon connections ────────────────────────────────
 
 const daemonSockets = new Map(); // agentId -> ws
@@ -2190,7 +2293,27 @@ server.on("upgrade", (request, socket, head) => {
     // Web UI WebSocket connection — check optional auth token
     const wsToken = parsed.searchParams.get("token");
     const wsAuthenticated = !!(wsToken && authSessions.has(wsToken));
+    // Defend the event loop: a runaway client (stale tab, buggy reconnect)
+    // can saturate the single replica with init-payload work. Rate-limit by
+    // token; fall back to remote IP for guests.
+    const remoteIp = (request.headers["x-forwarded-for"] || "").toString().split(",")[0].trim()
+      || request.socket.remoteAddress
+      || null;
+    const trackerToken = wsAuthenticated ? wsToken : null;
+    const decision = recordWsConnectAttempt(trackerToken, remoteIp);
+    if (!decision.allow) {
+      const reason = decision.reason.replace(/[\r\n]/g, " ").slice(0, 120);
+      socket.write(
+        "HTTP/1.1 429 Too Many Requests\r\n" +
+        "Connection: close\r\n" +
+        `X-Block-Reason: ${reason}\r\n` +
+        "Content-Length: 0\r\n\r\n"
+      );
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
+      ws._trackerEntry = decision.entry;
       handleWebConnection(ws, wsAuthenticated, wsToken || null);
     });
   } else {
@@ -2567,16 +2690,26 @@ function handleWebConnection(ws, authenticated, token = null) {
   webSockets.add(ws);
   console.log(`[web] Client connected (authenticated: ${ws._authenticated})`);
 
-  // Send initial state
-  ws.send(JSON.stringify({
-    type: "init",
-    channels: store.channels.filter((ch) => (ch.type || "channel") === "channel"),
-    agents: Object.keys(store.agents).map((id) => agentPayload(id)),
-    humans: currentHumans(),
-    configs: agentConfigs,
-    machines: Array.from(machines.values()),
-    profilePresets: profilePresets.list(),
-  }));
+  // Defer the init send so a burst of reconnects doesn't monopolize one tick.
+  // The init payload is large (channels + agents + humans + configs + machines
+  // + presets) and JSON.stringify is sync; spreading sends across ticks lets
+  // unrelated HTTP requests interleave instead of queuing behind a burst.
+  setImmediate(() => {
+    if (ws.readyState !== 1) return;
+    try {
+      ws.send(JSON.stringify({
+        type: "init",
+        channels: store.channels.filter((ch) => (ch.type || "channel") === "channel"),
+        agents: Object.keys(store.agents).map((id) => agentPayload(id)),
+        humans: currentHumans(),
+        configs: agentConfigs,
+        machines: Array.from(machines.values()),
+        profilePresets: profilePresets.list(),
+      }));
+    } catch (e) {
+      console.warn("[web] init send failed:", e.message);
+    }
+  });
 
   ws.on("message", (data) => {
     try {
@@ -2590,6 +2723,7 @@ function handleWebConnection(ws, authenticated, token = null) {
   ws.on("close", () => {
     if (ws._humanName) removeHumanPresence(ws._humanName);
     webSockets.delete(ws);
+    recordWsDisconnect(ws._trackerEntry);
     console.log("[web] Client disconnected");
   });
 
@@ -2968,6 +3102,101 @@ app.get("/api/_internal/stats", requireAuth, (_req, res) => {
       pendingDeliveryAgents: pendingDeliveries.size,
     },
   });
+});
+
+// WS connect tracker — surfaces who's hitting /ws (and how hard) so the
+// operator can identify a runaway client and cut its session.
+app.get("/api/_internal/ws-clients", requireAuth, (req, res) => {
+  const callerToken = req.headers.authorization?.replace("Bearer ", "");
+  const callerId = callerToken ? tokenFingerprint(callerToken) : null;
+  const nowMs = Date.now();
+  const clients = [];
+  for (const entry of wsTrackers.values()) {
+    pruneRecentConnects(entry, nowMs);
+    let owner = null;
+    if (entry.kind === "token" && entry.token) {
+      owner = authSessions.get(entry.token) || null;
+    }
+    const blocked = entry.blockedUntil > nowMs;
+    clients.push({
+      id: entry.key,
+      kind: entry.kind,
+      ownerName: owner?.name || null,
+      ownerEmail: owner?.email || null,
+      ownerPicture: owner?.picture || owner?.gravatarUrl || null,
+      ip: entry.ip,
+      openCount: entry.openCount,
+      totalConnects: entry.totalConnects,
+      totalDisconnects: entry.totalDisconnects,
+      totalRejections: entry.totalRejections,
+      connectsLastMinute: entry.recentConnects.length,
+      lastConnectAt: entry.lastConnectAt || null,
+      lastDisconnectAt: entry.lastDisconnectAt || null,
+      lastRejectionAt: entry.lastRejectionAt || null,
+      firstSeenAt: entry.firstSeenAt,
+      blockedUntil: blocked ? entry.blockedUntil : 0,
+      blockReason: blocked ? entry.blockReason : null,
+      manualBlock: !!entry.manualBlock,
+      sessionExists: entry.kind === "token" ? authSessions.has(entry.token) : null,
+    });
+  }
+  clients.sort((a, b) => {
+    const ablk = a.blockedUntil > 0 ? 1 : 0;
+    const bblk = b.blockedUntil > 0 ? 1 : 0;
+    if (ablk !== bblk) return bblk - ablk;
+    if (b.connectsLastMinute !== a.connectsLastMinute) return b.connectsLastMinute - a.connectsLastMinute;
+    return (b.lastConnectAt || 0) - (a.lastConnectAt || 0);
+  });
+  res.json({
+    rateWindowSeconds: WS_RATE_WINDOW_MS / 1000,
+    autoBlockThreshold: WS_RATE_BLOCK_THRESHOLD,
+    blockDurationSeconds: WS_BLOCK_DURATION_MS / 1000,
+    revokeBlockSeconds: WS_REVOKE_BLOCK_MS / 1000,
+    callerId,
+    clients,
+  });
+});
+
+// Revoke kills the auth session, marks the tracker manually blocked for 24h,
+// and force-closes any open WS the token still has. The blocked entry stays
+// visible in the list so the operator can confirm it took effect.
+app.post("/api/_internal/ws-clients/:id/revoke", requireAuth, (req, res) => {
+  const id = req.params.id;
+  const entry = wsTrackers.get(id);
+  if (!entry) return res.status(404).json({ error: "client not found" });
+  const nowMs = Date.now();
+  entry.blockedUntil = nowMs + WS_REVOKE_BLOCK_MS;
+  entry.manualBlock = true;
+  entry.blockReason = "manual revoke";
+  if (entry.kind === "token" && entry.token) {
+    const tokenToKill = entry.token;
+    if (authSessions.has(tokenToKill)) {
+      authSessions.delete(tokenToKill);
+      removeSession(tokenToKill).catch(e => console.warn("[auth] removeSession error:", e.message));
+    }
+    let killed = 0;
+    for (const ws of webSockets) {
+      if (ws._authToken === tokenToKill) {
+        try { ws.close(4003, "session revoked"); } catch { /* ignore */ }
+        killed += 1;
+      }
+    }
+    console.log(`[ws-tracker] manual revoke ${id} — killed ${killed} open socket(s)`);
+  }
+  res.json({ ok: true, blockedUntil: entry.blockedUntil });
+});
+
+// Lift a manual block. Useful if the operator changes their mind, or to
+// re-enable an IP entry that auto-blocked. Does NOT restore a deleted session.
+app.post("/api/_internal/ws-clients/:id/unblock", requireAuth, (req, res) => {
+  const id = req.params.id;
+  const entry = wsTrackers.get(id);
+  if (!entry) return res.status(404).json({ error: "client not found" });
+  entry.blockedUntil = 0;
+  entry.manualBlock = false;
+  entry.blockReason = null;
+  entry.recentConnects = [];
+  res.json({ ok: true });
 });
 
 // ─── Settings: email allowlist (admin UI for the DB source) ──────

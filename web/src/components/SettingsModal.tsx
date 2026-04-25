@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
-import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Shield, Link2 } from 'lucide-react';
+import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Shield, Link2, Activity, Ban, RefreshCw } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
 import { themes, type ThemeId } from '../themes';
 import { resizeAndEncode } from '../lib/imageEncode';
 import * as api from '../lib/api';
-import type { AllowlistEntry } from '../lib/api';
+import type { AllowlistEntry, WsClientStats } from '../lib/api';
 import {
   getStoredLinkTransforms,
   setStoredLinkTransforms,
@@ -14,7 +14,7 @@ import {
   type LinkTransformRule,
 } from '../store/storage';
 
-type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'access' | 'links' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'access' | 'connections' | 'links' | 'about';
 
 const PROFILE_PRESET_MAX = 30;
 
@@ -157,6 +157,7 @@ export default function SettingsModal() {
     { key: 'avatars', label: 'AVATARS', icon: Smile },
     { key: 'providers', label: 'PROVIDERS', icon: Server },
     { key: 'access', label: 'ACCESS', icon: Shield },
+    { key: 'connections', label: 'CONNECTIONS', icon: Activity },
     { key: 'links', label: 'LINKS', icon: Link2 },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
@@ -489,6 +490,8 @@ export default function SettingsModal() {
 
             {section === 'access' && <AccessSection authEmail={authUser?.email || null} />}
 
+            {section === 'connections' && <ConnectionsSection />}
+
             {section === 'links' && <LinkTransformsSection />}
 
             {section === 'about' && (
@@ -707,6 +710,207 @@ function AccessSection({ authEmail }: { authEmail: string | null }) {
   );
 }
 
+function formatRelativeAgo(ts: number | null): string {
+  if (!ts) return '—';
+  const delta = Math.max(0, Date.now() - ts);
+  if (delta < 1500) return 'just now';
+  if (delta < 60_000) return `${Math.round(delta / 1000)}s ago`;
+  if (delta < 3_600_000) return `${Math.round(delta / 60_000)}m ago`;
+  if (delta < 86_400_000) return `${Math.round(delta / 3_600_000)}h ago`;
+  return `${Math.round(delta / 86_400_000)}d ago`;
+}
+
+function formatRelativeIn(ts: number): string {
+  const delta = Math.max(0, ts - Date.now());
+  if (delta < 1500) return 'now';
+  if (delta < 60_000) return `in ${Math.round(delta / 1000)}s`;
+  if (delta < 3_600_000) return `in ${Math.round(delta / 60_000)}m`;
+  if (delta < 86_400_000) return `in ${Math.round(delta / 3_600_000)}h`;
+  return `in ${Math.round(delta / 86_400_000)}d`;
+}
+
+function clientStatus(client: WsClientStats, threshold: number): { label: string; tone: 'ok' | 'warn' | 'bad' } {
+  if (client.blockedUntil > Date.now()) return { label: client.manualBlock ? 'REVOKED' : 'AUTO-BLOCKED', tone: 'bad' };
+  if (client.connectsLastMinute >= threshold) return { label: 'STORMING', tone: 'bad' };
+  if (client.connectsLastMinute >= Math.max(3, Math.floor(threshold / 2))) return { label: 'CHATTY', tone: 'warn' };
+  if (client.openCount > 0) return { label: 'CONNECTED', tone: 'ok' };
+  return { label: 'IDLE', tone: 'ok' };
+}
+
+function ConnectionsSection() {
+  const [data, setData] = useState<{ resp: import('../lib/api').WsClientsResponse | null; loaded: boolean }>({ resp: null, loaded: false });
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [tick, setTick] = useState(0); // forces re-render so "Xs ago" updates
+
+  const refresh = useCallback(async () => {
+    try {
+      const resp = await api.getWsClients();
+      setData({ resp, loaded: true });
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load WS clients');
+      setData(prev => ({ ...prev, loaded: true }));
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const poll = setInterval(refresh, 5000);
+    const ticker = setInterval(() => setTick(t => t + 1), 1000);
+    return () => { clearInterval(poll); clearInterval(ticker); };
+  }, [refresh]);
+
+  const revoke = useCallback(async (id: string, label: string) => {
+    if (!window.confirm(`Revoke session for ${label}? This deletes their auth token and force-closes any open WS. They'll have to sign in again.`)) return;
+    setBusyId(id);
+    try {
+      await api.revokeWsClient(id);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Revoke failed');
+    } finally {
+      setBusyId(null);
+    }
+  }, [refresh]);
+
+  const unblock = useCallback(async (id: string) => {
+    setBusyId(id);
+    try {
+      await api.unblockWsClient(id);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unblock failed');
+    } finally {
+      setBusyId(null);
+    }
+  }, [refresh]);
+
+  const resp = data.resp;
+  const clients = resp?.clients ?? [];
+  const threshold = resp?.autoBlockThreshold ?? 12;
+  void tick;
+
+  return (
+    <div className="max-w-3xl space-y-5">
+      <div>
+        <p className="text-sm font-bold text-nc-text-bright tracking-wider">WS_CLIENTS</p>
+        <p className="text-xs text-nc-muted font-mono mt-0.5">
+          Per-token /ws connect rate. Storm threshold: {threshold} connects / {resp?.rateWindowSeconds ?? 60}s. Auto-block lasts {Math.round((resp?.blockDurationSeconds ?? 300) / 60)}m. Revoking deletes the auth session and force-closes open sockets.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-2xs font-mono text-nc-muted">
+          {data.loaded ? `${clients.length} client${clients.length === 1 ? '' : 's'} tracked` : 'Loading…'}
+        </span>
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={refresh}
+            className="cyber-btn px-3 py-1.5 text-xs font-mono text-nc-cyan border border-nc-cyan/40 hover:bg-nc-cyan/10 flex items-center gap-1.5"
+          >
+            <RefreshCw size={12} />
+            Refresh
+          </button>
+        </ScanlineTear>
+      </div>
+
+      {error && (
+        <div className="p-3 border border-nc-red/50 bg-nc-red/10 text-xs font-mono text-nc-red">
+          {error}
+        </div>
+      )}
+
+      {data.loaded && clients.length === 0 && !error && (
+        <p className="text-xs font-mono text-nc-muted italic">No /ws clients tracked yet. Activity appears as soon as anyone connects.</p>
+      )}
+
+      <div className="space-y-1.5">
+        {clients.map(client => {
+          const status = clientStatus(client, threshold);
+          const toneClass = status.tone === 'bad' ? 'text-nc-red' : status.tone === 'warn' ? 'text-nc-yellow' : 'text-nc-green';
+          const isSelf = resp?.callerId === client.id;
+          const isBlocked = client.blockedUntil > Date.now();
+          const blockTimeLeft = isBlocked ? formatRelativeIn(client.blockedUntil) : null;
+          const label = client.ownerName || client.ownerEmail || (client.kind === 'ip' ? `guest@${client.ip || '?'}` : `(no session) ${client.id.slice(0, 8)}`);
+          return (
+            <div
+              key={client.id}
+              className={`cyber-panel-elevated p-3 ${isBlocked ? 'border-nc-red/40' : ''}`}
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 shrink-0 border border-nc-border bg-nc-deep flex items-center justify-center overflow-hidden">
+                  {client.ownerPicture ? (
+                    <img src={client.ownerPicture} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-xs font-mono text-nc-muted">{(label.charAt(0) || '?').toUpperCase()}</span>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-mono text-nc-text-bright truncate">{label}</span>
+                    {isSelf && <span className="text-2xs font-mono text-nc-cyan border border-nc-cyan/50 px-1">YOU</span>}
+                    <span className={`text-2xs font-mono font-bold ${toneClass} border border-current/50 px-1`}>{status.label}</span>
+                    {client.kind === 'ip' && <span className="text-2xs font-mono text-nc-muted border border-nc-border px-1">IP</span>}
+                    {client.sessionExists === false && client.kind === 'token' && (
+                      <span className="text-2xs font-mono text-nc-muted border border-nc-border px-1">SESSION_GONE</span>
+                    )}
+                  </div>
+                  <p className="text-2xs font-mono text-nc-muted mt-0.5 truncate">
+                    {client.ownerEmail || client.ip || '—'} · id {client.id.slice(0, 8)}
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-2xs font-mono text-nc-muted">
+                    <span>conn/min: <span className={toneClass}>{client.connectsLastMinute}</span></span>
+                    <span>open: <span className="text-nc-text-bright">{client.openCount}</span></span>
+                    <span>total: <span className="text-nc-text-bright">{client.totalConnects}</span></span>
+                    <span>rejected: <span className="text-nc-text-bright">{client.totalRejections}</span></span>
+                    <span>last conn: {formatRelativeAgo(client.lastConnectAt)}</span>
+                    <span>last close: {formatRelativeAgo(client.lastDisconnectAt)}</span>
+                    <span>first seen: {formatRelativeAgo(client.firstSeenAt)}</span>
+                    {isBlocked && (
+                      <span className="text-nc-red">expires: {blockTimeLeft}</span>
+                    )}
+                  </div>
+                  {isBlocked && client.blockReason && (
+                    <p className="text-2xs font-mono text-nc-red mt-1.5">↳ {client.blockReason}</p>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1.5 shrink-0">
+                  {client.kind === 'token' && client.sessionExists !== false && (
+                    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        onClick={() => revoke(client.id, label)}
+                        disabled={busyId === client.id || isSelf}
+                        title={isSelf ? "Can't revoke your own session" : 'Revoke this session'}
+                        className="cyber-btn px-2.5 py-1 text-xs font-mono text-nc-red border border-nc-red/50 hover:bg-nc-red/10 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+                      >
+                        <Ban size={12} />
+                        Revoke
+                      </button>
+                    </ScanlineTear>
+                  )}
+                  {isBlocked && (
+                    <button
+                      onClick={() => unblock(client.id)}
+                      disabled={busyId === client.id}
+                      title="Lift the block (does NOT restore a deleted session)"
+                      className="cyber-btn px-2.5 py-1 text-xs font-mono text-nc-muted border border-nc-border hover:text-nc-text-bright disabled:opacity-30"
+                    >
+                      Unblock
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function randomId(): string {
   return 'r-' + Math.random().toString(36).slice(2, 10);
 }
@@ -743,7 +947,11 @@ function LinkTransformsSection() {
     if (validatePattern(draft.pattern)) return;
     const next = rules.map(r => (r.id === rule.id ? { ...r, pattern: draft.pattern, replacement: draft.replacement } : r));
     setStoredLinkTransforms(next);
-    setDrafts(({ [rule.id]: _, ...rest }) => rest);
+    setDrafts(prev => {
+      const next = { ...prev };
+      delete next[rule.id];
+      return next;
+    });
   };
 
   const addRule = () => {
