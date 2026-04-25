@@ -745,14 +745,17 @@ function recordWsConnectAttempt(token, ip) {
     };
     wsTrackers.set(key, entry);
   }
-  // Refresh ip in case the same token now connects from a different network
-  if (ip) entry.ip = ip;
-  pruneRecentConnects(entry, nowMs);
+  // Hot path: already blocked → return immediately, no prune / no array work.
+  // A storming source can pound on this at >30/s; the original code pruned and
+  // pushed for every attempt even when the answer was already "rejected".
   if (entry.blockedUntil > nowMs) {
     entry.totalRejections += 1;
     entry.lastRejectionAt = nowMs;
     return { allow: false, entry, reason: entry.blockReason || "blocked" };
   }
+  // Refresh ip in case the same token now connects from a different network.
+  if (ip) entry.ip = ip;
+  pruneRecentConnects(entry, nowMs);
   entry.recentConnects.push(nowMs);
   entry.totalConnects += 1;
   entry.lastConnectAt = nowMs;
@@ -772,6 +775,13 @@ function recordWsConnectAttempt(token, ip) {
 // These are *always* rejected; the tracker exists so we can escalate to a long
 // block once the misbehaving client has burned through WS_INVALID_TOKEN_THRESHOLD
 // strikes — no point letting them keep wasting TLS handshakes for 24h.
+//
+// Hot-path discipline: a buggy client can hammer this at >30/s. Once an entry
+// is already blocked, do the absolute minimum (bump a counter + return) and
+// skip the SHA-window prune, the array push, the blockedUntil reassignment,
+// and the console.warn. The original implementation re-logged + re-set
+// blockedUntil on every rejected attempt — at 30/s that re-introduced the
+// event-loop pressure we were trying to defend against.
 function recordInvalidTokenAttempt(token, ip) {
   const nowMs = Date.now();
   const fp = tokenFingerprint(token);
@@ -798,12 +808,20 @@ function recordInvalidTokenAttempt(token, ip) {
     };
     wsTrackers.set(key, entry);
   }
+  // Hot path: already blocked → just bump the counter and return. No prune,
+  // no array push, no log, no Date math.
+  if (entry.blockedUntil > nowMs) {
+    entry.totalRejections += 1;
+    entry.lastRejectionAt = nowMs;
+    return entry;
+  }
   if (ip) entry.ip = ip;
   pruneRecentConnects(entry, nowMs);
   entry.recentConnects.push(nowMs);
   entry.totalRejections += 1;
   entry.lastRejectionAt = nowMs;
-  if (!entry.manualBlock && entry.recentConnects.length > WS_INVALID_TOKEN_THRESHOLD && entry.blockedUntil < nowMs + WS_INVALID_BLOCK_MS) {
+  // Only fires on the actual transition into blocked state.
+  if (!entry.manualBlock && entry.recentConnects.length > WS_INVALID_TOKEN_THRESHOLD) {
     entry.blockedUntil = nowMs + WS_INVALID_BLOCK_MS;
     entry.blockReason = `invalid token: ${entry.recentConnects.length} bad attempts in ${WS_RATE_WINDOW_MS / 1000}s`;
     console.warn(`[ws-tracker] invalid-token block ${key} for ${WS_INVALID_BLOCK_MS / 1000}s — ${entry.blockReason}`);
