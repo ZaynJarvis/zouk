@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { agentStatus, avatarPaletteClass, humanStatus } from '../lib/avatarStatus';
+import { agentAvatarStatus, agentStatus, avatarPaletteClass, avatarRadiusClass, humanStatus } from '../lib/avatarStatus';
 import StatusDot from './StatusDot';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
@@ -55,8 +55,6 @@ export default function ChannelSidebar() {
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
 
-  const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
-
   const filteredChannels = useMemo(() => channels, [channels]);
   const filteredAgents = useMemo(() => agents, [agents]);
   const filteredHumans = useMemo(() => {
@@ -94,15 +92,10 @@ export default function ChannelSidebar() {
   return (
     <div className={channelSidebarTheme.shell}>
       <div className={channelSidebarTheme.header}>
-        <div className="px-3 h-14 flex items-center justify-between">
+        <div className="px-3 h-14 flex items-center">
           {channelSidebarTheme.titleStyle === 'glitch'
             ? <GlitchText as="h2" className={channelSidebarTheme.titleClass} intensity="low">ZOUK</GlitchText>
             : <h2 className={channelSidebarTheme.titleClass}>Zouk</h2>}
-          {totalUnread > 0 && (
-            <span className={channelSidebarTheme.unreadBadge}>
-              {totalUnread}
-            </span>
-          )}
         </div>
       </div>
 
@@ -158,7 +151,7 @@ export default function ChannelSidebar() {
                     <Settings size={12} />
                   </span>
                 )}
-                {!isGuest && ch.name !== 'all' && (
+                {!isGuest && ch.name !== 'all' && !(forceShowButtons && unread > 0 && !isActive) && (
                   <span
                     role="button"
                     onClick={(e) => {
@@ -173,8 +166,8 @@ export default function ChannelSidebar() {
                   </span>
                 )}
                 {unread > 0 && !isActive && (
-                  <span className={`${!isGuest ? '' : 'ml-auto '}bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center`}>
-                    {unread}
+                  <span className={`${!isGuest ? '' : 'ml-auto '}w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
+                    {unread > 9 ? '9+' : unread}
                   </span>
                 )}
               </button>
@@ -193,7 +186,8 @@ export default function ChannelSidebar() {
             const isActive = activeChannelName === agent.name && viewMode === 'dm';
             const unread = unreadCounts[agent.name] || 0;
             const status = agentStatus(agent);
-            const isOffline = status === 'offline';
+            const avatarStatus = agentAvatarStatus(agent);
+            const avatarOffline = avatarStatus === 'offline';
             const usageDisplay = pickDisplayContextUsage(agent.contextUsage, agent.model);
             const usageLabel = formatContextUsageCompact(usageDisplay);
             const usageTitle = formatContextUsageTitle(agent.contextUsage, agent.model);
@@ -220,7 +214,7 @@ export default function ChannelSidebar() {
                       }
                     }}
                     title={`View @${agent.displayName || agent.name} profile`}
-                    className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-2xs cursor-pointer ${avatarPaletteClass(status)} ${isOffline ? '' : 'hover:ring-1 hover:ring-nc-cyan'}`}
+                    className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-2xs cursor-pointer ${avatarPaletteClass(avatarStatus)} ${avatarRadiusClass(theme)} ${avatarOffline ? '' : 'hover:ring-1 hover:ring-nc-cyan'}`}
                   >
                     {agent.picture ? (
                       <img src={agent.picture} alt="" className="w-full h-full object-cover" />
@@ -231,11 +225,6 @@ export default function ChannelSidebar() {
                   <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                 </span>
                 <span className="truncate text-sm min-w-0">{agent.displayName || agent.name}</span>
-                {unread > 0 && !isActive && isGuest && (
-                  <span className="flex-shrink-0 bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
-                    {unread}
-                  </span>
-                )}
                 <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
                   {usageLabel && (
                     <span
@@ -258,7 +247,11 @@ export default function ChannelSidebar() {
                       <RotateCcw size={12} />
                     </span>
                   )}
-                  {!isGuest && (
+                  {unread > 0 && !isActive && (isGuest || forceShowButtons) ? (
+                    <span className={`w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
+                      {unread > 9 ? '9+' : unread}
+                    </span>
+                  ) : !isGuest ? (
                     <span className="relative inline-flex">
                       <span
                         role="button"
@@ -271,16 +264,16 @@ export default function ChannelSidebar() {
                       >
                         <SlidersHorizontal size={12} />
                       </span>
-                      {unread > 0 && !isActive && (
+                      {unread > 0 && !isActive && !forceShowButtons && (
                         <span
-                          className="pointer-events-none absolute inset-0 flex items-center justify-center bg-nc-red/20 text-nc-red border border-nc-red/40 text-[11px] font-black leading-none"
+                          className={`pointer-events-none absolute inset-0 flex items-center justify-center bg-nc-red/20 text-nc-red border border-nc-red/40 text-[11px] font-black leading-none ${avatarRadiusClass(theme)}`}
                           aria-label={`${unread} unread`}
                         >
                           {unread > 9 ? '9+' : unread}
                         </span>
                       )}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </button>
             );
@@ -306,7 +299,7 @@ export default function ChannelSidebar() {
             const content = (
               <>
                 <div className="relative w-5 h-5 shrink-0">
-                  <div className={`w-full h-full border flex items-center justify-center overflow-hidden ${avatarPaletteClass(status)}`}>
+                  <div className={`w-full h-full border flex items-center justify-center overflow-hidden ${avatarPaletteClass(status)} ${avatarRadiusClass(theme)}`}>
                     {h.picture || h.gravatarUrl ? (
                       <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
@@ -320,8 +313,8 @@ export default function ChannelSidebar() {
                   <span className="text-2xs text-nc-muted font-mono">(you)</span>
                 )}
                 {!isSelf && (unreadCounts[h.name] || 0) > 0 && !isActive && (
-                  <span className="ml-auto bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
-                    {unreadCounts[h.name]}
+                  <span className={`ml-auto w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
+                    {(unreadCounts[h.name] || 0) > 9 ? '9+' : unreadCounts[h.name]}
                   </span>
                 )}
               </>

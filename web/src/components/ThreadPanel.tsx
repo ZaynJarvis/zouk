@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { Hash } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import MessageItem from './MessageItem';
@@ -7,6 +8,18 @@ import PanelHeader from './panel/PanelHeader';
 
 export default function ThreadPanel() {
   const { activeThreadMessage, threadMessages, closeRightPanel, activeChannelName } = useApp();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastThreadIdRef = useRef<string | null>(null);
+
+  // On thread open and on every reply that arrives, jump to the bottom
+  // without animation so the latest message lands in view immediately.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !activeThreadMessage) return;
+    const isNewThread = lastThreadIdRef.current !== activeThreadMessage.id;
+    el.scrollTop = el.scrollHeight;
+    if (isNewThread) lastThreadIdRef.current = activeThreadMessage.id;
+  }, [activeThreadMessage?.id, threadMessages.length]);
 
   if (!activeThreadMessage) return null;
 
@@ -26,7 +39,7 @@ export default function ThreadPanel() {
         </>
       </PanelHeader>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="border-b border-nc-border pb-2">
           <MessageItem message={activeThreadMessage} hideInlineThread />
         </div>
