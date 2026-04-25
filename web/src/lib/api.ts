@@ -386,6 +386,67 @@ export async function removeAllowlistEntry(email: string): Promise<void> {
   }
 }
 
+export interface WsClientStats {
+  id: string;
+  kind: 'token' | 'ip';
+  ownerName: string | null;
+  ownerEmail: string | null;
+  ownerPicture: string | null;
+  ip: string | null;
+  openCount: number;
+  totalConnects: number;
+  totalDisconnects: number;
+  totalRejections: number;
+  connectsLastMinute: number;
+  lastConnectAt: number | null;
+  lastDisconnectAt: number | null;
+  lastRejectionAt: number | null;
+  firstSeenAt: number;
+  blockedUntil: number;
+  blockReason: string | null;
+  manualBlock: boolean;
+  sessionExists: boolean | null;
+}
+
+export interface WsClientsResponse {
+  rateWindowSeconds: number;
+  autoBlockThreshold: number;
+  blockDurationSeconds: number;
+  revokeBlockSeconds: number;
+  callerId: string | null;
+  clients: WsClientStats[];
+}
+
+export async function getWsClients(): Promise<WsClientsResponse> {
+  const res = await fetch(`${getBaseUrl()}/api/_internal/ws-clients`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to load ws clients: ${res.status}`);
+  return res.json();
+}
+
+export async function revokeWsClient(id: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/api/_internal/ws-clients/${encodeURIComponent(id)}/revoke`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Failed to revoke client');
+  }
+}
+
+export async function unblockWsClient(id: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/api/_internal/ws-clients/${encodeURIComponent(id)}/unblock`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Failed to unblock client');
+  }
+}
+
 export async function updateUserProfile(name: string, picture?: string): Promise<{ user: AuthUser }> {
   const body: Record<string, string> = { name };
   if (picture !== undefined) body.picture = picture;
