@@ -159,6 +159,18 @@ export type WsEventHandler = (event: WsEvent) => void;
 
 const PENDING_SEND_CAP = 100;
 
+// Reconnect backoff. Earlier code used a flat 3s, which combined with stale
+// browser tabs whose token had been revoked produced ~30 conn/s of failed
+// /ws upgrades against the server. Once authenticated successfully the
+// counter resets, so steady-state behaviour for healthy clients is unchanged.
+const BASE_BACKOFF_MS = 3_000;
+const MAX_BACKOFF_MS = 60_000;
+// After this many close-without-open events, validate the token via HTTP. If
+// the server says it's no longer good, drop it locally so subsequent
+// reconnects go as a guest (which lets the server accept them again) and the
+// app can prompt re-login on the auth:expired event.
+const VALIDATE_TOKEN_AFTER_FAILURES = 5;
+
 // iOS (Safari / PWA) silently kills WebSocket TCP connections when the app is
 // backgrounded or the screen locks. Unlike a normal close, the OS never sends a
 // FIN/RST, so `onclose` never fires and `readyState` stays OPEN — the socket is
@@ -187,6 +199,10 @@ export class SlockWebSocket {
   private serverUrl: string;
   private _connected = false;
   private pendingSends: string[] = [];
+  // Counts close-without-open events since the last successful onopen. Drives
+  // the exponential backoff and token-revalidation logic in scheduleReconnect.
+  private failedAttempts = 0;
+  private validatingToken = false;
 
   constructor(serverUrl: string) {
     this.serverUrl = serverUrl;
@@ -227,6 +243,7 @@ export class SlockWebSocket {
 
     this.ws.onopen = () => {
       this._connected = true;
+      this.failedAttempts = 0;
       this.resetWatchdog();
       this.flushPending();
       this.emit({ type: 'ws:connected' });
@@ -313,10 +330,46 @@ export class SlockWebSocket {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
+    this.failedAttempts += 1;
+    // 3s, 6s, 12s, 24s, 48s, then capped at 60s
+    const delay = Math.min(
+      BASE_BACKOFF_MS * Math.pow(2, Math.max(0, this.failedAttempts - 1)),
+      MAX_BACKOFF_MS,
+    );
+    if (this.failedAttempts === VALIDATE_TOKEN_AFTER_FAILURES) {
+      // Fire-and-forget so the reconnect timer isn't blocked by the fetch.
+      void this.maybeDropDeadToken();
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 3000);
+    }, delay);
+  }
+
+  // After repeated close-without-open failures, the most likely cause is a
+  // session token that the server no longer accepts (manual revoke, server
+  // wipe, expired). HEAD it via /api/auth/me; on 401, drop the token so the
+  // next reconnect goes as a guest and the app can prompt re-login.
+  private async maybeDropDeadToken(): Promise<void> {
+    if (this.validatingToken) return;
+    if (typeof localStorage === 'undefined') return;
+    const token = localStorage.getItem('zouk_auth_token');
+    if (!token) return;
+    this.validatingToken = true;
+    try {
+      const base = this.serverUrl || '';
+      const res = await fetch(`${base}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        localStorage.removeItem('zouk_auth_token');
+        this.emit({ type: 'auth:expired' });
+      }
+    } catch {
+      // ignore network errors — backoff will keep the retry rate low anyway
+    } finally {
+      this.validatingToken = false;
+    }
   }
 
   private resetWatchdog(): void {
