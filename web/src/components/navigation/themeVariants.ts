@@ -263,7 +263,6 @@ export const channelSidebarThemeConfig: Record<
     header: string;
     titleClass: string;
     titleStyle: 'glitch' | 'plain';
-    unreadBadge: string;
     scrollerPadding: string;
   }
 > = {
@@ -272,7 +271,6 @@ export const channelSidebarThemeConfig: Record<
     header: 'safe-top flex-shrink-0 border-b border-nc-border',
     titleClass: 'font-display font-black text-lg text-nc-cyan neon-cyan truncate tracking-wider',
     titleStyle: 'glitch',
-    unreadBadge: 'text-2xs font-black px-1.5 py-0.5 border bg-nc-red/20 text-nc-red border-nc-red/40',
     scrollerPadding: '',
   },
   carbon: {
@@ -280,7 +278,6 @@ export const channelSidebarThemeConfig: Record<
     header: 'safe-top flex-shrink-0 border-b border-nc-border',
     titleClass: 'font-display font-semibold text-[1.15rem] leading-none text-nc-text-bright truncate',
     titleStyle: 'plain',
-    unreadBadge: 'text-2xs font-black px-1.5 py-0.5 border bg-nc-red/20 text-nc-red border-nc-red/40 rounded-full',
     scrollerPadding: '',
   },
   'washington-post': {
@@ -288,7 +285,6 @@ export const channelSidebarThemeConfig: Record<
     header: 'safe-top flex-shrink-0 bg-[#f7f0e6] border-b border-nc-border',
     titleClass: 'font-display font-bold text-[1.15rem] leading-none text-nc-text-bright truncate',
     titleStyle: 'plain',
-    unreadBadge: 'text-2xs font-black px-1.5 py-0.5 border bg-nc-red/20 text-nc-red border-nc-red/40 rounded-full',
     scrollerPadding: '',
   },
   brutalist: {
@@ -296,7 +292,6 @@ export const channelSidebarThemeConfig: Record<
     header: 'safe-top flex-shrink-0 border-b-[3px] border-nc-border-bright',
     titleClass: 'font-display font-black text-lg text-nc-text-bright truncate',
     titleStyle: 'plain',
-    unreadBadge: 'text-2xs font-black px-1.5 py-0.5 border bg-nc-red text-white border-2 border-nc-border-bright shadow-[2px_2px_0px_0px_#1A1A1A]',
     scrollerPadding: 'px-2',
   },
   graphite: {
@@ -304,7 +299,6 @@ export const channelSidebarThemeConfig: Record<
     header: 'safe-top flex-shrink-0 border-b border-white/[0.04]',
     titleClass: 'font-display font-semibold text-[1.1rem] leading-none text-nc-text-bright truncate tracking-tight',
     titleStyle: 'plain',
-    unreadBadge: 'text-2xs font-semibold px-1.5 py-0.5 bg-white/[0.1] text-nc-text-bright rounded-full',
     scrollerPadding: 'px-2',
   },
 };

@@ -1,4 +1,4 @@
-import type { AgentActivity, ServerAgent, ServerHuman } from '../types';
+import type { AgentActivity, ServerAgent, ServerHuman, Theme } from '../types';
 
 export type AvatarStatus = 'offline' | 'online' | 'working';
 
@@ -15,6 +15,15 @@ export function agentStatus(a: Pick<ServerAgent, 'status' | 'activity'>): Avatar
   // label fallback used in AgentProfilePanel/AgentDetail so the dot does not
   // contradict the OFFLINE text sitting next to it.
   return 'offline';
+}
+
+// Avatar palette is gray only when the agent is truly inactive (machine gone,
+// can't be respawned). When the machine is still present (status === 'active')
+// but the process is offline, the avatar stays "live" — only the status dot
+// goes gray, signaling "wakeable".
+export function agentAvatarStatus(a: Pick<ServerAgent, 'status' | 'activity'>): AvatarStatus {
+  if (!a.status || a.status === 'inactive') return 'offline';
+  return agentStatus(a) === 'working' ? 'working' : 'online';
 }
 
 export const STATUS_CLASS: Record<AvatarStatus, string> = {
@@ -36,4 +45,10 @@ export function avatarPaletteClass(
   return family === 'green'
     ? 'border-nc-green/30 bg-nc-green/10 text-nc-green'
     : 'border-nc-cyan/30 bg-nc-cyan/10 text-nc-cyan';
+}
+
+// Soften avatar corners only on the editorial themes (washington-post, carbon).
+// The cyber/brutalist/graphite themes keep their existing aesthetic.
+export function avatarRadiusClass(theme: Theme): string {
+  return theme === 'washington-post' || theme === 'carbon' ? 'rounded-md' : '';
 }

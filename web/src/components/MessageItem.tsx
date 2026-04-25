@@ -7,7 +7,7 @@ import { MENTION_TOKEN_REGEX } from '../lib/mentions';
 import { highlightCode } from '../lib/highlight';
 import { getStoredLinkTransforms, subscribeLinkTransforms, type LinkTransformRule } from '../store/storage';
 import StatusDot from './StatusDot';
-import { agentStatus } from '../lib/avatarStatus';
+import { agentStatus, avatarRadiusClass } from '../lib/avatarStatus';
 import ImageLightbox from './ImageLightbox';
 import FailableImage from './FailableImage';
 
@@ -581,7 +581,8 @@ export default function MessageItem({
   // (e.g. the ThreadPanel header), so we don't duplicate the entry.
   hideInlineThread?: boolean;
 }) {
-  const { humans, agents, configs, currentUser, authUser, openAgentProfile, openThread, threadedMessageIds } = useApp();
+  const { humans, agents, configs, currentUser, authUser, openAgentProfile, openThread, threadedMessageIds, theme } = useApp();
+  const avatarRadius = avatarRadiusClass(theme);
   const linkRules = useSyncExternalStore(subscribeLinkTransforms, getStoredLinkTransforms);
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
@@ -650,7 +651,7 @@ export default function MessageItem({
               type="button"
               onClick={() => openAgentProfile(agentProfileId)}
               title={`View @${senderName} profile`}
-              className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden transition-transform hover:scale-105 hover:ring-1 hover:ring-nc-cyan focus:outline-none focus:ring-1 focus:ring-nc-cyan"
+              className={`w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden transition-transform hover:scale-105 hover:ring-1 hover:ring-nc-cyan focus:outline-none focus:ring-1 focus:ring-nc-cyan ${avatarRadius}`}
               style={{
                 backgroundColor: `${color}12`,
                 color,
@@ -668,7 +669,7 @@ export default function MessageItem({
         ) : (
           <div className="relative w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 mt-0.5">
             <div
-              className="w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden"
+              className={`w-8 h-8 sm:w-9 sm:h-9 font-display font-bold text-xs flex items-center justify-center select-none overflow-hidden ${avatarRadius}`}
               style={{
                 backgroundColor: `${color}12`,
                 color,
