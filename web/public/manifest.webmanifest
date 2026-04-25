@@ -1,6 +1,6 @@
 {
-  "name": "Zouk",
-  "short_name": "Zouk",
+  "name": "Gallery",
+  "short_name": "Gallery",
   "description": "Team workspace for humans and agents.",
   "start_url": "/",
   "scope": "/",

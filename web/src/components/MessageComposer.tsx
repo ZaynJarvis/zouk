@@ -51,6 +51,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const pendingImagesRef = useRef<PendingImage[]>([]);
   pendingImagesRef.current = pendingImages;
   const [isSending, setIsSending] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounter = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Revoke any outstanding preview blob URLs on unmount.
   useEffect(() => {
@@ -214,6 +216,32 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     addImageFiles(Array.from(list));
     e.target.value = ''; // allow selecting the same file again next time
   }, [addImageFiles]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dragCounter.current++;
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    dragCounter.current = Math.max(0, dragCounter.current - 1);
+    if (dragCounter.current === 0) setIsDragOver(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setIsDragOver(false);
+    if (isGuest) return;
+    addImageFiles(Array.from(e.dataTransfer.files));
+  }, [isGuest, addImageFiles]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionQuery !== null && mentionMatches.length > 0) {
@@ -407,8 +435,17 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             </button>
           )}
           <div
-            className={`composer-surface flex-1 min-w-0 flex items-end border border-nc-border bg-nc-black cyber-bevel-sm cursor-text ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`}
+            className={`composer-surface flex-1 min-w-0 flex flex-col border cyber-bevel-sm cursor-text transition-[border-color,background-color] duration-150 ${
+              isDragOver
+                ? 'border-dashed border-nc-cyan bg-nc-cyan/[0.04]'
+                : `bg-nc-black border-nc-border ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`
+            }`}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
             onClick={(e) => {
+              if (isDragOver) return;
               // Clicking dead space around the textarea should focus the composer.
               // Skip interactive children so their native click behaviour
               // (image attach button, textarea itself) still wins.
@@ -417,6 +454,18 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               textareaRef.current?.focus();
             }}
           >
+          {/* Drop zone — visible (and expands the composer) only while dragging */}
+          <div
+            className={`overflow-hidden transition-[height,opacity] duration-150 ease-out pointer-events-none ${
+              isDragOver ? 'h-16 opacity-100' : 'h-0 opacity-0'
+            }`}
+          >
+            <div className="h-full flex items-center justify-center gap-2 text-nc-cyan text-sm font-mono select-none">
+              <ImagePlus size={16} />
+              Drop to attach image
+            </div>
+          </div>
+          <div className="flex items-end">
           <input
             ref={fileInputRef}
             type="file"
@@ -459,6 +508,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             rows={1}
             className={`composer-textarea flex-1 min-w-0 py-1.5 sm:py-2 pr-3 sm:pr-3 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed transition-[padding] duration-150 ease-out ${showImageBtn ? 'pl-0' : 'pl-3'}`}
           />
+          </div>
           </div>
         </div>
       </div>
