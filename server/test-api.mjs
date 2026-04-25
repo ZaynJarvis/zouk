@@ -1005,3 +1005,152 @@ test('store.messages sliding window evicts oldest beyond MAX_IN_MEMORY_MESSAGES'
     }
   }
 });
+
+// ─── Trigger API ──────────────────────────────────────────────────────────────
+//
+// External systems POST /api/trigger to inject a message into a public channel.
+// Behaviour must match POST /api/messages so downstream side-effects (mention
+// fanout, agent wakeup, WS broadcast, persistence) fire identically. Sender
+// is hardcoded to "system" + senderType="human", and "system" is reserved
+// (see RESERVED_USER_NAMES) so it can't collide with a real user.
+
+test('POST /api/trigger: rejects request with no API key', async () => {
+  const res = await fetch(`${BASE}/api/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target: '#all', content: 'should fail' }),
+  });
+  assert.equal(res.status, 401);
+});
+
+test('POST /api/trigger: rejects invalid API key', async () => {
+  const res = await fetch(`${BASE}/api/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': 'nope-not-a-real-key' },
+    body: JSON.stringify({ target: '#all', content: 'should fail' }),
+  });
+  assert.equal(res.status, 401);
+});
+
+test('POST /api/trigger: rejects DM target', async () => {
+  const { status, body } = await json(await fetch(`${BASE}/api/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': 'test' },
+    body: JSON.stringify({ target: 'dm:@ci-tester', content: 'should fail' }),
+  }));
+  assert.equal(status, 400);
+  assert.match(body.error, /DMs not supported|public channels/i);
+});
+
+test('POST /api/trigger: rejects empty content', async () => {
+  const { status } = await json(await fetch(`${BASE}/api/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': 'test' },
+    body: JSON.stringify({ target: '#all', content: '   ' }),
+  }));
+  assert.equal(status, 400);
+});
+
+test('POST /api/trigger: rejects unknown channel', async () => {
+  const { status, body } = await json(await fetch(`${BASE}/api/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': 'test' },
+    body: JSON.stringify({ target: '#nonexistent-channel-xyz', content: 'hi' }),
+  }));
+  assert.equal(status, 404);
+  assert.match(body.error, /not found/i);
+});
+
+test('POST /api/trigger: stores message + visible in /api/messages with senderName=system, senderType=human', async () => {
+  const marker = `ci-trigger-probe-${Date.now()}`;
+  const sendRes = await fetch(`${BASE}/api/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': 'test' },
+    body: JSON.stringify({ target: '#all', content: marker }),
+  });
+  const { status, body } = await json(sendRes);
+  assert.equal(status, 200);
+  assert.ok(body.messageId, 'response must include messageId');
+  assert.equal(body.message.content, marker);
+  assert.equal(body.message.channelName, 'all');
+  assert.equal(body.message.senderName, 'system');
+  // senderType="human" so the frontend renders it as a normal chat row;
+  // the empty-frame avatar fallback keys on senderName==="system".
+  assert.equal(body.message.senderType, 'human');
+
+  const { body: histBody } = await json(await fetch(`${BASE}/api/messages`, {
+    headers: { 'X-Channel': '#all', 'X-Limit': '20' },
+  }));
+  const found = histBody.messages.find((m) => m.content === marker);
+  assert.ok(found, 'triggered message must appear in channel history');
+  // formatMessageForClient returns camelCase; the web client normalizes to
+  // snake_case in lib/api.ts.
+  assert.equal(found.senderName, 'system');
+  assert.equal(found.senderType, 'human');
+});
+
+test('POST /api/trigger: WS clients receive the broadcast frame', async () => {
+  // A trigger message must hit broadcastToWeb, just like POST /api/messages.
+  const ws = new WebSocket(`ws://localhost:${TEST_PORT}/ws`);
+  await new Promise((resolve, reject) => {
+    ws.once('open', resolve);
+    ws.once('error', reject);
+  });
+  const marker = `ci-trigger-ws-${Date.now()}`;
+  const received = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('ws frame timeout')), 3000);
+    ws.on('message', (data) => {
+      const evt = JSON.parse(data.toString());
+      if (evt.type === 'message' && evt.message?.content === marker) {
+        clearTimeout(timer);
+        resolve(evt.message);
+      }
+    });
+  });
+
+  await fetch(`${BASE}/api/trigger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': 'test' },
+    body: JSON.stringify({ target: '#all', content: marker }),
+  });
+  const broadcast = await received;
+  assert.equal(broadcast.senderName, 'system');
+  assert.equal(broadcast.senderType, 'human');
+  ws.close();
+});
+
+// ─── Reserved usernames ───────────────────────────────────────────────────────
+
+test('reserved username: guest-session rejects "system"', async () => {
+  const res = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'system' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('reserved username: guest-session rejects "System" (case-insensitive)', async () => {
+  const res = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'System' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('reserved username: profile rename to "system" is rejected', async () => {
+  // Mint a guest session with a non-reserved name first, then attempt rename.
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-rename-probe' }),
+  });
+  const { token } = await authRes.json();
+  const res = await fetch(`${BASE}/api/auth/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: 'system' }),
+  });
+  assert.equal(res.status, 400);
+});
