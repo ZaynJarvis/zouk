@@ -166,7 +166,7 @@ export default function ChannelSidebar() {
                   </span>
                 )}
                 {unread > 0 && !isActive && (
-                  <span className={`${!isGuest ? '' : 'ml-auto '}w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40`}>
+                  <span className={`${!isGuest ? '' : 'ml-auto '}w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
                     {unread > 9 ? '9+' : unread}
                   </span>
                 )}
@@ -248,7 +248,7 @@ export default function ChannelSidebar() {
                     </span>
                   )}
                   {unread > 0 && !isActive && (isGuest || forceShowButtons) ? (
-                    <span className="w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40">
+                    <span className={`w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
                       {unread > 9 ? '9+' : unread}
                     </span>
                   ) : !isGuest ? (
@@ -266,7 +266,7 @@ export default function ChannelSidebar() {
                       </span>
                       {unread > 0 && !isActive && !forceShowButtons && (
                         <span
-                          className="pointer-events-none absolute inset-0 flex items-center justify-center bg-nc-red/20 text-nc-red border border-nc-red/40 text-[11px] font-black leading-none"
+                          className={`pointer-events-none absolute inset-0 flex items-center justify-center bg-nc-red/20 text-nc-red border border-nc-red/40 text-[11px] font-black leading-none ${avatarRadiusClass(theme)}`}
                           aria-label={`${unread} unread`}
                         >
                           {unread > 9 ? '9+' : unread}
@@ -313,7 +313,7 @@ export default function ChannelSidebar() {
                   <span className="text-2xs text-nc-muted font-mono">(you)</span>
                 )}
                 {!isSelf && (unreadCounts[h.name] || 0) > 0 && !isActive && (
-                  <span className="ml-auto w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40">
+                  <span className={`ml-auto w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
                     {(unreadCounts[h.name] || 0) > 9 ? '9+' : unreadCounts[h.name]}
                   </span>
                 )}
