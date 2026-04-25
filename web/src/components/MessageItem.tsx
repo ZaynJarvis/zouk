@@ -28,11 +28,33 @@ type MentionSegment = { kind: 'mention'; start: number; end: number; handle: str
 type InlineSegment = { kind: 'inline'; start: number; end: number; raw: string };
 type LinkSegment = { kind: 'link'; start: number; end: number; href: string; display: string };
 
-// Trailing punctuation is often sentence punctuation, not part of the URL.
-function stripTrailingPunct(url: string): { url: string; trail: string } {
-  const m = url.match(/^(.*?)([.,;:!?)]+)$/);
-  if (!m) return { url, trail: '' };
-  return { url: m[1], trail: m[2] };
+// Peel trailing chars that aren't really part of the URL: sentence
+// punctuation (`.,;:!?)`) and markdown delimiters wrapping the URL
+// (`**URL**`, `*URL*`, `~~URL~~`, `` `URL` ``). We strip a markdown
+// delimiter only when the same char also sits at the end of the prefix
+// text — i.e. it has a matching opener — so a real trailing `*` (e.g.
+// `https://example.com/wildcard*`) stays. Punct and delimiters can
+// interleave at the tail (e.g. `**URL**.`), so peel one char at a time.
+function stripTrailingPunct(url: string, prefix: string): { url: string; trail: string } {
+  let body = url;
+  let trail = '';
+  let prefixView = prefix;
+  while (body.length > 0) {
+    const last = body[body.length - 1];
+    if ('.,;:!?)'.includes(last)) {
+      body = body.slice(0, -1);
+      trail = last + trail;
+      continue;
+    }
+    if ('*_~`'.includes(last) && prefixView.length > 0 && prefixView[prefixView.length - 1] === last) {
+      body = body.slice(0, -1);
+      prefixView = prefixView.slice(0, -1);
+      trail = last + trail;
+      continue;
+    }
+    break;
+  }
+  return { url: body, trail };
 }
 
 function applyLinkTransforms(url: string, rules: LinkTransformRule[]): string {
@@ -56,7 +78,7 @@ function renderInline(text: string, keyPrefix: string, linkRules: LinkTransformR
   const urlRegexG = /\bhttps?:\/\/[^\s<>`"]+/g;
   while ((m = urlRegexG.exec(text)) !== null) {
     const raw = m[0];
-    const { url, trail } = stripTrailingPunct(raw);
+    const { url, trail } = stripTrailingPunct(raw, text.slice(0, m.index));
     const start = m.index;
     const end = start + url.length;
     const display = applyLinkTransforms(url, linkRules);
