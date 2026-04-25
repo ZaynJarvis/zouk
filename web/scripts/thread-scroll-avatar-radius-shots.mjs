@@ -152,20 +152,23 @@ async function shotMobile(theme) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
   try {
-    // Inject fake unread counts on the mobile shot — bump #zouk and Tim's DM
-    // by sending real `new_message` events from other senders so appStore
-    // increments unreadCounts naturally.
+    // Inject fake unread counts on the mobile shot — bump #zouk to single
+    // digit (3) and Tim's DM well past 9 ("9+") so we can verify the badge
+    // stays a fixed 20×20 square and the row layout doesn't reflow between
+    // single-digit, "9+", and the no-unread state.
     await bootRoutes(page);
     const stamp = Date.now();
+    const bumpZouk = Array.from({ length: 3 }, (_, i) => ({
+      type: 'new_message',
+      message: { id: `m-zouk-${i + 1}`, channel_name: 'zouk', channel_type: 'channel', sender_name: 'Hela', sender_type: 'agent', content: `bump ${i + 1}`, timestamp: new Date(stamp - 5000 + i * 10).toISOString() },
+    }));
+    const bumpTim = Array.from({ length: 12 }, (_, i) => ({
+      type: 'new_message',
+      message: { id: `m-tim-${i + 1}`, channel_name: 'tim-bot', channel_type: 'dm', sender_name: 'tim-bot', sender_type: 'agent', content: `tim ${i + 1}`, timestamp: new Date(stamp - 4000 + i * 10).toISOString(), dm_parties: ['QA Tester', 'tim-bot'] },
+    }));
     await loadApp(page, URL, {
       initOverride: { agents: TWEAKED_AGENTS, humans: FAKE_HUMANS, channels: FAKE_CHANNELS, machines: FAKE_MACHINES },
-      extraMessages: [
-        { type: 'new_message', message: { id: 'm-zouk-1', channel_name: 'zouk', channel_type: 'channel', sender_name: 'Hela', sender_type: 'agent', content: 'unread bump 1', timestamp: new Date(stamp - 4000).toISOString() } },
-        { type: 'new_message', message: { id: 'm-zouk-2', channel_name: 'zouk', channel_type: 'channel', sender_name: 'Hela', sender_type: 'agent', content: 'unread bump 2', timestamp: new Date(stamp - 3000).toISOString() } },
-        { type: 'new_message', message: { id: 'm-zouk-3', channel_name: 'zouk', channel_type: 'channel', sender_name: 'Hela', sender_type: 'agent', content: 'unread bump 3', timestamp: new Date(stamp - 2000).toISOString() } },
-        { type: 'new_message', message: { id: 'm-tim-1', channel_name: 'tim-bot', channel_type: 'dm', sender_name: 'tim-bot', sender_type: 'agent', content: 'tim DM bump 1', timestamp: new Date(stamp - 1500).toISOString(), dm_parties: ['QA Tester', 'tim-bot'] } },
-        { type: 'new_message', message: { id: 'm-tim-2', channel_name: 'tim-bot', channel_type: 'dm', sender_name: 'tim-bot', sender_type: 'agent', content: 'tim DM bump 2', timestamp: new Date(stamp - 1000).toISOString(), dm_parties: ['QA Tester', 'tim-bot'] } },
-      ],
+      extraMessages: [...bumpZouk, ...bumpTim],
     });
     await setTheme(page, theme);
     await page.reload({ waitUntil: 'networkidle' });

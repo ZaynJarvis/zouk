@@ -166,8 +166,8 @@ export default function ChannelSidebar() {
                   </span>
                 )}
                 {unread > 0 && !isActive && (
-                  <span className={`${!isGuest ? '' : 'ml-auto '}bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center`}>
-                    {unread}
+                  <span className={`${!isGuest ? '' : 'ml-auto '}w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40`}>
+                    {unread > 9 ? '9+' : unread}
                   </span>
                 )}
               </button>
@@ -226,7 +226,7 @@ export default function ChannelSidebar() {
                 </span>
                 <span className="truncate text-sm min-w-0">{agent.displayName || agent.name}</span>
                 {unread > 0 && !isActive && (isGuest || forceShowButtons) && (
-                  <span className="flex-shrink-0 bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
+                  <span className="flex-shrink-0 w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40">
                     {unread > 9 ? '9+' : unread}
                   </span>
                 )}
@@ -314,8 +314,8 @@ export default function ChannelSidebar() {
                   <span className="text-2xs text-nc-muted font-mono">(you)</span>
                 )}
                 {!isSelf && (unreadCounts[h.name] || 0) > 0 && !isActive && (
-                  <span className="ml-auto bg-nc-red/20 text-nc-red text-2xs font-black px-1.5 py-0.5 border border-nc-red/40 min-w-[20px] text-center">
-                    {unreadCounts[h.name]}
+                  <span className="ml-auto w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40">
+                    {(unreadCounts[h.name] || 0) > 9 ? '9+' : unreadCounts[h.name]}
                   </span>
                 )}
               </>
