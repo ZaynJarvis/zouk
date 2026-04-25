@@ -225,11 +225,6 @@ export default function ChannelSidebar() {
                   <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
                 </span>
                 <span className="truncate text-sm min-w-0">{agent.displayName || agent.name}</span>
-                {unread > 0 && !isActive && (isGuest || forceShowButtons) && (
-                  <span className="flex-shrink-0 w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40">
-                    {unread > 9 ? '9+' : unread}
-                  </span>
-                )}
                 <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
                   {usageLabel && (
                     <span
@@ -252,7 +247,11 @@ export default function ChannelSidebar() {
                       <RotateCcw size={12} />
                     </span>
                   )}
-                  {!isGuest && !(forceShowButtons && unread > 0 && !isActive) && (
+                  {unread > 0 && !isActive && (isGuest || forceShowButtons) ? (
+                    <span className="w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40">
+                      {unread > 9 ? '9+' : unread}
+                    </span>
+                  ) : !isGuest ? (
                     <span className="relative inline-flex">
                       <span
                         role="button"
@@ -274,7 +273,7 @@ export default function ChannelSidebar() {
                         </span>
                       )}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </button>
             );
