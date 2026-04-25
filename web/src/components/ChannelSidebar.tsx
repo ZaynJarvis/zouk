@@ -273,7 +273,7 @@ export default function ChannelSidebar() {
                       </span>
                       {unread > 0 && !isActive && (
                         <span
-                          className="pointer-events-none absolute -top-1 -right-1 min-w-[14px] h-[14px] px-[3px] flex items-center justify-center border border-nc-surface bg-nc-red text-nc-text-bright text-[9px] font-black leading-none"
+                          className="pointer-events-none absolute inset-0 flex items-center justify-center bg-nc-red/20 text-nc-red border border-nc-red/40 text-[11px] font-black leading-none"
                           aria-label={`${unread} unread`}
                         >
                           {unread > 9 ? '9+' : unread}
