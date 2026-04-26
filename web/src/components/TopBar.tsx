@@ -26,7 +26,7 @@ export default function TopBar() {
   const inHomeView = viewMode === 'channel' || viewMode === 'dm';
 
   return (
-    <div className={getTopBarShellClass(themeVariant)}>
+    <div className={`${getTopBarShellClass(themeVariant)} top-bar-mobile-fixed`}>
       <div className={`h-12 sm:h-14 flex items-center px-2 sm:px-4 gap-2 sm:gap-3`}>
         <div className="lg:hidden flex items-center gap-1">
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>

@@ -92,6 +92,11 @@ function AppShell() {
 
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar />
+        {/* Mobile spacer: TopBar is position:fixed on mobile so it no longer
+            occupies flex space — this div holds the equivalent height. */}
+        <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
+          <div className="h-12 sm:h-14" />
+        </div>
         <div className="flex-1 relative min-h-0">
           <div className="absolute inset-0 flex flex-col min-w-0">
             {showMessageView && (

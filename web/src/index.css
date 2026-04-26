@@ -380,6 +380,21 @@ html[data-display-mode="standalone"] .safe-bottom {
   html[data-theme="night-city"] .composer-surface.cyber-bevel-sm {
     clip-path: none;
   }
+
+  /* On mobile / PWA, anchor the TopBar to the viewport so iOS keyboard
+     open-events (which translate the visual viewport upward) cannot push
+     the header off-screen. !important overrides .scanline-overlay's
+     `position: relative`; the pseudo-element scanline still renders
+     correctly because it is positioned relative to the fixed ancestor.
+     z-index 30 keeps the bar above page content and the right panel (z-20)
+     but below the sidebar overlay (z-30 backdrop) and sidebar (z-40). */
+  .top-bar-mobile-fixed {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+  }
 }
 
 /* ==========================================================================
