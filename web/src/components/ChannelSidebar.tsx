@@ -178,7 +178,6 @@ export default function ChannelSidebar() {
         <div>
           <SectionHeader
             title="Agents"
-            count={filteredAgents.filter(a => a.status === 'active').length}
             collapsed={agentsCollapsed}
             onToggle={() => setAgentsCollapsed(!agentsCollapsed)}
           />

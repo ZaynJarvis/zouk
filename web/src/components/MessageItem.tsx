@@ -701,11 +701,6 @@ export default function MessageItem({
               <span className="font-display font-bold text-sm leading-none" style={{ color }}>
                 {senderName}
               </span>
-              {isAgent && (
-                <span className="text-2xs bg-nc-green/10 text-nc-green border border-nc-green/30 px-1 py-0.5 font-bold uppercase font-mono leading-none">
-                  Agent
-                </span>
-              )}
               {timestamp && (
                 <span className="text-2xs text-nc-muted font-mono tabular-nums">
                   {formatTime(timestamp)}
