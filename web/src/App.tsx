@@ -32,6 +32,7 @@ function AllowlistSync({ active }: { active: boolean }) {
 function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel } = useApp();
   const rightPanelRef = useRef<HTMLDivElement | null>(null);
+  const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
 
   useEffect(() => {
     const onResize = () => { if (isMobileViewport()) setSidebarOpen(false); };
@@ -40,6 +41,14 @@ function AppShell() {
   }, [setSidebarOpen]);
 
   useEdgeSwipeRight(() => setSidebarOpen(true), { enabled: !sidebarOpen });
+
+  const closeMobileSidebar = () => {
+    setMobileSidebarClosing(true);
+    setTimeout(() => {
+      setSidebarOpen(false);
+      setMobileSidebarClosing(false);
+    }, 180);
+  };
 
   // Thread panel: click outside the panel closes it (same as the × button).
   // Attached in the capture phase so it runs before React's bubble-phase onClick.
@@ -73,20 +82,23 @@ function AppShell() {
         <WorkspaceRail />
       </div>
 
-      {/* Mobile sidebar overlay */}
+      {/* Mobile sidebar: centered modal */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/40 z-30"
-          onClick={() => setSidebarOpen(false)}
-        />
+          className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 flex items-center justify-center transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
+          onClick={closeMobileSidebar}
+        >
+          <div
+            className={`w-[82vw] max-w-sm max-h-[65vh] cyber-panel rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <ChannelSidebar phoneModal />
+          </div>
+        </div>
       )}
-      <div className={`
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        lg:translate-x-0 lg:relative lg:z-auto
-        fixed inset-y-0 left-0 z-40
-        transition-transform duration-200 ease-out
-        flex-shrink-0
-      `}>
+
+      {/* Desktop sidebar: always visible */}
+      <div className="hidden lg:flex flex-shrink-0">
         <ChannelSidebar />
       </div>
 
