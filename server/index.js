@@ -1822,8 +1822,20 @@ app.get("/api/messages", (req, res) => {
   const limit = parseInt(req.headers["x-limit"] || req.query.limit || 100);
   const sender = req.headers["x-sender"] || req.query.sender || null;
   const before = req.headers["x-before"] || req.query.before || null;
+  const after = req.headers["x-after"] || req.query.after || null;
 
   const filtered = store.messages.filter((m) => matchesTarget(m, channel, sender));
+
+  // Catch-up mode: return all messages after the given message ID (for WS reconnect gap-fill)
+  if (after) {
+    const idx = filtered.findIndex((m) => m.id === after);
+    const msgs = idx >= 0 ? filtered.slice(idx + 1) : [];
+    return res.json({
+      messages: msgs.map((m) => formatMessageForClient(m, sender, { includeReplies: true })),
+      hasMore: false,
+    });
+  }
+
   let windowEnd = filtered.length;
   if (before) {
     const idx = filtered.findIndex((m) => m.id === before);
@@ -2420,6 +2432,16 @@ function autoStartAgents() {
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
+
+process.on("SIGTERM", async () => {
+  console.log("[server] SIGTERM received — shutting down gracefully");
+  server.close(async () => {
+    await db.closePool();
+    process.exit(0);
+  });
+  // Force-exit after 10s if active connections don't drain in time
+  setTimeout(() => process.exit(0), 10_000).unref();
+});
 
 server.on("upgrade", (request, socket, head) => {
   const parsed = new URL(request.url, `http://${request.headers.host}`);

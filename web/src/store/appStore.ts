@@ -147,6 +147,7 @@ export function useAppStore() {
   const activeThreadMessageRef = useRef(activeThreadMessage);
   activeThreadMessageRef.current = activeThreadMessage;
   const hasResolvedInitialViewRef = useRef(false);
+  const hasConnectedOnceRef = useRef(false);
   const channelListReady = channels.length > 0;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
@@ -166,9 +167,32 @@ export function useAppStore() {
 
   const handleWsEvent = useCallback((event: WsEvent) => {
     switch (event.type) {
-      case 'ws:connected' as string:
+      case 'ws:connected' as string: {
         setWsConnected(true);
+        const isReconnect = hasConnectedOnceRef.current;
+        hasConnectedOnceRef.current = true;
+        if (isReconnect) {
+          // Gap-fill: fetch any messages that arrived while the WS was down.
+          // Use the last visible message as the cursor; merge results in without
+          // wiping the existing list so scroll position is preserved.
+          const lastMsg = messagesRef.current[messagesRef.current.length - 1];
+          if (lastMsg) {
+            const isDm = viewModeRef.current === 'dm';
+            const sender = isDm ? currentUserRef.current : undefined;
+            api.fetchMessages(activeChannelRef.current, isDm, 200, sender, undefined, lastMsg.id)
+              .then(res => {
+                if (res.messages.length === 0) return;
+                setMessages(prev => {
+                  const known = new Set(prev.map(m => m.id));
+                  const fresh = res.messages.filter(m => !known.has(m.id));
+                  return fresh.length > 0 ? [...prev, ...fresh] : prev;
+                });
+              })
+              .catch(() => { /* silent — WS stream will cover new messages going forward */ });
+          }
+        }
         break;
+      }
       case 'ws:disconnected' as string:
         setWsConnected(false);
         break;
