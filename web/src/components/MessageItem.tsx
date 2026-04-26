@@ -636,7 +636,7 @@ export default function MessageItem({
           onClick={() => openThread(message)}
           title="Reply in thread"
           aria-label="Reply in thread"
-          className="absolute top-1.5 right-2 z-10 inline-flex items-center justify-center p-1 text-nc-muted bg-nc-elevated/80 border border-nc-border rounded-sm opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-nc-cyan hover:border-nc-cyan/50 transition-opacity"
+          className={`absolute ${isGrouped ? 'top-1.5' : 'top-4'} right-2 z-10 inline-flex items-center justify-center p-1 text-nc-muted bg-nc-elevated/80 border border-nc-border rounded-sm opacity-0 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-nc-cyan hover:border-nc-cyan/50 transition-opacity`}
         >
           <MessageSquare size={12} />
         </button>
