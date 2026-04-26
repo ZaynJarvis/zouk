@@ -2,7 +2,7 @@ import { Search, User, Bot } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import StatusDot from './StatusDot';
-import { agentAvatarStatus, agentStatus, avatarPaletteClass, avatarRadiusClass, humanStatus } from '../lib/avatarStatus';
+import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass, humanStatus } from '../lib/avatarStatus';
 import PanelShell from './panel/PanelShell';
 import PanelHeader from './panel/PanelHeader';
 import { fetchChannelAgents } from '../lib/api';
@@ -108,7 +108,7 @@ export default function MembersPanel() {
               return (
                 <div key={a.id} className={`w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left ${offline ? 'opacity-60' : ''}`}>
                   <div className="relative w-8 h-8 flex-shrink-0">
-                    <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(avatarStatus, 'green')} ${avatarRadiusClass(theme)}`}>
+                    <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(avatarStatus, 'green', agentLifecycle(a))} ${avatarRadiusClass(theme)}`}>
                       {a.picture ? (
                         <img src={a.picture} alt="" className="w-full h-full object-cover" />
                       ) : (

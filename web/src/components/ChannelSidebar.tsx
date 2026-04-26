@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { agentAvatarStatus, agentStatus, avatarPaletteClass, avatarRadiusClass, humanStatus } from '../lib/avatarStatus';
+import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass, humanStatus } from '../lib/avatarStatus';
 import StatusDot from './StatusDot';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import GlitchText from './glitch/GlitchText';
@@ -213,7 +213,7 @@ export default function ChannelSidebar() {
                       }
                     }}
                     title={`View @${agent.displayName || agent.name} profile`}
-                    className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-2xs cursor-pointer ${avatarPaletteClass(avatarStatus)} ${avatarRadiusClass(theme)} ${avatarOffline ? '' : 'hover:ring-1 hover:ring-nc-cyan'}`}
+                    className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-2xs cursor-pointer ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)} ${avatarOffline ? '' : 'hover:ring-1 hover:ring-nc-cyan'}`}
                   >
                     {agent.picture ? (
                       <img src={agent.picture} alt="" className="w-full h-full object-cover" />

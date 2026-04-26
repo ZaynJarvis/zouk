@@ -335,8 +335,8 @@ async function saveAgentConfig(config) {
       `INSERT INTO agent_configs (
          id, machine_id, name, display_name, description, runtime, model,
          system_prompt, instructions, work_dir, picture, visibility,
-         max_concurrent_tasks, auto_start, skills
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         max_concurrent_tasks, auto_start, skills, lifecycle
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (id) DO UPDATE SET
          name                 = EXCLUDED.name,
          display_name         = EXCLUDED.display_name,
@@ -350,7 +350,8 @@ async function saveAgentConfig(config) {
          visibility           = EXCLUDED.visibility,
          max_concurrent_tasks = EXCLUDED.max_concurrent_tasks,
          auto_start           = EXCLUDED.auto_start,
-         skills               = EXCLUDED.skills`,
+         skills               = EXCLUDED.skills,
+         lifecycle            = EXCLUDED.lifecycle`,
       [
         config.id,
         config.machineId,
@@ -367,6 +368,7 @@ async function saveAgentConfig(config) {
         Number.isFinite(config.maxConcurrentTasks) ? config.maxConcurrentTasks : null,
         config.autoStart || false,
         JSON.stringify(config.skills || []),
+        config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
       ]
     );
   } catch (e) {
@@ -389,7 +391,7 @@ async function loadAgentConfigs() {
     const { rows } = await pool.query(
       `SELECT id, machine_id, name, display_name, description, runtime, model,
               system_prompt, instructions, work_dir, picture, visibility,
-              max_concurrent_tasks, auto_start, skills
+              max_concurrent_tasks, auto_start, skills, lifecycle
          FROM agent_configs
          ORDER BY name ASC`
     );
@@ -409,6 +411,7 @@ async function loadAgentConfigs() {
       maxConcurrentTasks: row.max_concurrent_tasks ?? null,
       autoStart: row.auto_start === true,
       skills: Array.isArray(row.skills) ? row.skills : [],
+      lifecycle: row.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
     }));
   } catch (e) {
     console.error('[db] loadAgentConfigs error:', e.message);

@@ -35,16 +35,33 @@ export const STATUS_CLASS: Record<AvatarStatus, string> = {
 // Offline swaps the whole palette to nc-muted (not just a grayscale filter) —
 // `grayscale` on washington-post's low-saturation cyan/green tokens leaves
 // icon-only avatars nearly identical to active ones.
+//
+// Ephemeral agents get an additional "non-permanent" cue: dashed border +
+// reduced saturation. Layered on top of the status palette so it composes with
+// online / working / offline states. Filter never applies to humans (lifecycle
+// is an agent-only concept).
 export function avatarPaletteClass(
   status: AvatarStatus,
   family: 'cyan' | 'green' = 'cyan',
+  lifecycle: 'persistent' | 'ephemeral' = 'persistent',
 ): string {
+  let base: string;
   if (status === 'offline') {
-    return 'border-nc-muted/30 bg-nc-muted/10 text-nc-muted grayscale opacity-50';
+    base = 'border-nc-muted/30 bg-nc-muted/10 text-nc-muted grayscale opacity-50';
+  } else {
+    base = family === 'green'
+      ? 'border-nc-green/30 bg-nc-green/10 text-nc-green'
+      : 'border-nc-cyan/30 bg-nc-cyan/10 text-nc-cyan';
   }
-  return family === 'green'
-    ? 'border-nc-green/30 bg-nc-green/10 text-nc-green'
-    : 'border-nc-cyan/30 bg-nc-cyan/10 text-nc-cyan';
+  if (lifecycle === 'ephemeral') {
+    return `${base} border-dashed saturate-[0.6]`;
+  }
+  return base;
+}
+
+/** Convenience: resolve the lifecycle string from a server agent payload. */
+export function agentLifecycle(a: Pick<ServerAgent, 'lifecycle'>): 'persistent' | 'ephemeral' {
+  return a.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent';
 }
 
 // Soften avatar corners only on the editorial themes (washington-post, carbon).

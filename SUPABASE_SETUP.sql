@@ -73,8 +73,13 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   visibility           TEXT,
   max_concurrent_tasks INTEGER,
   auto_start           BOOLEAN NOT NULL DEFAULT false,
-  skills               JSONB NOT NULL DEFAULT '[]'
+  skills               JSONB NOT NULL DEFAULT '[]',
+  lifecycle            TEXT NOT NULL DEFAULT 'persistent'
 );
+-- Migration: add lifecycle to existing deployments. Existing rows default to
+-- 'persistent' (current behavior). See docs/agent-lifecycle.md for the
+-- ephemeral semantics.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT 'persistent';
 
 -- Auth sessions table (survives server restarts and deploys)
 CREATE TABLE IF NOT EXISTS sessions (

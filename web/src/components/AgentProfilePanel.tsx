@@ -8,7 +8,7 @@ import { activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import StatusDot from './StatusDot';
-import { agentAvatarStatus, agentStatus, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
+import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
@@ -42,7 +42,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
       <div className="shrink-0 overflow-y-auto scrollbar-thin px-4 pt-3 pb-2 space-y-3 max-h-[55%]">
         <div className="flex items-start gap-3">
           <div className="relative w-12 h-12 shrink-0">
-            <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-base ${avatarPaletteClass(avatarStatus)} ${avatarRadiusClass(theme)}`}>
+            <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-base ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)}`}>
               {agent.picture ? (
                 <img src={agent.picture} alt="" className="w-full h-full object-cover" />
               ) : (
