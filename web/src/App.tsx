@@ -82,7 +82,12 @@ function AppShell() {
         <WorkspaceRail />
       </div>
 
-      {/* Mobile sidebar: centered modal */}
+      {/* Desktop sidebar: always visible */}
+      <div className="hidden lg:flex flex-shrink-0">
+        <ChannelSidebar />
+      </div>
+
+      {/* Mobile sidebar: centered modal (lg:hidden keeps it out of desktop layout) */}
       {sidebarOpen && (
         <div
           className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 flex items-center justify-center transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
@@ -96,11 +101,6 @@ function AppShell() {
           </div>
         </div>
       )}
-
-      {/* Desktop sidebar: always visible */}
-      <div className="hidden lg:flex flex-shrink-0">
-        <ChannelSidebar />
-      </div>
 
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar />
