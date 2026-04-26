@@ -15,6 +15,7 @@ export default function TopBar() {
     activeChannelName, viewMode, navigateToView,
     rightPanel, setRightPanel, closeRightPanel,
     theme, setSettingsOpen, channels, openChannelSettings, isGuest,
+    activeThreadMessage,
   } = useApp();
   const activeChannel = viewMode === 'channel'
     ? channels.find((c) => c.name === activeChannelName) ?? null
@@ -83,6 +84,9 @@ export default function TopBar() {
                   ? <h1 className="font-display font-bold text-[1.1rem] text-nc-text-bright truncate">{activeChannelName}</h1>
                   : <h1 className="font-display font-extrabold text-lg text-nc-text-bright truncate">{activeChannelName}</h1>
               }
+              {activeThreadMessage && (
+                <span className="font-display text-lg text-nc-muted font-bold flex-shrink-0">- Thread</span>
+              )}
             </>
           )}
           {viewMode === 'agents' && (

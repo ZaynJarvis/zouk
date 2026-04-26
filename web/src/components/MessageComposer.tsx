@@ -38,7 +38,7 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen, addToast } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen, addToast, activeThreadMessage, closeRightPanel } = useApp();
   const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
   const draftsRef = useRef<Map<string, string>>(new Map());
   const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
@@ -52,6 +52,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   pendingImagesRef.current = pendingImages;
   const [isSending, setIsSending] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [focused, setFocused] = useState(false);
   const dragCounter = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Revoke any outstanding preview blob URLs on unmount.
@@ -73,6 +74,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, []);
 
   const showMobileSidebarBtn = isMobileSurface && !sidebarOpen;
+  const showCloseThreadBtn = isMobileSurface && !!threadTarget && !focused;
   const showImageBtn = !text.trim();
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
@@ -498,6 +500,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             onSelect={handleSelect}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
@@ -510,6 +514,16 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           />
           </div>
           </div>
+          {showCloseThreadBtn && (
+            <button
+              type="button"
+              onClick={closeRightPanel}
+              aria-label="Close thread"
+              className="lg:hidden flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
       </div>
     </div>
