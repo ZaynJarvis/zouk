@@ -110,6 +110,24 @@ export default function MessageList() {
       // Initial load or channel switch — scroll instantly so users land at the bottom
       scrollToBottom(true);
       pendingInitialScrollRef.current = false;
+
+      // Images in the message list load asynchronously after the initial scroll
+      // fires, expanding the content and pushing the viewport off the bottom.
+      // Watch the inner content div for size changes for 3s and re-snap to bottom
+      // each time an image loads and increases the layout height.
+      const container = containerRef.current;
+      const inner = container?.firstElementChild;
+      if (!inner) return;
+      const observer = new ResizeObserver(() => {
+        const c = containerRef.current;
+        if (c) c.scrollTop = c.scrollHeight;
+      });
+      observer.observe(inner);
+      const timer = setTimeout(() => observer.disconnect(), 3000);
+      return () => {
+        clearTimeout(timer);
+        observer.disconnect();
+      };
     } else {
       // New message arrived after initial load — smooth scroll
       scrollToBottom(false);
