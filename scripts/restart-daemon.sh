@@ -6,17 +6,20 @@
 #
 # Usage:
 #   bash scripts/restart-daemon.sh
+#
+# Env overrides (all optional — auto-detected when omitted):
+#   DAEMON_DIR        — path to zouk-daemon checkout
+#   NODE              — path to node binary
+#   ZOUK_SERVER_URL   — server URL (only needed when no daemon is running)
+#   ZOUK_API_KEY      — API key   (only needed when no daemon is running)
+#   LOG_FILE          — log path  (default /tmp/zouk-daemon.log)
+#   PID_FILE          — pid path  (default /tmp/zouk-daemon.pid)
 
 set -uo pipefail
 
-# ── Config ───────────────────────────────────────────────────────────────────
-DAEMON_DIR="/Users/lululiang/code/c/zouk-daemon"
-NODE="/opt/homebrew/Cellar/node@22/22.22.0/bin/node"
-TSX_PREFLIGHT="$DAEMON_DIR/node_modules/tsx/dist/preflight.cjs"
-TSX_LOADER="file://$DAEMON_DIR/node_modules/tsx/dist/loader.mjs"
-ENTRY="$DAEMON_DIR/src/index.ts"
-LOG_FILE="/tmp/zouk-daemon.log"
-PID_FILE="/tmp/zouk-daemon.pid"
+# ── Config (auto-detected; override via env) ─────────────────────────────────
+LOG_FILE="${LOG_FILE:-/tmp/zouk-daemon.log}"
+PID_FILE="${PID_FILE:-/tmp/zouk-daemon.pid}"
 STOP_TIMEOUT=10     # seconds to wait for graceful shutdown
 STARTUP_TIMEOUT=30  # seconds to wait for "Connected to server"
 # ─────────────────────────────────────────────────────────────────────────────
@@ -24,10 +27,48 @@ STARTUP_TIMEOUT=30  # seconds to wait for "Connected to server"
 die() { echo "[restart] ERROR: $*" >&2; exit 1; }
 log() { echo "[restart] $*"; }
 
+# ── Auto-detect DAEMON_DIR ───────────────────────────────────────────────────
+if [ -z "${DAEMON_DIR:-}" ]; then
+  for candidate in \
+    "/Users/$(whoami)/code/c/zouk-daemon" \
+    "$HOME/code/c/zouk-daemon" \
+    "/Users/lululiang/code/c/zouk-daemon"; do
+    if [ -f "$candidate/src/index.ts" ]; then
+      DAEMON_DIR="$candidate"
+      break
+    fi
+  done
+fi
+[ -z "${DAEMON_DIR:-}" ] && die "Cannot find zouk-daemon — set DAEMON_DIR env var or place checkout at ~/code/c/zouk-daemon"
+log "DAEMON_DIR: $DAEMON_DIR"
+
+# ── Auto-detect NODE binary ──────────────────────────────────────────────────
+if [ -z "${NODE:-}" ]; then
+  NODE="$(command -v node 2>/dev/null || true)"
+fi
+[ -z "${NODE:-}" ] && die "node not found in PATH — set NODE env var"
+log "NODE: $NODE ($($NODE --version 2>/dev/null || echo unknown))"
+
+# ── tsx paths (relative to DAEMON_DIR) ───────────────────────────────────────
+TSX_PREFLIGHT="$DAEMON_DIR/node_modules/tsx/dist/preflight.cjs"
+TSX_LOADER="file://$DAEMON_DIR/node_modules/tsx/dist/loader.mjs"
+ENTRY="$DAEMON_DIR/src/index.ts"
+
+[ -f "$TSX_PREFLIGHT" ] || die "tsx preflight not found: $TSX_PREFLIGHT (run npm install in $DAEMON_DIR)"
+[ -f "$ENTRY" ]         || die "entry not found: $ENTRY"
+
+# ── Find running daemon ───────────────────────────────────────────────────────
 # macOS pgrep -f silently skips orphaned processes (PPID=1, nohup-launched).
 # Use ps instead, which always shows them.
+# Matches both "npm exec tsx src/index.ts --server-url" and
+# "node ... zouk-daemon/src/index.ts --server-url" launch styles.
 find_daemon_pid() {
-  ps -axo pid= -o args= | grep "zouk-daemon/src/index.ts" | grep -v grep | awk '{print $1}' | head -1
+  ps -axo pid= -o args= \
+    | grep "src/index.ts" \
+    | grep "server-url" \
+    | grep -v grep \
+    | awk '{print $1}' \
+    | head -1
 }
 
 # 1. Find running daemon
