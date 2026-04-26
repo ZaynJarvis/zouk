@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass, humanStatus } from '../lib/avatarStatus';
@@ -36,7 +36,7 @@ function SectionHeader({ title, count, collapsed, onToggle, onAdd, forceShowButt
   );
 }
 
-export default function ChannelSidebar() {
+export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: boolean }) {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, isGuest, theme,
@@ -89,17 +89,30 @@ export default function ChannelSidebar() {
 
   const forceShowButtons = isMobileViewport() || isStandalonePWA();
 
+  const shellClass = phoneModal
+    ? channelSidebarTheme.shell
+        .replace('w-[260px]', 'w-full')
+        .split(' ')
+        .filter(c => !c.startsWith('border-'))
+        .join(' ')
+    : channelSidebarTheme.shell;
+
+  const fadeStyle: React.CSSProperties = {
+    maskImage: 'linear-gradient(to bottom, transparent 0%, black 28px, black calc(100% - 28px), transparent 100%)',
+    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 28px, black calc(100% - 28px), transparent 100%)',
+  };
+
   return (
-    <div className={channelSidebarTheme.shell}>
+    <div className={shellClass}>
       <div className={channelSidebarTheme.header}>
-        <div className="px-3 h-14 flex items-center">
+        <div className="px-3 h-12 sm:h-14 flex items-center">
           {channelSidebarTheme.titleStyle === 'glitch'
             ? <GlitchText as="h2" className={channelSidebarTheme.titleClass} intensity="low">ZOUK</GlitchText>
             : <h2 className={channelSidebarTheme.titleClass}>Zouk</h2>}
         </div>
       </div>
 
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${channelSidebarTheme.scrollerPadding}`}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${channelSidebarTheme.scrollerPadding}`} style={phoneModal ? fadeStyle : undefined}>
         <div>
           <SectionHeader
             title="Channels"
