@@ -82,23 +82,19 @@ function AppShell() {
         <WorkspaceRail />
       </div>
 
-      {/* Mobile sidebar: modal presentation */}
+      {/* Mobile sidebar: centered modal */}
       {sidebarOpen && (
-        <>
+        <div
+          className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 flex items-center justify-center transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
+          onClick={closeMobileSidebar}
+        >
           <div
-            className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
-            onClick={closeMobileSidebar}
-          />
-          <div
-            className={`lg:hidden fixed left-4 z-50 w-[82vw] max-w-[300px] cyber-panel rounded-xl overflow-hidden shadow-2xl transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-slide-in-left'}`}
-            style={{
-              top: 'calc(env(safe-area-inset-top, 0px) + 3.25rem)',
-              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)',
-            }}
+            className={`w-[82vw] max-w-sm max-h-[65vh] cyber-panel rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
+            onClick={e => e.stopPropagation()}
           >
             <ChannelSidebar phoneModal />
           </div>
-        </>
+        </div>
       )}
 
       {/* Desktop sidebar: always visible */}

@@ -98,21 +98,23 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     : channelSidebarTheme.shell;
 
   const fadeStyle: React.CSSProperties = {
-    maskImage: 'linear-gradient(to bottom, transparent 0%, black 28px, black calc(100% - 28px), transparent 100%)',
-    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 28px, black calc(100% - 28px), transparent 100%)',
+    maskImage: 'linear-gradient(to bottom, transparent 0%, black 16px, black calc(100% - 16px), transparent 100%)',
+    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 16px, black calc(100% - 16px), transparent 100%)',
   };
 
   return (
     <div className={shellClass}>
-      <div className={channelSidebarTheme.header}>
-        <div className="px-3 h-12 sm:h-14 flex items-center">
-          {channelSidebarTheme.titleStyle === 'glitch'
-            ? <GlitchText as="h2" className={channelSidebarTheme.titleClass} intensity="low">ZOUK</GlitchText>
-            : <h2 className={channelSidebarTheme.titleClass}>Zouk</h2>}
+      {!phoneModal && (
+        <div className={channelSidebarTheme.header}>
+          <div className="px-3 h-12 sm:h-14 flex items-center">
+            {channelSidebarTheme.titleStyle === 'glitch'
+              ? <GlitchText as="h2" className={channelSidebarTheme.titleClass} intensity="low">ZOUK</GlitchText>
+              : <h2 className={channelSidebarTheme.titleClass}>Zouk</h2>}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-1 scrollbar-thin ${channelSidebarTheme.scrollerPadding}`} style={phoneModal ? fadeStyle : undefined}>
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden ${phoneModal ? 'py-4' : 'py-2'} space-y-1 scrollbar-thin ${channelSidebarTheme.scrollerPadding}`} style={phoneModal ? fadeStyle : undefined}>
         <div>
           <SectionHeader
             title="Channels"
