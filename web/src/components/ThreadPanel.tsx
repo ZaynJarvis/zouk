@@ -5,7 +5,7 @@ import MessageComposer from './MessageComposer';
 import PanelShell from './panel/PanelShell';
 
 export default function ThreadPanel() {
-  const { activeThreadMessage, threadMessages, activeChannelName } = useApp();
+  const { activeThreadMessage, threadMessages } = useApp();
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastThreadIdRef = useRef<string | null>(null);
 

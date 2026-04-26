@@ -154,6 +154,7 @@ function agentPayload(agentId) {
     model: cfg.model || a.model,
     workDir: cfg.workDir || a.workDir,
     picture: cfg.picture || a.picture || undefined,
+    lifecycle: cfg.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
   };
 }
 
@@ -2282,6 +2283,7 @@ function startAgentOnDaemon(id, config) {
     name: config.name || id,
     displayName: config.displayName || config.name || id,
     description: config.description || "",
+    lifecycle: config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
   };
   if (requestedWorkDir) daemonConfig.workDir = requestedWorkDir;
 
@@ -2310,6 +2312,7 @@ function startAgentOnDaemon(id, config) {
       model: config.model,
       machineId: targetWs._machineId,
       autoStart: true,
+      lifecycle: config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
     };
     if (requestedWorkDir) persisted.workDir = requestedWorkDir;
     const usedImages = new Set(agentConfigs.map((c) => c.picture).filter(Boolean));

@@ -67,8 +67,12 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   visibility           TEXT,
   max_concurrent_tasks INTEGER,
   auto_start           BOOLEAN NOT NULL DEFAULT false,
-  skills               JSONB NOT NULL DEFAULT '[]'
+  skills               JSONB NOT NULL DEFAULT '[]',
+  lifecycle            TEXT NOT NULL DEFAULT 'persistent'
 );
+-- Migration for existing deployments — server runs schema.sql on every boot
+-- (db.js migrate()), so this ALTER lands automatically on the next restart.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT 'persistent';
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

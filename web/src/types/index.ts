@@ -48,6 +48,14 @@ export interface ServerAgent {
   workDir?: string;
   archivedAt?: string;
   autoStart?: boolean;
+  /**
+   * Persistent (default): the agent's CLI session is preserved across idle so
+   * the next wake resumes the same conversation.
+   * Ephemeral: the CLI session is dropped once the agent enters the
+   * idle-cached state, so the next wake starts fresh. See
+   * docs/agent-lifecycle.md for the stdin-true vs stdin-false semantics.
+   */
+  lifecycle?: 'persistent' | 'ephemeral';
   contextUsage?: AgentContextUsageSnapshot;
 }
 
@@ -183,6 +191,7 @@ export interface AgentConfig {
   maxConcurrentTasks?: number;
   workDir?: string;
   skills?: AgentSkill[];
+  lifecycle?: 'persistent' | 'ephemeral';
 }
 
 export interface ServerMachine {
