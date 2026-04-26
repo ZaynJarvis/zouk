@@ -31,7 +31,7 @@ Read this first. If your runtime also auto-loads `CLAUDE.md`, treat that file as
 - `bin/start.js`: local dev runner for server + Vite.
 - `server/index.js`: main backend entry, REST routes, browser/daemon WebSocket handling, in-memory runtime store.
 - `server/db.js`: optional PostgreSQL persistence helpers.
-- `schema.sql`, `SUPABASE_SETUP.sql`, `migrations/`: database schema and setup artifacts.
+- `schema.sql`: idempotent PostgreSQL schema. `server/db.js migrate()` runs every statement on each boot, so adding a column means appending the `CREATE TABLE` change plus an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration line.
 - `web/src/store/appStore.ts`: main frontend state machine and websocket event handling.
 - `web/src/lib/ws.ts`: browser websocket client and reconnect behavior.
 - `web/src/lib/api.ts`: REST client and server-to-frontend normalization.

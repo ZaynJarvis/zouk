@@ -93,7 +93,7 @@ fresh.
 | Daemon: lifecycle field | `zouk-daemon/src/drivers/types.ts` |
 | Daemon: cache policy | `zouk-daemon/src/agentProcessManager.ts` (`cacheIdleAgent`, `clearIdleAgent`) |
 | Daemon: tests | `zouk-daemon/tests/agent-lifecycle-ephemeral.test.ts` |
-| Server: schema | `zouk/schema.sql` + `zouk/SUPABASE_SETUP.sql` (`agent_configs.lifecycle`). `schema.sql` is auto-loaded on every server boot via `db.js migrate()`; the `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` line lands automatically on existing deployments. `SUPABASE_SETUP.sql` mirrors the same definition for manual Supabase console setup. |
+| Server: schema | `zouk/schema.sql` (`agent_configs.lifecycle`). Auto-loaded on every server boot via `db.js migrate()`; the `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` line lands automatically on existing deployments. |
 | Server: persistence | `zouk/server/db.js` (`saveAgentConfig`, `loadAgentConfigs`) |
 | Server: agent:start payload | `zouk/server/index.js` (`startAgentOnDaemon`) |
 | Server: web broadcast | `zouk/server/index.js` (`agentPayload`) |
