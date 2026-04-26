@@ -190,6 +190,23 @@ export function useAppStore() {
               })
               .catch(() => { /* silent — WS stream will cover new messages going forward */ });
           }
+
+          // Thread gap-fill: if a thread panel is open, re-fetch its replies so
+          // any messages that arrived while WS was down are not silently missing.
+          const openThread = activeThreadMessageRef.current;
+          if (openThread) {
+            const isThreadDm = openThread.channel_type === 'dm';
+            const threadSender = isThreadDm ? currentUserRef.current : undefined;
+            api.fetchThreadMessages(openThread.channel_name, openThread.id, isThreadDm, 200, threadSender)
+              .then(msgs => {
+                setThreadMessages(prev => {
+                  const known = new Set(prev.map(m => m.id));
+                  const fresh = msgs.filter(m => !known.has(m.id));
+                  return fresh.length > 0 ? [...prev, ...fresh] : prev;
+                });
+              })
+              .catch(() => {});
+          }
         }
         break;
       }
