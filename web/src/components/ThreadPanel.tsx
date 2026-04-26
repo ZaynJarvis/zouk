@@ -1,13 +1,11 @@
 import { useLayoutEffect, useRef } from 'react';
-import { Hash } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import MessageItem from './MessageItem';
 import MessageComposer from './MessageComposer';
 import PanelShell from './panel/PanelShell';
-import PanelHeader from './panel/PanelHeader';
 
 export default function ThreadPanel() {
-  const { activeThreadMessage, threadMessages, closeRightPanel, activeChannelName } = useApp();
+  const { activeThreadMessage, threadMessages, activeChannelName } = useApp();
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastThreadIdRef = useRef<string | null>(null);
 
@@ -30,15 +28,6 @@ export default function ThreadPanel() {
 
   return (
     <PanelShell animated widthClassName="w-screen lg:w-[760px] lg:max-w-[46vw]">
-      <PanelHeader onClose={closeRightPanel} leftClassName="flex items-center gap-2">
-        <>
-          <h3 className="font-display font-extrabold text-base text-nc-text-bright tracking-wider">THREAD</h3>
-          <span className="flex items-center gap-1 text-xs text-nc-muted font-mono">
-            <Hash size={12} />{activeChannelName}
-          </span>
-        </>
-      </PanelHeader>
-
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="border-b border-nc-border pb-2">
           <MessageItem message={activeThreadMessage} hideInlineThread />

@@ -52,7 +52,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   pendingImagesRef.current = pendingImages;
   const [isSending, setIsSending] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [focused, setFocused] = useState(false);
   const dragCounter = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Revoke any outstanding preview blob URLs on unmount.
@@ -74,7 +73,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, []);
 
   const showMobileSidebarBtn = isMobileSurface && !sidebarOpen;
-  const showCloseThreadBtn = isMobileSurface && !!threadTarget && !focused;
+  const showCloseThreadBtn = isMobileSurface && !!threadTarget && !text.trim();
   const showImageBtn = !text.trim();
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
@@ -500,8 +499,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             onSelect={handleSelect}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
