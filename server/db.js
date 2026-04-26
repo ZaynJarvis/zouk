@@ -704,9 +704,14 @@ async function loadSessions() {
   }
 }
 
+async function closePool() {
+  if (pool) await pool.end();
+}
+
 module.exports = {
   enabled,
   migrate,
+  closePool,
   splitSqlStatements,
   saveMessage,
   loadMessages,

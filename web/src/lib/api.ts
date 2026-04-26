@@ -64,6 +64,7 @@ export async function fetchMessages(
   limit = 50,
   senderName?: string,
   beforeId?: string,
+  afterId?: string,
 ): Promise<FetchMessagesResult> {
   const target = isDm ? `dm:@${channelName}` : `#${channelName}`;
   // Pass channel/limit/sender/before as request headers — the Cloudflare proxy
@@ -75,6 +76,7 @@ export async function fetchMessages(
   };
   if (senderName) headers['X-Sender'] = senderName;
   if (beforeId) headers['X-Before'] = beforeId;
+  if (afterId) headers['X-After'] = afterId;
   const res = await fetch(`${getBaseUrl()}/api/messages`, { cache: 'no-store', headers });
   if (!res.ok) throw new Error(`Failed to fetch messages: ${res.status}`);
   const data = await res.json();
