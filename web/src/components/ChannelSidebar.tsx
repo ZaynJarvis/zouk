@@ -92,6 +92,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   const shellClass = phoneModal
     ? channelSidebarTheme.shell
         .replace('w-[260px]', 'w-full')
+        .replace('h-full', 'flex-1 min-h-0')
         .split(' ')
         .filter(c => !c.startsWith('border-'))
         .join(' ')
@@ -114,7 +115,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
         </div>
       )}
 
-      <div className={`flex-1 overflow-y-auto overflow-x-hidden ${phoneModal ? 'py-4' : 'py-2'} space-y-1 scrollbar-thin ${channelSidebarTheme.scrollerPadding}`} style={phoneModal ? fadeStyle : undefined}>
+      <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden ${phoneModal ? 'py-4' : 'py-2'} space-y-1 scrollbar-thin ${channelSidebarTheme.scrollerPadding}`} style={phoneModal ? fadeStyle : undefined}>
         <div>
           <SectionHeader
             title="Channels"

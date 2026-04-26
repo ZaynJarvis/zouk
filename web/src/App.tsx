@@ -94,7 +94,7 @@ function AppShell() {
           onClick={closeMobileSidebar}
         >
           <div
-            className={`w-[82vw] max-w-sm max-h-[65vh] cyber-panel rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
+            className={`w-[82vw] max-w-sm max-h-[65vh] flex flex-col cyber-panel rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
             onClick={e => e.stopPropagation()}
           >
             <ChannelSidebar phoneModal />
