@@ -90,7 +90,11 @@ function AppShell() {
             onClick={closeMobileSidebar}
           />
           <div
-            className={`lg:hidden fixed top-4 left-4 bottom-4 z-50 w-[82vw] max-w-[300px] cyber-panel rounded-xl overflow-hidden shadow-2xl transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-slide-in-left'}`}
+            className={`lg:hidden fixed left-4 z-50 w-[82vw] max-w-[300px] cyber-panel rounded-xl overflow-hidden shadow-2xl transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-slide-in-left'}`}
+            style={{
+              top: 'calc(env(safe-area-inset-top, 0px) + 3.25rem)',
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)',
+            }}
           >
             <ChannelSidebar phoneModal />
           </div>
