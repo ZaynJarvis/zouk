@@ -27,7 +27,7 @@ export default function ThreadPanel() {
     : `#${activeThreadMessage.channel_name}:${shortId}`;
 
   return (
-    <PanelShell animated widthClassName="w-screen lg:w-[760px] lg:max-w-[46vw]">
+    <PanelShell animated widthClassName="w-screen lg:w-[760px] lg:max-w-[46vw]" bgClassName="bg-nc-black">
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="border-b border-nc-border pb-2">
           <MessageItem message={activeThreadMessage} hideInlineThread />
