@@ -38,7 +38,7 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen, addToast, activeThreadMessage, closeRightPanel } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen, addToast, closeRightPanel } = useApp();
   const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
   const draftsRef = useRef<Map<string, string>>(new Map());
   const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
