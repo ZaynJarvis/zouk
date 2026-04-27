@@ -57,6 +57,7 @@ export function useEdgeSwipeRight(onOpen: () => void, options: EdgeSwipeOptions 
       }
       if (dx >= thresholdPx) {
         fired = true;
+        (document.activeElement as HTMLElement)?.blur();
         onOpenRef.current();
       }
     };
