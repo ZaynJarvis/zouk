@@ -40,7 +40,10 @@ function AppShell() {
     return () => window.removeEventListener('resize', onResize);
   }, [setSidebarOpen]);
 
-  useEdgeSwipeRight(() => setSidebarOpen(true), { enabled: !sidebarOpen });
+  useEdgeSwipeRight(() => {
+    (document.activeElement as HTMLElement)?.blur();
+    setSidebarOpen(true);
+  }, { enabled: !sidebarOpen });
 
   const closeMobileSidebar = () => {
     setMobileSidebarClosing(true);
