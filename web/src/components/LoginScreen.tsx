@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
 import { themes } from '../themes';
+import { initSupabase } from '../lib/supabase';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
 
@@ -52,11 +53,14 @@ function ScrambleTitle({ nc }: { nc: boolean }) {
 }
 
 export default function LoginScreen() {
-  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, allowlistActive, theme, setTheme } = useApp();
+  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, hasMagicLinkAuth, supabaseConfig, allowlistActive, theme, setTheme } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [glitchActive, setGlitchActive] = useState(false);
-  const [pendingAction, setPendingAction] = useState<'guest' | 'google' | null>(null);
+  const [pendingAction, setPendingAction] = useState<'guest' | 'google' | 'magic' | null>(null);
+  const [magicEmail, setMagicEmail] = useState('');
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
+
   const handleGuestLogin = useCallback(() => {
     setLoading(true);
     setPendingAction('guest');
@@ -76,6 +80,29 @@ export default function LoginScreen() {
     }
   }, [loginWithGoogle]);
 
+  const handleMagicLink = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!magicEmail.trim() || !supabaseConfig) return;
+    setLoading(true);
+    setError(null);
+    setPendingAction('magic');
+    try {
+      const supabase = initSupabase(supabaseConfig.url, supabaseConfig.anonKey);
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: magicEmail.trim(),
+        options: { emailRedirectTo: window.location.origin },
+      });
+      if (otpError) throw otpError;
+      setMagicLinkSent(true);
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : 'Failed to send magic link.';
+      setError(message);
+    } finally {
+      setLoading(false);
+      setPendingAction(null);
+    }
+  }, [magicEmail, supabaseConfig]);
+
   const handleGlitchComplete = useCallback(() => {
     setGlitchActive(false);
     if (pendingAction === 'guest') {
@@ -85,6 +112,9 @@ export default function LoginScreen() {
   }, [pendingAction, loginAsGuest]);
 
   const nc = theme === 'night-city';
+
+  const hasSeparator = hasGoogleAuth || hasMagicLinkAuth;
+  const showGuestDivider = hasSeparator && !allowlistActive;
 
   return (
     <div className="login-shell flex sm:items-center items-start justify-center bg-nc-black font-body cyber-scanlines">
@@ -137,7 +167,7 @@ export default function LoginScreen() {
                 />
               </div>
 
-              {!allowlistActive && (
+              {(hasMagicLinkAuth || !allowlistActive) && (
                 <div className="flex items-center gap-3 w-full mb-4">
                   <div className="flex-1 h-px bg-nc-border" />
                   <span className="text-xs text-nc-muted uppercase tracking-wider">or</span>
@@ -147,13 +177,68 @@ export default function LoginScreen() {
             </>
           )}
 
-          {!hasGoogleAuth && !allowlistActive && nc && (
+          {hasMagicLinkAuth && (
+            <div className="mb-4">
+              {magicLinkSent ? (
+                <div className={`p-3 border text-xs font-mono text-center ${
+                  nc
+                    ? 'border-nc-cyan/40 bg-nc-cyan/5 text-nc-cyan'
+                    : 'border-nc-border-bright bg-nc-panel text-nc-text-bright'
+                }`}>
+                  {nc ? '✓ LINK TRANSMITTED' : 'Check your email'}<br />
+                  <span className="text-nc-muted mt-1 block">Magic link sent to {magicEmail}</span>
+                </div>
+              ) : (
+                <form onSubmit={handleMagicLink} className="space-y-2">
+                  <input
+                    type="email"
+                    value={magicEmail}
+                    onChange={e => setMagicEmail(e.target.value)}
+                    placeholder={nc ? 'ENTER_EMAIL_ADDRESS' : 'Email address'}
+                    disabled={loading}
+                    className={`w-full px-3 py-2 text-sm bg-transparent border outline-none disabled:opacity-50 ${
+                      nc
+                        ? 'border-nc-cyan/30 text-nc-text-bright placeholder-nc-muted/50 font-mono focus:border-nc-cyan/70'
+                        : 'border-nc-border text-nc-text-bright placeholder-nc-muted focus:border-nc-border-bright'
+                    }`}
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !magicEmail.trim()}
+                    className={nc
+                      ? 'w-full py-2.5 px-4 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-display font-bold text-sm tracking-[0.15em] uppercase hover:bg-nc-cyan/20 hover:shadow-nc-cyan active:bg-nc-cyan/30 disabled:opacity-50'
+                      : 'w-full py-2.5 px-4 bg-nc-panel border border-nc-border-bright text-nc-text-bright font-bold text-sm hover:bg-nc-yellow disabled:opacity-50'
+                    }
+                  >
+                    {loading && pendingAction === 'magic' ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
+                        {nc ? 'Transmitting...' : 'Sending...'}
+                      </span>
+                    ) : (
+                      nc ? 'Send Magic Link' : 'Send magic link'
+                    )}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {!hasGoogleAuth && !hasMagicLinkAuth && !allowlistActive && nc && (
             <div className="space-y-3 mb-6">
               <div className="flex items-center gap-2 text-2xs text-nc-muted uppercase tracking-wider">
                 <div className="h-px flex-1 bg-nc-border" />
                 <span>system access</span>
                 <div className="h-px flex-1 bg-nc-border" />
               </div>
+            </div>
+          )}
+
+          {showGuestDivider && (
+            <div className="flex items-center gap-3 w-full mb-4">
+              <div className="flex-1 h-px bg-nc-border" />
+              <span className="text-xs text-nc-muted uppercase tracking-wider">or</span>
+              <div className="flex-1 h-px bg-nc-border" />
             </div>
           )}
 
@@ -167,7 +252,7 @@ export default function LoginScreen() {
                   : "cyber-btn-lg w-full py-2.5 px-4 bg-nc-panel border border-nc-border-bright text-nc-text-bright font-bold text-sm hover:bg-nc-yellow disabled:opacity-50"
                 }
               >
-                {loading ? (
+                {loading && pendingAction === 'guest' ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
                     {nc ? 'Connecting...' : 'Connecting...'}

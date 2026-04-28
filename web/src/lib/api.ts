@@ -305,9 +305,27 @@ export function getAttachmentUrl(attachmentId: string): string {
 }
 
 // Auth
-export async function getAuthConfig(): Promise<{ googleClientId: string | null; allowlistActive?: boolean }> {
+export async function getAuthConfig(): Promise<{
+  googleClientId: string | null;
+  allowlistActive?: boolean;
+  supabaseUrl?: string | null;
+  supabaseAnonKey?: string | null;
+}> {
   const res = await fetch(`${getBaseUrl()}/api/auth/config`);
   if (!res.ok) throw new Error('Failed to fetch auth config');
+  return res.json();
+}
+
+export async function supabaseLogin(accessToken: string): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/supabase`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Magic link login failed');
+  }
   return res.json();
 }
 

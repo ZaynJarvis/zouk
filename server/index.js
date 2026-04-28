@@ -24,6 +24,9 @@ const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 // Email allowlist — union of two sources, both granting equal access:
 //   1. `ALLOW` env (comma-separated emails, immutable without restart)
@@ -3181,6 +3184,57 @@ app.post("/api/auth/google", async (req, res) => {
   }
 });
 
+// Verify a Supabase access_token (from magic link or OAuth) and mint a zouk session.
+app.post("/api/auth/supabase", async (req, res) => {
+  const { accessToken } = req.body;
+  if (!accessToken) return res.status(400).json({ error: "Missing accessToken" });
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(501).json({ error: "Supabase auth not configured (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)" });
+  }
+
+  try {
+    const supaRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+      },
+    });
+    if (!supaRes.ok) {
+      const body = await supaRes.json().catch(() => ({}));
+      console.warn(`[auth] Supabase user lookup failed: ${supaRes.status}`, body);
+      return res.status(401).json({ error: "Invalid or expired Supabase token" });
+    }
+    const supaUser = await supaRes.json();
+    const email = supaUser.email;
+    if (!email) {
+      return res.status(401).json({ error: "No email in Supabase session" });
+    }
+    if (!isEmailAllowed(email)) {
+      console.log(`[auth] Rejected Supabase login: ${email} not in allowlist`);
+      return res.status(403).json({ error: "Email not authorized to access this server." });
+    }
+    const emailPrefix = email.split("@")[0];
+    if (isReservedName(emailPrefix)) {
+      return res.status(403).json({ error: "Reserved username — please contact an admin." });
+    }
+    const grav = gravatarUrl(email);
+    const user = { name: emailPrefix, email, picture: null, gravatarUrl: grav };
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    authSessions.set(sessionToken, user);
+    persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
+    const changed = upsertAllTimeHuman({
+      id: humanId(user.name),
+      name: user.name,
+      gravatarUrl: user.gravatarUrl || undefined,
+    });
+    if (changed) broadcastHumans();
+    res.json({ token: sessionToken, user });
+  } catch (err) {
+    console.error("[auth] Supabase token verification failed:", err.message);
+    res.status(500).json({ error: "Supabase verification failed" });
+  }
+});
+
 app.get("/api/auth/me", (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token || !authSessions.has(token)) {
@@ -3271,7 +3325,12 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
 });
 
 app.get("/api/auth/config", (_req, res) => {
-  res.json({ googleClientId: GOOGLE_CLIENT_ID || null, allowlistActive: allowlistActive() });
+  res.json({
+    googleClientId: GOOGLE_CLIENT_ID || null,
+    allowlistActive: allowlistActive(),
+    supabaseUrl: SUPABASE_URL || null,
+    supabaseAnonKey: SUPABASE_ANON_KEY || null,
+  });
 });
 
 // Internal diagnostics: in-memory store sizes + index counts. Auth-gated so
