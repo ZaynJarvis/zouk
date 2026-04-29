@@ -189,7 +189,8 @@ function AppWithAuth() {
               if (!error && data.session?.access_token) {
                 accessToken = data.session.access_token;
               }
-            } else if (hashToken && hashType === 'magiclink') {
+            } else if (hashToken && hash.get('token_type') === 'bearer') {
+              // type=magiclink for returning users, type=signup for first-time users
               accessToken = hashToken;
             }
 
