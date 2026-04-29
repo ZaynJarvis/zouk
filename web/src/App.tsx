@@ -16,6 +16,8 @@ import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
 import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
+import { initSupabase } from './lib/supabase';
+import { setStoredAuth, setStoredCurrentUser } from './store/storage';
 
 function GoogleAuthSync() {
   const { setHasGoogleAuth } = useApp();
@@ -26,6 +28,12 @@ function GoogleAuthSync() {
 function AllowlistSync({ active }: { active: boolean }) {
   const { setAllowlistActive } = useApp();
   useEffect(() => { setAllowlistActive(active); }, [active, setAllowlistActive]);
+  return null;
+}
+
+function SupabaseConfigSync({ config }: { config: { url: string; anonKey: string } }) {
+  const { setSupabaseConfig } = useApp();
+  useEffect(() => { setSupabaseConfig(config); }, [config, setSupabaseConfig]);
   return null;
 }
 
@@ -150,27 +158,73 @@ function AppShell() {
 
 function AppWithAuth() {
   const [clientId, setClientId] = useState<string | null>(null);
+  const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api.getAuthConfig()
-      .then(({ googleClientId, allowlistActive }) => {
-        setClientId(googleClientId || null);
-        setAllowlistActive(!!allowlistActive);
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
+    (async () => {
+      try {
+        const config = await api.getAuthConfig();
+        setClientId(config.googleClientId || null);
+        setAllowlistActive(!!config.allowlistActive);
+
+        if (config.supabaseUrl && config.supabaseAnonKey) {
+          const sc = { url: config.supabaseUrl, anonKey: config.supabaseAnonKey };
+          setSupabaseConfig(sc);
+
+          // Handle magic link callback — PKCE flow (?code=) or implicit flow (#access_token=)
+          const urlParams = new URLSearchParams(window.location.search);
+          const code = urlParams.get('code');
+          const hash = new URLSearchParams(window.location.hash.slice(1));
+          const hashToken = hash.get('access_token');
+          const hashType = hash.get('type');
+
+          try {
+            let accessToken: string | null = null;
+
+            if (code) {
+              const supabase = initSupabase(sc.url, sc.anonKey);
+              const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+              if (!error && data.session?.access_token) {
+                accessToken = data.session.access_token;
+              }
+            } else if (hashToken && hashType === 'magiclink') {
+              accessToken = hashToken;
+            }
+
+            if (accessToken) {
+              window.history.replaceState({}, '', window.location.pathname);
+              const result = await api.supabaseLogin(accessToken);
+              setStoredAuth(result.token, result.user);
+              setStoredCurrentUser(result.user.name);
+            }
+          } catch (e) {
+            console.error('[auth] Magic link exchange failed:', e);
+          }
+        }
+      } catch {
+        // ignore config fetch errors
+      }
+      setLoaded(true);
+    })();
   }, []);
 
   if (!loaded) return null;
+
+  const syncComponents = (
+    <>
+      <AllowlistSync active={allowlistActive} />
+      {supabaseConfig && <SupabaseConfigSync config={supabaseConfig} />}
+    </>
+  );
 
   if (clientId) {
     return (
       <GoogleOAuthProvider clientId={clientId}>
         <AppProvider>
           <GoogleAuthSync />
-          <AllowlistSync active={allowlistActive} />
+          {syncComponents}
           <AppShell />
         </AppProvider>
       </GoogleOAuthProvider>
@@ -179,7 +233,7 @@ function AppWithAuth() {
 
   return (
     <AppProvider>
-      <AllowlistSync active={allowlistActive} />
+      {syncComponents}
       <AppShell />
     </AppProvider>
   );
