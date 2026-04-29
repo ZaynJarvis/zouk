@@ -2301,6 +2301,8 @@ function startAgentOnDaemon(id, config) {
     lifecycle: config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
   };
   if (requestedWorkDir) daemonConfig.workDir = requestedWorkDir;
+  const cachedSessionId = store.agents[id]?.sessionId;
+  if (cachedSessionId) daemonConfig.sessionId = cachedSessionId;
 
   // Send agent:start to daemon — read from config (source of truth),
   // not store.agents (which may have fallback values).

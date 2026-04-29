@@ -28,63 +28,43 @@ re-renders immediately (it reads from `agent.lifecycle` on every paint), but
 the daemon-side reset behavior only updates when the agent process is
 re-launched.
 
-## Design compromise: stdin-true vs stdin-false drivers
-
-The two driver families implement the "drop sessionId on entering idle cached"
-semantic differently. This asymmetry is intentional.
+## How agents enter idle-cached state
 
 ### stdin-true drivers (claude / codex / hermes / kimi / coco / opencode)
 
-These drivers keep one long-lived CLI process alive across many turns. The
-process only dies on:
+These drivers keep one long-lived CLI process alive across many turns. After
+`turn_end`, the daemon starts a **70-second idle timeout**. If no new message
+or activity arrives before the timer fires, the daemon kills the process
+(SIGTERM). The close handler then caches the agent's `sessionId` in
+`idleAgentConfigs` — the agent is now idle-cached.
 
-- explicit stopAgent (UI stop button or `agent:stop` message)
-- daemon shutdown / restart
-- a crash
+Default timeout: **70 seconds**. Configurable via:
 
-For ephemeral lifecycle, the daemon does **not** force-kill these processes
-mid-conversation. The "idle cached" transition for stdin-true is the moment
-the process actually dies — and at that moment the daemon's close handler
-caches `sessionId: null`. So the reset is **deferred until natural process
-death**.
+- `AgentProcessManagerOptions.stdinIdleTimeoutMs` (constructor option, used
+  by tests)
+- `ZOUK_STDIN_IDLE_TIMEOUT_MS` env var (override at daemon startup)
 
-> **Practical implication**: an ephemeral claude agent will multi-turn for as
-> long as you keep talking to it (or until daemon restart / stop). It does NOT
-> auto-reset after N idle minutes. That is the trade-off — we don't want to
-> kill an actively engaged Claude session just because there's a lull.
+The timer is cancelled whenever the agent receives a message or emits any
+activity event (thinking, text, tool_call).
 
 ### stdin-false drivers (gemini / cursor / copilot / vikingbot)
 
 These drivers exit with code 0 at every `turn_end`. The daemon caches the
-agent into `idleAgentConfigs` for the next wake, with `--resume <sessionId>`
-preserved.
+agent into `idleAgentConfigs` immediately on exit.
 
-For ephemeral lifecycle, the daemon arms an **idle cleanup timer** when it
-enters this cached state. If a new message arrives before the timer fires
-(e.g. you reply within 5 minutes), the timer is cancelled and multi-turn
-continues normally with `--resume`. If the timer fires first, the cached
-`sessionId` is overwritten with `null`, and the next wake cold-starts a fresh
-session.
+## How ephemeral vs persistent differs
 
-Default delay: **5 minutes**. Configurable via:
+The **only** behavioral difference between `persistent` and `ephemeral` is
+what happens at **wake time** (not cache time):
 
-- `AgentProcessManagerOptions.ephemeralIdleCleanupMs` (constructor option, used
-  by tests)
-- `ZOUK_EPHEMERAL_IDLE_CLEANUP_MS` env var (override at daemon startup)
+- **persistent**: the cached `sessionId` is passed to the new process via
+  `--resume <sessionId>`, continuing the previous conversation.
+- **ephemeral**: the cached `sessionId` is discarded; the agent starts a
+  fresh session.
 
-### Why the asymmetry
-
-In one sentence: **we never want to force-kill a long-lived stdin-true
-process just to reset its session.** The cost of killing a multi-tool, warm
-Claude/Codex session mid-conversation outweighs the benefit of a fixed-window
-auto-reset. For stdin-false drivers there's no such cost — the process exits
-on every turn anyway — so a timer-based reset is essentially free.
-
-The user-facing consequence is that ephemeral semantics are stricter on
-stdin-false agents (auto-reset after 5min idle) and looser on stdin-true
-agents (reset on natural process death only). If you need a hard reset on a
-stdin-true agent, click STOP_AGENT in the CONFIG tab; the next start will be
-fresh.
+The idle cache always stores the real `sessionId` regardless of lifecycle.
+This keeps the design simple and avoids separate code paths for
+stdin-true vs stdin-false ephemeral agents.
 
 ## Where the code lives
 
