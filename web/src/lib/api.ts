@@ -215,6 +215,7 @@ export async function startAgent(config: {
   machineId?: string;
   workDir?: string;
   channels?: string[];
+  lifecycle?: 'persistent' | 'ephemeral';
 }): Promise<{ agent: { id: string; name: string } }> {
   const url = `${getBaseUrl()}/api/agents/start`;
   const res = await fetch(url, {

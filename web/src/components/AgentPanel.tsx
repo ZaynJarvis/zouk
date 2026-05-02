@@ -164,6 +164,7 @@ export default function AgentsView() {
     runtime: string;
     model: string;
     machineId?: string;
+    lifecycle?: 'persistent' | 'ephemeral';
   }) => {
     await startAgent({
       name: config.name,
@@ -171,6 +172,7 @@ export default function AgentsView() {
       runtime: config.runtime,
       model: config.model,
       machineId: config.machineId,
+      lifecycle: config.lifecycle,
     });
     setShowCreate(false);
   };
