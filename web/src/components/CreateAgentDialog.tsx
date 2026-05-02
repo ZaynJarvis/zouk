@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, ChevronDown, Globe, Lock, Server, AlertTriangle, Loader as Loader2 } from 'lucide-react';
+import { X, Plus, ChevronDown, Server, AlertTriangle, Loader as Loader2 } from 'lucide-react';
 import type { ServerMachine } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
@@ -12,7 +12,7 @@ export interface CreateAgentConfig {
   runtime: string;
   model: string;
   machineId?: string;
-  visibility: 'workspace' | 'private';
+  lifecycle: 'persistent' | 'ephemeral';
 }
 
 export default function CreateAgentDialog({
@@ -31,7 +31,7 @@ export default function CreateAgentDialog({
   const [selectedMachineId, setSelectedMachineId] = useState<string>(machines[0]?.id ?? '');
   const [runtime, setRuntime] = useState('');
   const [model, setModel] = useState('');
-  const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
+  const [lifecycle, setLifecycle] = useState<'persistent' | 'ephemeral'>('persistent');
   const [machineOpen, setMachineOpen] = useState(false);
   const [modelOptions, setModelOptions] = useState<RuntimeModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -88,7 +88,7 @@ export default function CreateAgentDialog({
       runtime,
       model: model.trim(),
       machineId: selectedMachine?.id,
-      visibility,
+      lifecycle,
     });
   };
 
@@ -238,39 +238,37 @@ export default function CreateAgentDialog({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">VISIBILITY</label>
+            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">LIFECYCLE</label>
             <div className="grid grid-cols-2 gap-3">
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
                   type="button"
-                  onClick={() => setVisibility('workspace')}
+                  onClick={() => setLifecycle('persistent')}
                   className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
-                    visibility === 'workspace'
+                    lifecycle === 'persistent'
                       ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
                       : 'border-nc-border hover:bg-nc-elevated'
                   }`}
                 >
-                  <Globe size={16} className="shrink-0 text-nc-cyan" />
                   <div>
-                    <div className="font-bold text-sm text-nc-text-bright">Workspace</div>
-                    <div className="text-xs text-nc-muted font-mono">All members can assign</div>
+                    <div className="font-bold text-sm text-nc-text-bright">PERSISTENT</div>
+                    <div className="text-xs text-nc-muted font-mono">Keeps session across idle</div>
                   </div>
                 </button>
               </ScanlineTear>
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
                   type="button"
-                  onClick={() => setVisibility('private')}
+                  onClick={() => setLifecycle('ephemeral')}
                   className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
-                    visibility === 'private'
+                    lifecycle === 'ephemeral'
                       ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
                       : 'border-nc-border hover:bg-nc-elevated'
                   }`}
                 >
-                  <Lock size={16} className="shrink-0 text-nc-red" />
                   <div>
-                    <div className="font-bold text-sm text-nc-text-bright">Private</div>
-                    <div className="text-xs text-nc-muted font-mono">Only you can assign</div>
+                    <div className="font-bold text-sm text-nc-text-bright">EPHEMERAL</div>
+                    <div className="text-xs text-nc-muted font-mono">Fresh session after idle</div>
                   </div>
                 </button>
               </ScanlineTear>

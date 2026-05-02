@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Play, Globe, Lock, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2 } from 'lucide-react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Play, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2, Copy, Check } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -313,20 +313,17 @@ function SettingsTab({
   const savedConfig = configs.find((c) => c.id === agent.id);
   const persistedDisplayName = savedConfig?.displayName ?? agent.displayName ?? agent.name;
   const persistedDescription = savedConfig?.description ?? agent.description ?? '';
-  const persistedVisibility = savedConfig?.visibility ?? agent.visibility ?? 'workspace';
   const persistedMaxConcurrent = savedConfig?.maxConcurrentTasks ?? agent.maxConcurrentTasks ?? 6;
-  const persistedAutoStart = savedConfig?.autoStart ?? true;
   const persistedLifecycle: 'persistent' | 'ephemeral' =
     savedConfig?.lifecycle === 'ephemeral' ? 'ephemeral' : (agent.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent');
   const persistedModel = savedConfig?.model ?? agent.model ?? '';
 
   const [displayName, setDisplayName] = useState(persistedDisplayName);
   const [description, setDescription] = useState(persistedDescription);
-  const [visibility, setVisibility] = useState<'workspace' | 'private'>(persistedVisibility);
   const [maxConcurrent, setMaxConcurrent] = useState(persistedMaxConcurrent);
-  const [autoStart, setAutoStart] = useState<boolean>(persistedAutoStart);
   const [lifecycle, setLifecycle] = useState<'persistent' | 'ephemeral'>(persistedLifecycle);
   const [model, setModel] = useState<string>(persistedModel);
+  const [idCopied, setIdCopied] = useState(false);
   const [modelOptions, setModelOptions] = useState<RuntimeModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [customModel, setCustomModel] = useState(false);
@@ -353,6 +350,12 @@ function SettingsTab({
     setCustomModel(!persistedMatches);
   }, [modelOptions, persistedModel]);
 
+  const handleCopyId = useCallback(() => {
+    navigator.clipboard.writeText(agent.id).catch(() => {});
+    setIdCopied(true);
+    setTimeout(() => setIdCopied(false), 1500);
+  }, [agent.id]);
+
   const handlePictureUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -374,9 +377,7 @@ function SettingsTab({
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
-    visibility !== persistedVisibility ||
     maxConcurrent !== persistedMaxConcurrent ||
-    autoStart !== persistedAutoStart ||
     lifecycle !== persistedLifecycle ||
     model !== persistedModel;
 
@@ -462,81 +463,17 @@ function SettingsTab({
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">VISIBILITY</label>
-          <div className="grid grid-cols-2 gap-3">
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                type="button"
-                onClick={() => setVisibility('workspace')}
-                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
-                  visibility === 'workspace'
-                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                    : 'border-nc-border hover:bg-nc-elevated'
-                }`}
-              >
-                <Globe size={16} className="shrink-0 text-nc-cyan" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm text-nc-text-bright">Workspace</div>
-                  <div className="text-xs text-nc-muted font-mono">All members</div>
-                </div>
-              </button>
-            </ScanlineTear>
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                type="button"
-                onClick={() => setVisibility('private')}
-                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
-                  visibility === 'private'
-                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                    : 'border-nc-border hover:bg-nc-elevated'
-                }`}
-              >
-                <Lock size={16} className="shrink-0 text-nc-red" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm text-nc-text-bright">Private</div>
-                  <div className="text-xs text-nc-muted font-mono">Only you</div>
-                </div>
-              </button>
-            </ScanlineTear>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">AUTO_RESTART</label>
-          <div className="grid grid-cols-2 gap-3">
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                type="button"
-                onClick={() => setAutoStart(true)}
-                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
-                  autoStart
-                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                    : 'border-nc-border hover:bg-nc-elevated'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm text-nc-text-bright">ON</div>
-                  <div className="text-xs text-nc-muted font-mono">Restart on daemon reconnect</div>
-                </div>
-              </button>
-            </ScanlineTear>
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                type="button"
-                onClick={() => setAutoStart(false)}
-                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
-                  !autoStart
-                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                    : 'border-nc-border hover:bg-nc-elevated'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm text-nc-text-bright">OFF</div>
-                  <div className="text-xs text-nc-muted font-mono">Manual start only</div>
-                </div>
-              </button>
-            </ScanlineTear>
-          </div>
+          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">AGENT_ID</label>
+          <button
+            type="button"
+            onClick={handleCopyId}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 border border-nc-border bg-nc-elevated hover:bg-nc-panel transition-colors group"
+          >
+            <span className="text-xs font-mono text-nc-muted truncate">{agent.id}</span>
+            <span className="shrink-0 text-nc-muted group-hover:text-nc-cyan transition-colors">
+              {idCopied ? <Check size={12} className="text-nc-green" /> : <Copy size={12} />}
+            </span>
+          </button>
         </div>
 
         <div>
@@ -723,7 +660,7 @@ function SettingsTab({
             {isDirty && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
-                  onClick={() => onUpdate({ displayName, description, visibility, maxConcurrentTasks: maxConcurrent, autoStart, lifecycle, picture, model })}
+                  onClick={() => onUpdate({ displayName, description, maxConcurrentTasks: maxConcurrent, lifecycle, picture, model })}
                   className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
                 >
                   <Save size={12} /> SAVE
