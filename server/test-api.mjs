@@ -591,26 +591,59 @@ test('WS broadcast: DM messages reach only the two parties', async () => {
 // These tests cover the PM-broadcast-v2 fix: only agents that are members of a
 // channel should see messages in that channel via the pull path
 // (check_messages / history / search) and the push path (WS deliver). Mock
-// data seeds three agents (reviewer, bugbot, deployer) into four channels
-// (all, engineering, design, ops).
+// data explicitly seeds agents into all preview channels (all, engineering,
+// design, ops) — new channels/agents no longer auto-subscribe.
 
 const MOCK_AGENT = 'agent-mock-reviewer';
 const OTHER_AGENT = 'agent-mock-bugbot';
 
-test('subscriptions: mock agents are seeded into every regular channel', async () => {
+test('subscriptions: mock agents are explicitly seeded into all mock channels', async () => {
   const { status, body } = await json(await fetch(
     `${BASE}/internal/agent/${MOCK_AGENT}/subscriptions`,
   ));
   assert.equal(status, 200);
   const names = new Set(body.subscriptions.map(s => s.channelName));
   for (const expected of ['all', 'engineering', 'design', 'ops']) {
-    assert.ok(names.has(expected), `seeded membership on #${expected} expected`);
+    assert.ok(names.has(expected), `explicit mock membership on #${expected} expected`);
   }
-  // All default seeds should be both readable and subscribed.
+  // All explicitly-seeded rows should be both readable and subscribed.
   for (const s of body.subscriptions) {
     assert.equal(s.canRead, true);
     assert.equal(s.subscribed, true);
   }
+});
+
+test('GET /api/agents/:id/channels: returns visible channel names for known agent', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'channels-tester' }),
+  });
+  const { token } = await authRes.json();
+  const { status, body } = await json(await fetch(
+    `${BASE}/api/agents/${MOCK_AGENT}/channels`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  ));
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body.channels), 'channels must be an array');
+  const channelSet = new Set(body.channels);
+  for (const expected of ['all', 'engineering', 'design', 'ops']) {
+    assert.ok(channelSet.has(expected), `#${expected} must appear in agent channels`);
+  }
+});
+
+test('GET /api/agents/:id/channels: returns 404 for unknown agent', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'channels-404-tester' }),
+  });
+  const { token } = await authRes.json();
+  const { status } = await json(await fetch(
+    `${BASE}/api/agents/no-such-agent/channels`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  ));
+  assert.equal(status, 404);
 });
 
 test('PATCH /internal/.../subscriptions flips canRead + visibility in history', async () => {

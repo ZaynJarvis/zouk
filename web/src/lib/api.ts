@@ -281,6 +281,14 @@ export async function fetchAgentActivities(
   return Array.isArray(data.entries) ? data.entries : [];
 }
 
+export async function fetchAgentChannels(agentId: string): Promise<string[]> {
+  const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/channels`;
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data.channels) ? data.channels : [];
+}
+
 export async function updateAgentConfig(agentId: string, updates: Record<string, unknown>): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}/config`;
   const res = await fetch(url, {

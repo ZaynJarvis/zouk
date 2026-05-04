@@ -9,7 +9,7 @@ import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, ava
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { resizeAndEncode } from '../lib/imageEncode';
-import { fetchRuntimeModels, type RuntimeModel } from '../lib/api';
+import { fetchRuntimeModels, fetchAgentChannels, type RuntimeModel } from '../lib/api';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
@@ -331,6 +331,21 @@ function SettingsTab({
   const pictureInputRef = useRef<HTMLInputElement>(null);
   const persistedEnvVars = savedConfig?.envVars ?? {};
   const [envVars, setEnvVars] = useState<Record<string, string>>(persistedEnvVars);
+  const [visibleChannels, setVisibleChannels] = useState<string[] | null>(
+    agent.channels ?? null
+  );
+
+  useEffect(() => {
+    if (agent.channels != null) {
+      setVisibleChannels(agent.channels);
+      return;
+    }
+    let cancelled = false;
+    fetchAgentChannels(agent.id)
+      .then((chs) => { if (!cancelled) setVisibleChannels(chs); })
+      .catch(() => { if (!cancelled) setVisibleChannels([]); });
+    return () => { cancelled = true; };
+  }, [agent.id, agent.channels]);
 
   useEffect(() => {
     if (!agent.machineId || !agent.runtime) return;
@@ -632,9 +647,13 @@ function SettingsTab({
 
         <div>
           <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CHANNEL_ACCESS</label>
-          {agent.channels && agent.channels.length > 0 ? (
+          {visibleChannels === null ? (
+            <div className="p-3 border border-nc-border bg-nc-elevated text-xs text-nc-muted font-mono">
+              LOADING…
+            </div>
+          ) : visibleChannels.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
-              {agent.channels.map((ch) => (
+              {visibleChannels.map((ch) => (
                 <span
                   key={ch}
                   className="px-2.5 py-1 border border-nc-cyan/30 bg-nc-cyan/10 text-xs font-bold text-nc-cyan font-mono"
@@ -645,7 +664,7 @@ function SettingsTab({
             </div>
           ) : (
             <div className="p-3 border border-nc-border bg-nc-elevated text-xs text-nc-muted font-mono">
-              ALL_CHANNELS
+              NO_CHANNELS
             </div>
           )}
         </div>

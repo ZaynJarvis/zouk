@@ -15,7 +15,7 @@ function shouldSeed(db) {
   return true;
 }
 
-function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateChannel }) {
+function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateChannel, setMembership, getMembership }) {
   // Channels
   const wantedChannels = [
     { name: "all", description: "General workspace channel" },
@@ -23,9 +23,11 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
     { name: "design", description: "Design crits and reviews" },
     { name: "ops", description: "Operations + on-call" },
   ];
+  const createdChannels = [];
   for (const c of wantedChannels) {
     const ch = findOrCreateChannel(c.name);
     if (!ch.description) ch.description = c.description;
+    createdChannels.push(ch);
   }
 
   // Mock machines
@@ -129,6 +131,19 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
         status: "active",
         activity: a.activity,
       };
+    }
+  }
+
+  // Explicitly subscribe mock agents to all preview channels so the UI has
+  // something to render. New channels/agents no longer auto-subscribe by default;
+  // mock data opts in explicitly to preserve the full preview experience.
+  if (typeof setMembership === "function" && typeof getMembership === "function") {
+    for (const a of mockAgents) {
+      for (const ch of createdChannels) {
+        if (!getMembership(ch.id, a.id)) {
+          setMembership(ch.id, a.id, { canRead: true, subscribed: true });
+        }
+      }
     }
   }
 
