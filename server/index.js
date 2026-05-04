@@ -2303,6 +2303,9 @@ function startAgentOnDaemon(id, config) {
   if (requestedWorkDir) daemonConfig.workDir = requestedWorkDir;
   const cachedSessionId = store.agents[id]?.sessionId;
   if (cachedSessionId) daemonConfig.sessionId = cachedSessionId;
+  if (config.envVars && typeof config.envVars === 'object') {
+    daemonConfig.envVars = config.envVars;
+  }
 
   // Send agent:start to daemon — read from config (source of truth),
   // not store.agents (which may have fallback values).
@@ -2332,6 +2335,7 @@ function startAgentOnDaemon(id, config) {
       lifecycle: config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
     };
     if (requestedWorkDir) persisted.workDir = requestedWorkDir;
+    if (config.envVars && typeof config.envVars === 'object') persisted.envVars = config.envVars;
     const usedImages = new Set(agentConfigs.map((c) => c.picture).filter(Boolean));
     const shardedPicture = profilePresets.pickForAgent(id, usedImages);
     if (shardedPicture) persisted.picture = shardedPicture;

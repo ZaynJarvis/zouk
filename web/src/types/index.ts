@@ -56,6 +56,7 @@ export interface ServerAgent {
    * docs/agent-lifecycle.md for the stdin-true vs stdin-false semantics.
    */
   lifecycle?: 'persistent' | 'ephemeral';
+  envVars?: Record<string, string>;
   contextUsage?: AgentContextUsageSnapshot;
 }
 

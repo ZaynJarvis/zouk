@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Square, Play, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2, Copy, Check } from 'lucide-react';
+import { FileText, FolderOpen, Activity, Settings, Save, Square, Play, Zap, ArrowLeft, RefreshCw, Server, Trash2, Camera, X, Loader2, Copy, Check, Plus, Minus } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../types';
 import { useApp } from '../store/AppContext';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -329,6 +329,8 @@ function SettingsTab({
   const [customModel, setCustomModel] = useState(false);
   const [picture, setPicture] = useState<string | undefined>(agent.picture);
   const pictureInputRef = useRef<HTMLInputElement>(null);
+  const persistedEnvVars = savedConfig?.envVars ?? {};
+  const [envVars, setEnvVars] = useState<Record<string, string>>(persistedEnvVars);
 
   useEffect(() => {
     if (!agent.machineId || !agent.runtime) return;
@@ -374,12 +376,14 @@ function SettingsTab({
     onUpdate({ picture: image });
   }, [onUpdate]);
 
+  const envVarsDirty = JSON.stringify(envVars) !== JSON.stringify(persistedEnvVars);
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
     maxConcurrent !== persistedMaxConcurrent ||
     lifecycle !== persistedLifecycle ||
-    model !== persistedModel;
+    model !== persistedModel ||
+    envVarsDirty;
 
   return (
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
@@ -655,12 +659,58 @@ function SettingsTab({
           </div>
         )}
 
+        <div>
+          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">ENV_VARS</label>
+          <div className="space-y-1.5">
+            {Object.entries(envVars).map(([key, value]) => (
+              <div key={key} className="flex items-center gap-1.5">
+                <input
+                  value={key}
+                  readOnly
+                  className="w-[40%] px-2 py-1.5 border border-nc-border bg-nc-elevated text-xs text-nc-text-bright font-mono focus:outline-none truncate"
+                  title={key}
+                />
+                <input
+                  value={value}
+                  onChange={(e) => setEnvVars((prev) => ({ ...prev, [key]: e.target.value }))}
+                  className="flex-1 px-2 py-1.5 border border-nc-border bg-nc-panel text-xs text-nc-text-bright font-mono focus:outline-none focus:border-nc-cyan transition-all truncate"
+                  title={value}
+                />
+                <button
+                  type="button"
+                  onClick={() => setEnvVars((prev) => { const next = { ...prev }; delete next[key]; return next; })}
+                  className="shrink-0 p-1 border border-nc-border text-nc-muted hover:text-nc-red hover:border-nc-red transition-colors"
+                >
+                  <Minus size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const key = prompt('Variable name:');
+              if (key && key.trim() && !(key.trim() in envVars)) {
+                setEnvVars((prev) => ({ ...prev, [key.trim()]: '' }));
+              }
+            }}
+            className="mt-2 flex items-center gap-1 text-2xs font-mono text-nc-muted hover:text-nc-cyan transition-colors"
+          >
+            <Plus size={10} /> ADD_VARIABLE
+          </button>
+          {envVarsDirty && (
+            <p className="text-2xs text-nc-yellow mt-1 font-mono">
+              Env var changes take effect on next agent start.
+            </p>
+          )}
+        </div>
+
         {!isGuest && (
           <div className="flex items-center gap-3 pt-3 border-t border-nc-border flex-wrap">
             {isDirty && (
               <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                 <button
-                  onClick={() => onUpdate({ displayName, description, maxConcurrentTasks: maxConcurrent, lifecycle, picture, model })}
+                  onClick={() => onUpdate({ displayName, description, maxConcurrentTasks: maxConcurrent, lifecycle, picture, model, envVars: Object.keys(envVars).length > 0 ? envVars : undefined })}
                   className="cyber-btn flex items-center gap-1 px-4 py-2 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
                 >
                   <Save size={12} /> SAVE
