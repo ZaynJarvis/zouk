@@ -140,6 +140,18 @@ function buildRuntimeAgent(agentId, runtimeOverrides = {}) {
   };
 }
 
+/** Return the list of non-DM channel names an agent can read.
+ *  Works for any agentId regardless of whether the agent is currently running. */
+function agentChannelNames(agentId) {
+  const names = [];
+  for (const ch of store.channels) {
+    if ((ch.type || "channel") === "dm") continue;
+    const row = getMembership(ch.id, agentId);
+    if (row && row.canRead) names.push(ch.name);
+  }
+  return names;
+}
+
 /** Build a full agent payload for broadcasting to the frontend.
  *  Always overlays config fields on top of runtime state so config
  *  edits are never masked by stale runtime copies. */
@@ -158,6 +170,7 @@ function agentPayload(agentId) {
     workDir: cfg.workDir || a.workDir,
     picture: cfg.picture || a.picture || undefined,
     lifecycle: cfg.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
+    channels: agentChannelNames(agentId),
   };
 }
 
@@ -483,20 +496,13 @@ function messageVisibleToAgent(msg, agentId) {
 // Seed membership when a channel is created.
 //   DM: no rows — DM visibility/delivery is driven by the canonical party
 //       list in the channel name, not channel_agents.
-//   Regular channel: all active+configured agents are members by default.
-//                    (Preserves legacy "broadcast to everyone" behavior; ops
-//                    can unsubscribe later via the API.)
+//   Regular channel: no agents are added by default. Agents must be explicitly
+//                    subscribed via the API or by the agent's own seeding logic.
 function seedMembershipOnChannelCreate(channel) {
   if ((channel.type || "channel") === "dm") return;
-  for (const agentId of Object.keys(store.agents)) {
-    setMembership(channel.id, agentId, { canRead: true, subscribed: true });
-  }
-  // Also seed configured agents that don't yet have a runtime entry, so the
-  // membership carries across restarts.
-  for (const cfg of agentConfigs) {
-    if (!store.agents[cfg.id]) {
-      setMembership(channel.id, cfg.id, { canRead: true, subscribed: true });
-    }
+  // Initialize an empty membership Map so the backfill in initFromDB skips it.
+  if (!store.channelAgents.has(channel.id)) {
+    store.channelAgents.set(channel.id, new Map());
   }
 }
 
@@ -514,15 +520,15 @@ function agentIdByName(name) {
   return null;
 }
 
-// Seed a newly-created/registered agent into all existing non-DM channels so
-// they start out subscribed everywhere (legacy behavior). DMs are NOT seeded
-// here — DMs only have 2 members by construction.
+// Seed a newly-registered agent into the `all` channel only.
+// New agents start with visibility only to #all; admins can subscribe them to
+// other channels via the API. DMs are not seeded here.
 function seedAgentIntoRegularChannels(agentId) {
-  for (const ch of store.channels) {
-    if ((ch.type || "channel") === "dm") continue;
-    if (!getMembership(ch.id, agentId)) {
-      setMembership(ch.id, agentId, { canRead: true, subscribed: true });
-    }
+  const allChannel = store.channels.find(
+    (ch) => ch.name === "all" && (ch.type || "channel") === "channel"
+  );
+  if (allChannel && !getMembership(allChannel.id, agentId)) {
+    setMembership(allChannel.id, agentId, { canRead: true, subscribed: true });
   }
 }
 
@@ -2016,6 +2022,16 @@ app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
 app.get("/api/agents", (req, res) => {
   const agents = Object.keys(store.agents).map((id) => agentPayload(id));
   res.json({ agents, configs: agentConfigs });
+});
+
+// Get channel memberships for any agent (running or configured).
+// Used by the agent CONFIG tab to show visible channels even when the agent is offline.
+app.get("/api/agents/:id/channels", requireAuth, (req, res) => {
+  const agentId = req.params.id;
+  if (!hasKnownAgentConfig(agentId)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
+  res.json({ channels: agentChannelNames(agentId) });
 });
 
 // Get recent activity entries for an agent (used by the Activity tab).
@@ -3625,19 +3641,10 @@ async function initFromDB() {
       console.log(`[db] Loaded ${channelAgents.length} channel_agents memberships`);
     }
 
-    // Backfill for first boot on this code: regular channels without any
-    // membership rows get seeded the same way seedMembershipOnChannelCreate
-    // would have handled them — every configured agent joins. DMs skip the
-    // table entirely; visibility and delivery consult the canonical party
-    // list in the channel name instead.
-    for (const ch of store.channels) {
-      if ((ch.type || "channel") === "dm") continue;
-      const ca = store.channelAgents.get(ch.id);
-      if (ca && ca.size > 0) continue;
-      for (const cfg of agentConfigs) {
-        setMembership(ch.id, cfg.id, { canRead: true, subscribed: true });
-      }
-    }
+    // NOTE: The legacy one-time backfill (auto-subscribe all agents to channels
+    // with no membership rows) has been removed. New channels intentionally
+    // start with no agent visibility; agents are seeded only into #all at
+    // registration time. Channels without rows stay empty by design.
 
     // Persist the default `all` channel if it's not already in DB — so it has
     // a row for channel_agents to FK against and doesn't drift between runs.
@@ -3736,21 +3743,12 @@ function reconcileAgentsWithConfigs() {
       machines,
       addHumanPresence,
       findOrCreateChannel,
+      setMembership,
+      getMembership,
     });
     // Mock seed pushes onto store.messages directly (it's a one-shot bootstrap
     // path), so the secondary indexes need a rebuild after it runs.
     rebuildMessageIndex();
-    // Mock seeds push channels and agents in an order that skips the
-    // per-channel-create seeding hook, so do a once-over here to backfill
-    // memberships for every mock agent on every mock channel.
-    for (const ch of store.channels) {
-      if ((ch.type || "channel") === "dm") continue;
-      for (const cfg of agentConfigs) {
-        if (!getMembership(ch.id, cfg.id)) {
-          setMembership(ch.id, cfg.id, { canRead: true, subscribed: true });
-        }
-      }
-    }
   }
 
   server.listen(PORT, () => {
