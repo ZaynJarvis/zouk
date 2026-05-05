@@ -16,7 +16,7 @@ async function provisionAgentKey({ url, account, rootApiKey, agentId, role = "us
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Api-Key": rootApiKey,
+      "Authorization": `Bearer ${rootApiKey}`,
     },
     body: JSON.stringify({ user_id: agentId, role }),
   });
@@ -39,7 +39,7 @@ async function revokeAgentKey({ url, account, rootApiKey, agentId }) {
   const endpoint = `${url}/api/v1/admin/accounts/${encodeURIComponent(account)}/users/${encodeURIComponent(agentId)}`;
   const res = await fetch(endpoint, {
     method: "DELETE",
-    headers: { "X-Api-Key": rootApiKey },
+    headers: { "Authorization": `Bearer ${rootApiKey}` },
   });
   if (!res.ok) {
     const excerpt = await readBodyExcerpt(res);
