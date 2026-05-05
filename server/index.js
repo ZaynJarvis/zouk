@@ -13,6 +13,7 @@ const db = require("./db");
 const { createStore: createProfilePresetsStore, MAX_PRESETS: PROFILE_PRESET_MAX } = require("./profilePresets");
 const { createStorage } = require("./storage");
 const mockData = require("./mockData");
+const { provisionAgentKey } = require("./openviking-admin");
 
 function gravatarUrl(email) {
   if (!email) return null;
@@ -24,6 +25,33 @@ const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+
+// OpenViking server-issued per-agent keys.
+// New-format root keys are `base64url(account).base64url(user).base64url(secret)` —
+// we decode the account from the key so operators only need to set two env vars.
+// Legacy hex keys can't carry an account; provisioning is disabled in that case.
+const OPENVIKING_URL = (process.env.OPENVIKING_URL || "").replace(/\/+$/, "") || null;
+const OPENVIKING_ROOT_KEY = process.env.OPENVIKING_ROOT_KEY || null;
+function decodeAccountFromKey(key) {
+  if (!key || !key.includes(".")) return null;
+  const first = key.split(".", 1)[0];
+  try {
+    const decoded = Buffer.from(first.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+const OPENVIKING_ACCOUNT = decodeAccountFromKey(OPENVIKING_ROOT_KEY);
+const OV_PROVISIONING_ENABLED = !!(OPENVIKING_URL && OPENVIKING_ROOT_KEY && OPENVIKING_ACCOUNT);
+if (OPENVIKING_ROOT_KEY && !OV_PROVISIONING_ENABLED) {
+  console.warn(
+    "[ov] root key is legacy format — please use a new-format key from POST /api/v1/admin/accounts/{acct}/users; provisioning disabled"
+  );
+} else if (OV_PROVISIONING_ENABLED) {
+  console.log(`[ov] provisioning enabled (account=${OPENVIKING_ACCOUNT}, url=${OPENVIKING_URL})`);
+}
+
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -171,7 +199,18 @@ function agentPayload(agentId) {
     picture: cfg.picture || a.picture || undefined,
     lifecycle: cfg.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
     channels: agentChannelNames(agentId),
+    openvikingProvisioned: !!cfg.openvikingApiKey,
   };
+}
+
+// Strip secret fields (openvikingApiKey) before sending agent configs to
+// browser clients. Keep openvikingUserId — it's the same id surfaced as
+// `X-OpenViking-Agent` in admin views and not sensitive.
+function sanitizedAgentConfigs() {
+  return agentConfigs.map(({ openvikingApiKey, ...rest }) => ({
+    ...rest,
+    openvikingProvisioned: !!openvikingApiKey,
+  }));
 }
 
 function hydrateAgentContextUsage(agentId) {
@@ -2021,7 +2060,7 @@ app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
 // Get agents (running + configs)
 app.get("/api/agents", (req, res) => {
   const agents = Object.keys(store.agents).map((id) => agentPayload(id));
-  res.json({ agents, configs: agentConfigs });
+  res.json({ agents, configs: sanitizedAgentConfigs() });
 });
 
 // Get channel memberships for any agent (running or configured).
@@ -2055,7 +2094,7 @@ app.get("/api/agents/:id/activities", async (req, res) => {
 
 // List all agent configs
 app.get("/api/agent-configs", (req, res) => {
-  res.json({ configs: agentConfigs });
+  res.json({ configs: sanitizedAgentConfigs() });
 });
 
 // Mirror config fields that also live on the runtime agent record. Without
@@ -2094,7 +2133,7 @@ app.post("/api/agent-configs", requireAuth, (req, res) => {
   if (syncRuntimeAgentFromConfig(saved.id, saved)) {
     broadcastToWeb({ type: "agent_started", agent: agentPayload(saved.id) });
   }
-  broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
   res.json({ config: saved });
 });
 
@@ -2130,7 +2169,7 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
   if (syncRuntimeAgentFromConfig(id, agentConfigs[idx])) {
     broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
   }
-  broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
   res.json({ config: agentConfigs[idx] });
 });
 
@@ -2147,7 +2186,7 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
   purgeAgentMemberships(id);
   purgeUnknownAgentState(id);
   broadcastToWeb({ type: "agent_status", agentId: id, status: "deleted" });
-  broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
   res.json({ success: true });
 });
 
@@ -2253,14 +2292,23 @@ app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
   }
   machines.delete(id);
   broadcastToWeb({ type: "machine:disconnected", machineId: id });
-  broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
   console.log(`[keys] Deleted machine key "${key.name}" (cascaded ${orphanedAgentIds.length} agent config(s))`);
   res.json({ success: true });
 });
 
 // ─── Agent lifecycle ─────────────────────────────────────────────
 
-function startAgentOnDaemon(id, config) {
+// Derive a stable OpenViking user_id from the zouk agent.id. We strip the
+// `agent-` prefix (already present on auto-generated ids) and namespace with
+// `zouk-` so the user_id is recognisable in shared OV admin views. OV user_ids
+// are permanent — never derive from agent.name (which is mutable).
+function deriveOvUserId(agentId) {
+  const short = String(agentId || "").replace(/^agent-/, "");
+  return `zouk-${short}`;
+}
+
+async function startAgentOnDaemon(id, config) {
   const runtime = config.runtime || "claude";
   const requestedMachineId = typeof config.machineId === "string" && config.machineId.trim()
     ? config.machineId.trim()
@@ -2305,6 +2353,26 @@ function startAgentOnDaemon(id, config) {
     machineId: targetWs._machineId,
   });
 
+  // Provision the agent's OV key lazily (covers both new agents and existing
+  // keyless ones). Best-effort: if provisioning fails the agent still starts
+  // and the daemon falls back to its local ovcli.conf.
+  let ovUserId = config.openvikingUserId || deriveOvUserId(id);
+  let ovApiKey = config.openvikingApiKey || null;
+  if (!ovApiKey && OV_PROVISIONING_ENABLED) {
+    try {
+      const res = await provisionAgentKey({
+        url: OPENVIKING_URL,
+        account: OPENVIKING_ACCOUNT,
+        rootApiKey: OPENVIKING_ROOT_KEY,
+        agentId: ovUserId,
+      });
+      ovApiKey = res.user_key;
+      ovUserId = res.user_id;
+    } catch (err) {
+      console.warn(`[ov] provisioning failed for ${id}: ${err.message}`);
+    }
+  }
+
   const daemonConfig = {
     runtime,
     model: config.model,
@@ -2321,6 +2389,14 @@ function startAgentOnDaemon(id, config) {
   if (cachedSessionId) daemonConfig.sessionId = cachedSessionId;
   if (config.envVars && typeof config.envVars === 'object') {
     daemonConfig.envVars = config.envVars;
+  }
+  if (ovApiKey && OPENVIKING_URL && OPENVIKING_ACCOUNT) {
+    daemonConfig.openviking = {
+      url: OPENVIKING_URL,
+      account: OPENVIKING_ACCOUNT,
+      userId: ovUserId,
+      apiKey: ovApiKey,
+    };
   }
 
   // Send agent:start to daemon — read from config (source of truth),
@@ -2352,6 +2428,10 @@ function startAgentOnDaemon(id, config) {
     };
     if (requestedWorkDir) persisted.workDir = requestedWorkDir;
     if (config.envVars && typeof config.envVars === 'object') persisted.envVars = config.envVars;
+    if (ovApiKey) {
+      persisted.openvikingUserId = ovUserId;
+      persisted.openvikingApiKey = ovApiKey;
+    }
     const usedImages = new Set(agentConfigs.map((c) => c.picture).filter(Boolean));
     const shardedPicture = profilePresets.pickForAgent(id, usedImages);
     if (shardedPicture) persisted.picture = shardedPicture;
@@ -2362,17 +2442,23 @@ function startAgentOnDaemon(id, config) {
     // "visible everywhere by default" behavior is preserved. Humans can
     // unsubscribe via the /subscriptions API.
     seedAgentIntoRegularChannels(id);
+  } else if (ovApiKey && !agentConfigs[existingIdx].openvikingApiKey) {
+    // Backfill an existing keyless agent. machineId is immutable — leave it.
+    agentConfigs[existingIdx].openvikingUserId = ovUserId;
+    agentConfigs[existingIdx].openvikingApiKey = ovApiKey;
+    saveAgentConfigs(agentConfigs);
+    db.saveAgentConfig(agentConfigs[existingIdx]);
   }
   // Existing configs: machineId is immutable — no rewrite on restart.
 
   broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
-  broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
   console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
   return { agentId: id, status: "starting" };
 }
 
 // Start an agent
-app.post("/api/agents/start", requireAuth, (req, res) => {
+app.post("/api/agents/start", requireAuth, async (req, res) => {
   const config = req.body;
   const id = config.agentId || config.id || `agent-${uuidv4().substring(0, 8)}`;
 
@@ -2386,7 +2472,7 @@ app.post("/api/agents/start", requireAuth, (req, res) => {
     return res.status(400).json({ error: `Agent ${id} is already running` });
   }
 
-  const result = startAgentOnDaemon(id, mergedConfig);
+  const result = await startAgentOnDaemon(id, mergedConfig);
   if (result.error) return res.status(400).json(result);
   res.json(result);
 });
@@ -2434,18 +2520,18 @@ app.post("/api/agents/:id/reset-context", requireAuth, async (req, res) => {
     });
   }
 
-  const result = startAgentOnDaemon(id, savedConfig);
+  const result = await startAgentOnDaemon(id, savedConfig);
   if (result.error) return res.status(400).json(result);
   console.log(`[api] Context reset for agent ${id}`);
   res.json({ success: true });
 });
 
 // Start all auto-start agents (called when daemon connects)
-function autoStartAgents() {
+async function autoStartAgents() {
   const autoStart = agentConfigs.filter((c) => c.autoStart);
   for (const config of autoStart) {
     if (store.agents[config.id]?.status === "active") continue;
-    const result = startAgentOnDaemon(config.id, config);
+    const result = await startAgentOnDaemon(config.id, config);
     if (result.error) {
       const agentName = config.displayName || config.name || config.id;
       console.log(`[auto-start] Failed to start ${agentName} (${config.id}): ${result.error}`);
@@ -2738,7 +2824,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         broadcastToWeb({ type: "agent_status", agentId, status });
         if (workDirChanged) {
           broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
-          broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+          broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
         }
       }
       if (status === "active") hydrateAgentContextUsage(agentId);
@@ -2830,7 +2916,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       });
       if (workDirChanged) {
         broadcastToWeb({ type: "agent_started", agent: agentPayload(msg.agentId) });
-        broadcastToWeb({ type: "config_updated", configs: agentConfigs });
+        broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
       }
       break;
     }
@@ -2921,7 +3007,7 @@ function handleWebConnection(ws, authenticated, token = null) {
         channels: store.channels.filter((ch) => (ch.type || "channel") === "channel"),
         agents: Object.keys(store.agents).map((id) => agentPayload(id)),
         humans: currentHumans(),
-        configs: agentConfigs,
+        configs: sanitizedAgentConfigs(),
         machines: Array.from(machines.values()),
         profilePresets: profilePresets.list(),
       }));
