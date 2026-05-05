@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
 -- Migration for existing deployments — server runs schema.sql on every boot
 -- (db.js migrate()), so this ALTER lands automatically on the next restart.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT 'persistent';
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS env_vars JSONB NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

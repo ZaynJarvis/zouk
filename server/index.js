@@ -3662,6 +3662,24 @@ async function initFromDB() {
       console.log(`[db] Seeded ${agentConfigs.length} agent configs to DB`);
     }
 
+    // One-time migration: seed OPENVIKING_CLI_CONFIG_FILE for agents that
+    // have a work_dir but no env_vars yet. Derives home dir from work_dir,
+    // then points to ~/.openviking/ovcli.conf.<name>.
+    {
+      let seeded = 0;
+      for (const cfg of agentConfigs) {
+        if (cfg.envVars && Object.keys(cfg.envVars).length > 0) continue;
+        if (!cfg.workDir || !cfg.name) continue;
+        const homeMatch = cfg.workDir.match(/^(\/Users\/[^/]+)\//);
+        if (!homeMatch) continue;
+        const confPath = `${homeMatch[1]}/.openviking/ovcli.conf.${cfg.name}`;
+        cfg.envVars = { OPENVIKING_CLI_CONFIG_FILE: confPath };
+        await db.saveAgentConfig(cfg);
+        seeded++;
+      }
+      if (seeded > 0) console.log(`[db] Seeded env_vars for ${seeded} agent configs`);
+    }
+
     await profilePresets.hydrateFromDb();
 
     // One-shot trim of any historical activity backlog — cheap at our scale.
