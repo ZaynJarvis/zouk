@@ -47,7 +47,7 @@ function mockErr(status, text) {
   };
 }
 
-test('provisionAgentKey: posts to /admin/accounts/{acct}/users with X-Api-Key', async () => {
+test('provisionAgentKey: posts to /admin/accounts/{acct}/users with Bearer auth', async () => {
   mockOk({ status: 'ok', result: { user_key: 'k_xyz', user_id: 'zouk-abc', account_id: 'acct1' } });
 
   const out = await provisionAgentKey({
@@ -60,7 +60,8 @@ test('provisionAgentKey: posts to /admin/accounts/{acct}/users with X-Api-Key', 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://ov.example.com/api/v1/admin/accounts/acct1/users');
   assert.equal(calls[0].init.method, 'POST');
-  assert.equal(calls[0].init.headers['X-Api-Key'], 'root_key');
+  assert.equal(calls[0].init.headers['Authorization'], 'Bearer root_key');
+  assert.equal(calls[0].init.headers['X-Api-Key'], undefined);
   assert.equal(calls[0].init.headers['Content-Type'], 'application/json');
   assert.deepEqual(JSON.parse(calls[0].init.body), { user_id: 'zouk-abc', role: 'user' });
 
@@ -105,7 +106,7 @@ test('provisionAgentKey: account_id is URL-encoded', async () => {
   assert.match(calls[0].url, /\/accounts\/team%2Fa\/users$/);
 });
 
-test('revokeAgentKey: DELETE with X-Api-Key on the right URL', async () => {
+test('revokeAgentKey: DELETE with Bearer auth on the right URL', async () => {
   mockOk({ status: 'ok' });
   await revokeAgentKey({
     url: 'https://ov',
@@ -115,5 +116,6 @@ test('revokeAgentKey: DELETE with X-Api-Key on the right URL', async () => {
   });
   assert.equal(calls[0].init.method, 'DELETE');
   assert.equal(calls[0].url, 'https://ov/api/v1/admin/accounts/acct1/users/zouk-abc');
-  assert.equal(calls[0].init.headers['X-Api-Key'], 'root_key');
+  assert.equal(calls[0].init.headers['Authorization'], 'Bearer root_key');
+  assert.equal(calls[0].init.headers['X-Api-Key'], undefined);
 });
