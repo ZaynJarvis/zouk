@@ -193,6 +193,8 @@ export interface AgentConfig {
   workDir?: string;
   skills?: AgentSkill[];
   lifecycle?: 'persistent' | 'ephemeral';
+  openvikingUserId?: string | null;
+  openvikingProvisioned?: boolean;
 }
 
 export interface ServerMachine {

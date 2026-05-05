@@ -68,12 +68,16 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   max_concurrent_tasks INTEGER,
   auto_start           BOOLEAN NOT NULL DEFAULT false,
   skills               JSONB NOT NULL DEFAULT '[]',
-  lifecycle            TEXT NOT NULL DEFAULT 'persistent'
+  lifecycle            TEXT NOT NULL DEFAULT 'persistent',
+  openviking_user_id   TEXT,
+  openviking_api_key   TEXT
 );
 -- Migration for existing deployments — server runs schema.sql on every boot
 -- (db.js migrate()), so this ALTER lands automatically on the next restart.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAULT 'persistent';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS env_vars JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_user_id TEXT;
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_api_key TEXT;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

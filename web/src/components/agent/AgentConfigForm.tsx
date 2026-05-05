@@ -431,6 +431,26 @@ export default function AgentConfigForm({
           </div>
         )}
 
+        {/* OPENVIKING */}
+        {(() => {
+          const cfg = configs.find((c) => c.id === agent.id);
+          if (!cfg) return null;
+          return (
+            <div>
+              <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">OPENVIKING</label>
+              <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
+                <span className={`w-2 h-2 shrink-0 ${cfg.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
+                <span className="font-bold text-sm text-nc-text-bright font-mono">
+                  {cfg.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
+                </span>
+                {cfg.openvikingUserId && (
+                  <span className="text-xs text-nc-muted font-mono ml-auto truncate">{cfg.openvikingUserId}</span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* CHANNEL_ACCESS */}
         <div>
           <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CHANNEL_ACCESS</label>
