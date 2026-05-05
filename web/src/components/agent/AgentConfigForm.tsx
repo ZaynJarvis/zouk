@@ -40,6 +40,10 @@ export default function AgentConfigForm({
       : 'persistent';
   const persistedModel = savedConfig?.model ?? agent.model ?? '';
   const persistedEnvVars = savedConfig?.envVars ?? {};
+  const persistedOvMode: 'provisioned' | 'custom' =
+    savedConfig?.openvikingMode === 'custom' ? 'custom' : 'provisioned';
+  const persistedOvCustomUrl = savedConfig?.openvikingCustomUrl ?? '';
+  const persistedOvCustomConfigured = !!savedConfig?.openvikingCustomConfigured;
 
   const [displayName, setDisplayName] = useState(persistedDisplayName);
   const [description, setDescription] = useState(persistedDescription);
@@ -54,6 +58,13 @@ export default function AgentConfigForm({
   const [picture, setPicture] = useState<string | undefined>(agent.picture);
   const [envVars, setEnvVars] = useState<Record<string, string>>(persistedEnvVars);
   const [visibleChannels, setVisibleChannels] = useState<string[] | null>(agent.channels ?? null);
+  const [ovMode, setOvMode] = useState<'provisioned' | 'custom'>(persistedOvMode);
+  const [ovCustomUrl, setOvCustomUrl] = useState<string>(persistedOvCustomUrl ?? '');
+  // We never receive the actual API key from the server, only a "configured"
+  // boolean. Empty input + dirty=false = "leave saved value alone". User
+  // typing into the field flips dirty=true and we send the new value on save.
+  const [ovCustomApiKey, setOvCustomApiKey] = useState<string>('');
+  const [ovCustomApiKeyDirty, setOvCustomApiKeyDirty] = useState(false);
   const pictureInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -110,6 +121,13 @@ export default function AgentConfigForm({
   }, [agent.id, updateAgentConfig]);
 
   const envVarsDirty = JSON.stringify(envVars) !== JSON.stringify(persistedEnvVars);
+  const ovDirty =
+    ovMode !== persistedOvMode ||
+    (ovMode === 'custom' && (ovCustomUrl !== (persistedOvCustomUrl ?? '') || ovCustomApiKeyDirty));
+  // Custom mode requires url + (existing configured key OR a freshly typed one).
+  const ovCustomValid =
+    ovMode !== 'custom' ||
+    (ovCustomUrl.trim().length > 0 && (persistedOvCustomConfigured || ovCustomApiKey.length > 0));
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
@@ -117,10 +135,12 @@ export default function AgentConfigForm({
     maxConcurrent !== persistedMaxConcurrent ||
     lifecycle !== persistedLifecycle ||
     model !== persistedModel ||
-    envVarsDirty;
+    envVarsDirty ||
+    ovDirty;
 
   const handleSave = () => {
-    updateAgentConfig(agent.id, {
+    if (!ovCustomValid) return;
+    const payload: Record<string, unknown> = {
       displayName,
       description,
       visibility,
@@ -130,7 +150,26 @@ export default function AgentConfigForm({
       autoStart: true,
       picture,
       envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
-    });
+    };
+    if (ovDirty) {
+      payload.openvikingMode = ovMode;
+      // Only include url when in custom mode (so toggling back to provisioned
+      // doesn't overwrite stored values unintentionally).
+      if (ovMode === 'custom') {
+        payload.openvikingCustomUrl = ovCustomUrl.trim();
+        // Empty / not-dirty = server keeps old value; only send a fresh value
+        // when the user actually typed in the password field.
+        if (ovCustomApiKeyDirty && ovCustomApiKey.length > 0) {
+          payload.openvikingCustomApiKey = ovCustomApiKey;
+        }
+      }
+    }
+    updateAgentConfig(agent.id, payload);
+    if (ovCustomApiKeyDirty) {
+      // Reset the input so the placeholder reappears and we don't re-send on next save.
+      setOvCustomApiKey('');
+      setOvCustomApiKeyDirty(false);
+    }
   };
 
   const p = compact ? 'p-4' : 'p-5';
@@ -432,24 +471,70 @@ export default function AgentConfigForm({
         )}
 
         {/* OPENVIKING */}
-        {(() => {
-          const cfg = configs.find((c) => c.id === agent.id);
-          if (!cfg) return null;
-          return (
-            <div>
-              <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">OPENVIKING</label>
-              <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
-                <span className={`w-2 h-2 shrink-0 ${cfg.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
-                <span className="font-bold text-sm text-nc-text-bright font-mono">
-                  {cfg.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
-                </span>
-                {cfg.openvikingUserId && (
-                  <span className="text-xs text-nc-muted font-mono ml-auto truncate">{cfg.openvikingUserId}</span>
-                )}
-              </div>
+        <div>
+          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">OPENVIKING</label>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => setOvMode('provisioned')}
+              className={`px-2.5 py-2 border font-bold text-xs font-mono ${
+                ovMode === 'provisioned'
+                  ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                  : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+              }`}
+            >
+              PROVISIONED
+            </button>
+            <button
+              type="button"
+              onClick={() => setOvMode('custom')}
+              className={`px-2.5 py-2 border font-bold text-xs font-mono ${
+                ovMode === 'custom'
+                  ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                  : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+              }`}
+            >
+              CUSTOM
+            </button>
+          </div>
+          {ovMode === 'provisioned' ? (
+            <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
+              <span className={`w-2 h-2 shrink-0 ${savedConfig?.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
+              <span className="font-bold text-sm text-nc-text-bright font-mono">
+                {savedConfig?.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
+              </span>
+              {savedConfig?.openvikingUserId && (
+                <span className="text-xs text-nc-muted font-mono ml-auto truncate">{savedConfig.openvikingUserId}</span>
+              )}
             </div>
-          );
-        })()}
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">URL</label>
+                <input
+                  type="text"
+                  value={ovCustomUrl}
+                  onChange={(e) => setOvCustomUrl(e.target.value)}
+                  placeholder="https://your-openviking.example.com"
+                  className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
+                />
+              </div>
+              <div>
+                <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">API_KEY</label>
+                <input
+                  type="password"
+                  value={ovCustomApiKey}
+                  onChange={(e) => { setOvCustomApiKey(e.target.value); setOvCustomApiKeyDirty(true); }}
+                  placeholder={persistedOvCustomConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key'}
+                  className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
+                />
+              </div>
+              {!ovCustomValid && (
+                <p className="text-2xs text-nc-red font-mono">URL and API key are required for custom mode.</p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* CHANNEL_ACCESS */}
         <div>

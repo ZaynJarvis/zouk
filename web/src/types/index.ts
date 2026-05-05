@@ -195,6 +195,12 @@ export interface AgentConfig {
   lifecycle?: 'persistent' | 'ephemeral';
   openvikingUserId?: string | null;
   openvikingProvisioned?: boolean;
+  openvikingMode?: 'provisioned' | 'custom';
+  openvikingCustomUrl?: string | null;
+  // Sent by the client when saving (write-only). The server responds with
+  // openvikingCustomConfigured instead of echoing the key back.
+  openvikingCustomApiKey?: string | null;
+  openvikingCustomConfigured?: boolean;
 }
 
 export interface ServerMachine {
