@@ -53,24 +53,27 @@ CREATE TABLE IF NOT EXISTS machine_keys (
 );
 
 CREATE TABLE IF NOT EXISTS agent_configs (
-  id                   TEXT PRIMARY KEY,
-  machine_id           TEXT NOT NULL REFERENCES machine_keys(id) ON DELETE CASCADE,
-  name                 TEXT NOT NULL,
-  display_name         TEXT,
-  description          TEXT,
-  runtime              TEXT NOT NULL DEFAULT 'claude',
-  model                TEXT,
-  system_prompt        TEXT,
-  instructions         TEXT,
-  work_dir             TEXT,
-  picture              TEXT,
-  visibility           TEXT,
-  max_concurrent_tasks INTEGER,
-  auto_start           BOOLEAN NOT NULL DEFAULT false,
-  skills               JSONB NOT NULL DEFAULT '[]',
-  lifecycle            TEXT NOT NULL DEFAULT 'persistent',
-  openviking_user_id   TEXT,
-  openviking_api_key   TEXT
+  id                       TEXT PRIMARY KEY,
+  machine_id               TEXT NOT NULL REFERENCES machine_keys(id) ON DELETE CASCADE,
+  name                     TEXT NOT NULL,
+  display_name             TEXT,
+  description              TEXT,
+  runtime                  TEXT NOT NULL DEFAULT 'claude',
+  model                    TEXT,
+  system_prompt            TEXT,
+  instructions             TEXT,
+  work_dir                 TEXT,
+  picture                  TEXT,
+  visibility               TEXT,
+  max_concurrent_tasks     INTEGER,
+  auto_start               BOOLEAN NOT NULL DEFAULT false,
+  skills                   JSONB NOT NULL DEFAULT '[]',
+  lifecycle                TEXT NOT NULL DEFAULT 'persistent',
+  openviking_user_id       TEXT,
+  openviking_api_key       TEXT,
+  openviking_mode          TEXT NOT NULL DEFAULT 'provisioned',
+  openviking_custom_url    TEXT,
+  openviking_custom_api_key TEXT
 );
 -- Migration for existing deployments — server runs schema.sql on every boot
 -- (db.js migrate()), so this ALTER lands automatically on the next restart.
@@ -78,6 +81,9 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAU
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS env_vars JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_user_id TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_api_key TEXT;
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_mode TEXT NOT NULL DEFAULT 'provisioned';
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_url TEXT;
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEXT;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

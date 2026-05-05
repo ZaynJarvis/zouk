@@ -336,26 +336,30 @@ async function saveAgentConfig(config) {
          id, machine_id, name, display_name, description, runtime, model,
          system_prompt, instructions, work_dir, picture, visibility,
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
-         openviking_user_id, openviking_api_key
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+         openviking_user_id, openviking_api_key,
+         openviking_mode, openviking_custom_url, openviking_custom_api_key
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
        ON CONFLICT (id) DO UPDATE SET
-         name                 = EXCLUDED.name,
-         display_name         = EXCLUDED.display_name,
-         description          = EXCLUDED.description,
-         runtime              = EXCLUDED.runtime,
-         model                = EXCLUDED.model,
-         system_prompt        = EXCLUDED.system_prompt,
-         instructions         = EXCLUDED.instructions,
-         work_dir             = EXCLUDED.work_dir,
-         picture              = EXCLUDED.picture,
-         visibility           = EXCLUDED.visibility,
-         max_concurrent_tasks = EXCLUDED.max_concurrent_tasks,
-         auto_start           = EXCLUDED.auto_start,
-         skills               = EXCLUDED.skills,
-         lifecycle            = EXCLUDED.lifecycle,
-         env_vars             = EXCLUDED.env_vars,
-         openviking_user_id   = EXCLUDED.openviking_user_id,
-         openviking_api_key   = EXCLUDED.openviking_api_key`,
+         name                       = EXCLUDED.name,
+         display_name               = EXCLUDED.display_name,
+         description                = EXCLUDED.description,
+         runtime                    = EXCLUDED.runtime,
+         model                      = EXCLUDED.model,
+         system_prompt              = EXCLUDED.system_prompt,
+         instructions               = EXCLUDED.instructions,
+         work_dir                   = EXCLUDED.work_dir,
+         picture                    = EXCLUDED.picture,
+         visibility                 = EXCLUDED.visibility,
+         max_concurrent_tasks       = EXCLUDED.max_concurrent_tasks,
+         auto_start                 = EXCLUDED.auto_start,
+         skills                     = EXCLUDED.skills,
+         lifecycle                  = EXCLUDED.lifecycle,
+         env_vars                   = EXCLUDED.env_vars,
+         openviking_user_id         = EXCLUDED.openviking_user_id,
+         openviking_api_key         = EXCLUDED.openviking_api_key,
+         openviking_mode            = EXCLUDED.openviking_mode,
+         openviking_custom_url      = EXCLUDED.openviking_custom_url,
+         openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key`,
       [
         config.id,
         config.machineId,
@@ -376,6 +380,9 @@ async function saveAgentConfig(config) {
         JSON.stringify(config.envVars || {}),
         config.openvikingUserId || null,
         config.openvikingApiKey || null,
+        config.openvikingMode === 'custom' ? 'custom' : 'provisioned',
+        config.openvikingCustomUrl || null,
+        config.openvikingCustomApiKey || null,
       ]
     );
   } catch (e) {
@@ -399,7 +406,8 @@ async function loadAgentConfigs() {
       `SELECT id, machine_id, name, display_name, description, runtime, model,
               system_prompt, instructions, work_dir, picture, visibility,
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
-              openviking_user_id, openviking_api_key
+              openviking_user_id, openviking_api_key,
+              openviking_mode, openviking_custom_url, openviking_custom_api_key
          FROM agent_configs
          ORDER BY name ASC`
     );
@@ -423,6 +431,9 @@ async function loadAgentConfigs() {
       envVars: row.env_vars && typeof row.env_vars === 'object' ? row.env_vars : {},
       openvikingUserId: row.openviking_user_id || null,
       openvikingApiKey: row.openviking_api_key || null,
+      openvikingMode: row.openviking_mode === 'custom' ? 'custom' : 'provisioned',
+      openvikingCustomUrl: row.openviking_custom_url || null,
+      openvikingCustomApiKey: row.openviking_custom_api_key || null,
     }));
   } catch (e) {
     console.error('[db] loadAgentConfigs error:', e.message);

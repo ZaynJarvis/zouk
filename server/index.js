@@ -32,15 +32,28 @@ const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 // Legacy hex keys can't carry an account; provisioning is disabled in that case.
 const OPENVIKING_URL = (process.env.OPENVIKING_URL || "").replace(/\/+$/, "") || null;
 const OPENVIKING_ROOT_KEY = process.env.OPENVIKING_ROOT_KEY || null;
-function decodeAccountFromKey(key) {
-  if (!key || !key.includes(".")) return null;
-  const first = key.split(".", 1)[0];
-  try {
-    const decoded = Buffer.from(first.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
-    return decoded || null;
-  } catch {
-    return null;
+function decodeOvKey(key) {
+  // New-format key: base64url(account).base64url(user).base64url(secret).
+  // Returns { account, user } if both segments decode; null fields otherwise.
+  if (!key || typeof key !== "string" || !key.includes(".")) {
+    return { account: null, user: null };
   }
+  const parts = key.split(".");
+  const decodeSeg = (s) => {
+    try {
+      const out = Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+      return out || null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    account: parts[0] ? decodeSeg(parts[0]) : null,
+    user: parts.length >= 2 ? decodeSeg(parts[1]) : null,
+  };
+}
+function decodeAccountFromKey(key) {
+  return decodeOvKey(key).account;
 }
 const OPENVIKING_ACCOUNT = decodeAccountFromKey(OPENVIKING_ROOT_KEY);
 const OV_PROVISIONING_ENABLED = !!(OPENVIKING_URL && OPENVIKING_ROOT_KEY && OPENVIKING_ACCOUNT);
@@ -200,16 +213,21 @@ function agentPayload(agentId) {
     lifecycle: cfg.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
     channels: agentChannelNames(agentId),
     openvikingProvisioned: !!cfg.openvikingApiKey,
+    openvikingMode: cfg.openvikingMode === 'custom' ? 'custom' : 'provisioned',
+    openvikingCustomConfigured: !!cfg.openvikingCustomApiKey,
   };
 }
 
-// Strip secret fields (openvikingApiKey) before sending agent configs to
-// browser clients. Keep openvikingUserId — it's the same id surfaced as
+// Strip secret fields (openvikingApiKey, openvikingCustomApiKey) before sending
+// agent configs to browser clients. Keep openvikingUserId — it's the same id
+// surfaced as
 // `X-OpenViking-Agent` in admin views and not sensitive.
 function sanitizedAgentConfigs() {
-  return agentConfigs.map(({ openvikingApiKey, ...rest }) => ({
+  return agentConfigs.map(({ openvikingApiKey, openvikingCustomApiKey, ...rest }) => ({
     ...rest,
     openvikingProvisioned: !!openvikingApiKey,
+    openvikingMode: rest.openvikingMode === 'custom' ? 'custom' : 'provisioned',
+    openvikingCustomConfigured: !!openvikingCustomApiKey,
   }));
 }
 
@@ -2157,9 +2175,43 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     });
     idx = agentConfigs.length - 1;
   }
-  // machineId is immutable — never let the payload overwrite the stored value.
-  const { machineId: _ignored, ...rest } = updates;
-  agentConfigs[idx] = { ...agentConfigs[idx], ...rest };
+  // machineId is immutable. openvikingApiKey / openvikingUserId are
+  // server-managed (provisioned by the agent-start handler); never let the
+  // payload overwrite them.
+  const {
+    machineId: _ignoredMachineId,
+    openvikingApiKey: _ignoredOvApiKey,
+    openvikingUserId: _ignoredOvUserId,
+    openvikingCustomApiKey: incomingCustomApiKey,
+    openvikingMode: incomingMode,
+    ...rest
+  } = updates;
+
+  const merged = { ...agentConfigs[idx], ...rest };
+
+  // openvikingMode: clamp to known values; default unchanged.
+  if (incomingMode !== undefined) {
+    merged.openvikingMode = incomingMode === 'custom' ? 'custom' : 'provisioned';
+  }
+  // openvikingCustomApiKey: empty string / undefined = keep old value (the
+  // password-input "leave blank to keep" pattern). Non-empty string = replace.
+  if (typeof incomingCustomApiKey === 'string' && incomingCustomApiKey.length > 0) {
+    merged.openvikingCustomApiKey = incomingCustomApiKey;
+  } else if (incomingCustomApiKey === null) {
+    // Explicit null = clear the saved value.
+    merged.openvikingCustomApiKey = null;
+  }
+
+  // Reject save if mode is custom but no effective url + api key are set.
+  if (merged.openvikingMode === 'custom') {
+    if (!merged.openvikingCustomUrl || !merged.openvikingCustomApiKey) {
+      return res.status(400).json({
+        error: "Custom OpenViking mode requires both openvikingCustomUrl and openvikingCustomApiKey",
+      });
+    }
+  }
+
+  agentConfigs[idx] = merged;
   // description is the system prompt — keep them in sync
   if (updates.description !== undefined && updates.systemPrompt === undefined) {
     agentConfigs[idx].systemPrompt = updates.description;
@@ -2170,7 +2222,16 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
   }
   broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
-  res.json({ config: agentConfigs[idx] });
+  // Strip secrets from the response too, so saving doesn't leak the api key
+  // back to the client even though it's the same client that just sent it.
+  const { openvikingApiKey: _stripA, openvikingCustomApiKey: _stripB, ...safeConfig } = agentConfigs[idx];
+  res.json({
+    config: {
+      ...safeConfig,
+      openvikingProvisioned: !!agentConfigs[idx].openvikingApiKey,
+      openvikingCustomConfigured: !!agentConfigs[idx].openvikingCustomApiKey,
+    },
+  });
 });
 
 // Delete agent config
@@ -2353,23 +2414,53 @@ async function startAgentOnDaemon(id, config) {
     machineId: targetWs._machineId,
   });
 
-  // Provision the agent's OV key lazily (covers both new agents and existing
-  // keyless ones). Best-effort: if provisioning fails the agent still starts
-  // and the daemon falls back to its local ovcli.conf.
+  // OpenViking creds: choose between server-provisioned (default) and
+  // user-supplied custom creds based on agent's openvikingMode.
+  const ovMode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
   let ovUserId = config.openvikingUserId || deriveOvUserId(id);
   let ovApiKey = config.openvikingApiKey || null;
-  if (!ovApiKey && OV_PROVISIONING_ENABLED) {
-    try {
-      const res = await provisionAgentKey({
+  let daemonOv = null;
+
+  if (ovMode === 'custom') {
+    // User provides url + api key directly. Account/user are decoded from the
+    // new-format key (or left blank — OV server can derive from key).
+    if (config.openvikingCustomUrl && config.openvikingCustomApiKey) {
+      const decoded = decodeOvKey(config.openvikingCustomApiKey);
+      daemonOv = {
+        url: config.openvikingCustomUrl,
+        account: decoded.account || '',
+        userId: decoded.user || ovUserId,
+        apiKey: config.openvikingCustomApiKey,
+      };
+    }
+    // else: missing creds — daemon falls back to its local ovcli.conf, same as
+    // when provisioning was never enabled.
+  } else {
+    // Provisioned mode: lazily mint a per-agent key on first start (covers
+    // both new agents and existing keyless ones). Best-effort: if the OV
+    // admin call fails the agent still starts and the daemon falls back to
+    // its local ovcli.conf.
+    if (!ovApiKey && OV_PROVISIONING_ENABLED) {
+      try {
+        const res = await provisionAgentKey({
+          url: OPENVIKING_URL,
+          account: OPENVIKING_ACCOUNT,
+          rootApiKey: OPENVIKING_ROOT_KEY,
+          agentId: ovUserId,
+        });
+        ovApiKey = res.user_key;
+        ovUserId = res.user_id;
+      } catch (err) {
+        console.warn(`[ov] provisioning failed for ${id}: ${err.message}`);
+      }
+    }
+    if (ovApiKey && OPENVIKING_URL && OPENVIKING_ACCOUNT) {
+      daemonOv = {
         url: OPENVIKING_URL,
         account: OPENVIKING_ACCOUNT,
-        rootApiKey: OPENVIKING_ROOT_KEY,
-        agentId: ovUserId,
-      });
-      ovApiKey = res.user_key;
-      ovUserId = res.user_id;
-    } catch (err) {
-      console.warn(`[ov] provisioning failed for ${id}: ${err.message}`);
+        userId: ovUserId,
+        apiKey: ovApiKey,
+      };
     }
   }
 
@@ -2390,14 +2481,7 @@ async function startAgentOnDaemon(id, config) {
   if (config.envVars && typeof config.envVars === 'object') {
     daemonConfig.envVars = config.envVars;
   }
-  if (ovApiKey && OPENVIKING_URL && OPENVIKING_ACCOUNT) {
-    daemonConfig.openviking = {
-      url: OPENVIKING_URL,
-      account: OPENVIKING_ACCOUNT,
-      userId: ovUserId,
-      apiKey: ovApiKey,
-    };
-  }
+  if (daemonOv) daemonConfig.openviking = daemonOv;
 
   // Send agent:start to daemon — read from config (source of truth),
   // not store.agents (which may have fallback values).
