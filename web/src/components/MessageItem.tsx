@@ -102,7 +102,10 @@ function renderInline(text: string, keyPrefix: string, linkRules: LinkTransformR
   }
 
   // Order matters: longer/specific tokens first so `**` isn't eaten by `*`.
-  const inlineRegexG = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g;
+  // Underscore-based delimiters follow CommonMark: `_` can only open/close
+  // when NOT immediately preceded/followed by an alphanumeric character.
+  // This prevents `xxx_yy_zzz` from rendering `yy` as italic.
+  const inlineRegexG = /(`[^`]+`|\*\*[^*]+\*\*|(?<![a-zA-Z0-9])__[^_]+__(?![a-zA-Z0-9])|~~[^~]+~~|\*[^*\s][^*]*\*|(?<![a-zA-Z0-9])_[^_\s][^_]*_(?![a-zA-Z0-9]))/g;
   while ((m = inlineRegexG.exec(text)) !== null) {
     const raw = m[0];
     const start = m.index;
