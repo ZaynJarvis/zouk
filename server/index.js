@@ -3662,6 +3662,25 @@ async function initFromDB() {
       console.log(`[db] Seeded ${agentConfigs.length} agent configs to DB`);
     }
 
+    // One-time migration: seed OPENVIKING_CLI_CONFIG_FILE for zeus/bob/alice.
+    // Remove this block after it has run once on deploy.
+    {
+      const seeds = {
+        zeus:  '/Users/bytedance/.openviking/ovcli.conf.zeus',
+        bob:   '/Users/lululiang/.openviking/ovcli.conf.bob',
+        alice: '/Users/lululiang/.openviking/ovcli.conf.alice',
+      };
+      let seeded = 0;
+      for (const cfg of agentConfigs) {
+        if (seeds[cfg.name] && (!cfg.envVars || !cfg.envVars.OPENVIKING_CLI_CONFIG_FILE)) {
+          cfg.envVars = { ...cfg.envVars, OPENVIKING_CLI_CONFIG_FILE: seeds[cfg.name] };
+          await db.saveAgentConfig(cfg);
+          seeded++;
+        }
+      }
+      if (seeded > 0) console.log(`[db] Seeded env_vars for ${seeded} agents (zeus/bob/alice)`);
+    }
+
     await profilePresets.hydrateFromDb();
 
     // One-shot trim of any historical activity backlog — cheap at our scale.
