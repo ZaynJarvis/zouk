@@ -2184,12 +2184,19 @@ async function ovMcpCall(creds, toolName, args) {
   return content?.[0]?.text || parsed.result?.structuredContent?.result || "";
 }
 
-function parseOvListResult(text) {
+function parseOvListResult(text, parentUri) {
+  const base = parentUri ? parentUri.replace(/\/+$/, "") + "/" : "";
   return text.split("\n").filter(Boolean).map((line) => {
     const dirMatch = line.match(/^\[dir\]\s+(.+)/);
     const fileMatch = line.match(/^\[file\]\s+(.+)/);
-    if (dirMatch) return { uri: dirMatch[1], isDir: true };
-    if (fileMatch) return { uri: fileMatch[1], isDir: false };
+    if (dirMatch) {
+      const name = dirMatch[1].trim();
+      return { uri: name.startsWith("viking://") ? name : base + name, isDir: true };
+    }
+    if (fileMatch) {
+      const name = fileMatch[1].trim();
+      return { uri: name.startsWith("viking://") ? name : base + name, isDir: false };
+    }
     return null;
   }).filter(Boolean);
 }
@@ -2206,7 +2213,7 @@ app.get("/api/agents/:id/ov/ls", async (req, res) => {
   const uri = req.query.uri || `viking://user/${creds.user || creds.agentId}/`;
   try {
     const raw = await ovMcpCall(creds, "list", { uri });
-    res.json({ entries: parseOvListResult(raw) });
+    res.json({ entries: parseOvListResult(raw, uri) });
   } catch (e) {
     ovMcpSessions.delete(creds.url + ":" + creds.user);
     res.status(500).json({ error: e.message });
@@ -3291,7 +3298,7 @@ function handleWebMessage(ws, msg) {
         const uri = msg.uri || "viking:///";
         ovMcpCall(ovCreds, "list", { uri })
           .then((raw) => {
-            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw) });
+            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw, uri) });
           })
           .catch((e) => {
             ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
