@@ -141,7 +141,7 @@ function renderInline(text: string, keyPrefix: string, linkRules: LinkTransformR
       const raw = seg.raw;
       if (raw.startsWith('`')) {
         nodes.push(
-          <code key={`${keyPrefix}-ic-${seg.start}`} className="bg-nc-green/10 text-nc-text-bright px-[2px] py-px font-mono text-[0.88em] rounded-sm">
+          <code key={`${keyPrefix}-ic-${seg.start}`} className="bg-nc-green/10 text-nc-text-bright px-[2px] py-px font-mono text-[0.88em] rounded-sm" style={{ overflowWrap: 'anywhere' }}>
             {raw.slice(1, -1)}
           </code>
         );
