@@ -2034,69 +2034,105 @@ app.get("/api/agents/:id/activities", async (req, res) => {
 
 // ─── OpenViking memory proxy ────────────────────────────────────
 
-const { execFile } = require("child_process");
-
 function resolveOvCredentials(agentId) {
   const config = agentConfigs.find((c) => c.id === agentId);
   if (!config?.envVars) return null;
   const ev = config.envVars;
-  const url = ev.OPENVIKING_URL;
-  const apiKey = ev.OPENVIKING_API_KEY;
+  let url = ev.OPENVIKING_URL;
+  let apiKey = ev.OPENVIKING_API_KEY;
+  let user = ev.OPENVIKING_USER || "";
+  let account = ev.OPENVIKING_ACCOUNT || "";
+  let agentIdVal = ev.OPENVIKING_AGENT_ID || "";
+
   if (!url || !apiKey) {
     if (ev.OPENVIKING_CLI_CONFIG_FILE) {
       try {
         const raw = JSON.parse(fs.readFileSync(ev.OPENVIKING_CLI_CONFIG_FILE, "utf8"));
         if (raw.url && raw.api_key) {
-          return {
-            OPENVIKING_URL: raw.url,
-            OPENVIKING_API_KEY: raw.api_key,
-            OPENVIKING_USER: ev.OPENVIKING_USER || raw.user || "",
-            OPENVIKING_ACCOUNT: ev.OPENVIKING_ACCOUNT || raw.account || "",
-            OPENVIKING_AGENT_ID: ev.OPENVIKING_AGENT_ID || raw.agent_id || "",
-          };
+          url = url || raw.url;
+          apiKey = apiKey || raw.api_key;
+          user = user || raw.user || "";
+          account = account || raw.account || "";
+          agentIdVal = agentIdVal || raw.agent_id || "";
         }
       } catch { /* config file not accessible from server */ }
     }
-    return null;
   }
-  return {
-    OPENVIKING_URL: url,
-    OPENVIKING_API_KEY: apiKey,
-    OPENVIKING_USER: ev.OPENVIKING_USER || "",
-    OPENVIKING_ACCOUNT: ev.OPENVIKING_ACCOUNT || "",
-    OPENVIKING_AGENT_ID: ev.OPENVIKING_AGENT_ID || "",
-  };
+  if (!url || !apiKey) return null;
+  return { url: url.replace(/\/+$/, ""), apiKey, user, account, agentId: agentIdVal };
 }
 
-function runOvCommand(ovEnv, args, timeout = 15000) {
-  return new Promise((resolve, reject) => {
-    const env = { ...process.env, ...ovEnv, PATH: process.env.PATH };
-    execFile("ov", args, { env, timeout }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr || err.message));
-      const lines = stdout.split("\n").filter((l) => !l.startsWith("cmd:") && l.trim());
-      resolve(lines.join("\n"));
+function isLocalUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    const host = u.hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1" || host.endsWith(".local");
+  } catch { return false; }
+}
+
+const ovMcpSessions = new Map();
+
+async function ovMcpCall(creds, toolName, args) {
+  const mcpUrl = `${creds.url}/mcp`;
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+    "Authorization": `Bearer ${creds.apiKey}`,
+    "X-OpenViking-Account": creds.account,
+    "X-OpenViking-User": creds.user,
+    "X-OpenViking-Agent": creds.agentId,
+  };
+
+  let sessionId = ovMcpSessions.get(creds.url + ":" + creds.user);
+  if (!sessionId) {
+    const initRes = await fetch(mcpUrl, {
+      method: "POST", headers,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "zouk-server", version: "1.0" } }, id: 1 }),
     });
+    sessionId = initRes.headers.get("mcp-session-id");
+    if (sessionId) ovMcpSessions.set(creds.url + ":" + creds.user, sessionId);
+  }
+
+  if (sessionId) headers["Mcp-Session-Id"] = sessionId;
+  const res = await fetch(mcpUrl, {
+    method: "POST", headers,
+    body: JSON.stringify({ jsonrpc: "2.0", method: "tools/call", params: { name: toolName, arguments: args }, id: Date.now() }),
   });
+  const text = await res.text();
+  const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
+  if (!dataLine) throw new Error("No data in MCP response");
+  const parsed = JSON.parse(dataLine.slice(6));
+  if (parsed.error) throw new Error(parsed.error.message || "MCP error");
+  const content = parsed.result?.content;
+  if (parsed.result?.isError) throw new Error(content?.[0]?.text || "OV tool error");
+  return content?.[0]?.text || parsed.result?.structuredContent?.result || "";
+}
+
+function parseOvListResult(text) {
+  return text.split("\n").filter(Boolean).map((line) => {
+    const dirMatch = line.match(/^\[dir\]\s+(.+)/);
+    const fileMatch = line.match(/^\[file\]\s+(.+)/);
+    if (dirMatch) return { uri: dirMatch[1], isDir: true };
+    if (fileMatch) return { uri: fileMatch[1], isDir: false };
+    return null;
+  }).filter(Boolean);
 }
 
 app.get("/api/agents/:id/ov/status", (req, res) => {
   const creds = resolveOvCredentials(req.params.id);
-  res.json({ enabled: !!creds, user: creds?.OPENVIKING_USER || null, url: creds?.OPENVIKING_URL || null });
+  res.json({ enabled: !!creds, user: creds?.user || null, url: creds?.url || null, local: creds ? isLocalUrl(creds.url) : false });
 });
 
 app.get("/api/agents/:id/ov/ls", async (req, res) => {
   const creds = resolveOvCredentials(req.params.id);
   if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
-  const uri = req.query.uri || `viking://user/${creds.OPENVIKING_USER || creds.OPENVIKING_AGENT_ID}/`;
+  if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
+  const uri = req.query.uri || `viking://user/${creds.user || creds.agentId}/`;
   try {
-    const raw = await runOvCommand(creds, ["ls", uri, "-o", "json"]);
-    const parsed = JSON.parse(raw);
-    if (parsed.ok) {
-      res.json({ entries: parsed.result || [] });
-    } else {
-      res.status(500).json({ error: parsed.error || "OV ls failed" });
-    }
+    const raw = await ovMcpCall(creds, "list", { uri });
+    res.json({ entries: parseOvListResult(raw) });
   } catch (e) {
+    ovMcpSessions.delete(creds.url + ":" + creds.user);
     res.status(500).json({ error: e.message });
   }
 });
@@ -2104,12 +2140,14 @@ app.get("/api/agents/:id/ov/ls", async (req, res) => {
 app.get("/api/agents/:id/ov/read", async (req, res) => {
   const creds = resolveOvCredentials(req.params.id);
   if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
+  if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
   const uri = req.query.uri;
   if (!uri) return res.status(400).json({ error: "uri parameter required" });
   try {
-    const content = await runOvCommand(creds, ["read", uri]);
+    const content = await ovMcpCall(creds, "read", { uris: uri });
     res.json({ content });
   } catch (e) {
+    ovMcpSessions.delete(creds.url + ":" + creds.user);
     res.status(500).json({ error: e.message });
   }
 });
@@ -3054,14 +3092,14 @@ function handleWebMessage(ws, msg) {
     }
     case "memory:list": {
       const ovCreds = resolveOvCredentials(msg.agentId);
-      if (ovCreds) {
+      if (ovCreds && !isLocalUrl(ovCreds.url)) {
         const uri = msg.uri || "viking:///";
-        runOvCommand(ovCreds, ["ls", uri, "-o", "json"])
+        ovMcpCall(ovCreds, "list", { uri })
           .then((raw) => {
-            const parsed = JSON.parse(raw);
-            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parsed.ok ? parsed.result : [], error: parsed.ok ? null : "OV ls failed" });
+            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw) });
           })
           .catch((e) => {
+            ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
             broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: [], error: e.message });
           });
       } else {
@@ -3074,14 +3112,15 @@ function handleWebMessage(ws, msg) {
     }
     case "memory:read": {
       const ovCreds = resolveOvCredentials(msg.agentId);
-      if (ovCreds) {
+      if (ovCreds && !isLocalUrl(ovCreds.url)) {
         const uri = msg.uri;
         const requestId = msg.requestId || uuidv4();
-        runOvCommand(ovCreds, ["read", uri])
+        ovMcpCall(ovCreds, "read", { uris: uri })
           .then((content) => {
             broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri, content, error: null });
           })
           .catch((e) => {
+            ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
             broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri, content: null, error: e.message });
           });
       } else {
