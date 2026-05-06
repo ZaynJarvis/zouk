@@ -149,7 +149,7 @@ export default function AgentConfigForm({
       model,
       autoStart: true,
       picture,
-      envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
+      envVars: envVars,
     };
     if (ovDirty) {
       payload.openvikingMode = ovMode;
