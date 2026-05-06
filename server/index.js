@@ -2032,6 +2032,88 @@ app.get("/api/agents/:id/activities", async (req, res) => {
   }
 });
 
+// ─── OpenViking memory proxy ────────────────────────────────────
+
+const { execFile } = require("child_process");
+
+function resolveOvCredentials(agentId) {
+  const config = agentConfigs.find((c) => c.id === agentId);
+  if (!config?.envVars) return null;
+  const ev = config.envVars;
+  const url = ev.OPENVIKING_URL;
+  const apiKey = ev.OPENVIKING_API_KEY;
+  if (!url || !apiKey) {
+    if (ev.OPENVIKING_CLI_CONFIG_FILE) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(ev.OPENVIKING_CLI_CONFIG_FILE, "utf8"));
+        if (raw.url && raw.api_key) {
+          return {
+            OPENVIKING_URL: raw.url,
+            OPENVIKING_API_KEY: raw.api_key,
+            OPENVIKING_USER: ev.OPENVIKING_USER || raw.user || "",
+            OPENVIKING_ACCOUNT: ev.OPENVIKING_ACCOUNT || raw.account || "",
+            OPENVIKING_AGENT_ID: ev.OPENVIKING_AGENT_ID || raw.agent_id || "",
+          };
+        }
+      } catch { /* config file not accessible from server */ }
+    }
+    return null;
+  }
+  return {
+    OPENVIKING_URL: url,
+    OPENVIKING_API_KEY: apiKey,
+    OPENVIKING_USER: ev.OPENVIKING_USER || "",
+    OPENVIKING_ACCOUNT: ev.OPENVIKING_ACCOUNT || "",
+    OPENVIKING_AGENT_ID: ev.OPENVIKING_AGENT_ID || "",
+  };
+}
+
+function runOvCommand(ovEnv, args, timeout = 15000) {
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, ...ovEnv, PATH: process.env.PATH };
+    execFile("ov", args, { env, timeout }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr || err.message));
+      const lines = stdout.split("\n").filter((l) => !l.startsWith("cmd:") && l.trim());
+      resolve(lines.join("\n"));
+    });
+  });
+}
+
+app.get("/api/agents/:id/ov/status", (req, res) => {
+  const creds = resolveOvCredentials(req.params.id);
+  res.json({ enabled: !!creds, user: creds?.OPENVIKING_USER || null, url: creds?.OPENVIKING_URL || null });
+});
+
+app.get("/api/agents/:id/ov/ls", async (req, res) => {
+  const creds = resolveOvCredentials(req.params.id);
+  if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
+  const uri = req.query.uri || `viking://user/${creds.OPENVIKING_USER || creds.OPENVIKING_AGENT_ID}/`;
+  try {
+    const raw = await runOvCommand(creds, ["ls", uri, "-o", "json"]);
+    const parsed = JSON.parse(raw);
+    if (parsed.ok) {
+      res.json({ entries: parsed.result || [] });
+    } else {
+      res.status(500).json({ error: parsed.error || "OV ls failed" });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/agents/:id/ov/read", async (req, res) => {
+  const creds = resolveOvCredentials(req.params.id);
+  if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
+  const uri = req.query.uri;
+  if (!uri) return res.status(400).json({ error: "uri parameter required" });
+  try {
+    const content = await runOvCommand(creds, ["read", uri]);
+    res.json({ content });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── Agent config CRUD ───────────────────────────────────────────
 
 // List all agent configs
@@ -2971,16 +3053,42 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "memory:list": {
-      const agentWs = daemonSockets.get(msg.agentId);
-      if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: msg.agentId, uri: msg.uri || "viking:///" }));
+      const ovCreds = resolveOvCredentials(msg.agentId);
+      if (ovCreds) {
+        const uri = msg.uri || "viking:///";
+        runOvCommand(ovCreds, ["ls", uri, "-o", "json"])
+          .then((raw) => {
+            const parsed = JSON.parse(raw);
+            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parsed.ok ? parsed.result : [], error: parsed.ok ? null : "OV ls failed" });
+          })
+          .catch((e) => {
+            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: [], error: e.message });
+          });
+      } else {
+        const agentWs = daemonSockets.get(msg.agentId);
+        if (agentWs && agentWs.readyState === 1) {
+          agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: msg.agentId, uri: msg.uri || "viking:///" }));
+        }
       }
       break;
     }
     case "memory:read": {
-      const agentWs = daemonSockets.get(msg.agentId);
-      if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: msg.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri }));
+      const ovCreds = resolveOvCredentials(msg.agentId);
+      if (ovCreds) {
+        const uri = msg.uri;
+        const requestId = msg.requestId || uuidv4();
+        runOvCommand(ovCreds, ["read", uri])
+          .then((content) => {
+            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri, content, error: null });
+          })
+          .catch((e) => {
+            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri, content: null, error: e.message });
+          });
+      } else {
+        const agentWs = daemonSockets.get(msg.agentId);
+        if (agentWs && agentWs.readyState === 1) {
+          agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: msg.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri }));
+        }
       }
       break;
     }

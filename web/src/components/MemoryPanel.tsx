@@ -29,12 +29,12 @@ function AgentAvatarStrip({
   onSelect: (id: string) => void;
 }) {
   const nc = isNightCity();
-  const activeAgents = agents.filter(a => a.status === 'active');
+  const activeAgents = agents;
 
   if (activeAgents.length === 0) {
     return (
       <div className="px-3 py-2 text-xs text-nc-muted font-mono">
-        No active agents
+        No agents
       </div>
     );
   }
@@ -216,10 +216,8 @@ function MemoryTree({
   const rootEntries = useMemo(() => agentCache['viking:///'] || [], [agentCache]);
 
   useEffect(() => {
-    if (agent.status === 'active') {
-      requestMemoryList(agent.id);
-    }
-  }, [agent.id, agent.status, requestMemoryList]);
+    requestMemoryList(agent.id);
+  }, [agent.id, requestMemoryList]);
 
   const handleToggleDir = useCallback((uri: string) => {
     setExpandedDirs(prev => {
@@ -240,15 +238,6 @@ function MemoryTree({
     requestMemoryList(agent.id);
     setExpandedDirs(new Set());
   }, [agent.id, requestMemoryList]);
-
-  if (agent.status !== 'active') {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center py-8">
-        <Brain size={20} className="text-nc-muted mb-2" />
-        <p className="text-xs text-nc-muted font-mono">AGENT_OFFLINE</p>
-      </div>
-    );
-  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -343,21 +332,20 @@ function MemoryPreview({
 export default function MemoryPanel() {
   const { agents, closeRightPanel, requestMemoryContent } = useApp();
   const nc = isNightCity();
-  const activeAgents = agents.filter(a => a.status === 'active');
+  const allAgents = agents;
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [viewingUri, setViewingUri] = useState<string | null>(null);
   const [splitMode, setSplitMode] = useState(false);
 
-  // Auto-select first active agent if none selected
   useEffect(() => {
-    if (!selectedAgentId && activeAgents.length > 0) {
-      setSelectedAgentId(activeAgents[0].id);
+    if (!selectedAgentId && allAgents.length > 0) {
+      setSelectedAgentId(allAgents[0].id);
     }
-    if (selectedAgentId && !activeAgents.find(a => a.id === selectedAgentId)) {
-      setSelectedAgentId(activeAgents.length > 0 ? activeAgents[0].id : null);
+    if (selectedAgentId && !allAgents.find(a => a.id === selectedAgentId)) {
+      setSelectedAgentId(allAgents.length > 0 ? allAgents[0].id : null);
       setViewingUri(null);
     }
-  }, [activeAgents, selectedAgentId]);
+  }, [allAgents, selectedAgentId]);
 
   const handleSelectAgent = useCallback((id: string) => {
     setSelectedAgentId(id);
@@ -377,7 +365,7 @@ export default function MemoryPanel() {
     setSplitMode(false);
   }, []);
 
-  const selectedAgent = activeAgents.find(a => a.id === selectedAgentId);
+  const selectedAgent = allAgents.find(a => a.id === selectedAgentId);
 
   return (
     <div className={`w-screen lg:w-[340px] xl:w-[380px] flex-shrink-0 flex flex-col h-full border-l ${
@@ -414,7 +402,7 @@ export default function MemoryPanel() {
       {/* Agent avatar strip */}
       <div className={`border-b ${nc ? 'border-nc-border' : 'border-nc-border'}`}>
         <AgentAvatarStrip
-          agents={agents}
+          agents={allAgents}
           selectedId={selectedAgentId}
           onSelect={handleSelectAgent}
         />
@@ -476,10 +464,10 @@ export default function MemoryPanel() {
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
           <Brain size={28} className={nc ? 'text-nc-yellow/30' : 'text-nc-muted'} />
           <p className={`text-sm font-bold mt-3 ${nc ? 'text-nc-yellow/50 font-mono' : 'text-nc-muted'}`}>
-            {nc ? 'NO_ACTIVE_AGENTS' : 'No active agents'}
+            {nc ? 'NO_AGENTS' : 'No agents'}
           </p>
           <p className="text-xs text-nc-muted mt-1 font-mono">
-            Start an agent to browse its memory.
+            Configure an agent to browse its memory.
           </p>
         </div>
       )}

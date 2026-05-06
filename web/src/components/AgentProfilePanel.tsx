@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   X, Bot, User as UserIcon, Activity, FolderOpen, Settings as SettingsIcon, MessageCircle,
+  Brain, ChevronRight, File, Folder, FolderOpen as FolderOpenIcon,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import type { ServerAgent } from '../types';
+import type { ServerAgent, MemoryEntry } from '../types';
 import { activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
@@ -149,41 +150,163 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
   );
 }
 
+function uriName(uri: string): string {
+  const parts = uri.replace(/\/+$/, '').split('/').filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : parts[0] || uri;
+}
+
+function OvTreeNode({
+  entry, level, expandedDirs, treeCache, onToggleDir, onViewFile,
+}: {
+  entry: MemoryEntry; level: number; expandedDirs: Set<string>;
+  treeCache: Record<string, MemoryEntry[]>;
+  onToggleDir: (uri: string) => void; onViewFile: (uri: string) => void;
+}) {
+  const { uri, isDir } = entry;
+  const isExpanded = isDir && expandedDirs.has(uri);
+  const children = isDir ? treeCache[uri] : undefined;
+  const name = uriName(uri);
+
+  return (
+    <>
+      <button
+        onClick={() => isDir ? onToggleDir(uri) : onViewFile(uri)}
+        className="w-full flex items-start gap-1.5 py-1 text-left hover:bg-nc-elevated transition-colors"
+        style={{ paddingLeft: `${12 + level * 16}px`, paddingRight: '12px' }}
+      >
+        {isDir ? (
+          <ChevronRight size={12} className={`flex-shrink-0 text-nc-muted transition-transform duration-150 mt-0.5 ${isExpanded ? 'rotate-90' : ''}`} />
+        ) : <span className="w-3 flex-shrink-0" />}
+        {isDir
+          ? (isExpanded ? <FolderOpenIcon size={12} className="flex-shrink-0 text-nc-cyan mt-0.5" /> : <Folder size={12} className="flex-shrink-0 text-nc-cyan mt-0.5" />)
+          : <File size={12} className="flex-shrink-0 text-nc-muted mt-0.5" />}
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-mono text-nc-text truncate block">{name}</span>
+          {!isDir && entry.abstract && (
+            <span className="text-2xs text-nc-muted font-mono truncate block leading-tight">{entry.abstract}</span>
+          )}
+        </div>
+      </button>
+      {isDir && isExpanded && (
+        <div>
+          {children ? (
+            children.length > 0 ? children.map((child) => (
+              <OvTreeNode key={child.uri} entry={child} level={level + 1} expandedDirs={expandedDirs} treeCache={treeCache} onToggleDir={onToggleDir} onViewFile={onViewFile} />
+            )) : (
+              <div className="text-2xs text-nc-muted font-mono py-1" style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}>(empty)</div>
+            )
+          ) : (
+            <div className="text-2xs text-nc-muted font-mono py-1 animate-pulse" style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}>loading...</div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function OvSection({ agent, onViewFile }: { agent: ServerAgent; onViewFile: (uri: string) => void }) {
+  const { memoryTreeCache, requestMemoryList } = useApp();
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [ovUser, setOvUser] = useState<string | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/agents/${agent.id}/ov/status`)
+      .then(r => r.json())
+      .then(data => { setOvUser(data.enabled ? (data.user || agent.name) : null); setChecked(true); })
+      .catch(() => setChecked(true));
+  }, [agent.id, agent.name]);
+
+  const rootUri = ovUser ? `viking://user/${ovUser}/` : null;
+  const agentCache = useMemo(() => memoryTreeCache[agent.id] || {}, [memoryTreeCache, agent.id]);
+  const rootEntries = useMemo(() => (rootUri ? agentCache[rootUri] || [] : []), [agentCache, rootUri]);
+
+  useEffect(() => {
+    if (rootUri && rootEntries.length === 0) {
+      requestMemoryList(agent.id, rootUri);
+    }
+  }, [agent.id, rootUri, rootEntries.length, requestMemoryList]);
+
+  const handleToggleDir = useCallback((uri: string) => {
+    setExpandedDirs(prev => {
+      const next = new Set(prev);
+      if (next.has(uri)) { next.delete(uri); } else {
+        next.add(uri);
+        if (!agentCache[uri]) requestMemoryList(agent.id, uri);
+      }
+      return next;
+    });
+  }, [agent.id, agentCache, requestMemoryList]);
+
+  if (!checked || !ovUser) return null;
+
+  return (
+    <div className="border-t border-nc-border">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/30">
+        <Brain size={11} className="text-nc-cyan flex-shrink-0" />
+        <span className="text-2xs font-bold text-nc-cyan font-mono tracking-wider">OV MEMORY</span>
+        <span className="text-2xs text-nc-muted font-mono">· {ovUser}</span>
+      </div>
+      <div className="py-0.5">
+        {rootEntries.length > 0 ? rootEntries.map((entry) => (
+          <OvTreeNode key={entry.uri} entry={entry} level={0} expandedDirs={expandedDirs} treeCache={agentCache} onToggleDir={handleToggleDir} onViewFile={onViewFile} />
+        )) : (
+          <div className="text-2xs text-nc-muted font-mono py-2 px-3 animate-pulse">Loading OV data...</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function WorkspaceTab({ agent }: { agent: ServerAgent }) {
-  const { workspaceFileContent, requestFileContent } = useApp();
+  const { workspaceFileContent, requestFileContent, memoryFileContent, requestMemoryContent } = useApp();
   const [viewingFile, setViewingFile] = useState<string | null>(null);
+  const [viewingOvUri, setViewingOvUri] = useState<string | null>(null);
   const { expandedDirs, rootFiles, toggleDir, treeCache } = useWorkspaceTree(agent);
 
-  const fileContent = workspaceFileContent?.agentId === agent.id && workspaceFileContent?.path === viewingFile
+  const fileContent = viewingFile && workspaceFileContent?.agentId === agent.id && workspaceFileContent?.path === viewingFile
     ? workspaceFileContent.content
     : null;
 
+  const ovContent = viewingOvUri && memoryFileContent?.agentId === agent.id && memoryFileContent?.uri === viewingOvUri
+    ? memoryFileContent.content
+    : null;
+
+  const previewContent = viewingOvUri ? ovContent : fileContent;
+  const previewName = viewingOvUri ? uriName(viewingOvUri) : (viewingFile?.split('/').pop() || viewingFile);
+  const previewTitle = viewingOvUri || viewingFile;
+  const hasPreview = !!(viewingFile || viewingOvUri);
+
   const handleViewFile = useCallback((filePath: string) => {
     setViewingFile(filePath);
+    setViewingOvUri(null);
     requestFileContent(agent.id, filePath);
   }, [agent.id, requestFileContent]);
 
-  if (agent.status !== 'active') {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-        <FolderOpen size={24} className="text-nc-muted mb-2" />
-        <p className="text-sm text-nc-muted font-bold font-mono">AGENT_OFFLINE</p>
-        <p className="text-xs text-nc-muted mt-1 font-mono">Start the agent to browse its workspace.</p>
-      </div>
-    );
-  }
+  const handleViewOvFile = useCallback((uri: string) => {
+    setViewingOvUri(uri);
+    setViewingFile(null);
+    requestMemoryContent(agent.id, uri);
+  }, [agent.id, requestMemoryContent]);
+
+  const handleClosePreview = useCallback(() => {
+    setViewingFile(null);
+    setViewingOvUri(null);
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div
         className="flex flex-col min-h-0"
-        style={viewingFile ? { maxHeight: '50%', flex: '1 1 0%' } : { flex: '1 1 0%' }}
+        style={hasPreview ? { maxHeight: '50%', flex: '1 1 0%' } : { flex: '1 1 0%' }}
       >
-        <div className="px-3 py-1.5 border-b border-nc-border">
-          <span className="text-xs font-mono text-nc-muted truncate block">{agent.workDir || '/'}</span>
-        </div>
+        {agent.status === 'active' && (
+          <div className="px-3 py-1.5 border-b border-nc-border">
+            <span className="text-xs font-mono text-nc-muted truncate block">{agent.workDir || '/'}</span>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto scrollbar-thin">
-          {rootFiles.length > 0 ? (
+          {agent.status === 'active' && rootFiles.length > 0 ? (
             <div className="py-0.5">
               <WorkspaceTree
                 files={rootFiles}
@@ -195,22 +318,24 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
                 expandMode="static"
               />
             </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center text-center py-12">
+          ) : agent.status === 'active' ? (
+            <div className="flex flex-col items-center justify-center text-center py-6">
               <FolderOpen size={20} className="text-nc-muted mb-2" />
-              <p className="text-xs text-nc-muted font-mono">No files</p>
+              <p className="text-xs text-nc-muted font-mono">No workspace files</p>
             </div>
-          )}
+          ) : null}
+          <OvSection agent={agent} onViewFile={handleViewOvFile} />
         </div>
       </div>
-      {viewingFile && (
+      {hasPreview && (
         <div className="flex-1 flex flex-col min-h-0 border-t border-nc-border">
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/50">
-            <span className="flex-1 text-xs font-mono text-nc-text truncate" title={viewingFile}>
-              {viewingFile.split('/').pop() || viewingFile}
+            {viewingOvUri && <Brain size={11} className="text-nc-cyan flex-shrink-0" />}
+            <span className="flex-1 text-xs font-mono text-nc-text truncate" title={previewTitle || ''}>
+              {previewName}
             </span>
             <button
-              onClick={() => setViewingFile(null)}
+              onClick={handleClosePreview}
               className="w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-colors"
               title="Close preview"
             >
@@ -221,7 +346,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
             className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50"
             style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
           >
-            {fileContent ?? 'Loading...'}
+            {previewContent ?? 'Loading...'}
           </pre>
         </div>
       )}
