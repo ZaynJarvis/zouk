@@ -70,6 +70,7 @@
     html[data-font-size="small"] .msg-body { font-size: 16px; }
     html[data-font-size="large"] .msg-body { font-size: 19px; }
   }
+  html[data-font-size="small"] .msg-body li { font-size: 0.875em; }
 
   /* Inside a blockquote, cap strong at 700 so the quoted voice doesn't
      shout — keeps the literary register Alice called out in R3. */
