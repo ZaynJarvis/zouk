@@ -40,8 +40,11 @@ export const themes: ThemeDefinition[] = [
 
 export const DEFAULT_THEME: ThemeId = 'washington-post';
 
+const LIGHT_THEMES = new Set<ThemeId>(['washington-post', 'brutalist']);
+
 export function applyTheme(id: ThemeId) {
   document.documentElement.setAttribute('data-theme', id);
+  document.documentElement.style.colorScheme = LIGHT_THEMES.has(id) ? 'light' : 'dark';
   const themeMeta = document.querySelector("meta[name='theme-color']") as HTMLMetaElement | null;
   const theme = getTheme(id);
   if (themeMeta && theme) {
