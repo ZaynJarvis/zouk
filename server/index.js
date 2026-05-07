@@ -2112,8 +2112,35 @@ app.get("/api/agents/:id/activities", async (req, res) => {
 
 function resolveOvCredentials(agentId) {
   const config = agentConfigs.find((c) => c.id === agentId);
-  if (!config?.envVars) return null;
+  if (!config) return null;
+
+  const mode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
+  const agentName = config.name || agentId;
+
+  if (mode === 'custom' && config.openvikingCustomUrl && config.openvikingCustomApiKey) {
+    const decoded = decodeOvKey(config.openvikingCustomApiKey);
+    return {
+      url: config.openvikingCustomUrl.replace(/\/+$/, ""),
+      apiKey: config.openvikingCustomApiKey,
+      user: decoded.user || config.openvikingUserId || deriveOvUserId(agentId),
+      account: decoded.account || "",
+      agentId: agentName,
+    };
+  }
+
+  if (mode === 'provisioned' && config.openvikingApiKey && OPENVIKING_URL) {
+    return {
+      url: OPENVIKING_URL,
+      apiKey: config.openvikingApiKey,
+      user: config.openvikingUserId || deriveOvUserId(agentId),
+      account: OPENVIKING_ACCOUNT || "",
+      agentId: agentName,
+    };
+  }
+
+  // Fallback: check envVars (agents with explicit OPENVIKING_* env vars)
   const ev = config.envVars;
+  if (!ev) return null;
   let url = ev.OPENVIKING_URL;
   let apiKey = ev.OPENVIKING_API_KEY;
   let user = ev.OPENVIKING_USER || "";
