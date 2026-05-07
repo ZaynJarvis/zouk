@@ -3323,9 +3323,10 @@ function handleWebMessage(ws, msg) {
       const ovCreds = resolveOvCredentials(msg.agentId);
       if (ovCreds && !isLocalUrl(ovCreds.url)) {
         const uri = msg.uri || "viking:///";
-        ovMcpCall(ovCreds, "list", { uri })
+        const queryUri = uri === "viking:///" ? `viking://user/${ovCreds.user || ovCreds.agentId}/` : uri;
+        ovMcpCall(ovCreds, "list", { uri: queryUri })
           .then((raw) => {
-            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw, uri) });
+            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw, queryUri) });
           })
           .catch((e) => {
             ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
