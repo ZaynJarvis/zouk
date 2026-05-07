@@ -2212,7 +2212,13 @@ async function ovMcpCall(creds, toolName, args) {
 }
 
 function parseOvListResult(text, parentUri) {
-  const base = parentUri ? parentUri.replace(/\/+$/, "") + "/" : "";
+  let base = "";
+  if (parentUri) {
+    const i = parentUri.indexOf("://");
+    const scheme = i >= 0 ? parentUri.slice(0, i + 3) : "";
+    const path = i >= 0 ? parentUri.slice(i + 3).replace(/\/+$/, "") : parentUri.replace(/\/+$/, "");
+    base = scheme + (path ? path + "/" : "");
+  }
   return text.split("\n").filter(Boolean).map((line) => {
     const dirMatch = line.match(/^\[dir\]\s+(.+)/);
     const fileMatch = line.match(/^\[file\]\s+(.+)/);
@@ -3323,10 +3329,9 @@ function handleWebMessage(ws, msg) {
       const ovCreds = resolveOvCredentials(msg.agentId);
       if (ovCreds && !isLocalUrl(ovCreds.url)) {
         const uri = msg.uri || "viking:///";
-        const queryUri = uri === "viking:///" ? `viking://user/${ovCreds.user || ovCreds.agentId}/` : uri;
-        ovMcpCall(ovCreds, "list", { uri: queryUri })
+        ovMcpCall(ovCreds, "list", { uri })
           .then((raw) => {
-            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw, queryUri) });
+            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw, uri) });
           })
           .catch((e) => {
             ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
