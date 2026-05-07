@@ -43,8 +43,11 @@ export const DEFAULT_THEME: ThemeId = 'washington-post';
 const LIGHT_THEMES = new Set<ThemeId>(['washington-post', 'brutalist']);
 
 export function applyTheme(id: ThemeId) {
+  const cs = LIGHT_THEMES.has(id) ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', id);
-  document.documentElement.style.colorScheme = LIGHT_THEMES.has(id) ? 'light' : 'dark';
+  document.documentElement.style.colorScheme = cs;
+  const csMeta = document.querySelector("meta[name='color-scheme']") as HTMLMetaElement | null;
+  if (csMeta) csMeta.content = cs;
   const themeMeta = document.querySelector("meta[name='theme-color']") as HTMLMetaElement | null;
   const theme = getTheme(id);
   if (themeMeta && theme) {
