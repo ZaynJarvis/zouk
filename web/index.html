@@ -22,19 +22,22 @@
     <script>
       (function(){
         var t=localStorage.getItem('zouk_theme');
-        var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon')?t:'washington-post';
+        var theme=(t==='night-city'||t==='brutalist'||t==='washington-post'||t==='carbon'||t==='graphite')?t:'washington-post';
         var isStandalone=false;
         var themeColors={
           'night-city':'#0a0a0f',
           'brutalist':'#fffcf5',
           'washington-post':'#f4eee3',
-          'carbon':'#151515'
+          'carbon':'#151515',
+          'graphite':'#0d0d14'
         };
+        var lightThemes={'washington-post':true,'brutalist':true};
         try{
           isStandalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||window.navigator.standalone===true;
         }catch(e){}
         document.documentElement.setAttribute('data-theme',theme);
         document.documentElement.setAttribute('data-display-mode',isStandalone?'standalone':'browser');
+        document.documentElement.style.colorScheme=lightThemes[theme]?'light':'dark';
         var themeMeta=document.querySelector("meta[name='theme-color']");
         if(themeMeta) themeMeta.setAttribute('content', themeColors[theme] || '#f4eee3');
         try{var p=JSON.parse(localStorage.getItem('zouk_preferences')||'{}');if(p.fontSize&&p.fontSize!=='medium')document.documentElement.setAttribute('data-font-size',p.fontSize);}catch(e){}

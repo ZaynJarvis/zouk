@@ -42,6 +42,13 @@
     overscroll-behavior: none;
     background-color: rgb(var(--nc-black));
     font-size: 18px;
+    color-scheme: dark;
+  }
+
+  /* Light themes — keyboard and native controls use light mode */
+  html[data-theme="washington-post"],
+  html[data-theme="brutalist"] {
+    color-scheme: light;
   }
 
   html[data-font-size="small"] { font-size: 16.5px; }
