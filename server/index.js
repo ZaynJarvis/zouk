@@ -2212,7 +2212,13 @@ async function ovMcpCall(creds, toolName, args) {
 }
 
 function parseOvListResult(text, parentUri) {
-  const base = parentUri ? parentUri.replace(/\/+$/, "") + "/" : "";
+  let base = "";
+  if (parentUri) {
+    const i = parentUri.indexOf("://");
+    const scheme = i >= 0 ? parentUri.slice(0, i + 3) : "";
+    const path = i >= 0 ? parentUri.slice(i + 3).replace(/\/+$/, "") : parentUri.replace(/\/+$/, "");
+    base = scheme + (path ? path + "/" : "");
+  }
   return text.split("\n").filter(Boolean).map((line) => {
     const dirMatch = line.match(/^\[dir\]\s+(.+)/);
     const fileMatch = line.match(/^\[file\]\s+(.+)/);
