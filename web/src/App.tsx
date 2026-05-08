@@ -8,7 +8,7 @@ import TopBar from './components/TopBar';
 import MessageList from './components/MessageList';
 import MessageComposer from './components/MessageComposer';
 import RightPanel from './components/RightPanel';
-import NowRail from './components/NowRail';
+import NowRail, { NowRailPeek } from './components/NowRail';
 import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
@@ -41,7 +41,7 @@ function SupabaseConfigSync({ config }: { config: { url: string; anonKey: string
 }
 
 function AppShell() {
-  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden } = useApp();
   const rightPanelRef = useRef<HTMLDivElement | null>(null);
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
 
@@ -169,10 +169,12 @@ function AppShell() {
             </div>
           </div>
 
-          {/* NowRail — default right column on lg+ when no other panel is up. */}
+          {/* NowRail — default right column on lg+ when no other panel is up.
+              When the user collapses it, we render a thin NowRailPeek strip
+              instead so the panel can be re-opened from the right edge. */}
           {showNowRail && (
             <div className="hidden lg:flex">
-              <NowRail />
+              {nowRailHidden ? <NowRailPeek /> : <NowRail />}
             </div>
           )}
         </div>

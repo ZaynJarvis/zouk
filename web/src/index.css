@@ -69,9 +69,14 @@
     color-scheme: dark;
   }
 
-  html[data-font-size="small"] { font-size: 16.5px; }
-  html[data-font-size="large"] { font-size: 20px; }
+  /* Body baseline = 13px (set on `html` above). Small / large modifiers must
+     scale relative to that, not the legacy 18px base — otherwise "small"
+     ended up bigger than medium. */
+  html[data-font-size="small"] { font-size: 12px; }
+  html[data-font-size="large"] { font-size: 15px; }
 
+  /* Composer textarea sits >= 16px so iOS Safari doesn't zoom on focus.
+     Modifiers stay relative to the 18px composer base. */
   .composer-textarea { font-size: 18px; }
   html[data-font-size="small"] .composer-textarea { font-size: 16.5px; }
   html[data-font-size="large"] .composer-textarea { font-size: 20px; }

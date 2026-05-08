@@ -41,12 +41,13 @@ export default function TopBar() {
           minHeight: 56,
         }}
       >
-        {/* Mobile drawer toggle (lg-). Replaces the legacy duplicate icon nav.
-            Rail + sidebar live in the modal drawer; this is just the entry. */}
+        {/* Mobile drawer toggle (lg-). `lg:!hidden` carries `!important` so it
+            beats `.zk-btn { display: inline-flex }` from zk-tokens — without
+            it the button leaked onto desktop. */}
         <button
           type="button"
           onClick={() => setSidebarOpen(true)}
-          className="zk-btn zk-btn--ghost zk-btn--icon lg:hidden"
+          className="zk-btn zk-btn--ghost zk-btn--icon lg:!hidden"
           aria-label="Open menu"
           title="Open menu"
         >
