@@ -4,6 +4,7 @@
 
 import type { ReactNode } from 'react';
 import type { ServerAgent, ServerHuman, AgentActivity } from '../../types';
+import { agentStatus } from '../../lib/avatarStatus';
 
 /* ───── Time helpers ───── */
 
@@ -94,13 +95,18 @@ export function Avatar({
 export function AgentAvatar({
   agent, size, className,
 }: { agent: ServerAgent; size?: AvatarSize; className?: string }) {
+  const st = agentStatus(agent);
+  const dotActivity: AgentActivity =
+    st === 'working' ? (agent.activity as AgentActivity) ?? 'working'
+    : st === 'online' ? 'online'
+    : 'offline';
   return (
     <Avatar
       src={agent.picture}
       name={agent.displayName || agent.name}
       kind="agent"
       size={size}
-      activity={agent.activity}
+      activity={dotActivity}
       className={className}
     />
   );
