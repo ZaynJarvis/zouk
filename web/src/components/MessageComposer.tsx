@@ -75,6 +75,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const showMobileSidebarBtn = isMobileSurface && !sidebarOpen;
   const showCloseThreadBtn = isMobileSurface && !!threadTarget && !text.trim();
   const showImageBtn = !text.trim();
+  // Standalone PWA hides the send button: the soft keyboard's Send key
+  // (driven by enterKeyHint) and the Enter handler already submit. Removing
+  // the button reclaims space and removes a redundant affordance.
+  const showSendBtn = !isStandalonePWA();
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
   const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
@@ -532,23 +536,26 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               background: 'transparent',
               fontFamily: 'var(--zk-font-sans)',
               color: 'var(--zk-ink)',
-              fontSize: 13,
+              // ≥16px on mobile/PWA so iOS Safari doesn't auto-zoom on focus.
+              fontSize: isMobileSurface ? 16 : 13,
               minHeight: 32,
               border: 0,
             }}
           />
-          {/* Send button — ember primary; default zk-btn--icon sizing
-              (~26px) so it sits cleanly inside the single-line textarea row
-              instead of looming above it. */}
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isGuest || (!text.trim() && pendingImages.length === 0) || isSending}
-            aria-label="Send message"
-            className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-end"
-          >
-            <ArrowUp size={14} />
-          </button>
+          {/* Send button — hidden in standalone PWA: the soft keyboard's Send
+              key + the Enter handler already submit, so the button is purely
+              redundant chrome there. Default ember primary on browser. */}
+          {showSendBtn && (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isGuest || (!text.trim() && pendingImages.length === 0) || isSending}
+              aria-label="Send message"
+              className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-end"
+            >
+              <ArrowUp size={14} />
+            </button>
+          )}
           </div>
           {/* Caption strip — keyboard hints (lg+ only). Mirrors the v1 design. */}
           <div className="hidden lg:block border-t border-nc-border/60 px-3 py-1 text-[10px] font-mono text-nc-muted/80 select-none">
