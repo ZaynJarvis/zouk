@@ -382,7 +382,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, isGuest,
-    authUser, setSidebarOpen, setSettingsOpen,
+    authUser, setSidebarOpen,
     openAgentProfile, openAgentSettings, resetAgentContext,
     openChannelSettings, navigateToView,
   } = useApp();
@@ -445,7 +445,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
 
   // Phone-modal workspace nav: single row of icon buttons that mirrors the
   // desktop WorkspaceRail (which is hidden on lg-). Keeps Agents / Tasks /
-  // Memory / Settings reachable from the channel modal without exposing a
+  // Memory reachable from the channel modal without exposing a
   // separate rail on mobile.
   const phoneNavItems: Array<{
     key: 'home' | 'agents' | 'tasks' | 'memory';
@@ -473,7 +473,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     // the modal top look way too tall.
     <aside style={shellStyle} className={phoneModal ? '' : 'safe-top'}>
       {/* Phone-modal workspace nav: row of view-switcher icons (Home/Agents/
-          Tasks/Memory + Settings). Mirrors the desktop WorkspaceRail so a
+          Tasks/Memory). Mirrors the desktop WorkspaceRail so a
           mobile user can leave Channels and reach the other top-level views
           without an external rail. */}
       {phoneModal && (
@@ -481,6 +481,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
           style={{
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'center',
             gap: 6,
             padding: '10px 12px',
             borderBottom: '1px solid var(--zk-line)',
@@ -500,17 +501,6 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
               {it.icon}
             </button>
           ))}
-          <span style={{ flex: 1 }} />
-          <button
-            type="button"
-            onClick={() => { setSettingsOpen(true); setSidebarOpen(false); }}
-            aria-label="Settings"
-            title="Settings"
-            className="zk-btn zk-btn--ghost zk-btn--icon"
-            style={{ width: 32, height: 32 }}
-          >
-            <Settings size={16} />
-          </button>
         </div>
       )}
 

@@ -267,7 +267,7 @@ export default function AgentsView() {
           }}
         >
           <div className="zk-col">
-            <Eyebrow>WORKSPACE</Eyebrow>
+            <Eyebrow className="hidden lg:inline">WORKSPACE</Eyebrow>
             <h1
               className="zk-display"
               style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
@@ -293,19 +293,23 @@ export default function AgentsView() {
             <>
               <button
                 type="button"
-                className="zk-btn"
-                onClick={() => setShowMachineSetup(true)}
-                title="Machine setup & API keys"
+              className="zk-btn"
+              onClick={() => setShowMachineSetup(true)}
+              title="Machine setup & API keys"
+              aria-label="Machine setup & API keys"
               >
-                <Settings size={12} /> Machine setup
+                <Settings size={12} />
+                <span className="hidden lg:inline">Machine setup</span>
               </button>
               <button
                 type="button"
                 className="zk-btn zk-btn--primary"
                 onClick={() => setShowCreate(true)}
                 title="Add agent"
+                aria-label="Add agent"
               >
-                <Plus size={12} /> Add agent
+                <Plus size={12} />
+                <span className="hidden lg:inline">Add agent</span>
               </button>
             </>
           )}

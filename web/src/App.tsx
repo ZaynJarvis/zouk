@@ -144,11 +144,13 @@ function AppShell() {
         <div className={!showMessageView ? 'lg:hidden' : ''}>
           <TopBar />
         </div>
-        {/* Mobile spacer: TopBar is position:fixed on mobile so it no longer
-            occupies flex space — this div holds the equivalent height. */}
-        <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
-          <div className="h-12 sm:h-14" />
-        </div>
+        {/* Mobile spacer: conversational views keep a fixed TopBar on phone;
+            full-canvas views now use a floating menu button instead. */}
+        {showMessageView && (
+          <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
+            <div className="h-12 sm:h-14" />
+          </div>
+        )}
         <div className="flex-1 relative min-h-0 flex">
           <div className="flex-1 min-w-0 relative">
             <div className="absolute inset-0 flex flex-col min-w-0">

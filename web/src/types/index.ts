@@ -266,7 +266,7 @@ export interface TaskRecord {
 }
 
 export type ViewMode = 'channel' | 'dm' | 'agents' | 'tasks' | 'memory';
-export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
+export type RightPanel = 'thread' | 'members' | 'agents' | 'workspace' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
 export type Theme = 'atlas';
 export type ColorMode = 'light' | 'dark' | 'system';
 

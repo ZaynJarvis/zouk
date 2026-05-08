@@ -3,14 +3,13 @@
    tmp/.../zouk-rethink/v1-conservative.jsx (CHANNEL eyebrow + Hash glyph +
    name + counts + actions). On other views it shows a simpler title. */
 
-import { Settings, PanelRightOpen, PanelRightClose, Menu } from 'lucide-react';
+import { Settings, Menu } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { Hash } from './zk/primitives';
 
 export default function TopBar() {
   const {
     activeChannelName, viewMode,
-    rightPanel, setRightPanel, closeRightPanel,
     channels, agents, humans, openChannelSettings, isGuest,
     activeThreadMessage, setSidebarOpen,
   } = useApp();
@@ -23,6 +22,25 @@ export default function TopBar() {
   const channelAgents = activeChannel
     ? agents.filter((a) => (a.channels || []).includes(activeChannel.name))
     : [];
+
+  if (!inHomeView) {
+    return (
+      <button
+        type="button"
+        onClick={() => setSidebarOpen(true)}
+        className="zk-btn zk-btn--ghost zk-btn--icon top-bar-mobile-fab lg:!hidden"
+        aria-label="Open menu"
+        title="Open menu"
+        style={{
+          background: 'var(--zk-bg-1)',
+          border: '1px solid var(--zk-line)',
+          boxShadow: '0 10px 28px rgba(15, 23, 42, 0.14)',
+        }}
+      >
+        <Menu size={16} />
+      </button>
+    );
+  }
 
   return (
     <header
@@ -93,33 +111,19 @@ export default function TopBar() {
         ) : (
           <div className="zk-grow" />
         )}
-
-        {/* Actions */}
-        <div className="zk-row" style={{ gap: 4 }}>
-          {activeChannel && !isGuest && (
+        {activeChannel && !isGuest && (
+          <div className="zk-row" style={{ gap: 4 }}>
             <button
               type="button"
               onClick={() => openChannelSettings(activeChannel.id)}
               className="zk-btn zk-btn--ghost zk-btn--icon hidden lg:inline-flex"
-              aria-pressed={rightPanel === 'channel_settings'}
               title={`Configure #${activeChannel.name}`}
               aria-label={`Configure channel ${activeChannel.name}`}
             >
               <Settings size={14} />
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}
-            className="zk-btn zk-btn--ghost zk-btn--icon hidden lg:inline-flex"
-            aria-pressed={!!rightPanel}
-            title={rightPanel ? 'Close panel' : 'Open panel'}
-            aria-label={rightPanel ? 'Close side panel' : 'Open side panel'}
-          >
-            {rightPanel ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     </header>
   );
