@@ -287,7 +287,6 @@ export default function MessageItem({
               src={senderPicture}
               name={senderName}
               kind="agent"
-              activity={senderAgent?.activity}
             />
             {senderAgent && (
               <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
@@ -299,8 +298,6 @@ export default function MessageItem({
               src={senderPicture}
               name={senderName}
               kind={isAgent ? 'agent' : 'human'}
-              activity={senderAgent?.activity}
-              online={!isAgent ? true : undefined}
             />
             {isAgent && senderAgent && (
               <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
