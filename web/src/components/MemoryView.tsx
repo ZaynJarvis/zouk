@@ -256,23 +256,33 @@ function MillerColumn({
   );
 }
 
-/* ---- File preview pane --------------------------------------------- */
+/* ---- Preview pane (file or folder) --------------------------------- */
 
-function FilePreview({
-  agentId, fileUri, source, onBack,
+// OpenViking returns these placeholder strings when a directory's L0/L1
+// hasn't been generated yet. Treat them as "no content" so the chip + section
+// don't render.
+const DIR_PLACEHOLDER_RE = /^\[directory (overview|abstract) is not (generated|ready)\]$/i;
+
+type LevelKey = 'l0' | 'l1' | 'l2';
+const FOLDER_LEVELS: LevelKey[] = ['l0', 'l1'];
+const FILE_LEVELS: LevelKey[] = ['l2'];
+
+function Preview({
+  agentId, previewUri, isDirectory, source, onBack,
 }: {
   agentId: string | null;
-  fileUri: string | null;
+  previewUri: string | null;
+  isDirectory: boolean;
   source: Source;
   onBack?: () => void;
 }) {
-  const { memoryFileContent, workspaceFileContent } = useApp();
-  const [activeLevels, setActiveLevels] = useState<string[] | null>(null);
+  const { memoryContentCache, workspaceFileContent } = useApp();
+  const [activeLevels, setActiveLevels] = useState<LevelKey[] | null>(null);
 
-  // Reset levels when file changes
-  useEffect(() => { setActiveLevels(null); }, [fileUri]);
+  // Reset selected levels when target changes
+  useEffect(() => { setActiveLevels(null); }, [previewUri, isDirectory]);
 
-  if (!agentId || !fileUri) {
+  if (!agentId || !previewUri) {
     return (
       <div
         style={{
@@ -282,47 +292,62 @@ function FilePreview({
           height: '100%',
         }}
       >
-        No file selected
+        No selection
       </div>
     );
   }
 
-  let content: string | null = null;
+  // Per-level content, with placeholder strings stripped to null.
+  const bundle: Record<LevelKey, string | null> = { l0: null, l1: null, l2: null };
   if (source === 'memory') {
-    const match = memoryFileContent?.agentId === agentId && memoryFileContent?.uri === fileUri
-      ? memoryFileContent : null;
-    content = match?.content ?? null;
-  } else {
-    const match = workspaceFileContent?.agentId === agentId && workspaceFileContent?.path === fileUri
+    const slot = memoryContentCache[agentId]?.[previewUri] || {};
+    for (const lv of (['l0', 'l1', 'l2'] as LevelKey[])) {
+      const c = slot[lv];
+      if (typeof c === 'string' && c.trim() && !DIR_PLACEHOLDER_RE.test(c.trim())) {
+        bundle[lv] = c;
+      }
+    }
+    // Fall back to legacy (no-level) fetches under L2 for backward compat.
+    if (bundle.l2 == null && typeof slot.__legacy__ === 'string') {
+      bundle.l2 = slot.__legacy__;
+    }
+  } else if (!isDirectory) {
+    const match = workspaceFileContent?.agentId === agentId && workspaceFileContent?.path === previewUri
       ? workspaceFileContent : null;
-    content = match?.content ?? null;
+    bundle.l2 = match?.content ?? null;
   }
 
-  const fileName = uriBasename(fileUri, source);
-  const isMd = isMarkdownFile(fileUri);
-  const isJson = isJsonFile(fileUri);
-  const isJsonl = isJsonlFile(fileUri);
-  const lang = detectLang(fileUri);
-  const kind = isMd ? 'MARKDOWN' : isJson ? 'JSON' : isJsonl ? 'JSONL' : fileKindLabel(fileUri);
-
-  // Build available levels. For now: L2 (full content) is always the source.
-  // When the backend supports L0/L1, this will expand.
-  const available = content != null ? ['l2' as const] : [];
+  const requestedLevels = isDirectory ? FOLDER_LEVELS : FILE_LEVELS;
+  const available = requestedLevels.filter((lv) => bundle[lv] != null);
   const active = activeLevels ?? available;
 
-  const toggleLevel = (lv: string) => {
+  const fileName = uriBasename(previewUri, source);
+  const isMd = !isDirectory && isMarkdownFile(previewUri);
+  const isJson = !isDirectory && isJsonFile(previewUri);
+  const isJsonl = !isDirectory && isJsonlFile(previewUri);
+  const lang = !isDirectory ? detectLang(previewUri) : '';
+  const kind = isDirectory ? 'FOLDER'
+    : isMd ? 'MARKDOWN'
+    : isJson ? 'JSON'
+    : isJsonl ? 'JSONL'
+    : fileKindLabel(previewUri);
+
+  const toggleLevel = (lv: LevelKey) => {
     setActiveLevels((prev) => {
       const cur = prev ?? available;
       if (cur.includes(lv)) {
         const next = cur.filter((x) => x !== lv);
         return next.length ? next : cur;
       }
-      return [...cur, lv].sort();
+      // Preserve canonical L0 < L1 < L2 order
+      return requestedLevels.filter((x) => x === lv || cur.includes(x));
     });
   };
 
-  function renderContent(text: string) {
-    if (isMd) {
+  function renderContent(text: string, lv: LevelKey) {
+    // L0/L1 are always markdown summaries from OpenViking, regardless of the
+    // entry's own type. L2 follows the file's mime/extension.
+    if (lv !== 'l2' || isMd) {
       return (
         <div className="atlas-preview-md atlas-section-body" style={{ maxWidth: 760 }}>
           {atlasMarkdown(text)}
@@ -374,7 +399,9 @@ function FilePreview({
               <ArrowLeft size={13} />
             </button>
           )}
-          <File size={13} color="var(--zk-ink-dim)" />
+          {isDirectory
+            ? <Folder size={13} color="var(--zk-ink-dim)" />
+            : <File size={13} color="var(--zk-ink-dim)" />}
           <span
             style={{
               fontFamily: 'var(--zk-font-mono)', fontSize: 14,
@@ -404,9 +431,9 @@ function FilePreview({
             fontFamily: 'var(--zk-font-mono)', fontSize: 11,
             color: 'var(--zk-ink-mute)',
           }}
-          title={fileUri}
+          title={previewUri}
         >
-          <span><span style={{ color: 'var(--zk-ink-low)' }}>path</span> {fileUri}</span>
+          <span><span style={{ color: 'var(--zk-ink-low)' }}>path</span> {previewUri}</span>
         </div>
       </header>
 
@@ -434,13 +461,15 @@ function FilePreview({
       )}
 
       <div className="zk-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        {content === null ? (
+        {available.length === 0 ? (
           <div style={{ padding: 64, textAlign: 'center', fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
-            loading…
+            {isDirectory ? 'No summary generated for this folder yet.' : 'loading…'}
           </div>
         ) : (
           active.map((lv, i) => {
             const m = LEVEL_META[lv as keyof typeof LEVEL_META];
+            const c = bundle[lv];
+            if (c == null) return null;
             return (
               <section key={lv}>
                 {i > 0 && <div className="atlas-section-divider" />}
@@ -452,7 +481,7 @@ function FilePreview({
                     <span className="atlas-level-desc">{m.desc}</span>
                   </header>
                 )}
-                {renderContent(content!)}
+                {renderContent(c, lv)}
               </section>
             );
           })
@@ -719,11 +748,18 @@ export default function MemoryView() {
   const fetchContent = useCallback((uri: string) => {
     if (!agentId) return;
     if (source === 'memory') {
-      requestMemoryContent(agentId, uri);
+      requestMemoryContent(agentId, uri, 'l2');
     } else {
       requestFileContent(agentId, uri);
     }
   }, [agentId, source, requestMemoryContent, requestFileContent]);
+
+  const fetchFolderSummaries = useCallback((uri: string) => {
+    if (!agentId || source !== 'memory') return;
+    if (!uri || uri === MEMORY_ROOT) return;
+    requestMemoryContent(agentId, uri, 'l0');
+    requestMemoryContent(agentId, uri, 'l1');
+  }, [agentId, source, requestMemoryContent]);
 
   // Reset when agent or source changes; eagerly load root.
   useEffect(() => {
@@ -836,6 +872,24 @@ export default function MemoryView() {
 
   const selectedAgent = agents.find((a) => a.id === agentId);
   const root = rootFor(source);
+
+  // Folder preview target: deepest non-root folder in trail when no file is
+  // selected. Files take precedence over folder summaries.
+  const folderPreviewUri = useMemo(() => {
+    if (selectedFile) return null;
+    if (source !== 'memory') return null;
+    const last = trail[trail.length - 1];
+    if (!last || last === MEMORY_ROOT) return null;
+    return last;
+  }, [selectedFile, source, trail]);
+
+  // Kick off L0/L1 fetch when the deepest folder changes.
+  useEffect(() => {
+    if (folderPreviewUri) fetchFolderSummaries(folderPreviewUri);
+  }, [folderPreviewUri, fetchFolderSummaries]);
+
+  const previewUri = selectedFile ?? folderPreviewUri;
+  const previewIsDir = !selectedFile && !!folderPreviewUri;
 
   const columns = useMemo(() => {
     return trail.map((uri, i) => {
@@ -960,7 +1014,7 @@ export default function MemoryView() {
                 background: 'var(--zk-bg-0)',
               }}
             >
-              <FilePreview agentId={agentId} fileUri={selectedFile} source={source} onBack={() => setSelectedFile(null)} />
+              <Preview agentId={agentId} previewUri={previewUri} isDirectory={previewIsDir} source={source} onBack={() => setSelectedFile(null)} />
             </div>
           </div>
           <FooterShortcuts paradigm="columns" currentPath={currentPath} />
@@ -994,7 +1048,7 @@ export default function MemoryView() {
               background: 'var(--zk-bg-0)',
             }}
           >
-            <FilePreview agentId={selectedAgent.id} fileUri={selectedFile} source={source} onBack={() => setSelectedFile(null)} />
+            <Preview agentId={selectedAgent.id} previewUri={previewUri} isDirectory={previewIsDir} source={source} onBack={() => setSelectedFile(null)} />
           </div>
         </div>
       )}

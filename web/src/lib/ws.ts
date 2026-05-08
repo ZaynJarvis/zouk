@@ -118,11 +118,14 @@ export interface WsMemoryListResultEvent {
   error?: string;
 }
 
+export type MemoryLevel = 'l0' | 'l1' | 'l2';
+
 export interface WsMemoryContentEvent {
   type: 'memory:content';
   agentId: string;
   requestId: string;
   uri: string;
+  level: MemoryLevel | null;
   content: string | null;
   error?: string;
 }
