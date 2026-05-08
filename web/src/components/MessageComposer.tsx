@@ -477,7 +477,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               Drop to attach image
             </div>
           </div>
-          <div className="flex items-end" style={{ padding: '6px 8px' }}>
+          <div className="flex items-center" style={{ padding: '6px 8px' }}>
           <input
             ref={fileInputRef}
             type="file"
@@ -487,7 +487,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             className="hidden"
           />
           <div
-            className={`flex-shrink-0 self-end overflow-hidden transition-[width,opacity] duration-150 ease-out ${
+            className={`flex-shrink-0 self-center overflow-hidden transition-[width,opacity] duration-150 ease-out ${
               showImageBtn ? 'w-9 sm:w-10 opacity-100' : 'w-0 opacity-0'
             }`}
             aria-hidden={!showImageBtn}
@@ -498,7 +498,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               disabled={isGuest}
               tabIndex={showImageBtn ? 0 : -1}
               aria-label="Attach image"
-              className="zk-btn zk-btn--ghost zk-btn--icon flex-shrink-0 self-end"
+              className="zk-btn zk-btn--ghost zk-btn--icon flex-shrink-0 self-center"
+              style={{ borderRadius: 9999 }}
             >
               <ImagePlus size={14} />
             </button>
@@ -539,7 +540,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               onClick={handleSubmit}
               disabled={isGuest || (!text.trim() && pendingImages.length === 0) || isSending}
               aria-label="Send message"
-              className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-end"
+              className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-center"
+              style={{ borderRadius: 9999 }}
             >
               <ArrowUp size={14} />
             </button>
