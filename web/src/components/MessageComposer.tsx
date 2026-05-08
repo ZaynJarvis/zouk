@@ -478,7 +478,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               Drop to attach image
             </div>
           </div>
-          <div className="flex items-center" style={{ padding: '6px 8px' }}>
+          <div className="flex items-center" style={{ padding: isMobileSurface ? '3px 6px' : '6px 8px' }}>
           <input
             ref={fileInputRef}
             type="file"
@@ -522,13 +522,13 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             rows={1}
             className="composer-textarea flex-1 min-w-0 resize-none focus:outline-none disabled:cursor-not-allowed transition-[padding] duration-150 ease-out"
             style={{
-              padding: '6px 4px',
+              padding: isMobileSurface ? '2px 4px' : '6px 4px',
               background: 'transparent',
               fontFamily: 'var(--zk-font-sans)',
               color: 'var(--zk-ink)',
               // ≥16px on mobile/PWA so iOS Safari doesn't auto-zoom on focus.
               fontSize: isMobileSurface ? 16 : 13,
-              minHeight: 32,
+              minHeight: isMobileSurface ? 28 : 32,
               border: 0,
             }}
           />

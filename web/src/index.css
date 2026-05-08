@@ -399,11 +399,9 @@ html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 
-/* Phone/tablet composer surface: 19px ≈ half the single-line surface height
-   (textarea min-h 32px + padding 6+6 = 44px → cap of 22px sat well). The
-   actual pill / non-pill switch lives in MessageComposer.tsx — single-line
-   gets 9999px inline so it renders as a chip; multi-line keeps this 19px
-   so the corners are gently rounded but not stadium-shaped. */
+/* Phone/tablet composer surface: compact vertical padding lives in
+   MessageComposer.tsx. This radius caps to a pill on single-line mobile
+   surfaces and stays gently rounded once the composer grows multi-line. */
 @media (max-width: 1023.98px) {
   .composer-surface {
     border-radius: 19px;

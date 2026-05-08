@@ -6,6 +6,7 @@ import { useApp } from '../store/AppContext';
 import type { TaskRecord, TaskStatus } from '../types';
 import * as api from '../lib/api';
 import { Avatar, Eyebrow } from './zk/primitives';
+import MobileMenuButton from './MobileMenuButton';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -215,12 +216,16 @@ export default function TasksView() {
       <header
         className="px-4 lg:px-7"
         style={{
-          display: 'flex', alignItems: 'baseline', gap: 14,
-          padding: '10px 16px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)',
+          paddingRight: 16,
+          paddingBottom: 10,
+          paddingLeft: 16,
           borderBottom: '1px solid var(--zk-line)',
           flexShrink: 0,
         }}
       >
+        <MobileMenuButton />
         <div className="zk-col">
           <Eyebrow className="hidden lg:block">WORKSPACE</Eyebrow>
           <h1

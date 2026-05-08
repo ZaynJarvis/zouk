@@ -1,7 +1,7 @@
-/* TopBar — channel/dm/tasks/memory header.
+/* TopBar — channel/dm header.
    On channel/dm view this matches the V1Channel header from
    tmp/.../zouk-rethink/v1-conservative.jsx (CHANNEL eyebrow + Hash glyph +
-   name + counts + actions). On other views it shows a simpler title. */
+   name + counts + actions). Full-canvas views render their own headers. */
 
 import { Settings, Menu } from 'lucide-react';
 import { useApp } from '../store/AppContext';
@@ -23,24 +23,7 @@ export default function TopBar() {
     ? agents.filter((a) => (a.channels || []).includes(activeChannel.name))
     : [];
 
-  if (!inHomeView) {
-    return (
-      <button
-        type="button"
-        onClick={() => setSidebarOpen(true)}
-        className="zk-btn zk-btn--ghost zk-btn--icon top-bar-mobile-fab lg:!hidden"
-        aria-label="Open menu"
-        title="Open menu"
-        style={{
-          background: 'var(--zk-bg-1)',
-          border: '1px solid var(--zk-line)',
-          boxShadow: '0 10px 28px rgba(15, 23, 42, 0.14)',
-        }}
-      >
-        <Menu size={16} />
-      </button>
-    );
-  }
+  if (!inHomeView) return null;
 
   return (
     <header

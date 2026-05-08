@@ -139,13 +139,14 @@ function AppShell() {
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* TopBar is only needed in home (channel/dm) view on desktop — full-canvas
-            views render their own header and the empty TopBar strip creates blank space. */}
-        <div className={!showMessageView ? 'lg:hidden' : ''}>
+        {/* TopBar is only needed in home (channel/dm) view. Full-canvas views
+            render a safe-area-aware header with the mobile menu button inside
+            the title row. */}
+        {showMessageView && (
           <TopBar />
-        </div>
+        )}
         {/* Mobile spacer: conversational views keep a fixed TopBar on phone;
-            full-canvas views now use a floating menu button instead. */}
+            full-canvas views own their header spacing. */}
         {showMessageView && (
           <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
             <div className="h-12 sm:h-14" />
