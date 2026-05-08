@@ -8,7 +8,12 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
 import { AgentAvatar, Eyebrow } from './zk/primitives';
-import { contextUsageTextTone, formatContextPercent, pickDisplayContextUsage } from '../lib/contextUsage';
+import {
+  contextUsageTextTone,
+  formatContextUsageCompact,
+  formatContextUsageTitle,
+  pickDisplayContextUsage,
+} from '../lib/contextUsage';
 
 type Filter = 'live' | 'online' | 'all';
 
@@ -26,6 +31,8 @@ function NowCard({
   const live = isLive(agent);
   const usage = pickDisplayContextUsage(agent.contextUsage, agent.model);
   const pct = usage?.percent;
+  const usageLabel = formatContextUsageCompact(usage);
+  const usageTitle = formatContextUsageTitle(agent.contextUsage, agent.model);
 
   return (
     <button
@@ -73,12 +80,18 @@ function NowCard({
             : (agent.activity || 'offline')}
         </div>
         <div className="zk-row" style={{ gap: 8, marginTop: 4 }}>
-          {pct !== undefined && (
+          {usageLabel && (
             <span
               className="zk-tabular"
-              style={{ fontSize: 9, fontFamily: 'var(--zk-font-mono)', letterSpacing: '0.04em', color: 'var(--zk-ink-mute)' }}
+              style={{
+                fontSize: 9,
+                fontFamily: 'var(--zk-font-mono)',
+                letterSpacing: '0.04em',
+                color: 'var(--zk-ink-mute)',
+              }}
+              title={usageTitle}
             >
-              ctx <span className={contextUsageTextTone(pct)}>{formatContextPercent(pct)}</span>
+              <span className={contextUsageTextTone(pct)}>{usageLabel}</span>
             </span>
           )}
           {agent.runtime && (

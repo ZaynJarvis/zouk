@@ -172,6 +172,10 @@ async function testContextUsagePill(browser, opts, results) {
           agent.id === 'agent-hela-001'
             ? {
                 ...agent,
+                // Mark hela as working so the NowRail (live agents panel) shows
+                // it under the default `live` filter — the ctx pill now lives
+                // in NowRail rather than the channel sidebar's agent rows.
+                activity: 'working',
                 contextUsage: {
                   updatedAt: '2026-04-21T16:00:00.000Z',
                   // daemon sorts models[] by percent desc and sets summary = models[0].
