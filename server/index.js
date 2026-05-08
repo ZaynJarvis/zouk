@@ -2211,6 +2211,38 @@ async function ovMcpCall(creds, toolName, args) {
   return content?.[0]?.text || parsed.result?.structuredContent?.result || "";
 }
 
+// HTTP fallback for level-aware content reads.
+// MCP `read` tool returns L2 only; OV's REST exposes /api/v1/content/{abstract|overview|read}
+// for L0/L1/L2 respectively. Mirrors atlas-fs's openviking-adapter.read().
+async function ovHttpReadContent(creds, uri, level) {
+  const endpoint = level === "l0" ? "abstract" : level === "l1" ? "overview" : "read";
+  const headers = {
+    "Accept": "application/json",
+    "X-API-Key": creds.apiKey,
+    "X-OpenViking-Account": creds.account,
+    "X-OpenViking-User": creds.user,
+  };
+  const res = await fetch(`${creds.url}/api/v1/content/${endpoint}?uri=${encodeURIComponent(uri)}`, {
+    headers,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) {
+    const data = await res.json();
+    const r = data.result;
+    if (typeof r === "string") return r;
+    if (r && typeof r === "object") {
+      return r.content ?? r.text ?? r.markdown ?? r.abstract ?? r.overview ?? r.summary ?? JSON.stringify(r, null, 2);
+    }
+    return data.content ?? data.text ?? data.markdown ?? data.abstract ?? data.overview ?? data.summary ?? "";
+  }
+  return await res.text();
+}
+
 function parseOvListResult(text, parentUri) {
   let base = "";
   if (parentUri) {
@@ -3178,7 +3210,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       break;
     }
     case "agent:memory:content": {
-      broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId: msg.requestId, uri: msg.uri, content: msg.content, error: msg.error });
+      broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId: msg.requestId, uri: msg.uri, level: msg.level || null, content: msg.content, error: msg.error });
       break;
     }
     case "agent:skills:list_result": {
@@ -3347,21 +3379,30 @@ function handleWebMessage(ws, msg) {
     }
     case "memory:read": {
       const ovCreds = resolveOvCredentials(msg.agentId);
+      const level = msg.level === "l0" || msg.level === "l1" || msg.level === "l2" ? msg.level : null;
       if (ovCreds && !isLocalUrl(ovCreds.url)) {
-        const uri = msg.uri;
+        let uri = msg.uri;
+        // L0/L1 are directory-level products; OV expects a trailing slash for dir URIs.
+        // (Mirrors atlas-fs openviking-adapter.read behavior.)
+        if ((level === "l0" || level === "l1") && uri && uri !== "viking://" && !uri.endsWith("/")) {
+          uri = uri + "/";
+        }
         const requestId = msg.requestId || uuidv4();
-        ovMcpCall(ovCreds, "read", { uris: uri })
+        const op = level
+          ? ovHttpReadContent(ovCreds, uri, level)
+          : ovMcpCall(ovCreds, "read", { uris: uri });
+        op
           .then((content) => {
-            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri, content, error: null });
+            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri: msg.uri, level, content, error: null });
           })
           .catch((e) => {
-            ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
-            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri, content: null, error: e.message });
+            if (!level) ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
+            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri: msg.uri, level, content: null, error: e.message });
           });
       } else {
         const agentWs = daemonSockets.get(msg.agentId);
         if (agentWs && agentWs.readyState === 1) {
-          agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: msg.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri }));
+          agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: msg.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri, level }));
         }
       }
       break;

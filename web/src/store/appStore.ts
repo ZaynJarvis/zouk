@@ -123,7 +123,10 @@ export function useAppStore() {
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
   // Memory trees per agent: agentId -> uri -> entries (for recursive tree rendering)
   const [memoryTreeCache, setMemoryTreeCache] = useState<Record<string, Record<string, MemoryEntry[]>>>({});
-  const [memoryFileContent, setMemoryFileContent] = useState<{ agentId: string; uri: string; content: string | null } | null>(null);
+  // Per-(agentId, uri, level) content cache. L0=abstract, L1=overview, L2=full read.
+  // For legacy single-level (no `level` requested) reads, content is stashed under
+  // `__legacy__` so callers that don't care about levels still see it.
+  const [memoryContentCache, setMemoryContentCache] = useState<Record<string, Record<string, Partial<Record<'l0' | 'l1' | 'l2' | '__legacy__', string | null>>>>>({});
   // Skill discovery per agent: agentId -> { global, workspace } as surfaced by
   // the daemon's listSkills. Separate cache (not mixed into ServerAgent) because
   // it is lazy-loaded per detail-tab open, not pushed with agent state.
@@ -518,8 +521,14 @@ export function useAppStore() {
         break;
       }
       case 'memory:content': {
-        const e = event as { agentId: string; requestId: string; uri: string; content: string | null };
-        setMemoryFileContent({ agentId: e.agentId, uri: e.uri || e.requestId, content: e.content });
+        const e = event as { agentId: string; requestId: string; uri: string; level: 'l0' | 'l1' | 'l2' | null; content: string | null };
+        const uri = e.uri || e.requestId;
+        const slot = e.level || '__legacy__';
+        setMemoryContentCache(prev => {
+          const agentBucket = { ...(prev[e.agentId] || {}) };
+          agentBucket[uri] = { ...(agentBucket[uri] || {}), [slot]: e.content };
+          return { ...prev, [e.agentId]: agentBucket };
+        });
         break;
       }
       case 'skills:list_result': {
@@ -1000,11 +1009,18 @@ export function useAppStore() {
     wsRef.current?.send({ type: 'memory:list', agentId, uri: uri || 'viking://' });
   }, []);
 
-  const requestMemoryContent = useCallback((agentId: string, uri: string) => {
-    setMemoryFileContent(prev => (
-      prev?.agentId === agentId && prev.uri === uri ? null : prev
-    ));
-    wsRef.current?.send({ type: 'memory:read', agentId, requestId: uri, uri });
+  const requestMemoryContent = useCallback((agentId: string, uri: string, level?: 'l0' | 'l1' | 'l2') => {
+    const slot = level || '__legacy__';
+    setMemoryContentCache(prev => {
+      const existing = prev[agentId]?.[uri];
+      if (!existing || !(slot in existing)) return prev;
+      const { [slot]: _drop, ...rest } = existing;
+      void _drop;
+      const agentBucket = { ...(prev[agentId] || {}) };
+      agentBucket[uri] = rest;
+      return { ...prev, [agentId]: agentBucket };
+    });
+    wsRef.current?.send({ type: 'memory:read', agentId, requestId: uri, uri, level: level || null });
   }, []);
 
   const requestSkills = useCallback((agentId: string, runtime?: string | null) => {
@@ -1049,7 +1065,7 @@ export function useAppStore() {
     wsSend,
     workspaceFiles, wsTreeCache, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
-    memoryTreeCache, memoryFileContent,
+    memoryTreeCache, memoryContentCache,
     requestMemoryList, requestMemoryContent,
     skillsCache, requestSkills,
     profilePresets,

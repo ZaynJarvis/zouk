@@ -259,7 +259,7 @@ function OvSection({ agent, onViewFile }: { agent: ServerAgent; onViewFile: (uri
 }
 
 function WorkspaceTab({ agent }: { agent: ServerAgent }) {
-  const { workspaceFileContent, requestFileContent, memoryFileContent, requestMemoryContent } = useApp();
+  const { workspaceFileContent, requestFileContent, memoryContentCache, requestMemoryContent } = useApp();
   const [viewingFile, setViewingFile] = useState<string | null>(null);
   const [viewingOvUri, setViewingOvUri] = useState<string | null>(null);
   const { expandedDirs, rootFiles, toggleDir, treeCache } = useWorkspaceTree(agent);
@@ -268,8 +268,10 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
     ? workspaceFileContent.content
     : null;
 
-  const ovContent = viewingOvUri && memoryFileContent?.agentId === agent.id && memoryFileContent?.uri === viewingOvUri
-    ? memoryFileContent.content
+  const ovContent = viewingOvUri
+    ? (memoryContentCache[agent.id]?.[viewingOvUri]?.l2
+        ?? memoryContentCache[agent.id]?.[viewingOvUri]?.__legacy__
+        ?? null)
     : null;
 
   const previewContent = viewingOvUri ? ovContent : fileContent;
@@ -286,7 +288,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   const handleViewOvFile = useCallback((uri: string) => {
     setViewingOvUri(uri);
     setViewingFile(null);
-    requestMemoryContent(agent.id, uri);
+    requestMemoryContent(agent.id, uri, 'l2');
   }, [agent.id, requestMemoryContent]);
 
   const handleClosePreview = useCallback(() => {
