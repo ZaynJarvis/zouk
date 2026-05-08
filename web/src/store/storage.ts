@@ -1,10 +1,11 @@
 import type { AuthUser } from '../lib/api';
-import type { Theme, ViewMode } from '../types';
+import type { ColorMode, Theme, ViewMode } from '../types';
 
 const CURRENT_USER_KEY = 'zouk_current_user';
 const AUTH_TOKEN_KEY = 'zouk_auth_token';
 const AUTH_USER_KEY = 'zouk_auth_user';
 const THEME_STORAGE_KEY = 'zouk_theme';
+const COLOR_MODE_STORAGE_KEY = 'zouk_color_mode';
 const LAST_VIEW_STORAGE_KEY = 'zouk_last_view';
 const LINK_TRANSFORMS_KEY = 'zouk_link_transforms';
 
@@ -46,14 +47,28 @@ export function createGuestUserName() {
 
 export function getStoredTheme(): Theme {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === 'washington-post' || stored === 'carbon') {
+  if (stored === 'atlas' || stored === 'washington-post' || stored === 'carbon') {
     return stored;
   }
-  return 'washington-post';
+  // Legacy themes (night-city / brutalist / graphite) and any other unknown
+  // value migrate to atlas — the new default.
+  return 'atlas';
 }
 
 export function setStoredTheme(theme: Theme) {
   localStorage.setItem(THEME_STORAGE_KEY, theme);
+}
+
+export function getStoredColorMode(): ColorMode {
+  const stored = localStorage.getItem(COLOR_MODE_STORAGE_KEY);
+  if (stored === 'light' || stored === 'dark' || stored === 'system') {
+    return stored;
+  }
+  return 'system';
+}
+
+export function setStoredColorMode(mode: ColorMode) {
+  localStorage.setItem(COLOR_MODE_STORAGE_KEY, mode);
 }
 
 export function getStoredLastView(): StoredLastView | null {

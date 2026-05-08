@@ -3328,7 +3328,7 @@ function handleWebMessage(ws, msg) {
     case "memory:list": {
       const ovCreds = resolveOvCredentials(msg.agentId);
       if (ovCreds && !isLocalUrl(ovCreds.url)) {
-        const uri = msg.uri || "viking:///";
+        const uri = msg.uri || "viking://";
         ovMcpCall(ovCreds, "list", { uri })
           .then((raw) => {
             broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw, uri) });
@@ -3340,7 +3340,7 @@ function handleWebMessage(ws, msg) {
       } else {
         const agentWs = daemonSockets.get(msg.agentId);
         if (agentWs && agentWs.readyState === 1) {
-          agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: msg.agentId, uri: msg.uri || "viking:///" }));
+          agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: msg.agentId, uri: msg.uri || "viking://" }));
         }
       }
       break;

@@ -1,89 +1,158 @@
+/* TasksView — direct port of V3TasksApp from
+   tmp/.../zouk-rethink/v3-bold.jsx, wired to real /api/tasks data. */
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { KanbanSquare, RefreshCw } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { TaskRecord, TaskStatus } from '../types';
 import * as api from '../lib/api';
+import { Avatar, Eyebrow } from './zk/primitives';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-const COLUMNS: { status: TaskStatus; label: string; accent: string }[] = [
-  { status: 'todo', label: 'TODO', accent: 'text-nc-muted border-nc-border' },
-  { status: 'in_progress', label: 'IN PROGRESS', accent: 'text-nc-cyan border-nc-cyan/40' },
-  { status: 'in_review', label: 'IN REVIEW', accent: 'text-nc-yellow border-nc-yellow/40' },
-  { status: 'done', label: 'DONE · 7D', accent: 'text-nc-green border-nc-green/40' },
+const KANBAN_COLS: { key: TaskStatus; label: string; dot: string }[] = [
+  { key: 'todo',        label: 'TODO',        dot: 'var(--zk-ink-mute)' },
+  { key: 'in_progress', label: 'IN PROGRESS', dot: 'var(--zk-info)' },
+  { key: 'in_review',   label: 'IN REVIEW',   dot: 'var(--zk-warn)' },
+  { key: 'done',        label: 'DONE · 7D',   dot: 'var(--zk-ok)' },
 ];
 
-function relativeTime(iso: string | null): string {
+function relTime(iso?: string | null) {
   if (!iso) return '';
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diff = Date.now() - then;
-  if (diff < 60_000) return 'just now';
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return '';
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
 }
 
-function TaskCard({ task }: { task: TaskRecord }) {
-  const channelLabel = task.channelName ? `#${task.channelName}` : null;
-  const assignee = task.claimedByName;
-  const creator = task.createdByName;
+function KanbanCard({ task }: { task: TaskRecord }) {
+  const { agents, humans } = useApp();
+  const author = task.claimedByName || task.createdByName || null;
+  const avatarSrc = useMemo(() => {
+    if (!author) return undefined;
+    const ag = agents.find((a) => a.name === author || a.displayName === author);
+    if (ag?.picture) return ag.picture;
+    const hu = humans.find((h) => h.name === author);
+    return hu?.picture || hu?.gravatarUrl || undefined;
+  }, [author, agents, humans]);
+  const isAgent = author ? agents.some((a) => a.name === author || a.displayName === author) : false;
 
   return (
-    <div className="border border-nc-border bg-nc-surface p-3 flex flex-col gap-2 hover:border-nc-border-bright transition-colors">
-      <div className="flex items-start gap-2">
-        <span className="font-mono text-2xs text-nc-muted shrink-0 pt-0.5">#{task.taskNumber}</span>
-        <p className="text-sm text-nc-text-bright font-medium break-words leading-snug flex-1">
+    <div
+      style={{
+        padding: '12px 14px',
+        background: 'var(--zk-bg-1)',
+        border: '1px solid var(--zk-line)',
+        borderRadius: 8,
+        cursor: 'pointer',
+        transition: 'border-color 180ms var(--zk-ease-out), background 180ms var(--zk-ease-out)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = 'var(--zk-line-bright)';
+        e.currentTarget.style.background = 'var(--zk-bg-2)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = 'var(--zk-line)';
+        e.currentTarget.style.background = 'var(--zk-bg-1)';
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span
+          style={{
+            fontFamily: 'var(--zk-font-mono)',
+            fontSize: 10,
+            color: 'var(--zk-ink-low)',
+            flexShrink: 0,
+            letterSpacing: '0.04em',
+          }}
+        >
+          #{task.taskNumber}
+        </span>
+        <span style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--zk-ink)' }}>
           {task.title}
-        </p>
+        </span>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs font-mono text-nc-muted">
-        {channelLabel && <span className="text-nc-text">{channelLabel}</span>}
-        {assignee ? (
-          <span>
-            <span className="opacity-60">by </span>
-            <span className="text-nc-text">@{assignee}</span>
-          </span>
-        ) : creator ? (
-          <span>
-            <span className="opacity-60">from </span>
-            <span className="text-nc-text">@{creator}</span>
-          </span>
-        ) : null}
-        {task.updatedAt && <span className="ml-auto">{relativeTime(task.updatedAt)}</span>}
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          marginTop: 12,
+          fontFamily: 'var(--zk-font-mono)', fontSize: 10,
+          color: 'var(--zk-ink-mute)',
+        }}
+      >
+        {author && (
+          <Avatar
+            src={avatarSrc}
+            name={author}
+            size="sm"
+            kind={isAgent ? 'agent' : 'human'}
+          />
+        )}
+        {task.channelName && <span>#{task.channelName}</span>}
+        <span className="zk-grow" />
+        {task.updatedAt && <span style={{ color: 'var(--zk-ink-low)' }}>{relTime(task.updatedAt)}</span>}
       </div>
     </div>
   );
 }
 
-function Column({
-  label,
-  accent,
-  tasks,
-}: {
-  label: string;
-  accent: string;
-  tasks: TaskRecord[];
-}) {
+function KanbanColumn({
+  label, dot, items,
+}: { label: string; dot: string; items: TaskRecord[] }) {
   return (
-    <div className="flex-1 min-w-[240px] flex flex-col bg-nc-deep border border-nc-border">
-      <div className={`flex items-center justify-between px-3 py-2 border-b ${accent}`}>
-        <span className="font-display font-bold text-xs tracking-wider font-mono">
-          {label}
+    <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--zk-bg-0)', minHeight: 0 }}>
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '14px 16px 10px',
+        }}
+      >
+        <span className="zk-row" style={{ gap: 8 }}>
+          <span className="zk-dot" style={{ background: dot, width: 6, height: 6 }} />
+          <span
+            style={{
+              fontFamily: 'var(--zk-font-mono)', fontSize: 10,
+              letterSpacing: '0.16em', color: 'var(--zk-ink-dim)', fontWeight: 500,
+            }}
+          >
+            {label}
+          </span>
         </span>
-        <span className="text-2xs font-mono opacity-70">{tasks.length}</span>
+        <span
+          style={{
+            fontFamily: 'var(--zk-font-mono)', fontSize: 10,
+            color: 'var(--zk-ink-mute)',
+            background: 'var(--zk-bg-2)', border: '1px solid var(--zk-line)',
+            padding: '0 6px', borderRadius: 999,
+          }}
+        >
+          {items.length}
+        </span>
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-2 flex flex-col gap-2">
-        {tasks.length === 0 ? (
-          <p className="text-2xs text-nc-muted text-center py-6 font-mono opacity-60">
+      <div
+        className="zk-scroll"
+        style={{
+          flex: 1, minHeight: 0, overflow: 'auto',
+          padding: '0 12px 16px',
+          display: 'grid', gap: 6, alignContent: 'start',
+        }}
+      >
+        {items.length === 0 ? (
+          <div
+            style={{
+              padding: '32px 4px', textAlign: 'center',
+              fontFamily: 'var(--zk-font-mono)', fontSize: 11,
+              color: 'var(--zk-ink-low)',
+            }}
+          >
             —
-          </p>
+          </div>
         ) : (
-          tasks.map((t) => <TaskCard key={t.taskNumber} task={t} />)
+          items.map((t) => <KanbanCard key={t.taskNumber} task={t} />)
         )}
       </div>
     </div>
@@ -95,6 +164,7 @@ export default function TasksView() {
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<'board' | 'list'>('board');
 
   const load = useCallback(async () => {
     setError(null);
@@ -108,82 +178,148 @@ export default function TasksView() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load, tasksVersion]);
+  useEffect(() => { load(); }, [load, tasksVersion]);
 
-  const grouped = useMemo(() => {
-    const doneCutoff = Date.now() - SEVEN_DAYS_MS;
-    const buckets: Record<TaskStatus, TaskRecord[]> = {
-      todo: [],
-      in_progress: [],
-      in_review: [],
-      done: [],
-    };
+  const buckets = useMemo(() => {
+    const cutoff = Date.now() - SEVEN_DAYS_MS;
+    const m: Record<TaskStatus, TaskRecord[]> = { todo: [], in_progress: [], in_review: [], done: [] };
     for (const t of tasks) {
       if (t.status === 'done') {
         const ts = t.updatedAt ? new Date(t.updatedAt).getTime() : NaN;
-        if (!Number.isFinite(ts) || ts < doneCutoff) continue;
+        if (!Number.isFinite(ts) || ts < cutoff) continue;
       }
-      if (!(t.status in buckets)) continue;
-      buckets[t.status].push(t);
+      if (!(t.status in m)) continue;
+      m[t.status].push(t);
     }
-    for (const status of Object.keys(buckets) as TaskStatus[]) {
-      buckets[status].sort((a, b) => {
+    for (const k of Object.keys(m) as TaskStatus[]) {
+      m[k].sort((a, b) => {
         const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
         const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
         return bt - at;
       });
     }
-    return buckets;
+    return m;
   }, [tasks]);
 
-  const totalVisible = grouped.todo.length + grouped.in_progress.length + grouped.in_review.length + grouped.done.length;
+  const total = tasks.length;
+  const inFlight = buckets.in_progress.length;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-nc-black">
-      <div className="flex items-center justify-between border-b border-nc-border px-4 h-12 shrink-0 bg-nc-surface">
-        <div className="flex items-center gap-2">
-          <KanbanSquare size={16} className="text-nc-indigo" />
-          <h2 className="font-display font-bold text-sm tracking-wider text-nc-text-bright font-mono">
-            TASKS
-          </h2>
-          <span className="text-2xs font-mono text-nc-muted">
-            · {totalVisible} visible
-          </span>
+    <div
+      style={{
+        height: '100%', width: '100%',
+        display: 'flex', flexDirection: 'column',
+        background: 'var(--zk-bg-0)', color: 'var(--zk-ink)',
+        minHeight: 0,
+      }}
+    >
+      <header
+        className="safe-top"
+        style={{
+          display: 'flex', alignItems: 'baseline', gap: 14,
+          padding: '18px 28px 16px',
+          borderBottom: '1px solid var(--zk-line)',
+          flexShrink: 0,
+        }}
+      >
+        <div className="zk-col">
+          <Eyebrow>WORKSPACE</Eyebrow>
+          <h1
+            className="zk-display"
+            style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
+          >
+            Tasks
+          </h1>
         </div>
+        <span style={{ color: 'var(--zk-ink-mute)', fontSize: 12, fontFamily: 'var(--zk-font-mono)' }}>
+          {total} total · {inFlight} in flight
+        </span>
+
+        <span className="zk-grow" />
+
+        <div className="zk-seg">
+          <button
+            type="button"
+            className={view === 'board' ? 'is-active' : ''}
+            onClick={() => setView('board')}
+          >
+            Board
+          </button>
+          <button
+            type="button"
+            className={view === 'list' ? 'is-active' : ''}
+            onClick={() => setView('list')}
+          >
+            List
+          </button>
+        </div>
+
         <button
-          onClick={() => { setLoading(true); load(); }}
-          className="flex items-center gap-1.5 px-2 h-7 border border-nc-border text-2xs font-mono text-nc-muted hover:border-nc-indigo hover:text-nc-indigo transition-colors"
-          title="Refresh"
+          type="button"
+          className="zk-btn zk-btn--primary"
+          title="New task"
+          onClick={() => {/* TODO: surface new-task UX */}}
         >
-          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-          REFRESH
+          <Plus size={11} /> New task
         </button>
-      </div>
+      </header>
 
       {error ? (
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="border border-nc-red/40 bg-nc-red/10 px-4 py-3 text-sm text-nc-red font-mono">
+        <div className="zk-grow" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div
+            style={{
+              padding: '12px 16px', borderRadius: 8,
+              border: '1px solid rgba(217,119,119,0.3)',
+              background: 'var(--zk-err-soft)',
+              fontSize: 13, color: 'var(--zk-err)',
+              fontFamily: 'var(--zk-font-mono)',
+            }}
+          >
             {error}
           </div>
         </div>
       ) : loading && tasks.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-2xs font-mono text-nc-muted">LOADING…</p>
+        <div className="zk-grow" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
+            loading…
+          </span>
+        </div>
+      ) : view === 'board' ? (
+        <div
+          style={{
+            flex: 1, minHeight: 0,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 1,
+            background: 'var(--zk-line)',
+          }}
+        >
+          {KANBAN_COLS.map((c) => (
+            <KanbanColumn
+              key={c.key}
+              label={c.label}
+              dot={c.dot}
+              items={buckets[c.key]}
+            />
+          ))}
         </div>
       ) : (
-        <div className="flex-1 overflow-x-auto overflow-y-hidden min-h-0">
-          <div className="h-full flex gap-3 p-3 min-w-fit">
-            {COLUMNS.map((c) => (
-              <Column
-                key={c.status}
-                label={c.label}
-                accent={c.accent}
-                tasks={grouped[c.status]}
-              />
-            ))}
-          </div>
+        <div className="zk-grow zk-scroll" style={{ overflow: 'auto', padding: '20px 28px 28px' }}>
+          {tasks.length === 0 ? (
+            <p
+              style={{
+                fontSize: 12, color: 'var(--zk-ink-mute)',
+                textAlign: 'center', padding: '48px 0',
+                fontFamily: 'var(--zk-font-mono)',
+              }}
+            >
+              No tasks
+            </p>
+          ) : (
+            <div style={{ display: 'grid', gap: 8, maxWidth: 760 }}>
+              {tasks.map((t) => <KanbanCard key={t.taskNumber} task={t} />)}
+            </div>
+          )}
         </div>
       )}
     </div>

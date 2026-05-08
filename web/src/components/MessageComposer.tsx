@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Bot, User, Menu, ImagePlus, X } from 'lucide-react';
+import { Bot, User, Menu, ImagePlus, X, ArrowUp } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { uploadAttachment } from '../lib/api';
@@ -38,7 +38,7 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, theme, sidebarOpen, setSidebarOpen, addToast, closeRightPanel } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, sidebarOpen, setSidebarOpen, addToast, closeRightPanel } = useApp();
   const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
   const draftsRef = useRef<Map<string, string>>(new Map());
   const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
@@ -359,7 +359,15 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     <div className="flex-shrink-0 composer-outer safe-bottom">
       <div className="composer-inner-pad px-4 sm:px-6 pt-1 sm:pt-2 pb-0 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
         {mentionQuery !== null && mentionMatches.length > 0 && (
-          <div className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 border border-nc-border bg-nc-surface z-20 max-h-[240px] overflow-y-auto shadow-nc-panel">
+          <div
+            className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 z-20 max-h-[240px] overflow-y-auto"
+            style={{
+              border: '1px solid var(--zk-line-2)',
+              background: 'var(--zk-bg-2)',
+              borderRadius: 8,
+              boxShadow: 'var(--zk-shadow-2)',
+            }}
+          >
             {mentionMatches.map((match, i) => {
               const status = match.status ?? 'online';
               const offline = status === 'offline';
@@ -370,9 +378,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                   onMouseDown={(e) => { e.preventDefault(); insertMention(match.mention); }}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
                     i === mentionIndex
-                      ? 'bg-nc-cyan/10 text-nc-cyan'
-                      : 'text-nc-text hover:bg-nc-elevated'
+                      ? 'text-[color:var(--zk-ember)]'
+                      : 'text-[color:var(--zk-ink)] hover:bg-[color:var(--zk-bg-3)]'
                   } ${offline ? 'opacity-60' : ''}`}
+                  style={i === mentionIndex ? { background: 'var(--zk-ember-soft)' } : undefined}
                 >
                   <span className="relative w-5 h-5 flex-shrink-0 flex items-center justify-center">
                     {match.picture ? (
@@ -404,7 +413,12 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             {pendingImages.map((img) => (
               <div
                 key={img.key}
-                className="relative w-16 h-16 border border-nc-border bg-nc-black overflow-hidden group"
+                className="relative w-16 h-16 overflow-hidden group"
+                style={{
+                  border: '1px solid var(--zk-line)',
+                  background: 'var(--zk-bg-1)',
+                  borderRadius: 6,
+                }}
               >
                 <FailableImage
                   src={img.previewUrl}
@@ -415,7 +429,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                   type="button"
                   onClick={() => removePendingImage(img.key)}
                   aria-label={`Remove ${img.file.name}`}
-                  className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center bg-nc-black/70 text-nc-text hover:bg-nc-red hover:text-white transition-colors"
+                  className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center transition-colors"
+                  style={{ background: 'rgba(10,11,13,0.7)', color: 'var(--zk-ink)' }}
                 >
                   <X size={12} />
                 </button>
@@ -430,17 +445,21 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               type="button"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open sidebar"
-              className="lg:hidden flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors"
+              className="lg:hidden flex-shrink-0 zk-btn zk-btn--ghost zk-btn--icon"
+              style={{ width: 32, height: 32 }}
             >
-              <Menu size={18} />
+              <Menu size={16} />
             </button>
           )}
           <div
-            className={`composer-surface flex-1 min-w-0 flex flex-col border cyber-bevel-sm cursor-text transition-[border-color,background-color] duration-150 ${
-              isDragOver
-                ? 'border-dashed border-nc-cyan bg-nc-cyan/[0.04]'
-                : `bg-nc-black border-nc-border ${theme === 'washington-post' ? 'focus-within:border-[#7c2430]' : 'focus-within:border-nc-cyan'}`
+            className={`composer-surface flex-1 min-w-0 flex flex-col cursor-text transition-[border-color,background-color] duration-150 ${
+              isDragOver ? 'composer-surface--drag' : ''
             }`}
+            style={{
+              background: 'var(--zk-bg-1)',
+              border: `1px solid ${isDragOver ? 'var(--zk-ember)' : 'var(--zk-line-2)'}`,
+              borderRadius: 10,
+            }}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
@@ -466,7 +485,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               Drop to attach image
             </div>
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end" style={{ padding: '6px 8px' }}>
           <input
             ref={fileInputRef}
             type="file"
@@ -487,9 +506,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               disabled={isGuest}
               tabIndex={showImageBtn ? 0 : -1}
               aria-label="Attach image"
-              className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-nc-muted hover:text-nc-cyan disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="zk-btn zk-btn--ghost zk-btn--icon"
+              style={{ width: 32, height: 32 }}
             >
-              <ImagePlus size={18} />
+              <ImagePlus size={16} />
             </button>
           </div>
           <textarea
@@ -507,8 +527,34 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             disabled={isGuest}
             placeholder={composerPlaceholder}
             rows={1}
-            className={`composer-textarea flex-1 min-w-0 py-1.5 sm:py-2 pr-3 sm:pr-3 bg-transparent font-body text-nc-text placeholder:text-nc-muted resize-none focus:outline-none min-h-[36px] sm:min-h-[40px] disabled:cursor-not-allowed transition-[padding] duration-150 ease-out ${showImageBtn ? 'pl-0' : 'pl-3'}`}
+            className="composer-textarea flex-1 min-w-0 resize-none focus:outline-none disabled:cursor-not-allowed transition-[padding] duration-150 ease-out"
+            style={{
+              padding: '6px 4px',
+              background: 'transparent',
+              fontFamily: 'var(--zk-font-sans)',
+              color: 'var(--zk-ink)',
+              fontSize: 13,
+              minHeight: 32,
+              border: 0,
+            }}
           />
+          {/* Send button — ember primary */}
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isGuest || (!text.trim() && pendingImages.length === 0) || isSending}
+            aria-label="Send message"
+            className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-end"
+            style={{ width: 32, height: 32, padding: 0 }}
+          >
+            <ArrowUp size={14} />
+          </button>
+          </div>
+          {/* Caption strip — keyboard hints (lg+ only). Mirrors the v1 design. */}
+          <div className="hidden lg:block border-t border-nc-border/60 px-3 py-1 text-[10px] font-mono text-nc-muted/80 select-none">
+            <span className="text-nc-muted/60">↩</span> send <span className="text-nc-muted/40">·</span>{' '}
+            <span className="text-nc-muted/60">⇧↩</span> newline <span className="text-nc-muted/40">·</span>{' '}
+            <span className="text-nc-muted/60">@</span> mention agent
           </div>
           </div>
           {showCloseThreadBtn && (
@@ -516,9 +562,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               type="button"
               onClick={closeRightPanel}
               aria-label="Close thread"
-              className="lg:hidden flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors"
+              className="lg:hidden flex-shrink-0 zk-btn zk-btn--ghost zk-btn--icon"
+              style={{ width: 32, height: 32 }}
             >
-              <X size={18} />
+              <X size={16} />
             </button>
           )}
         </div>

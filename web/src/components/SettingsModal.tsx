@@ -3,7 +3,8 @@ import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Shield,
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
-import { themes, type ThemeId } from '../themes';
+import { themes, themeSupportsColorMode, type ThemeId } from '../themes';
+import type { ColorMode } from '../types';
 import { resizeAndEncode } from '../lib/imageEncode';
 import * as api from '../lib/api';
 import type { AllowlistEntry, WsClientStats } from '../lib/api';
@@ -53,13 +54,14 @@ function applyChatWidthPreference(chatWidth: Preferences['chatWidth']) {
 
 export default function SettingsModal() {
   const {
-    settingsOpen, setSettingsOpen, theme, setTheme, currentUser, updateProfile, logout,
+    settingsOpen, setSettingsOpen, theme, setTheme, colorMode, setColorMode,
+    currentUser, updateProfile, logout,
     wsConnected, agents, machines, configs, authUser,
     profilePresets, addProfilePreset, removeProfilePreset,
   } = useApp();
   const [section, setSection] = useState<Section>('profile');
-  const nc = theme === 'night-city';
-  const brutalist = theme === 'brutalist';
+  const nc = false;
+  const brutalist = false;
   const [displayName, setDisplayName] = useState(currentUser);
   const [glitchActive, setGlitchActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -87,10 +89,14 @@ export default function SettingsModal() {
   const handleThemeChange = useCallback((newTheme: ThemeId) => {
     if (newTheme === theme) return;
     setTheme(newTheme);
-    if (newTheme === 'night-city') {
-      setGlitchActive(true);
-    }
   }, [theme, setTheme]);
+
+  const handleColorModeChange = useCallback((mode: ColorMode) => {
+    if (mode === colorMode) return;
+    setColorMode(mode);
+  }, [colorMode, setColorMode]);
+
+  const showColorModeToggle = themeSupportsColorMode(theme);
 
   const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -362,6 +368,40 @@ export default function SettingsModal() {
                     })}
                   </div>
                 </div>
+
+                {showColorModeToggle && (
+                  <div>
+                    <label className="block text-xs font-bold text-nc-muted mb-3 uppercase tracking-wider">Color Mode</label>
+                    <div className="inline-flex p-0.5 rounded-lg bg-nc-elevated border border-nc-border" role="tablist">
+                      {([
+                        { id: 'light', label: 'Light' },
+                        { id: 'dark', label: 'Dark' },
+                        { id: 'system', label: 'System' },
+                      ] as Array<{ id: ColorMode; label: string }>).map(opt => {
+                        const active = colorMode === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => handleColorModeChange(opt.id)}
+                            className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                              active
+                                ? 'bg-nc-surface text-nc-text-bright shadow-sm'
+                                : 'text-nc-muted hover:text-nc-text-bright'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-nc-muted mt-2">
+                      System follows your OS preference and updates automatically.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

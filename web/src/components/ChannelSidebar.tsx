@@ -1,70 +1,419 @@
-import React, { useState, useMemo } from 'react';
-import { Hash, ChevronDown, ChevronRight, Plus, Bot, User, RotateCcw, Settings, SlidersHorizontal, Trash2 } from 'lucide-react';
-import { useApp } from '../store/AppContext';
-import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass, humanStatus } from '../lib/avatarStatus';
-import StatusDot from './StatusDot';
-import { isMobileViewport, isStandalonePWA } from '../lib/layout';
-import GlitchText from './glitch/GlitchText';
-import { isNightCity } from '../lib/themeUtils';
-import { contextUsageTextTone, formatContextUsageCompact, formatContextUsageTitle, pickDisplayContextUsage } from '../lib/contextUsage';
-import {
-  channelSidebarThemeConfig,
-  getChannelSidebarAgentItemClass,
-  getChannelSidebarChannelItemClass,
-  resolveNavigationTheme,
-} from './navigation/themeVariants';
+/* ChannelSidebar — direct port of V1Sidebar from
+   tmp/.../zouk-rethink/v1-conservative.jsx, wired to real workspace data.
 
-function SectionHeader({ title, count, collapsed, onToggle, onAdd, forceShowButtons }: {
-  title: string; count?: number; collapsed: boolean; onToggle: () => void; onAdd?: () => void; forceShowButtons?: boolean;
+   - Header: WORKSPACE eyebrow + Zouk display + N humans · N agents.
+   - Search button (placeholder; ⌘K palette is a follow-up).
+   - Sections: WORKSPACE (Home/Inbox/Tasks/Agents) / CHANNELS / DIRECT MESSAGES.
+   - Channel rows show inline live-agent dots + ember unread pill.
+   - Bottom: user card (avatar + name + online + settings). */
+
+import { useMemo, useState } from 'react';
+import {
+  Home, Layers, Cpu, Brain, Plus, Hash, ChevronDown, ChevronRight,
+  Settings, Trash2, RotateCcw, SlidersHorizontal,
+} from 'lucide-react';
+import { useApp } from '../store/AppContext';
+import { isMobileViewport, isStandalonePWA } from '../lib/layout';
+import { Avatar, AgentAvatar, HumanAvatar } from './zk/primitives';
+import type { ServerAgent, ServerChannel, ServerHuman } from '../types';
+
+/* ───── Section header ───── */
+
+function SectionHeader({
+  title, action, collapsed, onToggle,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  collapsed: boolean;
+  onToggle: () => void;
 }) {
-  const nc = isNightCity();
   return (
-    <div className="flex items-center justify-between px-3 py-1.5 group">
-      <button onClick={onToggle} className={`flex items-center gap-1 text-xs font-bold uppercase tracking-wider transition-colors ${nc ? 'text-nc-muted hover:text-nc-cyan' : 'text-nc-muted hover:text-nc-text-bright'}`}>
-        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+    <div className="zk-row" style={{ padding: '6px 14px', justifyContent: 'space-between' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="zk-row"
+        style={{
+          background: 'none', border: 0, cursor: 'pointer',
+          color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)',
+          fontSize: 10, letterSpacing: '0.18em', fontWeight: 500,
+          padding: 0, gap: 4,
+        }}
+      >
+        {collapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
         <span>{title}</span>
-        {count !== undefined && count > 0 && (
-          <span className="ml-1 text-2xs font-black px-1 border bg-nc-cyan/20 text-nc-cyan border-nc-cyan/30">{count}</span>
-        )}
       </button>
-      {onAdd && (
-        <button onClick={onAdd} className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-all ${nc ? 'text-nc-muted hover:text-nc-cyan' : 'text-nc-muted hover:text-nc-text-bright'}`}>
-          <Plus size={14} />
-        </button>
+      {action}
+    </div>
+  );
+}
+
+/* ───── Generic row ───── */
+
+const rowStyle = (active: boolean): React.CSSProperties => ({
+  position: 'relative',
+  padding: '6px 14px',
+  cursor: 'pointer',
+  background: active ? 'var(--zk-bg-3)' : 'transparent',
+  color: active ? 'var(--zk-ink)' : 'var(--zk-ink-dim)',
+  fontSize: 13,
+  lineHeight: 1.4,
+  transition: 'background 140ms var(--zk-ease-out), color 140ms var(--zk-ease-out)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  textAlign: 'left',
+  width: '100%',
+  border: 0,
+  font: 'inherit',
+  fontWeight: active ? 500 : 400,
+});
+
+function ActiveStripe() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: 'absolute', left: 0, top: 6, bottom: 6,
+        width: 2, background: 'var(--zk-ember)', borderRadius: '0 2px 2px 0',
+      }}
+    />
+  );
+}
+
+/* ───── Workspace nav (Home / Inbox / Tasks / Agents) ───── */
+
+function NavItem({
+  icon, label, badge, active, onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  badge?: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={rowStyle(active)}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+    >
+      {active && <ActiveStripe />}
+      <span style={{ color: active ? 'var(--zk-ink-dim)' : 'var(--zk-ink-mute)' }}>{icon}</span>
+      <span style={{ flex: 1 }}>{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span
+          style={{
+            fontSize: 10, fontFamily: 'var(--zk-font-mono)',
+            background: 'var(--zk-bg-3)', padding: '1px 6px', borderRadius: 999,
+            color: 'var(--zk-ink-dim)',
+          }}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ───── Channel row ───── */
+
+function ChannelRow({
+  channel, agents, active, unread, isGuest, forceShowActions,
+  onClick, onConfigure, onDelete,
+}: {
+  channel: ServerChannel;
+  agents: ServerAgent[];
+  active: boolean;
+  unread: number;
+  isGuest: boolean;
+  forceShowActions: boolean;
+  onClick: () => void;
+  onConfigure: () => void;
+  onDelete?: () => void;
+}) {
+  const liveAgents = useMemo(
+    () =>
+      agents.filter(
+        (a) =>
+          (a.activity === 'working' || a.activity === 'thinking') &&
+          (a.channels || []).includes(channel.name),
+      ),
+    [agents, channel.name],
+  );
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      style={{
+        ...rowStyle(active),
+        cursor: 'pointer',
+      }}
+      className="group"
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+    >
+      {active && <ActiveStripe />}
+      <span
+        aria-hidden="true"
+        style={{
+          color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)',
+          width: 12, textAlign: 'center', flexShrink: 0,
+        }}
+      >
+        #
+      </span>
+      <span className="zk-truncate" style={{ flex: 1, color: active ? 'var(--zk-ink)' : 'inherit' }}>
+        {channel.name}
+      </span>
+
+      {/* Live agent activity dots — explicit inline-flex with line-height:0
+          to defeat any baseline shift from `display: inline-block` on .zk-dot. */}
+      {!active && liveAgents.length > 0 && (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            marginRight: 6,
+            lineHeight: 0,
+            flexShrink: 0,
+          }}
+        >
+          {liveAgents.slice(0, 3).map((a) => (
+            <span
+              key={a.id}
+              className={`zk-dot zk-dot--${a.activity}`}
+              style={{ display: 'block', width: 6, height: 6 }}
+              title={`@${a.displayName || a.name} ${a.activity}`}
+            />
+          ))}
+        </span>
+      )}
+
+      {/* Unread pill */}
+      {unread > 0 && (
+        <span
+          style={{
+            fontSize: 10, fontFamily: 'var(--zk-font-mono)',
+            background: 'var(--zk-ember)', color: '#fff',
+            padding: '1px 6px', borderRadius: 999, fontWeight: 600,
+            boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+          }}
+        >
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+
+      {/* Hover actions (config / delete). The right-side area always reserves
+          space for both buttons so the activity dots above stay horizontally
+          aligned across rows — even on `all` (which has no delete). */}
+      {!isGuest && (
+        <span
+          className={`zk-row ${forceShowActions ? '' : 'opacity-0 group-hover:opacity-100'}`}
+          style={{ gap: 2, transition: 'opacity 140ms var(--zk-ease-out)' }}
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onConfigure(); }}
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            title={`Configure #${channel.name}`}
+            style={{ padding: 2 }}
+          >
+            <Settings size={11} />
+          </button>
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="zk-btn zk-btn--ghost zk-btn--icon"
+              title="Delete channel"
+              style={{ padding: 2 }}
+            >
+              <Trash2 size={11} />
+            </button>
+          ) : (
+            // Visibility-hidden clone of the trash button — guarantees the
+            // actions area is the same width as channels that *do* have a
+            // delete button, so the activity dots stay horizontally aligned.
+            <span
+              aria-hidden="true"
+              className="zk-btn zk-btn--ghost zk-btn--icon"
+              style={{ padding: 2, visibility: 'hidden', pointerEvents: 'none' }}
+            >
+              <Trash2 size={11} />
+            </span>
+          )}
+        </span>
       )}
     </div>
   );
 }
 
+/* ───── Agent row (DM target) ───── */
+
+function AgentRow({
+  agent, active, unread, isGuest, forceShowActions,
+  onClick, onResetContext, onConfigure, onProfile,
+}: {
+  agent: ServerAgent;
+  active: boolean;
+  unread: number;
+  isGuest: boolean;
+  forceShowActions: boolean;
+  onClick: () => void;
+  onResetContext: () => void;
+  onConfigure: () => void;
+  onProfile: () => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+      style={rowStyle(active)}
+      className="group"
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+    >
+      {active && <ActiveStripe />}
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); onProfile(); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onProfile(); }
+        }}
+        title={`View @${agent.displayName || agent.name} profile`}
+        style={{ cursor: 'pointer' }}
+      >
+        <AgentAvatar agent={agent} size="sm" />
+      </span>
+      <span className="zk-truncate" style={{ flex: 1 }}>
+        {agent.displayName || agent.name}
+      </span>
+
+      {unread > 0 && (
+        <span
+          style={{
+            fontSize: 10, fontFamily: 'var(--zk-font-mono)',
+            background: 'var(--zk-ember)', color: '#fff',
+            padding: '1px 6px', borderRadius: 999, fontWeight: 600,
+          }}
+        >
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+
+      {!isGuest && agent.status === 'active' && (
+        <span
+          className={`zk-row ${forceShowActions ? '' : 'opacity-0 group-hover:opacity-100'}`}
+          style={{ gap: 2, transition: 'opacity 140ms var(--zk-ease-out)' }}
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onResetContext(); }}
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            title="Reset context"
+            style={{ padding: 2 }}
+          >
+            <RotateCcw size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onConfigure(); }}
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            title="Configure agent"
+            style={{ padding: 2 }}
+          >
+            <SlidersHorizontal size={11} />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ───── Human (DM) row ───── */
+
+function HumanRow({
+  human, active, unread, isSelf, onClick,
+}: {
+  human: ServerHuman;
+  active: boolean;
+  unread: number;
+  isSelf: boolean;
+  onClick?: () => void;
+}) {
+  const Tag = isSelf ? 'div' : 'button';
+  return (
+    <Tag
+      type={isSelf ? undefined : 'button'}
+      onClick={isSelf ? undefined : onClick}
+      style={{ ...rowStyle(active), cursor: isSelf ? 'default' : 'pointer' }}
+      onMouseEnter={(e) => { if (!active && !isSelf) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+      onMouseLeave={(e) => { if (!active && !isSelf) e.currentTarget.style.background = 'transparent'; }}
+    >
+      {active && <ActiveStripe />}
+      <HumanAvatar human={human} size="sm" />
+      <span className="zk-truncate" style={{ flex: 1 }}>{human.name}</span>
+      {isSelf && (
+        <span style={{ fontSize: 10, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
+          (you)
+        </span>
+      )}
+      {!isSelf && unread > 0 && (
+        <span
+          style={{
+            fontSize: 10, fontFamily: 'var(--zk-font-mono)',
+            background: 'var(--zk-ember)', color: '#fff',
+            padding: '1px 6px', borderRadius: 999, fontWeight: 600,
+          }}
+        >
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </Tag>
+  );
+}
+
+/* ───── Top-level component ───── */
+
 export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: boolean }) {
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
-    createChannel, deleteChannel, currentUser, unreadCounts, isGuest, theme,
-    authUser, setSidebarOpen, openAgentProfile, openAgentSettings, resetAgentContext,
+    createChannel, deleteChannel, currentUser, unreadCounts, isGuest,
+    authUser, setSidebarOpen, setSettingsOpen, setViewMode,
+    openAgentProfile, openAgentSettings, resetAgentContext,
     openChannelSettings,
   } = useApp();
+
+  const [channelsCollapsed, setChannelsCollapsed] = useState(false);
+  const [dmsCollapsed, setDmsCollapsed] = useState(false);
+  const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
+  const [agentsCollapsed, setAgentsCollapsed] = useState(false);
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState('');
 
   const pick = (name: string, isDm?: boolean) => {
     selectChannel(name, isDm);
     if (isMobileViewport()) setSidebarOpen(false);
   };
 
-  const [channelsCollapsed, setChannelsCollapsed] = useState(false);
-  const [dmsCollapsed, setDmsCollapsed] = useState(false);
-  const [agentsCollapsed, setAgentsCollapsed] = useState(false);
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
-  const [newChannelName, setNewChannelName] = useState('');
-
-  const filteredChannels = useMemo(() => channels, [channels]);
-  const filteredAgents = useMemo(() => agents, [agents]);
-  const filteredHumans = useMemo(() => {
+  const peopleList = useMemo(() => {
     const list = humans.slice();
-    if (currentUser && !list.some(h => h.name === currentUser)) {
+    if (currentUser && !list.some((h) => h.name === currentUser)) {
       list.push({
         id: `self:${currentUser}`,
         name: currentUser,
-        picture: authUser?.picture || undefined,
-        gravatarUrl: authUser?.gravatarUrl || undefined,
+        picture: authUser?.picture ?? undefined,
+        gravatarUrl: authUser?.gravatarUrl ?? undefined,
         guest: isGuest,
       });
     }
@@ -84,278 +433,260 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     setShowCreateChannel(false);
   };
 
-  const themeVariant = resolveNavigationTheme(theme, isNightCity());
-  const channelSidebarTheme = channelSidebarThemeConfig[themeVariant];
+  const forceShowActions = isMobileViewport() || isStandalonePWA();
+  const liveCount = agents.filter((a) => a.activity === 'working' || a.activity === 'thinking').length;
+  const totalHumans = humans.length;
 
-  const forceShowButtons = isMobileViewport() || isStandalonePWA();
-
-  const shellClass = phoneModal
-    ? channelSidebarTheme.shell
-        .replace('w-[260px]', 'w-full')
-        .replace('h-full', 'flex-1 min-h-0')
-        .split(' ')
-        .filter(c => !c.startsWith('border-'))
-        .join(' ')
-    : channelSidebarTheme.shell;
-
-  const fadeStyle: React.CSSProperties = {
-    maskImage: 'linear-gradient(to bottom, transparent 0%, black 16px, black calc(100% - 16px), transparent 100%)',
-    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 16px, black calc(100% - 16px), transparent 100%)',
-  };
+  const shellStyle: React.CSSProperties = phoneModal
+    ? { width: '100%', height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', flexShrink: 0 }
+    : {
+        width: 248, background: 'var(--zk-bg-1)',
+        borderRight: '1px solid var(--zk-line)',
+        display: 'flex', flexDirection: 'column', flexShrink: 0,
+        height: '100%',
+      };
 
   return (
-    <div className={shellClass}>
+    <aside style={shellStyle} className="safe-top">
+      {/* Header */}
       {!phoneModal && (
-        <div className={channelSidebarTheme.header}>
-          <div className="px-3 h-12 sm:h-14 flex items-center">
-            {channelSidebarTheme.titleStyle === 'glitch'
-              ? <GlitchText as="h2" className={channelSidebarTheme.titleClass} intensity="low">ZOUK</GlitchText>
-              : <h2 className={channelSidebarTheme.titleClass}>Zouk</h2>}
+        <div style={{ padding: '16px 16px 12px' }}>
+          <div className="zk-eyebrow" style={{ fontSize: 9 }}>WORKSPACE</div>
+          <div
+            className="zk-display"
+            style={{ fontWeight: 600, fontSize: 17, marginTop: 2, color: 'var(--zk-ink)' }}
+          >
+            Zouk
+          </div>
+          <div
+            className="zk-row"
+            style={{ gap: 6, marginTop: 4, fontSize: 10, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}
+          >
+            <span
+              className={`zk-dot ${liveCount > 0 ? 'zk-dot--working' : 'zk-dot--offline'}`}
+              style={{ width: 5, height: 5 }}
+            />
+            <span>{totalHumans} humans · {agents.length} agents</span>
           </div>
         </div>
       )}
 
-      <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden ${phoneModal ? 'py-4' : 'py-2'} space-y-1 scrollbar-hide ${channelSidebarTheme.scrollerPadding}`} style={phoneModal ? fadeStyle : undefined}>
-        <div>
+      {/* Body */}
+      <div className="zk-scroll zk-grow" style={{ overflow: 'auto', padding: '4px 0' }}>
+        {/* WORKSPACE nav — Home + the implemented destinations only.
+            (Inbox / saved-search / pins are not implemented yet, so we don't
+            list placeholders that go nowhere.) */}
+        <div style={{ marginTop: 4 }}>
           <SectionHeader
-            title="Channels"
-            count={filteredChannels.reduce((sum, c) => sum + (unreadCounts[c.name] || 0), 0)}
+            title="WORKSPACE"
+            collapsed={workspaceCollapsed}
+            onToggle={() => setWorkspaceCollapsed(!workspaceCollapsed)}
+          />
+          {!workspaceCollapsed && (
+            <>
+              <NavItem
+                icon={<Home size={14} />}
+                label="Home"
+                active={viewMode === 'channel' || viewMode === 'dm'}
+                onClick={() => setViewMode('channel')}
+              />
+              <NavItem
+                icon={<Layers size={14} />}
+                label="Tasks"
+                active={viewMode === 'tasks'}
+                onClick={() => setViewMode('tasks')}
+              />
+              <NavItem
+                icon={<Cpu size={14} />}
+                label="Agents"
+                active={viewMode === 'agents'}
+                onClick={() => setViewMode('agents')}
+              />
+              <NavItem
+                icon={<Brain size={14} />}
+                label="Memory"
+                active={viewMode === 'memory'}
+                onClick={() => setViewMode('memory')}
+              />
+            </>
+          )}
+        </div>
+
+        {/* CHANNELS */}
+        <div style={{ marginTop: 10 }}>
+          <SectionHeader
+            title="CHANNELS"
             collapsed={channelsCollapsed}
             onToggle={() => setChannelsCollapsed(!channelsCollapsed)}
-            onAdd={isGuest ? undefined : () => setShowCreateChannel(!showCreateChannel)}
-            forceShowButtons={forceShowButtons}
+            action={
+              isGuest ? null : (
+                <button
+                  type="button"
+                  onClick={() => setShowCreateChannel((v) => !v)}
+                  className="zk-btn zk-btn--ghost zk-btn--icon"
+                  style={{ padding: 2 }}
+                  title="Create channel"
+                >
+                  <Plus size={11} />
+                </button>
+              )
+            }
           />
 
           {showCreateChannel && (
-            <div className="px-3 pb-2">
-              <div className="flex items-center border border-nc-cyan/50 bg-nc-panel">
-                <Hash size={14} className="ml-2 text-nc-cyan/50 flex-shrink-0" />
+            <div style={{ padding: '4px 14px 6px' }}>
+              <div
+                className="zk-row"
+                style={{
+                  background: 'var(--zk-bg-2)',
+                  border: '1px solid var(--zk-ember-line)',
+                  borderRadius: 6,
+                  padding: '4px 8px', gap: 6,
+                }}
+              >
+                <Hash size={12} style={{ color: 'var(--zk-ember)' }} />
                 <input
                   type="text"
-                  value={newChannelName}
-                  onChange={e => setNewChannelName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCreateChannel(); if (e.key === 'Escape') setShowCreateChannel(false); }}
-                  placeholder="new-channel"
-                  className="w-full px-1.5 py-1 bg-transparent text-sm text-nc-text placeholder:text-nc-muted focus:outline-none font-mono"
                   autoFocus
+                  value={newChannelName}
+                  onChange={(e) => setNewChannelName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateChannel();
+                    if (e.key === 'Escape') setShowCreateChannel(false);
+                  }}
+                  placeholder="new-channel"
+                  style={{
+                    flex: 1, background: 'transparent', border: 0, outline: 'none',
+                    color: 'var(--zk-ink)', fontSize: 12,
+                    fontFamily: 'var(--zk-font-mono)',
+                  }}
                 />
               </div>
             </div>
           )}
 
-          {!channelsCollapsed && filteredChannels.map(ch => {
-            const unread = unreadCounts[ch.name] || 0;
-            const isActive = activeChannelName === ch.name;
-            return (
-              <button
-                key={ch.id}
-                onClick={() => pick(ch.name)}
-                className={getChannelSidebarChannelItemClass(themeVariant, isActive, unread)}
-              >
-                <Hash size={14} className="flex-shrink-0" />
-                <span className="truncate text-sm">{ch.name}</span>
-                {!isGuest && (
-                  <span
-                    role="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openChannelSettings(ch.id);
-                    }}
-                    className={`ml-auto ${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
-                    title={`Configure #${ch.name}`}
-                  >
-                    <Settings size={12} />
-                  </span>
-                )}
-                {!isGuest && ch.name !== 'all' && !(forceShowButtons && unread > 0 && !isActive) && (
-                  <span
-                    role="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!window.confirm(`Delete channel #${ch.name}? This removes the channel from the workspace but keeps its messages in the database.`)) return;
-                      deleteChannel(ch.id, ch.name);
-                    }}
-                    className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-all`}
-                    title="Delete channel"
-                  >
-                    <Trash2 size={12} />
-                  </span>
-                )}
-                {unread > 0 && !isActive && (
-                  <span className={`${!isGuest ? '' : 'ml-auto '}w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
-                    {unread > 9 ? '9+' : unread}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {!channelsCollapsed && channels.map((ch) => (
+            <ChannelRow
+              key={ch.id}
+              channel={ch}
+              agents={agents}
+              active={activeChannelName === ch.name && (viewMode === 'channel' || viewMode === 'dm')}
+              unread={unreadCounts[ch.name] || 0}
+              isGuest={isGuest}
+              forceShowActions={forceShowActions}
+              onClick={() => pick(ch.name)}
+              onConfigure={() => openChannelSettings(ch.id)}
+              onDelete={ch.name !== 'all' ? () => {
+                if (window.confirm(`Delete channel #${ch.name}?`)) deleteChannel(ch.id, ch.name);
+              } : undefined}
+            />
+          ))}
         </div>
 
-        <div>
+        {/* AGENTS as DM targets */}
+        <div style={{ marginTop: 10 }}>
           <SectionHeader
-            title="Agents"
+            title="AGENTS"
             collapsed={agentsCollapsed}
             onToggle={() => setAgentsCollapsed(!agentsCollapsed)}
           />
-          {!agentsCollapsed && filteredAgents.map(agent => {
-            const isActive = activeChannelName === agent.name && viewMode === 'dm';
-            const unread = unreadCounts[agent.name] || 0;
-            const status = agentStatus(agent);
-            const avatarStatus = agentAvatarStatus(agent);
-            const avatarOffline = avatarStatus === 'offline';
-            const usageDisplay = pickDisplayContextUsage(agent.contextUsage, agent.model);
-            const usageLabel = formatContextUsageCompact(usageDisplay);
-            const usageTitle = formatContextUsageTitle(agent.contextUsage, agent.model);
-            const usageTone = contextUsageTextTone(usageDisplay?.percent);
-            return (
-              <button
-                key={agent.id}
-                onClick={() => pick(agent.name, true)}
-                className={getChannelSidebarAgentItemClass(themeVariant, isActive, unread)}
-              >
-                <span className="relative w-5 h-5 flex-shrink-0">
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openAgentProfile(agent.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        openAgentProfile(agent.id);
-                      }
-                    }}
-                    title={`View @${agent.displayName || agent.name} profile`}
-                    className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-2xs cursor-pointer ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)} ${avatarOffline ? '' : 'hover:ring-1 hover:ring-nc-cyan'}`}
-                  >
-                    {agent.picture ? (
-                      <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <Bot size={12} />
-                    )}
-                  </span>
-                  <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
-                </span>
-                <span className="truncate text-sm min-w-0">{agent.displayName || agent.name}</span>
-                <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-                  {usageLabel && (
-                    <span
-                      className={`shrink-0 text-[10px] font-mono leading-none ${usageTone}`}
-                      title={usageTitle}
-                    >
-                      {usageLabel}
-                    </span>
-                  )}
-                  {agent.status === 'active' && !isGuest && (
-                    <span
-                      role="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        resetAgentContext(agent.id);
-                      }}
-                      className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-yellow transition-all`}
-                      title="Reset context"
-                    >
-                      <RotateCcw size={12} />
-                    </span>
-                  )}
-                  {unread > 0 && !isActive && (isGuest || forceShowButtons) ? (
-                    <span className={`w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
-                      {unread > 9 ? '9+' : unread}
-                    </span>
-                  ) : !isGuest ? (
-                    <span className="relative inline-flex">
-                      <span
-                        role="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openAgentSettings(agent.id);
-                        }}
-                        className={`${forceShowButtons ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-cyan transition-all`}
-                        title={`Configure ${agent.displayName || agent.name}`}
-                      >
-                        <SlidersHorizontal size={12} />
-                      </span>
-                      {unread > 0 && !isActive && !forceShowButtons && (
-                        <span
-                          className={`pointer-events-none absolute inset-0 flex items-center justify-center bg-nc-red/20 text-nc-red border border-nc-red/40 text-[11px] font-black leading-none ${avatarRadiusClass(theme)}`}
-                          aria-label={`${unread} unread`}
-                        >
-                          {unread > 9 ? '9+' : unread}
-                        </span>
-                      )}
-                    </span>
-                  ) : null}
-                </div>
-              </button>
-            );
-          })}
-          {!agentsCollapsed && filteredAgents.length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No agents</div>
+          {!agentsCollapsed && agents.length === 0 && (
+            <div
+              style={{
+                padding: '6px 14px', fontSize: 11,
+                color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)',
+                fontStyle: 'italic',
+              }}
+            >
+              No agents
+            </div>
           )}
+          {!agentsCollapsed && agents.map((a) => (
+            <AgentRow
+              key={a.id}
+              agent={a}
+              active={activeChannelName === a.name && viewMode === 'dm'}
+              unread={unreadCounts[a.name] || 0}
+              isGuest={isGuest}
+              forceShowActions={forceShowActions}
+              onClick={() => pick(a.name, true)}
+              onResetContext={() => resetAgentContext(a.id)}
+              onConfigure={() => openAgentSettings(a.id)}
+              onProfile={() => openAgentProfile(a.id)}
+            />
+          ))}
         </div>
 
-        <div>
+        {/* PEOPLE / DMs */}
+        <div style={{ marginTop: 10 }}>
           <SectionHeader
-            title="People"
+            title="DIRECT MESSAGES"
             collapsed={dmsCollapsed}
             onToggle={() => setDmsCollapsed(!dmsCollapsed)}
           />
-          {!dmsCollapsed && filteredHumans.map(h => {
+          {!dmsCollapsed && peopleList.map((h) => {
             const isSelf = h.name === currentUser;
-            const isActive = activeChannelName === h.name;
-            const commonRow = 'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-all duration-100 mb-1';
-            const activeClass = 'bg-nc-magenta/10 border-l-2 border-nc-magenta text-nc-magenta font-bold';
-            const idleClass = 'text-nc-muted hover:bg-nc-elevated hover:text-nc-text';
-            const status = isSelf ? humanStatus({ online: true }) : humanStatus(h);
-            const content = (
-              <>
-                <div className="relative w-5 h-5 shrink-0">
-                  <div className={`w-full h-full border flex items-center justify-center overflow-hidden ${avatarPaletteClass(status)} ${avatarRadiusClass(theme)}`}>
-                    {h.picture || h.gravatarUrl ? (
-                      <img src={h.picture || h.gravatarUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <User size={12} className="flex-shrink-0" />
-                    )}
-                  </div>
-                  <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
-                </div>
-                <span className="truncate text-sm">{h.name}</span>
-                {isSelf && (
-                  <span className="text-2xs text-nc-muted font-mono">(you)</span>
-                )}
-                {!isSelf && (unreadCounts[h.name] || 0) > 0 && !isActive && (
-                  <span className={`ml-auto w-5 h-5 inline-flex items-center justify-center bg-nc-red/20 text-nc-red text-[10px] font-black border border-nc-red/40 ${avatarRadiusClass(theme)}`}>
-                    {(unreadCounts[h.name] || 0) > 9 ? '9+' : unreadCounts[h.name]}
-                  </span>
-                )}
-              </>
-            );
-            if (isSelf) {
-              return (
-                <div key={h.id} className={`${commonRow} text-nc-muted cursor-default`}>
-                  {content}
-                </div>
-              );
-            }
             return (
-              <button
+              <HumanRow
                 key={h.id}
+                human={h}
+                active={!isSelf && activeChannelName === h.name && viewMode === 'dm'}
+                unread={unreadCounts[h.name] || 0}
+                isSelf={isSelf}
                 onClick={() => pick(h.name, true)}
-                className={`${commonRow} ${isActive ? activeClass : idleClass}`}
-              >
-                {content}
-              </button>
+              />
             );
           })}
-          {!dmsCollapsed && filteredHumans.length === 0 && (
-            <div className="px-3 py-1.5 text-xs text-nc-muted italic font-mono">No people online</div>
+          {!dmsCollapsed && peopleList.length === 0 && (
+            <div
+              style={{
+                padding: '6px 14px', fontSize: 11,
+                color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)',
+                fontStyle: 'italic',
+              }}
+            >
+              No people online
+            </div>
           )}
         </div>
       </div>
-    </div>
+
+      {/* Footer user card */}
+      {!phoneModal && (
+        <div
+          className="zk-row"
+          style={{
+            padding: 10,
+            borderTop: '1px solid var(--zk-line)',
+            gap: 10,
+            flexShrink: 0,
+          }}
+        >
+          <Avatar
+            src={authUser?.picture}
+            name={currentUser}
+            size="md"
+            kind="human"
+            online
+          />
+          <div className="zk-grow zk-col" style={{ minWidth: 0, lineHeight: 1.2 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--zk-ink)' }} className="zk-truncate">
+              {currentUser}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--zk-ink-mute)' }}>
+              {isGuest ? 'guest' : 'online'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            onClick={() => setSettingsOpen(true)}
+            title="Settings"
+          >
+            <Settings size={14} />
+          </button>
+        </div>
+      )}
+    </aside>
   );
 }

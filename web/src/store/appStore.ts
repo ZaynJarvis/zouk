@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
-  AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, Toast,
+  AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, ColorMode, Toast,
   WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
@@ -21,12 +21,14 @@ import {
   getStoredCurrentUser,
   getStoredLastView,
   getStoredTheme,
+  getStoredColorMode,
   setStoredAuth,
   setStoredAuthUser,
   setStoredAuthToken,
   setStoredCurrentUser,
   setStoredLastView,
   setStoredTheme,
+  setStoredColorMode,
 } from './storage';
 import { applyTheme } from '../themes';
 
@@ -79,6 +81,7 @@ function isValidSelection(
 
 export function useAppStore() {
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
+  const [colorMode, setColorMode] = useState<ColorMode>(getStoredColorMode);
   const [currentUser, setCurrentUser] = useState(getStoredCurrentUser);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
   const [agents, setAgents] = useState<ServerAgent[]>([]);
@@ -155,8 +158,9 @@ export function useAppStore() {
 
   useLayoutEffect(() => {
     setStoredTheme(theme);
-    applyTheme(theme);
-  }, [theme]);
+    setStoredColorMode(colorMode);
+    applyTheme(theme, colorMode);
+  }, [theme, colorMode]);
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = `toast-${Date.now()}`;
@@ -502,7 +506,7 @@ export function useAppStore() {
         const e = event as { agentId: string; uri: string; entries: MemoryEntry[] };
         setMemoryTreeCache(prev => ({
           ...prev,
-          [e.agentId]: { ...(prev[e.agentId] || {}), [e.uri || 'viking:///']: e.entries },
+          [e.agentId]: { ...(prev[e.agentId] || {}), [e.uri || 'viking://']: e.entries },
         }));
         break;
       }
@@ -986,7 +990,7 @@ export function useAppStore() {
   }, []);
 
   const requestMemoryList = useCallback((agentId: string, uri?: string) => {
-    wsRef.current?.send({ type: 'memory:list', agentId, uri: uri || 'viking:///' });
+    wsRef.current?.send({ type: 'memory:list', agentId, uri: uri || 'viking://' });
   }, []);
 
   const requestMemoryContent = useCallback((agentId: string, uri: string) => {
@@ -999,6 +1003,7 @@ export function useAppStore() {
 
   return {
     theme, setTheme,
+    colorMode, setColorMode,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
     channels, agents, humans, configs, machines,
     activeChannelName, selectChannel,

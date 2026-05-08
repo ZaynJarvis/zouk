@@ -1,29 +1,69 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+/* MemoryView — atlas-fs-style browser for per-agent OpenViking memory and
+   workspace Files. Inspired by V3MemoryApp in tmp/.../v3-bold.jsx.
+
+   Sources:
+   - 'memory' (default): browses OpenViking via requestMemoryList /
+     requestMemoryContent. URIs look like `viking://user/...`.
+   - 'files': browses the agent's workspace via requestWorkspaceFiles /
+     requestFileContent. Identifiers are filesystem paths; root is empty.
+
+   Paradigms (both sources share the UI):
+   - Columns: Finder/Miller columns + right preview pane.
+   - Tree: single-column expand/collapse.
+
+   Keyboard: ↑/↓ navigate · → / ⏎ open · ← back · ⌘1/⌘2 switch view. */
+
 import {
-  Brain, ChevronRight, File, Folder, FolderOpen,
-  RefreshCw, ArrowLeft, Search, Plus,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo,
+} from 'react';
+import {
+  ChevronRight, File, Folder, RefreshCw, ArrowLeft,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
 import { parseMarkdown } from '../lib/markdown';
+import { Avatar, Eyebrow } from './zk/primitives';
 
-function uriName(uri: string): string {
-  const parts = uri.replace(/\/+$/, '').split('/').filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 1] : parts[0] || uri;
+type Source = 'memory' | 'files';
+
+const MEMORY_ROOT = 'viking://';
+const FILES_ROOT = '';
+const COLUMN_W = 220;
+
+const rootFor = (s: Source) => (s === 'memory' ? MEMORY_ROOT : FILES_ROOT);
+
+/* ---- URI / path helpers --------------------------------------------- */
+
+function uriBasename(uri: string, source: Source): string {
+  if (source === 'memory') {
+    if (!uri || uri === MEMORY_ROOT || uri === 'viking:///') return '/';
+    const trimmed = uri.replace(/\/+$/, '');
+    const idx = trimmed.lastIndexOf('/');
+    if (idx < 0) return trimmed;
+    return trimmed.slice(idx + 1) || '/';
+  }
+  // Files
+  if (!uri) return '~';
+  const trimmed = uri.replace(/\/+$/, '');
+  if (!trimmed) return '~';
+  const idx = trimmed.lastIndexOf('/');
+  if (idx < 0) return trimmed;
+  return trimmed.slice(idx + 1) || '/';
 }
 
-function isMarkdownFile(uri: string): boolean {
-  return /\.(md|mdx|markdown)$/i.test(uri);
+function isMarkdownFile(name: string): boolean { return /\.(md|mdx|markdown)$/i.test(name); }
+function isJsonFile(name: string): boolean { return /\.json$/i.test(name); }
+
+function fileKindLabel(name: string): string {
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return 'FILE';
+  return name.slice(dot + 1).toUpperCase().slice(0, 8);
 }
 
-// ---------------------------------------------------------------------------
-// AgentSelector — horizontal strip of agent avatars
-// ---------------------------------------------------------------------------
+/* ---- Agent chip strip — horizontal, prominent (high-frequency switch) ---- */
 
-function AgentSelector({
-  agents,
-  selectedId,
-  onSelect,
+function AgentChipStrip({
+  agents, selectedId, onSelect,
 }: {
   agents: ServerAgent[];
   selectedId: string | null;
@@ -31,47 +71,61 @@ function AgentSelector({
 }) {
   if (agents.length === 0) {
     return (
-      <div className="px-4 py-2.5 text-xs text-nc-muted font-mono">
-        No agents
+      <div
+        style={{
+          padding: '10px 22px', fontSize: 12,
+          color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)',
+        }}
+      >
+        No agents available.
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2.5 overflow-x-auto scrollbar-thin">
-      {agents.map((agent) => {
-        const isSelected = agent.id === selectedId;
-        const initial = (agent.displayName || agent.name).charAt(0).toUpperCase();
-        const activityColor = agent.activity === 'working' || agent.activity === 'thinking'
-          ? 'bg-nc-yellow'
-          : agent.activity === 'online' ? 'bg-nc-green'
-          : agent.activity === 'error' ? 'bg-nc-red'
-          : 'bg-nc-muted/30';
-
+    <div
+      className="zk-scroll"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '10px 22px',
+        borderBottom: '1px solid var(--zk-line)',
+        overflowX: 'auto',
+        flexShrink: 0,
+        background: 'var(--zk-bg-0)',
+      }}
+    >
+      {agents.map((a) => {
+        const active = a.id === selectedId;
         return (
           <button
-            key={agent.id}
-            onClick={() => onSelect(agent.id)}
-            title={agent.displayName || agent.name}
-            className={`relative flex items-center gap-2 px-3 py-1.5 text-xs font-mono transition-all flex-shrink-0 ${
-              isSelected
-                ? 'border border-nc-border-bright bg-nc-elevated text-nc-text-bright'
-                : 'border border-transparent text-nc-muted hover:text-nc-text hover:bg-nc-elevated/50'
-            }`}
+            key={a.id}
+            type="button"
+            onClick={() => onSelect(a.id)}
+            aria-pressed={active}
+            title={a.displayName || a.name}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '4px 10px 4px 4px',
+              border: '1px solid',
+              borderColor: active ? 'var(--zk-ember)' : 'var(--zk-line-2)',
+              background: active ? 'var(--zk-ember-soft)' : 'var(--zk-bg-1)',
+              borderRadius: 999, cursor: 'pointer',
+              color: active ? 'var(--zk-ember)' : 'var(--zk-ink-dim)',
+              fontFamily: 'var(--zk-font-sans)', fontSize: 12,
+              flexShrink: 0,
+              transition: 'background 160ms var(--zk-ease-out), border-color 160ms var(--zk-ease-out), color 160ms var(--zk-ease-out)',
+            }}
           >
-            <div className={`relative w-6 h-6 flex items-center justify-center font-display font-bold text-xs ${
-              isSelected
-                ? 'border border-nc-border-bright bg-nc-panel text-nc-text-bright'
-                : 'border border-nc-border bg-nc-surface text-nc-muted'
-            }`}>
-              {agent.picture ? (
-                <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-              ) : (
-                initial
-              )}
-              <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 ${activityColor} border border-nc-black`} />
-            </div>
-            <span>@{agent.displayName || agent.name}</span>
+            <Avatar
+              src={a.picture}
+              name={a.displayName || a.name}
+              kind="agent"
+              size="sm"
+              activity={a.activity}
+            />
+            <span style={{ fontWeight: active ? 500 : 400 }}>
+              {a.displayName || a.name}
+            </span>
           </button>
         );
       })}
@@ -79,257 +133,225 @@ function AgentSelector({
   );
 }
 
-// ---------------------------------------------------------------------------
-// MemoryTreeNode
-// ---------------------------------------------------------------------------
+/* ---- Miller column row ---------------------------------------------- */
 
-const TreeNode = memo(function TreeNode({
-  entry,
-  level,
-  expandedDirs,
-  treeCache,
-  selectedUri,
-  onToggleDir,
-  onSelectFile,
+const ColumnRow = memo(function ColumnRow({
+  entry, selected, source, onSelect,
 }: {
   entry: MemoryEntry;
-  level: number;
-  expandedDirs: Set<string>;
-  treeCache: Record<string, MemoryEntry[]>;
-  selectedUri: string | null;
-  onToggleDir: (uri: string) => void;
-  onSelectFile: (uri: string) => void;
+  selected: boolean;
+  source: Source;
+  onSelect: (e: MemoryEntry) => void;
 }) {
-  const { uri, isDir } = entry;
-  const isExpanded = isDir && expandedDirs.has(uri);
-  const children = isDir ? treeCache[uri] : undefined;
-  const name = uriName(uri);
-  const isSelected = !isDir && uri === selectedUri;
-
+  const name = uriBasename(entry.uri, source);
   return (
-    <>
-      <button
-        onClick={() => isDir ? onToggleDir(uri) : onSelectFile(uri)}
-        className={`w-full flex items-center gap-1.5 py-1.5 text-left hover:bg-nc-elevated/60 transition-colors ${
-          isSelected ? 'bg-nc-elevated' : ''
-        }`}
-        style={{ paddingLeft: `${12 + level * 16}px`, paddingRight: '12px' }}
+    <button
+      type="button"
+      onClick={() => onSelect(entry)}
+      style={{
+        width: '100%',
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '7px 10px',
+        background: selected ? 'var(--zk-ember-soft)' : 'transparent',
+        border: 0, borderRadius: 5,
+        cursor: 'pointer', textAlign: 'left',
+        color: 'inherit',
+        transition: 'background 140ms var(--zk-ease-out)',
+      }}
+      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = 'var(--zk-bg-1)'; }}
+      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}
+    >
+      {entry.isDir
+        ? <Folder size={11} color={selected ? 'var(--zk-ember)' : 'var(--zk-ink-dim)'} />
+        : <File size={11} color={selected ? 'var(--zk-ember)' : 'var(--zk-ink-mute)'} />}
+      <span
+        style={{
+          flex: 1, minWidth: 0,
+          fontFamily: 'var(--zk-font-mono)', fontSize: 12,
+          color: selected ? 'var(--zk-ember)' : 'var(--zk-ink-dim)',
+          fontWeight: selected ? 500 : 400,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}
       >
-        {isDir ? (
-          <ChevronRight
-            size={12}
-            className={`flex-shrink-0 text-nc-muted transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
-          />
-        ) : (
-          <span className="w-3 flex-shrink-0" />
-        )}
-        {isDir
-          ? (isExpanded
-            ? <FolderOpen size={14} className="flex-shrink-0 text-nc-yellow" />
-            : <Folder size={14} className="flex-shrink-0 text-nc-yellow" />)
-          : <File size={14} className="flex-shrink-0 text-nc-muted" />
-        }
-        <span className={`text-sm font-mono truncate ${isSelected ? 'text-nc-text-bright' : 'text-nc-text'}`}>
-          {name}
-        </span>
-      </button>
-      {isDir && isExpanded && (
-        <div>
-          {children ? (
-            children.length > 0 ? (
-              children.map((child) => (
-                <TreeNode
-                  key={child.uri}
-                  entry={child}
-                  level={level + 1}
-                  expandedDirs={expandedDirs}
-                  treeCache={treeCache}
-                  selectedUri={selectedUri}
-                  onToggleDir={onToggleDir}
-                  onSelectFile={onSelectFile}
-                />
-              ))
-            ) : (
-              <div
-                className="text-2xs text-nc-muted font-mono py-1"
-                style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}
-              >
-                (empty)
-              </div>
-            )
-          ) : (
-            <div
-              className="text-2xs text-nc-muted font-mono py-1 animate-pulse"
-              style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}
-            >
-              loading...
-            </div>
-          )}
-        </div>
+        {name}
+      </span>
+      {entry.isDir && (
+        <ChevronRight size={9} color={selected ? 'var(--zk-ember)' : 'var(--zk-ink-low)'} />
       )}
-    </>
+    </button>
   );
 });
 
-// ---------------------------------------------------------------------------
-// TreePane — left side of the atlas-fs-style layout
-// ---------------------------------------------------------------------------
+/* ---- Miller column -------------------------------------------------- */
 
-function TreePane({
-  agent,
-  selectedUri,
-  onSelectFile,
+function MillerColumn({
+  uri, entries, selectedChildUri, loading, source, onPickEntry,
 }: {
-  agent: ServerAgent;
-  selectedUri: string | null;
-  onSelectFile: (uri: string) => void;
+  uri: string;
+  entries: MemoryEntry[];
+  selectedChildUri: string | null;
+  loading: boolean;
+  source: Source;
+  onPickEntry: (e: MemoryEntry) => void;
 }) {
-  const { memoryTreeCache, requestMemoryList } = useApp();
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
-  const agentCache = useMemo(() => memoryTreeCache[agent.id] || {}, [memoryTreeCache, agent.id]);
-  const rootEntries = useMemo(() => agentCache['viking:///'] || [], [agentCache]);
-
-  useEffect(() => {
-    requestMemoryList(agent.id);
-  }, [agent.id, requestMemoryList]);
-
-  const handleToggleDir = useCallback((uri: string) => {
-    setExpandedDirs(prev => {
-      const next = new Set(prev);
-      if (next.has(uri)) {
-        next.delete(uri);
-      } else {
-        next.add(uri);
-        if (!agentCache[uri]) {
-          requestMemoryList(agent.id, uri);
-        }
-      }
-      return next;
-    });
-  }, [agent.id, agentCache, requestMemoryList]);
-
-  const handleRefresh = useCallback(() => {
-    requestMemoryList(agent.id);
-    setExpandedDirs(new Set());
-  }, [agent.id, requestMemoryList]);
-
+  const headerLabel = uri === rootFor(source) ? (source === 'files' ? '~' : '/') : uriBasename(uri, source);
   return (
-    <div className="flex flex-col min-h-0 h-full">
-      {/* Tree header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-nc-border">
-        <Brain size={14} className="text-nc-yellow flex-shrink-0" />
-        <span className="flex-1 text-xs font-mono text-nc-muted truncate">
-          viking:///
+    <div
+      style={{
+        width: COLUMN_W,
+        flexShrink: 0,
+        borderRight: '1px solid var(--zk-line)',
+        display: 'flex', flexDirection: 'column',
+        background: 'var(--zk-bg-0)',
+      }}
+    >
+      <div
+        style={{
+          padding: '12px 14px 8px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontFamily: 'var(--zk-font-mono)', fontSize: 10,
+          letterSpacing: '0.18em', color: 'var(--zk-ink-mute)',
+        }}
+      >
+        <span className="zk-truncate" title={uri}>{headerLabel}</span>
+        <span className="zk-tabular" style={{ color: 'var(--zk-ink-low)' }}>
+          {entries.length || (loading ? '…' : 0)}
         </span>
-        <button
-          onClick={handleRefresh}
-          className="w-6 h-6 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-border-bright text-nc-muted hover:text-nc-text transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw size={10} />
-        </button>
       </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nc-border">
-        <div
-          className="flex-1 flex items-center gap-1.5 px-2 py-1 border border-nc-border/50 bg-nc-panel opacity-40 cursor-not-allowed"
-          title="Semantic search (coming soon)"
-        >
-          <Search size={10} className="text-nc-muted flex-shrink-0" />
-          <span className="text-2xs text-nc-muted font-mono">Search...</span>
-        </div>
-        <button
-          disabled
-          className="w-6 h-6 border border-nc-border bg-nc-panel flex items-center justify-center opacity-40 cursor-not-allowed"
-          title="Add memory (coming soon)"
-        >
-          <Plus size={10} className="text-nc-muted" />
-        </button>
-      </div>
-
-      {/* Tree */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {rootEntries.length > 0 ? (
-          <div className="py-0.5">
-            {rootEntries.map((entry) => (
-              <TreeNode
-                key={entry.uri}
-                entry={entry}
-                level={0}
-                expandedDirs={expandedDirs}
-                treeCache={agentCache}
-                selectedUri={selectedUri}
-                onToggleDir={handleToggleDir}
-                onSelectFile={onSelectFile}
-              />
-            ))}
+      <div className="zk-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '2px 6px 12px' }}>
+        {loading && entries.length === 0 ? (
+          <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)', fontStyle: 'italic' }}>
+            loading…
+          </div>
+        ) : entries.length === 0 ? (
+          <div style={{ padding: '12px', fontSize: 13, color: 'var(--zk-ink-low)', fontStyle: 'italic', fontFamily: 'var(--zk-font-display)' }}>
+            empty
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center text-center py-12">
-            <Brain size={24} className="text-nc-muted mb-2" />
-            <p className="text-xs text-nc-muted font-mono">No memories</p>
-          </div>
+          entries.map((e) => (
+            <ColumnRow
+              key={e.uri}
+              entry={e}
+              selected={e.uri === selectedChildUri}
+              source={source}
+              onSelect={onPickEntry}
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// PreviewPane — right side, renders file content with markdown
-// ---------------------------------------------------------------------------
+/* ---- File preview pane --------------------------------------------- */
 
-function PreviewPane({
-  agentId,
-  uri,
-  onBack,
+function FilePreview({
+  agentId, fileUri, source, onBack,
 }: {
-  agentId: string;
-  uri: string;
+  agentId: string | null;
+  fileUri: string | null;
+  source: Source;
   onBack?: () => void;
 }) {
-  const { memoryFileContent } = useApp();
-  const match = memoryFileContent?.agentId === agentId && memoryFileContent?.uri === uri
-    ? memoryFileContent
-    : null;
-  const content = match?.content ?? null;
-  const fileName = uriName(uri);
-  const isMd = isMarkdownFile(uri);
+  const { memoryFileContent, workspaceFileContent } = useApp();
+  if (!agentId || !fileUri) {
+    return (
+      <div
+        style={{
+          padding: 32, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)', fontSize: 12,
+          height: '100%',
+        }}
+      >
+        No file selected
+      </div>
+    );
+  }
+  let content: string | null = null;
+  if (source === 'memory') {
+    const match = memoryFileContent?.agentId === agentId && memoryFileContent?.uri === fileUri
+      ? memoryFileContent : null;
+    content = match?.content ?? null;
+  } else {
+    const match = workspaceFileContent?.agentId === agentId && workspaceFileContent?.path === fileUri
+      ? workspaceFileContent : null;
+    content = match?.content ?? null;
+  }
+  const fileName = uriBasename(fileUri, source);
+  const isMd = isMarkdownFile(fileUri);
+  const isJson = isJsonFile(fileUri);
+  const kind = isMd ? 'MARKDOWN' : isJson ? 'JSON' : fileKindLabel(fileUri);
 
   return (
-    <div className="flex flex-col min-h-0 h-full">
-      {/* Preview header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-nc-border bg-nc-elevated/30">
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="w-6 h-6 flex items-center justify-center text-nc-muted hover:text-nc-text transition-colors lg:hidden"
+    <div className="zk-fade-in" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+      <header style={{ padding: '18px 24px 16px', borderBottom: '1px solid var(--zk-line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="zk-btn zk-btn--ghost zk-btn--icon lg:hidden"
+              aria-label="Back"
+              style={{ padding: 4 }}
+            >
+              <ArrowLeft size={13} />
+            </button>
+          )}
+          <File size={13} color="var(--zk-ink-dim)" />
+          <span
+            style={{
+              fontFamily: 'var(--zk-font-mono)', fontSize: 14,
+              color: 'var(--zk-ink)', fontWeight: 500,
+            }}
+            className="zk-truncate"
           >
-            <ArrowLeft size={14} />
-          </button>
-        )}
-        <File size={14} className="text-nc-muted flex-shrink-0" />
-        <span className="flex-1 text-sm font-mono text-nc-text-bright truncate" title={uri}>
-          {fileName}
-        </span>
-        <span className="text-2xs text-nc-muted font-mono flex-shrink-0">
-          {uri}
-        </span>
-      </div>
+            {fileName}
+          </span>
+          <span className="zk-grow" />
+          <span
+            style={{
+              padding: '2px 8px',
+              fontFamily: 'var(--zk-font-mono)', fontSize: 10,
+              color: 'var(--zk-ink-mute)',
+              border: '1px solid var(--zk-line-2)', borderRadius: 4,
+              letterSpacing: '0.06em',
+            }}
+          >
+            {kind}
+          </span>
+        </div>
+        <div
+          className="zk-truncate"
+          style={{
+            display: 'flex', gap: 18,
+            fontFamily: 'var(--zk-font-mono)', fontSize: 11,
+            color: 'var(--zk-ink-mute)',
+          }}
+          title={fileUri}
+        >
+          <span><span style={{ color: 'var(--zk-ink-low)' }}>path</span> {fileUri}</span>
+        </div>
+      </header>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
+      <div className="zk-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {content === null ? (
-          <div className="flex items-center justify-center py-16">
-            <span className="text-sm text-nc-muted font-mono animate-pulse">Loading...</span>
+          <div style={{ padding: 64, textAlign: 'center', fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
+            loading…
           </div>
         ) : isMd ? (
-          <div className="p-4 sm:p-6 lg:p-8 max-w-3xl text-sm leading-relaxed">
+          <div className="zk-prose msg-body" style={{ padding: '20px 24px 28px', maxWidth: 760 }}>
             {parseMarkdown(content, [])}
           </div>
         ) : (
-          <pre className="p-4 sm:p-6 lg:p-8 text-sm font-mono text-nc-text whitespace-pre-wrap break-words">
+          <pre
+            style={{
+              padding: '20px 24px 28px',
+              fontFamily: 'var(--zk-font-mono)', fontSize: 12.5, lineHeight: 1.75,
+              color: 'var(--zk-ink-dim)',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
+            }}
+          >
             {content}
           </pre>
         )}
@@ -338,118 +360,543 @@ function PreviewPane({
   );
 }
 
-// ---------------------------------------------------------------------------
-// EmptyPreview — shown when no file is selected
-// ---------------------------------------------------------------------------
+/* ---- Tree view (alternate paradigm) -------------------------------- */
 
-function EmptyPreview() {
+const TreeNode = memo(function TreeNode({
+  entry, level, expanded, treeCache, selectedUri, source,
+  onToggle, onSelectFile,
+}: {
+  entry: MemoryEntry;
+  level: number;
+  expanded: Set<string>;
+  treeCache: Record<string, MemoryEntry[]>;
+  selectedUri: string | null;
+  source: Source;
+  onToggle: (uri: string) => void;
+  onSelectFile: (uri: string) => void;
+}) {
+  const { uri, isDir } = entry;
+  const isExpanded = isDir && expanded.has(uri);
+  const children = isDir ? treeCache[uri] : undefined;
+  const name = uriBasename(uri, source);
+  const isSelected = !isDir && uri === selectedUri;
+
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center px-6">
-      <Brain size={32} className="text-nc-muted/30 mb-3" />
-      <p className="text-sm text-nc-muted">Select a file to preview</p>
+    <>
+      <button
+        type="button"
+        onClick={() => isDir ? onToggle(uri) : onSelectFile(uri)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+          padding: '5px 10px',
+          paddingLeft: `${10 + level * 14}px`,
+          background: isSelected ? 'var(--zk-ember-soft)' : 'transparent',
+          border: 0, borderRadius: 5, cursor: 'pointer',
+          color: isSelected ? 'var(--zk-ember)' : 'var(--zk-ink-dim)',
+          textAlign: 'left',
+          transition: 'background 140ms var(--zk-ease-out)',
+        }}
+      >
+        {isDir ? (
+          <ChevronRight
+            size={11}
+            color={isSelected ? 'var(--zk-ember)' : 'var(--zk-ink-mute)'}
+            style={{ transition: 'transform 120ms', transform: isExpanded ? 'rotate(90deg)' : 'none', flexShrink: 0 }}
+          />
+        ) : (
+          <span style={{ width: 11, flexShrink: 0 }} />
+        )}
+        {isDir
+          ? <Folder size={11} color={isSelected ? 'var(--zk-ember)' : 'var(--zk-ink-dim)'} />
+          : <File size={11} color={isSelected ? 'var(--zk-ember)' : 'var(--zk-ink-mute)'} />}
+        <span
+          style={{
+            fontFamily: 'var(--zk-font-mono)', fontSize: 12,
+            fontWeight: isSelected ? 500 : 400,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            flex: 1,
+          }}
+        >
+          {name}
+        </span>
+      </button>
+      {isDir && isExpanded && (
+        children ? (
+          children.length === 0 ? (
+            <div style={{ paddingLeft: `${10 + (level + 1) * 14}px`, fontSize: 11, color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)', fontStyle: 'italic' }}>
+              empty
+            </div>
+          ) : (
+            children.map((c) => (
+              <TreeNode
+                key={c.uri}
+                entry={c}
+                level={level + 1}
+                expanded={expanded}
+                treeCache={treeCache}
+                selectedUri={selectedUri}
+                source={source}
+                onToggle={onToggle}
+                onSelectFile={onSelectFile}
+              />
+            ))
+          )
+        ) : (
+          <div style={{ paddingLeft: `${10 + (level + 1) * 14}px`, fontSize: 11, color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)', fontStyle: 'italic' }}>
+            loading…
+          </div>
+        )
+      )}
+    </>
+  );
+});
+
+function TreeView({
+  agentId, treeCache, source, fetchList, fetchContent,
+  selectedFile, onSelectFile,
+}: {
+  agentId: string;
+  treeCache: Record<string, MemoryEntry[]>;
+  source: Source;
+  fetchList: (uri?: string) => void;
+  fetchContent: (uri: string) => void;
+  selectedFile: string | null;
+  onSelectFile: (uri: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const root = rootFor(source);
+  const rootEntries = treeCache[root] || (source === 'memory' ? (treeCache['viking:///'] || []) : []);
+
+  useEffect(() => {
+    if (!treeCache[root] && !(source === 'memory' && treeCache['viking:///'])) {
+      fetchList();
+    }
+  }, [agentId, treeCache, fetchList, root, source]);
+
+  const handleToggle = useCallback((uri: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(uri)) {
+        next.delete(uri);
+      } else {
+        next.add(uri);
+        if (!treeCache[uri]) fetchList(uri);
+      }
+      return next;
+    });
+  }, [treeCache, fetchList]);
+
+  const handlePickFile = useCallback((uri: string) => {
+    onSelectFile(uri);
+    fetchContent(uri);
+  }, [onSelectFile, fetchContent]);
+
+  return (
+    <div className="zk-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '6px 4px' }}>
+      {rootEntries.length === 0 ? (
+        <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--zk-ink-mute)', fontSize: 12, fontFamily: 'var(--zk-font-mono)' }}>
+          {source === 'memory' ? 'No memories' : 'No files'}
+        </div>
+      ) : (
+        rootEntries.map((e) => (
+          <TreeNode
+            key={e.uri}
+            entry={e}
+            level={0}
+            expanded={expanded}
+            treeCache={treeCache}
+            selectedUri={selectedFile}
+            source={source}
+            onToggle={handleToggle}
+            onSelectFile={handlePickFile}
+          />
+        ))
+      )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// MemoryView — full-page atlas-fs-style layout
-// ---------------------------------------------------------------------------
+/* ---- View segmented control ---------------------------------------- */
 
-export default function MemoryView() {
-  const { agents, requestMemoryContent } = useApp();
-  const allAgents = agents;
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [selectedUri, setSelectedUri] = useState<string | null>(null);
+type Paradigm = 'columns' | 'tree';
 
-  useEffect(() => {
-    if (!selectedAgentId && allAgents.length > 0) {
-      setSelectedAgentId(allAgents[0].id);
-    }
-    if (selectedAgentId && !allAgents.find(a => a.id === selectedAgentId)) {
-      setSelectedAgentId(allAgents.length > 0 ? allAgents[0].id : null);
-      setSelectedUri(null);
-    }
-  }, [allAgents, selectedAgentId]);
+function ViewSwitch({ value, onChange }: { value: Paradigm; onChange: (v: Paradigm) => void }) {
+  return (
+    <div className="zk-seg">
+      <button type="button" className={value === 'columns' ? 'is-active' : ''} onClick={() => onChange('columns')}>Columns</button>
+      <button type="button" className={value === 'tree' ? 'is-active' : ''} onClick={() => onChange('tree')}>Tree</button>
+    </div>
+  );
+}
 
-  const handleSelectAgent = useCallback((id: string) => {
-    setSelectedAgentId(id);
-    setSelectedUri(null);
-  }, []);
+/* ---- Footer (keyboard hints) --------------------------------------- */
 
-  const handleSelectFile = useCallback((uri: string) => {
-    setSelectedUri(uri);
-    if (selectedAgentId) {
-      requestMemoryContent(selectedAgentId, uri);
-    }
-  }, [selectedAgentId, requestMemoryContent]);
-
-  const handleBack = useCallback(() => {
-    setSelectedUri(null);
-  }, []);
-
-  const selectedAgent = allAgents.find(a => a.id === selectedAgentId);
+function FooterShortcuts({ paradigm, currentPath }: { paradigm: Paradigm; currentPath: string }) {
+  const items: Array<[string, string]> = paradigm === 'columns'
+    ? [['↑↓', 'Navigate'], ['→ ⏎', 'Open'], ['←', 'Back'], ['⌘1 ⌘2', 'View']]
+    : [['↑↓', 'Navigate'], ['→ ⏎', 'Open / expand'], ['⌘1 ⌘2', 'View']];
 
   return (
-    <div className="flex flex-col h-full bg-nc-surface">
-      {/* Agent selector strip */}
-      <div className="border-b border-nc-border bg-nc-surface flex-shrink-0">
-        <AgentSelector
-          agents={allAgents}
-          selectedId={selectedAgentId}
-          onSelect={handleSelectAgent}
-        />
-      </div>
+    <div
+      className="hidden lg:flex"
+      style={{
+        gap: 18, alignItems: 'center',
+        padding: '8px 22px',
+        borderTop: '1px solid var(--zk-line)',
+        fontFamily: 'var(--zk-font-mono)', fontSize: 11,
+        color: 'var(--zk-ink-mute)',
+        background: 'var(--zk-bg-0)',
+      }}
+    >
+      {items.map(([k, l]) => (
+        <span key={l} style={{ display: 'flex', gap: 6 }}>
+          <span style={{ color: 'var(--zk-ink-low)' }}>{k}</span>
+          <span>{l}</span>
+        </span>
+      ))}
+      <span className="zk-grow" />
+      <span className="zk-truncate" style={{ color: 'var(--zk-ink-low)', maxWidth: '50%' }} title={currentPath}>
+        {currentPath}
+      </span>
+    </div>
+  );
+}
 
-      {selectedAgent ? (
-        <>
-          {/* Desktop: side-by-side tree + preview */}
-          <div className="hidden lg:flex flex-1 min-h-0">
-            {/* Tree pane */}
-            <div className="w-[280px] xl:w-[320px] flex-shrink-0 border-r border-nc-border bg-nc-surface">
-              <TreePane
-                agent={selectedAgent}
-                selectedUri={selectedUri}
-                onSelectFile={handleSelectFile}
-              />
-            </div>
-            {/* Preview pane */}
-            <div className="flex-1 min-w-0 bg-nc-panel">
-              {selectedUri ? (
-                <PreviewPane agentId={selectedAgent.id} uri={selectedUri} />
-              ) : (
-                <EmptyPreview />
-              )}
-            </div>
-          </div>
+/* ---- Top-level view ------------------------------------------------- */
 
-          {/* Mobile: stacked tree / preview with navigation */}
-          <div className="flex lg:hidden flex-1 min-h-0">
-            {selectedUri ? (
-              <div className="flex-1 flex flex-col min-h-0">
-                <PreviewPane
-                  agentId={selectedAgent.id}
-                  uri={selectedUri}
-                  onBack={handleBack}
-                />
-              </div>
-            ) : (
-              <div className="flex-1 min-h-0">
-                <TreePane
-                  agent={selectedAgent}
-                  selectedUri={selectedUri}
-                  onSelectFile={handleSelectFile}
-                />
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-center py-16 px-4">
-          <Brain size={36} className="text-nc-muted/30 mb-3" />
-          <p className="text-sm font-bold text-nc-muted">No agents</p>
-          <p className="text-xs text-nc-muted mt-1">
+export default function MemoryView() {
+  const {
+    agents, memoryTreeCache, requestMemoryList, requestMemoryContent,
+    wsTreeCache, requestWorkspaceFiles, requestFileContent,
+  } = useApp();
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const [source, setSource] = useState<Source>('memory');
+  const [paradigm, setParadigm] = useState<Paradigm>('columns');
+  const [trail, setTrail] = useState<string[]>([rootFor('memory')]);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!agentId && agents.length > 0) setAgentId(agents[0].id);
+    if (agentId && !agents.find((a) => a.id === agentId)) {
+      setAgentId(agents[0]?.id ?? null);
+      setTrail([rootFor(source)]);
+      setSelectedFile(null);
+    }
+  }, [agents, agentId, source]);
+
+  /* Per-source data adapter — uniform Record<uri, MemoryEntry[]> shape. */
+  const agentCache = useMemo(() => {
+    if (!agentId) return {} as Record<string, MemoryEntry[]>;
+    if (source === 'memory') {
+      return memoryTreeCache[agentId] || {};
+    }
+    const ws = wsTreeCache[agentId] || {};
+    const out: Record<string, MemoryEntry[]> = {};
+    for (const [dirPath, files] of Object.entries(ws)) {
+      out[dirPath] = files.map((f) => ({
+        uri: f.path || f.name,
+        isDir: f.isDirectory,
+        size: f.size,
+        modTime: f.modifiedAt,
+      }));
+    }
+    return out;
+  }, [agentId, source, memoryTreeCache, wsTreeCache]);
+
+  const fetchList = useCallback((uri?: string) => {
+    if (!agentId) return;
+    if (source === 'memory') {
+      requestMemoryList(agentId, uri);
+    } else {
+      requestWorkspaceFiles(agentId, uri ?? '');
+    }
+  }, [agentId, source, requestMemoryList, requestWorkspaceFiles]);
+
+  const fetchContent = useCallback((uri: string) => {
+    if (!agentId) return;
+    if (source === 'memory') {
+      requestMemoryContent(agentId, uri);
+    } else {
+      requestFileContent(agentId, uri);
+    }
+  }, [agentId, source, requestMemoryContent, requestFileContent]);
+
+  // Reset when agent or source changes; eagerly load root.
+  useEffect(() => {
+    setTrail([rootFor(source)]);
+    setSelectedFile(null);
+  }, [agentId, source]);
+
+  useEffect(() => {
+    if (!agentId) return;
+    const root = rootFor(source);
+    const has = agentCache[root] || (source === 'memory' && agentCache['viking:///']);
+    if (!has) fetchList(source === 'memory' ? root : undefined);
+  }, [agentId, source, agentCache, fetchList]);
+
+  useLayoutEffect(() => {
+    if (paradigm !== 'columns') return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
+  }, [trail.length, paradigm]);
+
+  const onPickEntry = useCallback((colIdx: number, entry: MemoryEntry) => {
+    if (!agentId) return;
+    const newTrail = trail.slice(0, colIdx + 1);
+    if (entry.isDir) {
+      newTrail.push(entry.uri);
+      setTrail(newTrail);
+      setSelectedFile(null);
+      if (!agentCache[entry.uri]) fetchList(entry.uri);
+    } else {
+      setTrail(newTrail);
+      setSelectedFile(entry.uri);
+      fetchContent(entry.uri);
+    }
+  }, [agentId, agentCache, trail, fetchList, fetchContent]);
+
+  const refreshActive = useCallback(() => {
+    if (!agentId) return;
+    fetchList(rootFor(source));
+    trail.slice(1).forEach((u) => fetchList(u));
+  }, [agentId, source, trail, fetchList]);
+
+  useEffect(() => {
+    if (paradigm !== 'columns' || !agentId) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if (e.metaKey && (e.key === '1' || e.key === '2')) {
+        e.preventDefault();
+        setParadigm(e.key === '1' ? 'columns' : 'tree');
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const activeColIdx = trail.length - 1;
+      const activeUri = trail[activeColIdx];
+      const entries = agentCache[activeUri] || [];
+      const selectedChildUri = trail[activeColIdx + 1] ?? selectedFile;
+      const activeIdx = entries.findIndex((x) => x.uri === selectedChildUri);
+
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (entries.length === 0) return;
+        e.preventDefault();
+        const dir = e.key === 'ArrowDown' ? 1 : -1;
+        const next = activeIdx < 0
+          ? (e.key === 'ArrowDown' ? 0 : entries.length - 1)
+          : Math.max(0, Math.min(entries.length - 1, activeIdx + dir));
+        const entry = entries[next];
+        const newTrail = trail.slice(0, activeColIdx + 1);
+        if (entry.isDir) {
+          setTrail([...newTrail, entry.uri]);
+          setSelectedFile(null);
+          if (!agentCache[entry.uri]) fetchList(entry.uri);
+        } else {
+          setTrail(newTrail);
+          setSelectedFile(entry.uri);
+          fetchContent(entry.uri);
+        }
+      } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
+        if (activeIdx < 0) return;
+        const entry = entries[activeIdx];
+        if (!entry) return;
+        e.preventDefault();
+        if (entry.isDir) {
+          if (trail[activeColIdx + 1] !== entry.uri) {
+            const newTrail = [...trail.slice(0, activeColIdx + 1), entry.uri];
+            setTrail(newTrail);
+            if (!agentCache[entry.uri]) fetchList(entry.uri);
+          }
+        } else {
+          setSelectedFile(entry.uri);
+          fetchContent(entry.uri);
+        }
+      } else if (e.key === 'ArrowLeft') {
+        if (trail.length <= 1) return;
+        e.preventDefault();
+        setTrail(trail.slice(0, -1));
+        setSelectedFile(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [paradigm, agentId, trail, agentCache, selectedFile, fetchList, fetchContent]);
+
+  const selectedAgent = agents.find((a) => a.id === agentId);
+  const root = rootFor(source);
+
+  const columns = useMemo(() => {
+    return trail.map((uri, i) => {
+      const entries = agentCache[uri] || (uri === root && source === 'memory' ? agentCache['viking:///'] || [] : []);
+      const childTrailUri = trail[i + 1] ?? null;
+      const childUri = childTrailUri ?? (i === trail.length - 1 ? selectedFile : null);
+      const loaded = !!agentCache[uri] || (uri === root && source === 'memory' && !!agentCache['viking:///']);
+      return { uri, entries, childUri, loading: !loaded };
+    });
+  }, [trail, agentCache, selectedFile, root, source]);
+
+  const currentPath = selectedFile || trail[trail.length - 1] || root || '~';
+
+  return (
+    <div
+      style={{
+        height: '100%', width: '100%',
+        display: 'flex', flexDirection: 'column',
+        background: 'var(--zk-bg-0)', color: 'var(--zk-ink)',
+        minHeight: 0,
+      }}
+    >
+      <header
+        className="safe-top"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '14px 22px 12px',
+          borderBottom: '1px solid var(--zk-line)',
+          flexShrink: 0,
+        }}
+      >
+        <div className="zk-col">
+          <Eyebrow>WORKSPACE</Eyebrow>
+          <h1
+            className="zk-display"
+            style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
+          >
+            {source === 'memory' ? 'Memory' : 'Files'}
+          </h1>
+        </div>
+
+        {/* Source toggle — Memory (OpenViking) / Files (workspace) */}
+        <div className="zk-seg" role="tablist" aria-label="Source">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={source === 'memory'}
+            className={source === 'memory' ? 'is-active' : ''}
+            onClick={() => setSource('memory')}
+          >
+            Memory
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={source === 'files'}
+            className={source === 'files' ? 'is-active' : ''}
+            onClick={() => setSource('files')}
+          >
+            Files
+          </button>
+        </div>
+
+        <ViewSwitch value={paradigm} onChange={setParadigm} />
+        <span className="zk-grow" />
+        <button
+          type="button"
+          className="zk-btn zk-btn--ghost zk-btn--icon"
+          onClick={refreshActive}
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={13} />
+        </button>
+      </header>
+
+      {/* Agent chip strip — horizontal, always visible (high-frequency switch). */}
+      <AgentChipStrip
+        agents={agents}
+        selectedId={agentId}
+        onSelect={setAgentId}
+      />
+
+      {!selectedAgent ? (
+        <div
+          style={{
+            flex: 1, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+            padding: '64px 16px',
+          }}
+        >
+          <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--zk-ink)' }}>No agents yet</p>
+          <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4, fontFamily: 'var(--zk-font-mono)' }}>
             Configure an agent to browse its memory.
           </p>
+        </div>
+      ) : paradigm === 'columns' ? (
+        <>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            {/* Columns scroller */}
+            <div
+              ref={scrollRef}
+              className={`zk-scroll ${selectedFile ? 'hidden lg:flex' : 'flex'}`}
+              style={{
+                flex: 1, minWidth: 0,
+                overflowX: 'auto',
+                background: 'var(--zk-bg-0)',
+              }}
+            >
+              {columns.map((col, i) => (
+                <MillerColumn
+                  key={col.uri + ':' + i}
+                  uri={col.uri}
+                  entries={col.entries}
+                  selectedChildUri={col.childUri}
+                  loading={col.loading}
+                  source={source}
+                  onPickEntry={(e) => onPickEntry(i, e)}
+                />
+              ))}
+            </div>
+
+            {/* Preview pane */}
+            <div
+              className={selectedFile ? 'flex' : 'hidden lg:flex'}
+              style={{
+                width: selectedFile ? '100%' : 460,
+                maxWidth: '100%',
+                flexShrink: 0,
+                borderLeft: '1px solid var(--zk-line)',
+                flexDirection: 'column',
+                background: 'var(--zk-bg-0)',
+              }}
+            >
+              <FilePreview agentId={agentId} fileUri={selectedFile} source={source} onBack={() => setSelectedFile(null)} />
+            </div>
+          </div>
+          <FooterShortcuts paradigm="columns" currentPath={currentPath} />
+        </>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+          <div
+            className={selectedFile ? 'hidden lg:flex' : 'flex'}
+            style={{
+              width: 320, flexShrink: 0,
+              borderRight: '1px solid var(--zk-line)',
+              flexDirection: 'column',
+              background: 'var(--zk-bg-0)',
+            }}
+          >
+            <TreeView
+              agentId={selectedAgent.id}
+              treeCache={agentCache}
+              source={source}
+              fetchList={fetchList}
+              fetchContent={fetchContent}
+              selectedFile={selectedFile}
+              onSelectFile={setSelectedFile}
+            />
+          </div>
+          <div
+            className={selectedFile ? 'flex' : 'hidden lg:flex'}
+            style={{
+              flex: 1, minWidth: 0,
+              flexDirection: 'column',
+              background: 'var(--zk-bg-0)',
+            }}
+          >
+            <FilePreview agentId={selectedAgent.id} fileUri={selectedFile} source={source} onBack={() => setSelectedFile(null)} />
+          </div>
         </div>
       )}
     </div>

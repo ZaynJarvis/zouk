@@ -80,7 +80,7 @@ export default function MembersPanel() {
               return (
                 <div key={h.id} className={`w-full flex items-center gap-3 px-4 py-2 hover:bg-nc-elevated transition-colors text-left ${offline ? 'opacity-60' : ''}`}>
                   <div className="relative w-8 h-8 flex-shrink-0">
-                    <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(status)} ${avatarRadiusClass(theme)}`}>
+                    <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(status)} ${avatarRadiusClass(theme, 'human')}`}>
                       {avatar ? (
                         <img src={avatar} alt="" className="w-full h-full object-cover" />
                       ) : (

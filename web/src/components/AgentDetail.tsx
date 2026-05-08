@@ -2,24 +2,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { FileText, FolderOpen, Activity, Settings, Save, Zap, ArrowLeft, RefreshCw, X } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../types';
 import { useApp } from '../store/AppContext';
-import ScanlineTear from './glitch/ScanlineTear';
 import { activityLabels } from '../lib/activityStatus';
 import StatusDot from './StatusDot';
-import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
-import { ncStyle } from '../lib/themeUtils';
+import { agentStatus } from '../lib/avatarStatus';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
 import AgentConfigForm from './agent/AgentConfigForm';
+import { AgentAvatar } from './zk/primitives';
 
 type Tab = 'instructions' | 'workspace' | 'activity' | 'settings';
 
 const TAB_CONFIG: { key: Tab; label: string; icon: typeof FileText }[] = [
-  { key: 'instructions', label: 'INSTR', icon: FileText },
-  { key: 'workspace', label: 'FILES', icon: FolderOpen },
-  { key: 'activity', label: 'ACTIVITY', icon: Activity },
-  { key: 'settings', label: 'CONFIG', icon: Settings },
+  { key: 'instructions', label: 'Instructions', icon: FileText },
+  { key: 'workspace',    label: 'Files',        icon: FolderOpen },
+  { key: 'activity',     label: 'Activity',     icon: Activity },
+  { key: 'settings',     label: 'Config',       icon: Settings },
 ];
 
 function InstructionsTab({
@@ -68,89 +67,145 @@ function InstructionsTab({
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="font-display font-bold text-sm text-nc-text-bright tracking-wider">SYSTEM_PROMPT</h3>
-          <p className="text-xs text-nc-muted mt-0.5 font-mono">Instructions that define how this agent behaves.</p>
+          <h3 className="zk-display" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>System prompt</h3>
+          <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
+            Instructions that define how this agent behaves.
+          </p>
         </div>
         {isDirty && (
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => onUpdate({ instructions })}
-              className="cyber-btn flex items-center gap-1 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-            >
-              <Save size={12} /> SAVE
-            </button>
-          </ScanlineTear>
+          <button
+            type="button"
+            onClick={() => onUpdate({ instructions })}
+            className="zk-btn zk-btn--primary"
+          >
+            <Save size={12} /> Save
+          </button>
         )}
       </div>
       <textarea
         value={instructions}
         onChange={(e) => setInstructions(e.target.value)}
         placeholder="Enter agent instructions..."
-        className="min-h-[200px] resize-none w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm font-mono text-nc-text placeholder:text-nc-muted focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
+        className="resize-none w-full transition-colors"
+        style={{
+          minHeight: 200,
+          padding: '10px 12px',
+          background: 'var(--zk-bg-1)',
+          border: '1px solid var(--zk-line-2)',
+          borderRadius: 8,
+          color: 'var(--zk-ink)',
+          fontFamily: 'var(--zk-font-mono)',
+          fontSize: 12.5,
+          lineHeight: 1.6,
+          outline: 'none',
+        }}
       />
 
       <div className="flex items-center justify-between mt-6 mb-3">
         <div>
-          <h3 className="font-display font-bold text-sm text-nc-text-bright tracking-wider">SKILLS</h3>
-          <p className="text-xs text-nc-muted mt-0.5 font-mono">Reusable instructions and tooling for this agent.</p>
+          <h3 className="zk-display" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>Skills</h3>
+          <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
+            Reusable instructions and tooling for this agent.
+          </p>
         </div>
-        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-          <button
-            onClick={() => setShowPicker(!showPicker)}
-            className="cyber-btn flex items-center gap-1 px-3 py-1.5 border border-nc-yellow bg-nc-yellow/10 text-sm font-bold text-nc-yellow hover:bg-nc-yellow/20 hover:shadow-nc-yellow font-mono"
-          >
-            <Zap size={12} /> ADD_SKILL
-          </button>
-        </ScanlineTear>
+        <button
+          type="button"
+          onClick={() => setShowPicker(!showPicker)}
+          className="zk-btn"
+        >
+          <Zap size={12} /> Add skill
+        </button>
       </div>
 
       {showPicker && (
         availableSkills.length > 0 ? (
-          <div className="mb-3 border border-nc-border bg-nc-panel overflow-hidden">
-            {availableSkills.map((skill) => (
+          <div className="zk-panel mb-3" style={{ overflow: 'hidden' }}>
+            {availableSkills.map((skill, i) => (
               <button
                 key={skill.name}
                 onClick={() => handleAddSkill(skill)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-nc-elevated transition-colors border-b border-nc-border last:border-b-0"
+                className="w-full text-left transition-colors"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 14px',
+                  background: 'transparent', border: 0,
+                  borderBottom: i === availableSkills.length - 1 ? 0 : '1px solid var(--zk-line)',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <div className="w-7 h-7 border border-nc-yellow/30 bg-nc-yellow/10 flex items-center justify-center shrink-0">
-                  <Zap size={12} className="text-nc-yellow" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="font-bold text-sm text-nc-text-bright">{skill.displayName || skill.name}</span>
-                  {skill.description && <p className="text-xs text-nc-muted truncate font-mono">{skill.description}</p>}
+                <span style={{
+                  width: 26, height: 26, flexShrink: 0,
+                  background: 'var(--zk-warn-soft)',
+                  border: '1px solid rgba(214,177,112,0.3)',
+                  borderRadius: 6,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Zap size={12} color="var(--zk-warn)" />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--zk-ink)' }}>
+                    {skill.displayName || skill.name}
+                  </div>
+                  {skill.description && (
+                    <div className="zk-truncate" style={{ fontSize: 11, color: 'var(--zk-ink-mute)' }}>
+                      {skill.description}
+                    </div>
+                  )}
                 </div>
               </button>
             ))}
           </div>
         ) : (
-          <div className="mb-3 p-3 border border-nc-border bg-nc-panel text-xs text-nc-muted font-mono">
+          <div
+            className="zk-panel"
+            style={{ padding: 12, marginBottom: 12, fontSize: 12, color: 'var(--zk-ink-mute)' }}
+          >
             {agent.status === 'active'
               ? discovered
                 ? 'No skills found in runtime home or workspace.'
-                : 'Scanning agent workspace for skills...'
+                : 'Scanning agent workspace for skills…'
               : 'Start the agent to scan its workspace for skills.'}
           </div>
         )
       )}
 
       {assignedSkills.length > 0 && (
-        <div className="space-y-2">
+        <div style={{ display: 'grid', gap: 8 }}>
           {assignedSkills.map((skill) => (
-            <div key={skill.id} className="flex items-center gap-3 p-3 border border-nc-border bg-nc-panel">
-              <div className="w-7 h-7 border border-nc-yellow/30 bg-nc-yellow/10 flex items-center justify-center shrink-0">
-                <Zap size={12} className="text-nc-yellow" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="font-bold text-sm text-nc-text-bright">{skill.name}</span>
-                {skill.description && <p className="text-xs text-nc-muted font-mono">{skill.description}</p>}
+            <div
+              key={skill.id}
+              className="zk-panel"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 12px',
+              }}
+            >
+              <span style={{
+                width: 26, height: 26, flexShrink: 0,
+                background: 'var(--zk-warn-soft)',
+                border: '1px solid rgba(214,177,112,0.3)',
+                borderRadius: 6,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Zap size={12} color="var(--zk-warn)" />
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--zk-ink)' }}>
+                  {skill.name}
+                </div>
+                {skill.description && (
+                  <div style={{ fontSize: 11, color: 'var(--zk-ink-mute)' }}>{skill.description}</div>
+                )}
               </div>
               <button
                 onClick={() => handleRemoveSkill(skill.id)}
-                className="text-nc-muted hover:text-nc-red text-sm transition-colors shrink-0 font-bold"
+                className="zk-btn zk-btn--ghost zk-btn--icon"
+                style={{ color: 'var(--zk-err)' }}
                 title="Remove skill"
               >
-                &times;
+                <X size={12} />
               </button>
             </div>
           ))}
@@ -177,11 +232,20 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   if (agent.status !== 'active') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-        <div className="w-14 h-14 border border-nc-muted/30 bg-nc-elevated flex items-center justify-center mb-3">
-          <FolderOpen size={24} className="text-nc-muted" />
+        <div
+          style={{
+            width: 56, height: 56, borderRadius: 14,
+            background: 'var(--zk-bg-2)', border: '1px solid var(--zk-line)',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 12,
+          }}
+        >
+          <FolderOpen size={22} color="var(--zk-ink-mute)" />
         </div>
-        <p className="text-sm text-nc-muted font-bold font-mono">AGENT_OFFLINE</p>
-        <p className="text-xs text-nc-muted mt-1 font-mono">Start the agent to browse its workspace.</p>
+        <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--zk-ink)' }}>Agent offline</p>
+        <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
+          Start the agent to browse its workspace.
+        </p>
       </div>
     );
   }
@@ -189,12 +253,12 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   const treePane = (
     <div className="flex-1 flex flex-col min-h-0 p-5 overflow-hidden">
       <div className="flex items-center justify-between mb-3 shrink-0">
-        <h3 className="font-display font-bold text-sm text-nc-text-bright tracking-wider truncate">
-          {agent.workDir || 'WORKSPACE'}
+        <h3 className="zk-display zk-truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>
+          {agent.workDir || 'Workspace'}
         </h3>
         <button
           onClick={refresh}
-          className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-cyan text-nc-muted hover:text-nc-cyan shrink-0"
+          className="zk-btn zk-btn--ghost zk-btn--icon"
           title="Refresh"
         >
           <RefreshCw size={12} />
@@ -202,7 +266,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
       </div>
 
       {rootFiles.length > 0 ? (
-        <div className="border border-nc-border bg-nc-panel overflow-y-auto scrollbar-thin flex-1 min-h-0">
+        <div className="zk-panel zk-scroll" style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
           <WorkspaceTree
             files={rootFiles}
             treeCache={treeCache}
@@ -214,11 +278,21 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-          <div className="w-14 h-14 border border-nc-yellow/30 bg-nc-yellow/10 flex items-center justify-center mb-3">
-            <FolderOpen size={24} className="text-nc-yellow" />
+          <div
+            style={{
+              width: 56, height: 56, borderRadius: 14,
+              background: 'var(--zk-warn-soft)',
+              border: '1px solid rgba(214,177,112,0.3)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              marginBottom: 12,
+            }}
+          >
+            <FolderOpen size={22} color="var(--zk-warn)" />
           </div>
-          <p className="text-sm text-nc-muted font-bold font-mono">NO_FILES</p>
-          <p className="text-xs text-nc-muted mt-1 font-mono">Files will appear here when the agent creates them.</p>
+          <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--zk-ink)' }}>No files</p>
+          <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
+            Files will appear here when the agent creates them.
+          </p>
         </div>
       )}
     </div>
@@ -231,27 +305,48 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   const previewPane = (
     <div className="flex-1 flex flex-col min-h-0 p-5 overflow-hidden">
       <div className="flex items-center gap-2 mb-3 shrink-0">
-        <span className="flex-1 text-xs font-mono text-nc-muted truncate">{viewingFile}</span>
+        <span
+          className="flex-1 zk-truncate"
+          style={{ fontSize: 11, fontFamily: 'var(--zk-font-mono)', color: 'var(--zk-ink-mute)' }}
+        >
+          {viewingFile}
+        </span>
         <button
           onClick={() => setViewingFile(null)}
-          className="cyber-btn w-7 h-7 border border-nc-border bg-nc-panel flex items-center justify-center hover:bg-nc-elevated hover:border-nc-red hover:text-nc-red text-nc-muted shrink-0"
+          className="zk-btn zk-btn--ghost zk-btn--icon"
           title="Close file"
         >
-          <X size={14} />
+          <X size={12} />
         </button>
       </div>
-      <pre className="flex-1 overflow-auto p-3 border border-nc-border bg-nc-black text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
-        {fileContent ?? 'Loading...'}
+      <pre
+        className="flex-1 zk-scroll"
+        style={{
+          overflow: 'auto', padding: 14,
+          background: 'var(--zk-bg-1)',
+          border: '1px solid var(--zk-line)',
+          borderRadius: 8,
+          fontFamily: 'var(--zk-font-mono)',
+          fontSize: 12, lineHeight: 1.65,
+          color: 'var(--zk-ink-dim)',
+          whiteSpace: 'pre-wrap',
+          margin: 0,
+        }}
+      >
+        {fileContent ?? 'Loading…'}
       </pre>
     </div>
   );
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
-      <div className="flex-1 min-h-0 flex flex-col lg:max-w-[40%] border-b lg:border-b-0 lg:border-r border-nc-border">
+      <div
+        className="flex-1 min-h-0 flex flex-col lg:max-w-[40%]"
+        style={{ borderBottom: '1px solid var(--zk-line)' }}
+      >
         {treePane}
       </div>
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col" style={{ borderLeft: '1px solid var(--zk-line)' }}>
         {previewPane}
       </div>
     </div>
@@ -270,21 +365,33 @@ function ActivityTab({ agent }: { agent: ServerAgent }) {
   }, [agent.id]);
 
   return (
-    <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
+    <div className="flex-1 flex flex-col p-5 zk-scroll" style={{ overflowY: 'auto' }}>
       <div className="mb-4">
-        <h3 className="font-display font-bold text-sm text-nc-text-bright tracking-wider">ACTIVITY_LOG</h3>
-        <p className="text-xs text-nc-muted mt-0.5 font-mono">Real-time activity from this agent.</p>
+        <h3 className="zk-display" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>Activity log</h3>
+        <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
+          Real-time activity from this agent.
+        </p>
       </div>
 
       {entries.length > 0 ? (
         <AgentActivityFeed entries={entries} className="space-y-1" />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-          <div className="w-14 h-14 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-3">
-            <Activity size={24} className="text-nc-green" />
+          <div
+            style={{
+              width: 56, height: 56, borderRadius: 14,
+              background: 'var(--zk-ok-soft)',
+              border: '1px solid rgba(111,182,151,0.3)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              marginBottom: 12,
+            }}
+          >
+            <Activity size={22} color="var(--zk-ok)" />
           </div>
-          <p className="text-sm text-nc-muted font-bold font-mono">NO_ACTIVITY</p>
-          <p className="text-xs text-nc-muted mt-1 font-mono">Activity will appear here when the agent starts working.</p>
+          <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--zk-ink)' }}>No activity</p>
+          <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
+            Activity will appear here when the agent starts working.
+          </p>
         </div>
       )}
     </div>
@@ -308,7 +415,6 @@ export default function AgentDetail({
   onDelete: () => void;
   onBack?: () => void;
 }) {
-  const { theme } = useApp();
   const [tab, setTab] = useState<Tab>(initialTab || 'instructions');
   const activity = agent.activity || 'offline';
   const isActive = agent.status === 'active';
@@ -318,64 +424,96 @@ export default function AgentDetail({
   }, [initialTab, agent.id]);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-nc-surface">
-      <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 border-b border-nc-border">
+    <div
+      className="flex-1 flex flex-col h-full overflow-hidden"
+      style={{ background: 'var(--zk-bg-0)', color: 'var(--zk-ink)' }}
+    >
+      <div
+        className="flex items-center gap-4 px-4 sm:px-6 py-4"
+        style={{ borderBottom: '1px solid var(--zk-line)' }}
+      >
         {onBack && (
           <button
+            type="button"
             onClick={onBack}
-            className="cyber-btn lg:hidden w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:bg-nc-elevated hover:text-nc-cyan transition-colors shrink-0"
+            className="lg:hidden zk-btn zk-btn--ghost zk-btn--icon"
+            aria-label="Back"
           >
             <ArrowLeft size={14} />
           </button>
         )}
-        <div className="relative w-10 h-10 shrink-0">
-          <div className={`w-full h-full border flex items-center justify-center font-display font-bold text-sm overflow-hidden ${avatarPaletteClass(agentAvatarStatus(agent), 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)}`}>
-            {agent.picture ? (
-              <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-            ) : (
-              (agent.displayName || agent.name).charAt(0).toUpperCase()
-            )}
-          </div>
+        <div style={{ position: 'relative' }}>
+          <AgentAvatar agent={agent} size="lg" />
           <StatusDot status={agentStatus(agent)} ringClass="border-nc-surface" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="font-display font-black text-lg text-nc-text-bright truncate tracking-wider">
+          <div className="flex items-baseline gap-2">
+            <h2
+              className="zk-display zk-truncate"
+              style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.012em', color: 'var(--zk-ink)' }}
+            >
               @{agent.displayName || agent.name}
             </h2>
-            <span className="text-xs text-nc-muted font-mono hidden sm:inline">{isActive ? activityLabels[activity] : 'INACTIVE'}</span>
+            <span
+              style={{ fontSize: 11, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}
+              className="hidden sm:inline"
+            >
+              {isActive ? activityLabels[activity].toLowerCase() : 'inactive'}
+            </span>
           </div>
           {agent.description && (
-            <p className="text-xs text-nc-muted truncate mt-0.5 font-mono">{agent.description}</p>
+            <p
+              className="zk-truncate"
+              style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 2 }}
+            >
+              {agent.description}
+            </p>
           )}
         </div>
-        <div className="text-xs text-nc-muted shrink-0 font-mono hidden sm:block">
+        <div
+          className="hidden sm:block"
+          style={{ fontSize: 11, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}
+        >
           {formatRuntime(agent.runtime)} · {agent.model || '—'}
           {agent.machineId && (
-            <span className="ml-2 text-nc-green">
-              · {machines?.find(m => m.id === agent.machineId)?.alias ||
-                 machines?.find(m => m.id === agent.machineId)?.hostname ||
-                 agent.machineId}
+            <span style={{ marginLeft: 8, color: 'var(--zk-ok)' }}>
+              · {machines?.find((m) => m.id === agent.machineId)?.alias
+                || machines?.find((m) => m.id === agent.machineId)?.hostname
+                || agent.machineId}
             </span>
           )}
         </div>
       </div>
 
-      <div className="flex border-b border-nc-border px-2 sm:px-5">
-        {TAB_CONFIG.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 px-2 sm:px-4 py-2.5 text-sm font-bold font-mono border-b-2 -mb-[1px] transition-colors tracking-wider ${
-              tab === key
-                ? 'border-nc-cyan text-nc-cyan'
-                : 'border-transparent text-nc-muted hover:text-nc-text-bright'
-            }`}
-          >
-            <Icon size={14} />
-            <span className="hidden sm:inline">{label}</span>
-          </button>
-        ))}
+      <div
+        className="flex px-3 sm:px-6"
+        style={{ borderBottom: '1px solid var(--zk-line)' }}
+      >
+        {TAB_CONFIG.map(({ key, label, icon: Icon }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className="transition-colors"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '10px 14px',
+                fontSize: 13, fontWeight: 500,
+                background: 'transparent',
+                border: 0,
+                borderBottom: `2px solid ${active ? 'var(--zk-ember)' : 'transparent'}`,
+                marginBottom: -1,
+                color: active ? 'var(--zk-ink)' : 'var(--zk-ink-mute)',
+                cursor: 'pointer',
+              }}
+            >
+              <Icon size={13} />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">

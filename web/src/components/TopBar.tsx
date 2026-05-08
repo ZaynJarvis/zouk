@@ -1,144 +1,124 @@
-import { Hash, PanelRightOpen, PanelRightClose, Home, Cpu, KanbanSquare, Brain, Settings } from 'lucide-react';
+/* TopBar — channel/dm/tasks/memory header.
+   On channel/dm view this matches the V1Channel header from
+   tmp/.../zouk-rethink/v1-conservative.jsx (CHANNEL eyebrow + Hash glyph +
+   name + counts + actions). On other views it shows a simpler title. */
+
+import { Settings, PanelRightOpen, PanelRightClose, Menu } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import GlitchText from './glitch/GlitchText';
-import ScanlineTear from './glitch/ScanlineTear';
-import { isNightCity } from '../lib/themeUtils';
-import {
-  getTopBarMobileIconButtonClass,
-  getTopBarRightPanelButtonClass,
-  getTopBarShellClass,
-  resolveNavigationTheme,
-} from './navigation/themeVariants';
+import { Hash } from './zk/primitives';
 
 export default function TopBar() {
   const {
-    activeChannelName, viewMode, navigateToView,
+    activeChannelName, viewMode,
     rightPanel, setRightPanel, closeRightPanel,
-    theme, setSettingsOpen, channels, openChannelSettings, isGuest,
-    activeThreadMessage,
+    channels, agents, humans, openChannelSettings, isGuest,
+    activeThreadMessage, setSidebarOpen,
   } = useApp();
+
+  const inHomeView = viewMode === 'channel' || viewMode === 'dm';
   const activeChannel = viewMode === 'channel'
     ? channels.find((c) => c.name === activeChannelName) ?? null
     : null;
-  const themeVariant = resolveNavigationTheme(theme, isNightCity());
-  const nc = themeVariant === 'night-city';
-  const wapo = themeVariant === 'washington-post';
-  const inHomeView = viewMode === 'channel' || viewMode === 'dm';
+
+  const channelAgents = activeChannel
+    ? agents.filter((a) => (a.channels || []).includes(activeChannel.name))
+    : [];
 
   return (
-    <div className={`${getTopBarShellClass(themeVariant)} top-bar-mobile-fixed`}>
-      <div className={`h-12 sm:h-14 flex items-center px-2 sm:px-4 gap-2 sm:gap-3`}>
-        <div className="lg:hidden flex items-center gap-1">
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => navigateToView('channel')}
-              className={getTopBarMobileIconButtonClass(themeVariant, 'cyan', inHomeView)}
-              title="Home"
-              aria-label="Home"
-            >
-              <Home size={16} />
-            </button>
-          </ScanlineTear>
+    <header
+      className="safe-top top-bar-mobile-fixed"
+      style={{
+        background: 'var(--zk-bg-0)',
+        borderBottom: '1px solid var(--zk-line)',
+        flexShrink: 0,
+      }}
+    >
+      <div
+        className="zk-row"
+        style={{
+          padding: '14px 22px 12px',
+          gap: 16,
+          minHeight: 56,
+        }}
+      >
+        {/* Mobile drawer toggle (lg-). Replaces the legacy duplicate icon nav.
+            Rail + sidebar live in the modal drawer; this is just the entry. */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="zk-btn zk-btn--ghost zk-btn--icon lg:hidden"
+          aria-label="Open menu"
+          title="Open menu"
+        >
+          <Menu size={16} />
+        </button>
 
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => navigateToView('agents')}
-              className={getTopBarMobileIconButtonClass(themeVariant, 'green', viewMode === 'agents')}
-              title="Agents"
-              aria-label="Agents"
-            >
-              <Cpu size={16} />
-            </button>
-          </ScanlineTear>
-
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => navigateToView('tasks')}
-              className={getTopBarMobileIconButtonClass(themeVariant, 'indigo', viewMode === 'tasks')}
-              title="Tasks"
-              aria-label="Tasks"
-            >
-              <KanbanSquare size={16} />
-            </button>
-          </ScanlineTear>
-
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => navigateToView('memory')}
-              className={getTopBarMobileIconButtonClass(themeVariant, 'yellow', viewMode === 'memory')}
-              title="Memory"
-              aria-label="Memory"
-            >
-              <Brain size={16} />
-            </button>
-          </ScanlineTear>
-
-          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className={getTopBarMobileIconButtonClass(themeVariant, 'yellow')}
-              title="Settings"
-              aria-label="Settings"
-            >
-              <Settings size={16} />
-            </button>
-          </ScanlineTear>
-        </div>
-
-        <div className="flex items-center gap-2 min-w-0">
-          {inHomeView && (
-            <>
-              {viewMode === 'channel' && <Hash size={18} className={`flex-shrink-0 ${nc ? 'text-nc-cyan' : 'text-nc-text-bright font-bold'}`} />}
-              {nc
-                ? <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright truncate tracking-wider" intensity="low">{activeChannelName}</GlitchText>
-                : wapo
-                  ? <h1 className="font-display font-bold text-[1.1rem] text-nc-text-bright truncate">{activeChannelName}</h1>
-                  : <h1 className="font-display font-extrabold text-lg text-nc-text-bright truncate">{activeChannelName}</h1>
-              }
-              {activeThreadMessage && (
-                <span className="font-display text-lg text-nc-muted font-bold flex-shrink-0">- Thread</span>
-              )}
-            </>
-          )}
-          {viewMode === 'agents' && (
-            nc
-              ? <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider" intensity="low">Agents</GlitchText>
-              : <h1 className="font-display font-extrabold text-lg text-nc-text-bright">Agents</h1>
-          )}
-          {viewMode === 'memory' && (
-            <h1 className="font-display font-extrabold text-lg text-nc-text-bright">Memory</h1>
-          )}
-        </div>
-
-        <div className="flex-1" />
-
-        <div className="flex items-center gap-1">
-          {activeChannel && !isGuest && (
-            <ScanlineTear className="hidden lg:block" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                onClick={() => openChannelSettings(activeChannel.id)}
-                className={getTopBarRightPanelButtonClass(themeVariant, rightPanel === 'channel_settings')}
-                title={`Configure #${activeChannel.name}`}
-                aria-label={`Configure channel ${activeChannel.name}`}
+        {/* Title block — only on channel/dm. Full-canvas views (memory/tasks/agents)
+            render their own header, so we suppress here to avoid a duplicate. */}
+        {inHomeView ? (
+          <div className="zk-col zk-grow" style={{ minWidth: 0 }}>
+            <span className="zk-eyebrow" style={{ fontSize: 9 }}>CHANNEL</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 2 }}>
+              <h1
+                className="zk-display zk-truncate"
+                style={{ margin: 0, fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em', color: 'var(--zk-ink)' }}
               >
-                <Settings size={16} />
-              </button>
-            </ScanlineTear>
-          )}
-          <ScanlineTear className="hidden lg:block" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-            <button
-              onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}
-              className={getTopBarRightPanelButtonClass(themeVariant, !!rightPanel)}
-              title={rightPanel ? 'Close Panel' : 'Open Panel'}
-              aria-label={rightPanel ? 'Close side panel' : 'Open side panel'}
-              aria-expanded={!!rightPanel}
-            >
-              {rightPanel ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
-            </button>
-          </ScanlineTear>
+                <Hash name={activeChannelName} dim />
+              </h1>
+              {activeChannel && (
+                <span
+                  style={{
+                    color: 'var(--zk-ink-mute)', fontSize: 12,
+                    fontFamily: 'var(--zk-font-mono)',
+                  }}
+                >
+                  {channelAgents.length} agents · {humans.length} humans
+                </span>
+              )}
+              {activeThreadMessage && (
+                <span
+                  style={{
+                    fontFamily: 'var(--zk-font-display)',
+                    fontSize: 18, fontWeight: 500,
+                    color: 'var(--zk-ink-mute)',
+                  }}
+                >
+                  · Thread
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="zk-grow" />
+        )}
 
+        {/* Actions */}
+        <div className="zk-row" style={{ gap: 4 }}>
+          {activeChannel && !isGuest && (
+            <button
+              type="button"
+              onClick={() => openChannelSettings(activeChannel.id)}
+              className="zk-btn zk-btn--ghost zk-btn--icon hidden lg:inline-flex"
+              aria-pressed={rightPanel === 'channel_settings'}
+              title={`Configure #${activeChannel.name}`}
+              aria-label={`Configure channel ${activeChannel.name}`}
+            >
+              <Settings size={14} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => rightPanel ? closeRightPanel() : setRightPanel('details')}
+            className="zk-btn zk-btn--ghost zk-btn--icon hidden lg:inline-flex"
+            aria-pressed={!!rightPanel}
+            title={rightPanel ? 'Close panel' : 'Open panel'}
+            aria-label={rightPanel ? 'Close side panel' : 'Open side panel'}
+          >
+            {rightPanel ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+          </button>
         </div>
       </div>
-    </div>
+    </header>
   );
 }

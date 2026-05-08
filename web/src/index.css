@@ -2,30 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Default token values (night-city as fallback so the app works without data-theme) */
+/* ==========================================================================
+   Default token values — used when no data-theme attr is set, or before the
+   boot script runs. Mirrors atlas-light so the unconfigured paint matches
+   the new default theme.
+   ========================================================================== */
 :root {
-  --nc-black: 10 10 15;
-  --nc-deep: 13 13 20;
-  --nc-surface: 18 18 26;
-  --nc-elevated: 26 26 38;
-  --nc-border: 42 42 58;
-  --nc-border-bright: 58 58 82;
-  --nc-panel: 15 15 23;
-  --nc-red: 247 80 73;
-  --nc-green: 115 248 85;
-  --nc-cyan: 94 246 255;
-  --nc-yellow: 255 216 74;
-  --nc-magenta: 224 64 251;
-  --nc-indigo: 14 14 231;
-  --nc-text: 200 214 229;
-  --nc-text-bright: 232 240 248;
-  --nc-muted: 140 154 176;
-  --nc-selection-bg: 94 246 255;
-  --nc-selection-text: 232 240 248;
-  --nc-font-display: 'Orbitron', system-ui, sans-serif;
-  --nc-font-body: 'Rajdhani', system-ui, sans-serif;
-  --nc-font-mono: 'Space Mono', 'JetBrains Mono', monospace;
+  --nc-black: 250 250 249;
+  --nc-deep: 248 248 247;
+  --nc-surface: 255 255 255;
+  --nc-elevated: 245 245 244;
+  --nc-border: 231 229 228;
+  --nc-border-bright: 214 211 209;
+  --nc-panel: 255 255 255;
+  --nc-red: 220 38 38;
+  --nc-green: 22 163 74;
+  --nc-cyan: 160 90 68;
+  --nc-yellow: 217 119 6;
+  --nc-magenta: 138 77 58;
+  --nc-indigo: 87 83 78;
+  --nc-success: 22 163 74;
+  --nc-error: 220 38 38;
+  --nc-warning: 217 119 6;
+  --nc-info: 87 83 78;
+  --nc-text: 28 25 23;
+  --nc-text-bright: 12 10 9;
+  --nc-muted: 87 83 78;
+  --nc-selection-bg: 160 90 68;
+  --nc-selection-text: 255 255 255;
+  --nc-font-display: 'Inter', system-ui, -apple-system, sans-serif;
+  --nc-font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --nc-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
   --nc-font-message: inherit;
+  --atlas-accent: 160 90 68;
+  --atlas-accent-hover: 138 77 58;
+  --atlas-accent-soft: rgba(160, 90, 68, 0.08);
+  --atlas-accent-ring: rgba(160, 90, 68, 0.35);
+  --atlas-on-accent: 255 255 255;
+  --atlas-shadow-sm: 0 1px 2px rgb(28 25 23 / 0.04);
+  --atlas-shadow-md: 0 4px 12px rgb(28 25 23 / 0.06), 0 1px 3px rgb(28 25 23 / 0.04);
+  --atlas-shadow-lg: 0 12px 32px rgb(28 25 23 / 0.08), 0 4px 12px rgb(28 25 23 / 0.06);
 }
 
 @layer base {
@@ -40,15 +56,17 @@
     width: 100%;
     overflow: hidden;
     overscroll-behavior: none;
-    background-color: rgb(var(--nc-black));
-    font-size: 18px;
-    color-scheme: dark;
+    background-color: var(--zk-bg-0);
+    font-size: 13px;
+    color-scheme: light;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    text-rendering: optimizeLegibility;
   }
 
-  /* Light themes — keyboard and native controls use light mode */
-  html[data-theme="washington-post"],
-  html[data-theme="brutalist"] {
-    color-scheme: light;
+  /* Carbon stays dark; data-mode=dark on atlas explicitly maps dark color-scheme. */
+  html[data-theme="carbon"],
+  html[data-mode="dark"] {
+    color-scheme: dark;
   }
 
   html[data-font-size="small"] { font-size: 16.5px; }
@@ -58,35 +76,32 @@
   html[data-font-size="small"] .composer-textarea { font-size: 16.5px; }
   html[data-font-size="large"] .composer-textarea { font-size: 20px; }
 
-  /* Message body establishes its own em context.
-     iOS 16px input-zoom guard lives on html / inputs (above) — it does not
-     need to govern body copy. Keeping the two concerns separate lets us
-     tighten mobile chat copy to a comfortable 15px without affecting the
-     composer. Everything inside .msg-body (headings, code, lists) sizes in
-     em relative to this value so the scale stays consistent. */
+  /* Message body — uses zk-prose tokens (13px Inter, 1.65 line height).
+     iOS 16px input-zoom guard lives on inputs (below). User's font-size
+     preference still scales chat copy via small/large modifiers. */
   .msg-body {
-    font-size: 16px;
-    line-height: 1.55;
+    font-size: 13px;
+    line-height: 1.65;
   }
   @media (min-width: 768px) {
-    .msg-body { font-size: 17px; }
+    .msg-body { font-size: 13.5px; }
   }
-  html[data-font-size="small"] .msg-body { font-size: 15px; }
-  html[data-font-size="large"] .msg-body { font-size: 18px; }
+  html[data-font-size="small"] .msg-body { font-size: 12.5px; }
+  html[data-font-size="large"] .msg-body { font-size: 14.5px; }
   @media (min-width: 768px) {
-    html[data-font-size="small"] .msg-body { font-size: 16px; }
-    html[data-font-size="large"] .msg-body { font-size: 19px; }
+    html[data-font-size="small"] .msg-body { font-size: 13px; }
+    html[data-font-size="large"] .msg-body { font-size: 15px; }
   }
-  html[data-font-size="small"] .msg-body li { font-size: 0.875em; }
+  html[data-font-size="small"] .msg-body li { font-size: 0.92em; }
 
   /* Inside a blockquote, cap strong at 700 so the quoted voice doesn't
      shout — keeps the literary register Alice called out in R3. */
   .msg-body blockquote strong { font-weight: 700; }
 
-  /* Syntax highlighting — neon theme mapping hljs classes onto zouk's
-     nc-* palette. Scoped to .msg-body so it only affects chat code blocks.
-     Applied by MessageItem when a language fence matches a registered hljs
-     language (best-effort — unknown / no-lang blocks render plain). */
+  /* Syntax highlighting — maps hljs classes onto the active token palette.
+     Scoped to .msg-body so it only affects chat code blocks. Applied by
+     MessageItem when a language fence matches a registered hljs language
+     (best-effort — unknown / no-lang blocks render plain). */
   .msg-body .hljs { color: rgb(var(--nc-text-bright)); background: transparent; }
   .msg-body .hljs-comment,
   .msg-body .hljs-quote { color: rgb(var(--nc-muted)); font-style: italic; }
@@ -132,14 +147,17 @@
   body {
     margin: 0;
     padding: 0;
-    font-family: var(--nc-font-body);
-    background-color: rgb(var(--nc-black));
-    color: rgb(var(--nc-text));
+    font-family: var(--zk-font-sans);
+    background-color: var(--zk-bg-0);
+    color: var(--zk-ink);
     height: 100%;
     width: 100%;
     overflow: hidden;
     overscroll-behavior: none;
     touch-action: manipulation;
+    font-size: 13px;
+    line-height: 1.55;
+    letter-spacing: -0.005em;
   }
 
   #root {
@@ -166,7 +184,8 @@
    ========================================================================== */
 
 @layer components {
-  /* Scanlines container — structural only */
+  /* Scanlines container — structural only; legacy night-city shell kept since
+     the wrapper is still present in App.tsx; Atlas applies no overlay. */
   .cyber-scanlines {
     position: relative;
     overflow: hidden;
@@ -299,8 +318,8 @@
   }
 
   .tone-neutral {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(127, 127, 127, 0.08);
+    border-color: rgba(127, 127, 127, 0.16);
     color: rgb(var(--nc-text-bright));
   }
 
@@ -378,15 +397,10 @@ html[data-display-mode="standalone"] .safe-bottom {
 /* Phone/tablet composer surface: fixed radius equal to half the single-line
    surface height (textarea min-h 36px + 2px border = 38px → 19px). Renders
    as a pill when single-line and as a rounded rectangle when the textarea
-   grows, so the side-cap curvature stays consistent. Width breakpoint matches
-   the round menu FAB's `lg:hidden` visibility so both chrome pieces share the
-   same square-to-round transition. */
+   grows, so the side-cap curvature stays consistent. */
 @media (max-width: 1023.98px) {
   .composer-surface {
     border-radius: 19px;
-  }
-  html[data-theme="night-city"] .composer-surface.cyber-bevel-sm {
-    clip-path: none;
   }
 
   /* On mobile / PWA, anchor the TopBar to the viewport so iOS keyboard
@@ -402,6 +416,226 @@ html[data-display-mode="standalone"] .safe-bottom {
     left: 0;
     right: 0;
     z-index: 30;
+  }
+}
+
+/* ==========================================================================
+   Atlas — premium, restrained surface treatment.
+
+   Goal: refined Anthropic / Apple-grade feel via subtle radius, soft borders,
+   gentle shadows, generous breathing room, and a single warm accent. Atlas
+   leans on tonal hierarchy — there is no decoration, no gradient mesh, no
+   accent-as-decoration. Color earns its place only on focused interactive
+   elements: send button, focus ring, unread badges, selected item.
+   ========================================================================== */
+
+html[data-theme="atlas"] body {
+  background: rgb(var(--nc-black));
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme="atlas"] .app-shell,
+html[data-theme="atlas"] .login-shell {
+  background-color: rgb(var(--nc-black)) !important;
+}
+
+/* Panels — soft border, mild rounding, no shadow by default */
+html[data-theme="atlas"] .cyber-panel {
+  background: rgb(var(--nc-surface));
+  border: 1px solid rgb(var(--nc-border));
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+html[data-theme="atlas"] .cyber-panel-elevated {
+  background: rgb(var(--nc-elevated));
+  border: 1px solid rgb(var(--nc-border));
+  border-radius: 12px;
+  box-shadow: var(--atlas-shadow-md);
+}
+
+/* TopBar — flat, single hairline at the bottom */
+html[data-theme="atlas"] .scanline-overlay {
+  background: rgb(var(--nc-surface));
+  border-bottom: 1px solid rgb(var(--nc-border));
+  box-shadow: none;
+}
+
+/* Buttons — quiet hover, no translate */
+html[data-theme="atlas"] .cyber-btn,
+html[data-theme="atlas"] .cyber-btn-lg {
+  border-radius: 8px;
+  box-shadow: none;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="atlas"] .cyber-btn:hover,
+  html[data-theme="atlas"] .cyber-btn-lg:hover {
+    background: var(--atlas-accent-soft);
+  }
+}
+
+html[data-theme="atlas"] .cyber-btn:focus-visible,
+html[data-theme="atlas"] .cyber-btn-lg:focus-visible {
+  outline: 2px solid var(--atlas-accent-ring);
+  outline-offset: 2px;
+}
+
+/* Composer — flat, rounded, subtle focus line */
+html[data-theme="atlas"] .composer-surface {
+  background: rgb(var(--nc-panel));
+  border: 1px solid rgb(var(--nc-border));
+  border-radius: 14px;
+  box-shadow: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+@media (max-width: 1023.98px) {
+  html[data-theme="atlas"] .composer-surface {
+    border-radius: 22px;
+  }
+}
+
+/* Override the legacy MessageComposer focus-within with terracotta accent ring */
+html[data-theme="atlas"] .focus-within\:border-nc-cyan:focus-within {
+  border-color: rgb(var(--nc-cyan)) !important;
+  box-shadow: 0 0 0 3px var(--atlas-accent-ring);
+}
+@media (max-width: 639.98px) {
+  html[data-theme="atlas"] .focus-within\:border-nc-cyan:focus-within {
+    box-shadow: none;
+  }
+}
+
+/* Inputs — flat, tighter focus line */
+html[data-theme="atlas"] .cyber-input {
+  background: rgb(var(--nc-panel));
+  border: 1px solid rgb(var(--nc-border));
+  border-radius: 8px;
+  box-shadow: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+html[data-theme="atlas"] .cyber-input:focus {
+  border-color: rgb(var(--nc-cyan));
+  box-shadow: 0 0 0 3px var(--atlas-accent-ring);
+}
+
+/* Status chips — small rounded rectangles, normal-case body font */
+html[data-theme="atlas"] .status-chip,
+html[data-theme="atlas"] .status-chip-sm {
+  border-radius: 6px;
+  border-color: rgb(var(--nc-border));
+  box-shadow: none;
+  letter-spacing: 0.04em;
+  font-family: var(--nc-font-body);
+  font-weight: 600;
+  text-transform: none;
+}
+
+html[data-theme="atlas"] .status-chip {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+}
+html[data-theme="atlas"] .status-chip-sm {
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.45rem;
+}
+
+/* Tones — semantic, mode-aware. Atlas keeps the green/red/amber/etc. but
+   uses softer washes against the warm-neutral surface. */
+html[data-theme="atlas"] .tone-critical {
+  background: rgb(var(--nc-red) / 0.1);
+  border-color: rgb(var(--nc-red) / 0.35);
+  color: rgb(var(--nc-red));
+}
+html[data-theme="atlas"] .tone-terminal {
+  background: rgb(var(--nc-green) / 0.1);
+  border-color: rgb(var(--nc-green) / 0.35);
+  color: rgb(var(--nc-green));
+}
+html[data-theme="atlas"] .tone-telemetry {
+  background: var(--atlas-accent-soft);
+  border-color: rgb(var(--nc-cyan) / 0.35);
+  color: rgb(var(--nc-cyan));
+}
+html[data-theme="atlas"] .tone-indigo {
+  background: rgb(var(--nc-indigo) / 0.1);
+  border-color: rgb(var(--nc-indigo) / 0.3);
+  color: rgb(var(--nc-indigo));
+}
+html[data-theme="atlas"] .tone-warning {
+  background: rgb(var(--nc-yellow) / 0.1);
+  border-color: rgb(var(--nc-yellow) / 0.35);
+  color: rgb(var(--nc-yellow));
+}
+html[data-theme="atlas"] .tone-neutral {
+  background: rgb(var(--nc-elevated));
+  border-color: rgb(var(--nc-border));
+  color: rgb(var(--nc-text-bright));
+}
+
+/* Divider — soft 1px hairline */
+html[data-theme="atlas"] .cyber-divider {
+  height: 1px;
+  background: rgb(var(--nc-border));
+}
+
+/* Border glow → quiet hairline, no halo */
+html[data-theme="atlas"] .cyber-border-glow {
+  border-color: rgb(var(--nc-border-bright));
+  box-shadow: none;
+}
+
+/* Selection — accent wash */
+html[data-theme="atlas"] ::selection {
+  background-color: rgb(var(--nc-selection-bg) / 0.25);
+  color: rgb(var(--nc-text-bright));
+}
+
+/* Avatar corner-radius is now driven by avatarRadiusClass(theme, kind) at the
+   callsite — agents render as `rounded-md` (square) and humans as `rounded-full`
+   (circle) under atlas. No global CSS override here. */
+
+/* Message row hover — far more restrained than bg-nc-elevated/40 */
+html[data-theme="atlas"] .hover\:bg-nc-elevated\/40:hover {
+  background-color: var(--atlas-accent-soft);
+}
+
+/* Scrollbars — minimal, neutral, thin */
+html[data-theme="atlas"] * {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--nc-border-bright) / 0.5) transparent;
+}
+
+html[data-theme="atlas"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html[data-theme="atlas"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html[data-theme="atlas"] ::-webkit-scrollbar-thumb {
+  background: rgb(var(--nc-border-bright) / 0.5);
+  border-radius: 999px;
+  transition: background 160ms ease;
+}
+
+html[data-theme="atlas"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--nc-border-bright));
+}
+
+/* Reduced motion — Atlas has minimal motion, but honor the pref */
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="atlas"] *,
+  html[data-theme="atlas"] *::before,
+  html[data-theme="atlas"] *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }
 
@@ -465,655 +699,6 @@ html[data-theme="carbon"] .cyber-btn-lg {
   box-shadow: none;
 }
 
-/* ==========================================================================
-   Night City theme — cyberpunk decorations
-   Only applied when data-theme="night-city" is set on <html>.
-   ========================================================================== */
-
-/* Message text font — Fira Code for wider, monospaced readability */
-html[data-theme="night-city"] {
-  --nc-font-message: 'Fira Code', 'JetBrains Mono', monospace;
-}
-
-/* Scanline overlay on body */
-html[data-theme="night-city"] .cyber-scanlines::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgb(var(--nc-cyan) / 0.015) 2px,
-    rgb(var(--nc-cyan) / 0.015) 4px
-  );
-  pointer-events: none;
-  z-index: 1;
-}
-
-/* Panels — flat, no gradient/glow */
-html[data-theme="night-city"] .cyber-panel {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-}
-
-html[data-theme="night-city"] .cyber-panel-elevated {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-}
-
-/* Neon text-shadow glow */
-html[data-theme="night-city"] .neon-cyan {
-  text-shadow: 0 0 7px rgb(var(--nc-cyan) / 0.6), 0 0 20px rgb(var(--nc-cyan) / 0.2);
-}
-
-html[data-theme="night-city"] .neon-red {
-  text-shadow: 0 0 7px rgb(var(--nc-red) / 0.6), 0 0 20px rgb(var(--nc-red) / 0.2);
-}
-
-html[data-theme="night-city"] .neon-green {
-  text-shadow: 0 0 7px rgb(var(--nc-green) / 0.6), 0 0 20px rgb(var(--nc-green) / 0.2);
-}
-
-html[data-theme="night-city"] .neon-yellow {
-  text-shadow: 0 0 7px rgb(var(--nc-yellow) / 0.6), 0 0 20px rgb(var(--nc-yellow) / 0.2);
-}
-
-html[data-theme="night-city"] .neon-magenta {
-  text-shadow: 0 0 7px rgb(var(--nc-magenta) / 0.6), 0 0 20px rgb(var(--nc-magenta) / 0.2);
-}
-
-/* Glitch text pseudo-element effects */
-html[data-theme="night-city"] .glitch-text::before,
-html[data-theme="night-city"] .glitch-text::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  opacity: calc(var(--glitch-active, 0) * 0.8);
-  pointer-events: none;
-}
-
-html[data-theme="night-city"] .glitch-text::before {
-  color: rgb(var(--nc-cyan));
-  clip-path: inset(var(--glitch-clip-top, 100%) 0 var(--glitch-clip-bottom, 100%) 0);
-  transform: translateX(calc(var(--glitch-offset-x, 0px) * -1));
-}
-
-html[data-theme="night-city"] .glitch-text::after {
-  color: rgb(var(--nc-red));
-  clip-path: inset(var(--glitch-clip-bottom, 100%) 0 var(--glitch-clip-top, 100%) 0);
-  transform: translateX(var(--glitch-offset-x, 0px));
-}
-
-/* ScanlineTear overlay effects */
-html[data-theme="night-city"] .scanline-tear__overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 2;
-  mix-blend-mode: screen;
-  border-left: 1px solid rgb(var(--nc-red) / 0.6);
-  border-right: 1px solid rgb(var(--nc-cyan) / 0.6);
-  filter: saturate(1.4) brightness(1.15);
-}
-
-html[data-theme="night-city"] .scanline-tear__overlay::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgb(var(--nc-red) / 0.25), transparent 40%, rgb(var(--nc-cyan) / 0.25));
-  pointer-events: none;
-}
-
-/* Beveled corners */
-html[data-theme="night-city"] .cyber-bevel {
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-}
-
-html[data-theme="night-city"] .cyber-bevel-sm {
-  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
-}
-
-/* Beveled buttons + glitch-only hover */
-html[data-theme="night-city"] .cyber-btn {
-  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
-}
-
-html[data-theme="night-city"] .cyber-btn:focus-visible {
-  animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme="night-city"] .cyber-btn:hover {
-    animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
-  }
-}
-
-html[data-theme="night-city"] .cyber-btn-lg {
-  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
-}
-
-html[data-theme="night-city"] .cyber-btn-lg:focus-visible {
-  animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme="night-city"] .cyber-btn-lg:hover {
-    animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
-  }
-}
-
-/* Glitch hover artifact blocks */
-html[data-theme="night-city"] .glitch-hover::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-  background:
-    rgb(var(--nc-red) / 0.88) left 0 top var(--artifact-a-y, 16%) / var(--artifact-a-w, 18%) var(--artifact-a-h, 0.35rem) no-repeat,
-    rgb(var(--nc-cyan) / 0.84) right 0 top var(--artifact-b-y, 38%) / var(--artifact-b-w, 22%) var(--artifact-b-h, 0.5rem) no-repeat,
-    rgb(var(--nc-green) / 0.82) left 0 bottom var(--artifact-c-y, 14%) / var(--artifact-c-w, 16%) var(--artifact-c-h, 0.4rem) no-repeat;
-  mix-blend-mode: screen;
-  filter: saturate(1.35);
-}
-
-html[data-theme="night-city"] .glitch-hover:focus-visible {
-  animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
-}
-
-html[data-theme="night-city"] .glitch-hover:focus-visible::after {
-  animation: cp-edge-blocks 480ms steps(8, jump-none) 1 30ms;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme="night-city"] .glitch-hover:hover {
-    animation: cp-glitch-jump 360ms steps(2, jump-none) 1;
-  }
-
-  html[data-theme="night-city"] .glitch-hover:hover::after {
-    animation: cp-edge-blocks 480ms steps(8, jump-none) 1 30ms;
-  }
-}
-
-/* Status chip bevels + hover animation */
-html[data-theme="night-city"] .status-chip {
-  border-radius: 0;
-  clip-path: polygon(0 0, calc(100% - 0.55rem) 0, 100% 0.55rem, 100% 100%, 0.55rem 100%, 0 calc(100% - 0.55rem));
-}
-
-html[data-theme="night-city"] .status-chip-sm {
-  border-radius: 0;
-  clip-path: polygon(0 0, calc(100% - 0.35rem) 0, 100% 0.35rem, 100% 100%, 0.35rem 100%, 0 calc(100% - 0.35rem));
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme="night-city"] .status-chip:hover,
-  html[data-theme="night-city"] .status-chip-sm:hover {
-    animation: cp-hue-strobe 420ms linear 1;
-  }
-}
-
-/* Divider gradient */
-html[data-theme="night-city"] .cyber-divider {
-  background: linear-gradient(90deg, transparent, rgb(var(--nc-border)), transparent);
-}
-
-/* Scanline overlay animation */
-html[data-theme="night-city"] .scanline-overlay::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgb(var(--nc-cyan) / 0.08), transparent);
-  animation: scanlineMove 8s linear infinite;
-  pointer-events: none;
-  z-index: 10;
-}
-
-/* ==========================================================================
-   Brutalist theme — neobrutalist decorations
-   Only applied when data-theme="brutalist" is set on <html>.
-   ========================================================================== */
-
-/* Panels — thick border + offset shadow, flat bg */
-html[data-theme="brutalist"] .cyber-panel {
-  border-width: 3px;
-  border-color: rgb(var(--nc-border-bright));
-  box-shadow: 6px 6px 0px 0px rgb(var(--nc-border-bright));
-  background: rgb(var(--nc-surface));
-}
-
-html[data-theme="brutalist"] .cyber-panel-elevated {
-  border-width: 3px;
-  border-color: rgb(var(--nc-border));
-  box-shadow: 4px 4px 0px 0px rgb(var(--nc-border));
-  background: rgb(var(--nc-elevated));
-}
-
-/* Buttons — thick border + offset shadow */
-html[data-theme="brutalist"] .cyber-btn {
-  border-width: 2px !important;
-  border-color: rgb(var(--nc-border));
-  border-radius: 0;
-}
-
-html[data-theme="brutalist"] .cyber-btn:focus-visible {
-  transform: translate(-1px, -1px);
-  box-shadow: 3px 3px 0px 0px rgb(var(--nc-border));
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme="brutalist"] .cyber-btn:hover {
-    transform: translate(-1px, -1px);
-    box-shadow: 3px 3px 0px 0px rgb(var(--nc-border));
-  }
-}
-
-html[data-theme="brutalist"] .cyber-btn:active {
-  transform: translate(2px, 2px) !important;
-  box-shadow: none !important;
-}
-
-html[data-theme="brutalist"] .cyber-btn-lg {
-  border-width: 3px !important;
-  border-color: rgb(var(--nc-border-bright));
-  box-shadow: 4px 4px 0px 0px rgb(var(--nc-border-bright));
-  border-radius: 0;
-}
-
-html[data-theme="brutalist"] .cyber-btn-lg:focus-visible {
-  transform: translate(-1px, -1px);
-  box-shadow: 5px 5px 0px 0px rgb(var(--nc-border-bright));
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme="brutalist"] .cyber-btn-lg:hover {
-    transform: translate(-1px, -1px);
-    box-shadow: 5px 5px 0px 0px rgb(var(--nc-border-bright));
-  }
-}
-
-html[data-theme="brutalist"] .cyber-btn-lg:active {
-  transform: translate(2px, 2px) !important;
-  box-shadow: none !important;
-}
-
-/* Input — thick border + offset shadow on focus */
-html[data-theme="brutalist"] .cyber-input {
-  border-width: 2px;
-  border-color: rgb(var(--nc-border));
-}
-
-html[data-theme="brutalist"] .cyber-input:focus {
-  border-color: rgb(var(--nc-cyan));
-  box-shadow: 3px 3px 0px 0px rgb(var(--nc-cyan));
-}
-
-/* Status chips — solid borders, square */
-html[data-theme="brutalist"] .status-chip {
-  border-width: 2px;
-  border-radius: 0;
-}
-
-html[data-theme="brutalist"] .status-chip-sm {
-  border-width: 2px;
-  border-radius: 0;
-}
-
-/* Tone colors — more solid borders */
-html[data-theme="brutalist"] .tone-critical {
-  background: rgb(var(--nc-red) / 0.08);
-  border-color: rgb(var(--nc-red));
-  color: rgb(var(--nc-red));
-}
-
-html[data-theme="brutalist"] .tone-terminal {
-  background: rgb(var(--nc-green) / 0.08);
-  border-color: rgb(var(--nc-green));
-  color: rgb(var(--nc-green));
-}
-
-html[data-theme="brutalist"] .tone-telemetry {
-  background: rgb(var(--nc-cyan) / 0.08);
-  border-color: rgb(var(--nc-cyan));
-  color: rgb(var(--nc-cyan));
-}
-
-html[data-theme="brutalist"] .tone-warning {
-  background: rgb(var(--nc-yellow) / 0.08);
-  border-color: rgb(var(--nc-yellow));
-  color: rgb(var(--nc-yellow));
-}
-
-html[data-theme="brutalist"] .tone-neutral {
-  background: rgb(var(--nc-elevated));
-  border-color: rgb(var(--nc-border));
-  color: rgb(var(--nc-text-bright));
-}
-
-
-/* Border glow → solid thick border, no glow */
-html[data-theme="brutalist"] .cyber-border-glow {
-  border-width: 2px;
-  border-color: rgb(var(--nc-cyan));
-  box-shadow: none;
-}
-
-/* Divider — solid bar */
-html[data-theme="brutalist"] .cyber-divider {
-  height: 2px;
-  background: rgb(var(--nc-border));
-}
-
-/* Selection — yellow */
-html[data-theme="brutalist"] ::selection {
-  background-color: rgb(var(--nc-selection-bg) / 0.5);
-  color: rgb(var(--nc-selection-text));
-}
-
-/* Message composer — thick border on focus */
-html[data-theme="brutalist"] .focus-within\:border-nc-cyan:focus-within {
-  border-color: rgb(var(--nc-yellow));
-  box-shadow: 3px 3px 0px 0px rgb(var(--nc-yellow));
-}
-
-/* Phone: composer sits at screen bottom, offset shadow would bleed off-screen */
-@media (max-width: 639.98px) {
-  html[data-theme="brutalist"] .focus-within\:border-nc-cyan:focus-within {
-    box-shadow: none;
-  }
-}
-
-/* Code blocks — thick border */
-html[data-theme="brutalist"] pre[class*="border"] {
-  border-width: 2px;
-}
-
-/* Ensure no gradient/glow shadows leak — flat offset only */
-html[data-theme="brutalist"] [class*="shadow-nc-"] {
-  box-shadow: 2px 2px 0px 0px rgb(var(--nc-border));
-}
-
-/* ==========================================================================
-   Keyframes — defined globally, only referenced by NC-specific selectors
-   ========================================================================== */
-
-@keyframes scanlineMove {
-  0% { top: -5%; }
-  100% { top: 105%; }
-}
-
-@keyframes cp-glitch-jump {
-  0%, 100% {
-    transform: translate3d(0, 0, 0) skewX(0deg);
-    filter: saturate(1) brightness(1);
-  }
-  9% {
-    transform: translate3d(-1.4px, 0.2px, 0) skewX(-0.6deg);
-    filter: saturate(1.12) brightness(1.04);
-  }
-  18% {
-    transform: translate3d(1.44px, -0.32px, 0) skewX(-0.8deg);
-    filter: saturate(1.22) brightness(1.08);
-  }
-  31% {
-    transform: translate3d(2.4px, -0.8px, 0) skewX(0.8deg);
-    filter: saturate(1.28) brightness(1.1);
-  }
-  43% {
-    transform: translate3d(1.2px, 1px, 0) skewX(-0.3deg);
-    filter: saturate(1.18) brightness(1.05);
-  }
-  57% {
-    transform: translate3d(-1.2px, -0.2px, 0) skewX(-0.28deg);
-    filter: saturate(1.26) brightness(1.11);
-  }
-  74% {
-    transform: translate3d(-0.49px, 0.48px, 0) skewX(-0.12deg);
-    filter: saturate(1.08) brightness(1.03);
-  }
-}
-
-@keyframes cp-hue-strobe {
-  0% { box-shadow: 0 0 0 rgb(var(--nc-red) / 0); }
-  25% { box-shadow: 0 0 24px rgb(var(--nc-red) / 0.22); }
-  50% { box-shadow: 0 0 26px rgb(var(--nc-cyan) / 0.2); }
-  75% { box-shadow: 0 0 26px rgb(var(--nc-green) / 0.2); }
-  100% { box-shadow: 0 0 0 rgb(var(--nc-indigo) / 0); }
-}
-
-@keyframes cp-edge-blocks {
-  0%, 5% { opacity: 0; transform: translate3d(0, 0, 0); }
-  5.1% { opacity: 0.92; transform: translate3d(-4%, 0, 0); }
-  20% { opacity: 0.92; transform: translate3d(-4%, 0, 0); }
-  20.1% { opacity: 0.88; transform: translate3d(2.4%, -2px, 0); }
-  38% { opacity: 0.88; transform: translate3d(2.4%, -2px, 0); }
-  38.1% { opacity: 0.82; transform: translate3d(3%, 1px, 0); }
-  55% { opacity: 0.82; transform: translate3d(3%, 1px, 0); }
-  55.1% { opacity: 0.6; transform: translate3d(-0.9%, 0, 0); }
-  68% { opacity: 0.6; transform: translate3d(-0.9%, 0, 0); }
-  68.1% { opacity: 0.3; transform: translate3d(0, 0, 0); }
-  80% { opacity: 0.3; transform: translate3d(0, 0, 0); }
-  80.1%, 100% { opacity: 0; transform: translate3d(0, 0, 0); }
-}
-
-/* ==========================================================================
-   Graphite theme — pure grayscale, typography-led
-   Only applied when data-theme="graphite" is set on <html>.
-
-   Signature: true monochromatic (R=G=B base tokens), flat body (no gradient,
-   no noise), hairline borders (rgba(255,255,255,.04–.08)), circular avatars,
-   subtly rounded sidebar items (6–10px), compact chips, chromeless scrollbars,
-   180ms ease-out transitions only — no hover lift, no glow. Contrast and
-   typography do the work of color. Contrast hierarchy: text-bright > text >
-   muted; tonal surface steps: black → deep → surface → elevated.
-   ========================================================================== */
-
-/* Body — pure flat. Confidence is quiet; no gradient mesh, no noise grain. */
-html[data-theme="graphite"] body {
-  background: rgb(var(--nc-black));
-  font-family: var(--nc-font-body);
-  letter-spacing: -0.005em;
-  -webkit-font-smoothing: antialiased;
-}
-
-html[data-theme="graphite"] .app-shell,
-html[data-theme="graphite"] .login-shell {
-  background-color: rgb(var(--nc-black)) !important;
-}
-
-/* Panels — flat surface, hairline border, mild rounding, no shadow */
-html[data-theme="graphite"] .cyber-panel,
-html[data-theme="graphite"] .cyber-panel-elevated {
-  background: rgb(var(--nc-surface));
-  border: 1px solid rgb(255 255 255 / 0.06);
-  border-radius: 10px;
-  box-shadow: none;
-}
-
-html[data-theme="graphite"] .cyber-panel-elevated {
-  background: rgb(var(--nc-elevated));
-  border-color: rgb(255 255 255 / 0.08);
-}
-
-/* TopBar — flat, single hairline at the bottom, no scanline animation.
-   (scanline-overlay's ::before is scoped to night-city only, safe here.) */
-html[data-theme="graphite"] .scanline-overlay {
-  background: rgb(var(--nc-surface)) !important;
-  border-bottom: 1px solid rgb(255 255 255 / 0.04) !important;
-  box-shadow: none;
-}
-
-/* Sidebar & rail chrome are already driven by the 'graphite' branch in
-   themeVariants.ts (hairline border-r, bg-nc-surface/bg-nc-deep) so no
-   extra CSS is needed here. */
-
-/* Buttons — no hover translate, no glow, just tone shift */
-html[data-theme="graphite"] .cyber-btn,
-html[data-theme="graphite"] .cyber-btn-lg {
-  border-radius: 8px;
-  box-shadow: none;
-  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  html[data-theme="graphite"] .cyber-btn:hover,
-  html[data-theme="graphite"] .cyber-btn-lg:hover {
-    background: rgb(255 255 255 / 0.05);
-  }
-}
-
-/* Composer — flat, rounded, subtle focus line (no halo) */
-html[data-theme="graphite"] .composer-surface {
-  background: rgb(var(--nc-panel)) !important;
-  border: 1px solid rgb(255 255 255 / 0.06) !important;
-  border-radius: 12px;
-  box-shadow: none;
-  transition: border-color 180ms ease;
-}
-
-/* Phone/tablet: match base themes' pill radius so mobile chrome is uniform. */
-@media (max-width: 1023.98px) {
-  html[data-theme="graphite"] .composer-surface {
-    border-radius: 19px;
-  }
-}
-
-/* Override MessageComposer's focus-within:border-nc-cyan with a neutral line */
-html[data-theme="graphite"] .focus-within\:border-nc-cyan:focus-within {
-  border-color: rgb(255 255 255 / 0.35) !important;
-  box-shadow: none;
-}
-
-/* Inputs — flat with single tight focus line */
-html[data-theme="graphite"] .cyber-input {
-  background: rgb(var(--nc-panel));
-  border: 1px solid rgb(255 255 255 / 0.06);
-  border-radius: 8px;
-  box-shadow: none;
-  transition: border-color 180ms ease;
-}
-
-html[data-theme="graphite"] .cyber-input:focus {
-  border-color: rgb(255 255 255 / 0.35);
-  box-shadow: none;
-}
-
-/* Status chips — small rounded rectangles (not pills), flat */
-html[data-theme="graphite"] .status-chip,
-html[data-theme="graphite"] .status-chip-sm {
-  border-radius: 4px;
-  border-color: rgb(255 255 255 / 0.08);
-  box-shadow: none;
-  letter-spacing: 0.06em;
-  font-family: var(--nc-font-body);
-  font-weight: 600;
-}
-
-/* Tones — Graphite keeps semantic color but at muted saturation. Surfaces
-   stay grayscale; tones are the one place color earns its keep (AGENT
-   badges, status chips, destructive actions) because monochrome wipes
-   out too much signal. Each tone uses the same recipe: 12% tinted bg,
-   40% tinted border, full (muted) text color. */
-html[data-theme="graphite"] .tone-critical {
-  background: rgb(var(--nc-red) / 0.12);
-  border-color: rgb(var(--nc-red) / 0.4);
-  color: rgb(var(--nc-red));
-}
-
-html[data-theme="graphite"] .tone-terminal {
-  background: rgb(var(--nc-green) / 0.12);
-  border-color: rgb(var(--nc-green) / 0.4);
-  color: rgb(var(--nc-green));
-}
-
-html[data-theme="graphite"] .tone-telemetry {
-  background: rgb(var(--nc-cyan) / 0.12);
-  border-color: rgb(var(--nc-cyan) / 0.4);
-  color: rgb(var(--nc-cyan));
-}
-
-html[data-theme="graphite"] .tone-indigo {
-  background: rgb(var(--nc-indigo) / 0.14);
-  border-color: rgb(var(--nc-indigo) / 0.4);
-  color: rgb(var(--nc-indigo));
-}
-
-html[data-theme="graphite"] .tone-warning {
-  background: rgb(var(--nc-yellow) / 0.12);
-  border-color: rgb(var(--nc-yellow) / 0.4);
-  color: rgb(var(--nc-yellow));
-}
-
-html[data-theme="graphite"] .tone-neutral {
-  background: rgb(255 255 255 / 0.05);
-  border-color: rgb(255 255 255 / 0.1);
-  color: rgb(var(--nc-text-bright));
-}
-
-/* Divider — 1px hairline, flat */
-html[data-theme="graphite"] .cyber-divider {
-  height: 1px;
-  background: rgb(255 255 255 / 0.06);
-}
-
-/* Border glow → just a hairline, no halo */
-html[data-theme="graphite"] .cyber-border-glow {
-  border-color: rgb(255 255 255 / 0.2);
-  box-shadow: none;
-}
-
-/* Selection — inverse block, no color */
-html[data-theme="graphite"] ::selection {
-  background-color: rgb(var(--nc-selection-bg));
-  color: rgb(var(--nc-selection-text));
-}
-
-/* ============================================================
-   Shape-level overrides — Graphite reshapes structure, not just palette.
-
-   Avatars across MessageItem, MembersPanel, SettingsModal, DetailsPanel,
-   and Agent* panels all render as a size-bounded div whose class list
-   contains both `font-display` and `overflow-hidden` (the div is the
-   image clip box, showing initials or Bot icon as a fallback). That
-   compound selector is unique to avatars in this codebase.
-   ============================================================ */
-html[data-theme="graphite"] .font-display.overflow-hidden {
-  border-radius: 999px !important;
-  box-shadow: none !important;
-}
-
-/* Message row hover — far more restrained than bg-nc-elevated/40 */
-html[data-theme="graphite"] .hover\:bg-nc-elevated\/40:hover {
-  background-color: rgb(255 255 255 / 0.025);
-}
-
-/* Scrollbars — minimal, neutral, thin */
-html[data-theme="graphite"] * {
-  scrollbar-width: thin;
-  scrollbar-color: rgb(255 255 255 / 0.1) transparent;
-}
-
-html[data-theme="graphite"] ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-html[data-theme="graphite"] ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-html[data-theme="graphite"] ::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.08);
-  border-radius: 999px;
-  transition: background 180ms ease;
-}
-
-html[data-theme="graphite"] ::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 0.18);
-}
-
 /* Hide scrollbar while keeping scroll functionality */
 .scrollbar-hide {
   scrollbar-width: none;
@@ -1121,16 +706,6 @@ html[data-theme="graphite"] ::-webkit-scrollbar-thumb:hover {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
-}
-
-/* Reduced motion — graphite has almost no motion, but honor the pref */
-@media (prefers-reduced-motion: reduce) {
-  html[data-theme="graphite"] *,
-  html[data-theme="graphite"] *::before,
-  html[data-theme="graphite"] *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-  }
 }
 
 @layer utilities {

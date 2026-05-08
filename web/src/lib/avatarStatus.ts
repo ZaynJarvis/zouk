@@ -64,8 +64,13 @@ export function agentLifecycle(a: Pick<ServerAgent, 'lifecycle'>): 'persistent' 
   return a.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent';
 }
 
-// Soften avatar corners only on the editorial themes (washington-post, carbon).
-// The cyber/brutalist/graphite themes keep their existing aesthetic.
-export function avatarRadiusClass(theme: Theme): string {
-  return theme === 'washington-post' || theme === 'carbon' ? 'rounded-md' : '';
+// Avatar corner-radius rules:
+// - atlas: agents square (rounded-md), humans circular (rounded-full)
+// - washington-post / carbon: shared light rounding (rounded-md)
+// - kind defaults to 'agent' so badges and other non-portrait callsites
+//   still get a sensible square shape under atlas.
+export function avatarRadiusClass(theme: Theme, kind: 'agent' | 'human' = 'agent'): string {
+  if (theme === 'atlas') return kind === 'human' ? 'rounded-full' : 'rounded-md';
+  if (theme === 'washington-post' || theme === 'carbon') return 'rounded-md';
+  return '';
 }
