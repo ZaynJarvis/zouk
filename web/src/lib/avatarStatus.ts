@@ -17,13 +17,10 @@ export function agentStatus(a: Pick<ServerAgent, 'status' | 'activity'>): Avatar
   return 'offline';
 }
 
-// Avatar palette is gray only when the agent is truly inactive (machine gone,
-// can't be respawned). When the machine is still present (status === 'active')
-// but the process is offline, the avatar stays "live" — only the status dot
-// goes gray, signaling "wakeable".
+// Avatar palette mirrors process state: grey when stopped or inactive,
+// colored only when the process is actually running (online/working).
 export function agentAvatarStatus(a: Pick<ServerAgent, 'status' | 'activity'>): AvatarStatus {
-  if (!a.status || a.status === 'inactive') return 'offline';
-  return agentStatus(a) === 'working' ? 'working' : 'online';
+  return agentStatus(a);
 }
 
 export const STATUS_CLASS: Record<AvatarStatus, string> = {
