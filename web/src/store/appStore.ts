@@ -123,7 +123,7 @@ export function useAppStore() {
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
   // Memory trees per agent: agentId -> uri -> entries (for recursive tree rendering)
   const [memoryTreeCache, setMemoryTreeCache] = useState<Record<string, Record<string, MemoryEntry[]>>>({});
-  const [memoryFileContent, setMemoryFileContent] = useState<{ agentId: string; uri: string; content: string } | null>(null);
+  const [memoryFileContent, setMemoryFileContent] = useState<{ agentId: string; uri: string; content: string | null } | null>(null);
   // Skill discovery per agent: agentId -> { global, workspace } as surfaced by
   // the daemon's listSkills. Separate cache (not mixed into ServerAgent) because
   // it is lazy-loaded per detail-tab open, not pushed with agent state.
@@ -518,7 +518,7 @@ export function useAppStore() {
         break;
       }
       case 'memory:content': {
-        const e = event as { agentId: string; requestId: string; uri: string; content: string };
+        const e = event as { agentId: string; requestId: string; uri: string; content: string | null };
         setMemoryFileContent({ agentId: e.agentId, uri: e.uri || e.requestId, content: e.content });
         break;
       }
@@ -1001,6 +1001,9 @@ export function useAppStore() {
   }, []);
 
   const requestMemoryContent = useCallback((agentId: string, uri: string) => {
+    setMemoryFileContent(prev => (
+      prev?.agentId === agentId && prev.uri === uri ? null : prev
+    ));
     wsRef.current?.send({ type: 'memory:read', agentId, requestId: uri, uri });
   }, []);
 
