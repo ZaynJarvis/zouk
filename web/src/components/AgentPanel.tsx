@@ -258,7 +258,6 @@ export default function AgentsView() {
       >
         {/* Header (page title + actions) */}
         <header
-          className="safe-top"
           style={{
             display: 'flex', alignItems: 'center', gap: 14,
             padding: '14px 18px 12px',

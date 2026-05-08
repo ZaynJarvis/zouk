@@ -852,7 +852,6 @@ export default function MemoryView() {
       }}
     >
       <header
-        className="safe-top"
         style={{
           display: 'flex', alignItems: 'center', gap: 12,
           padding: '14px 22px 12px',
@@ -860,15 +859,7 @@ export default function MemoryView() {
           flexShrink: 0,
         }}
       >
-        <div className="zk-col">
-          <Eyebrow>WORKSPACE</Eyebrow>
-          <h1
-            className="zk-display"
-            style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
-          >
-            {source === 'memory' ? 'Memory' : 'Files'}
-          </h1>
-        </div>
+        <Eyebrow>WORKSPACE</Eyebrow>
 
         {/* Source toggle — Memory (OpenViking) / Files (workspace) */}
         <div className="zk-seg" role="tablist" aria-label="Source">

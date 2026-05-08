@@ -130,7 +130,11 @@ function AppShell() {
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
-        <TopBar />
+        {/* TopBar is only needed in home (channel/dm) view on desktop — full-canvas
+            views render their own header and the empty TopBar strip creates blank space. */}
+        <div className={!showMessageView ? 'lg:hidden' : ''}>
+          <TopBar />
+        </div>
         {/* Mobile spacer: TopBar is position:fixed on mobile so it no longer
             occupies flex space — this div holds the equivalent height. */}
         <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
@@ -172,11 +176,18 @@ function AppShell() {
           {/* NowRail — default right column on lg+ when no other panel is up.
               When the user collapses it, we render a thin NowRailPeek strip
               instead so the panel can be re-opened from the right edge. */}
-          {showNowRail && (
-            <div className="hidden lg:flex">
-              {nowRailHidden ? <NowRailPeek /> : <NowRail />}
-            </div>
-          )}
+          {/* NowRail width transitions to 0 instead of unmounting, preventing
+              the abrupt 320px layout shift when a right panel opens. */}
+          <div
+            className="hidden lg:block overflow-hidden"
+            style={{
+              width: showNowRail ? (nowRailHidden ? 24 : 320) : 0,
+              flexShrink: 0,
+              transition: 'width 180ms ease-out',
+            }}
+          >
+            {nowRailHidden ? <NowRailPeek /> : <NowRail />}
+          </div>
         </div>
       </div>
 

@@ -214,7 +214,6 @@ export default function TasksView() {
       }}
     >
       <header
-        className="safe-top"
         style={{
           display: 'flex', alignItems: 'baseline', gap: 14,
           padding: '18px 28px 16px',
