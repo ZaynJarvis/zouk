@@ -8,6 +8,8 @@ import TopBar from './components/TopBar';
 import MessageList from './components/MessageList';
 import MessageComposer from './components/MessageComposer';
 import RightPanel from './components/RightPanel';
+import NowRail from './components/NowRail';
+import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
@@ -87,20 +89,33 @@ function AppShell() {
   }
 
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
+  // ChannelSidebar (channels/agents/people list) is only meaningful in
+  // conversational views. Memory / Tasks / Agents are full-canvas surfaces
+  // with their own internal layouts — the sidebar is hidden there.
+  const showChannelSidebar = showMessageView;
+  // NowRail shows by default on the right when in a conversation, no other
+  // panel is open, and we have desktop width. Mobile keeps the right column
+  // free for the message stream.
+  const showNowRail = showMessageView && !rightPanel;
 
   return (
-    <div className="app-shell flex overflow-hidden bg-nc-black font-body text-nc-text cyber-scanlines">
+    <div
+      className="app-shell flex overflow-hidden font-body text-nc-text"
+      style={{ background: 'var(--zk-bg-0)', color: 'var(--zk-ink)' }}
+    >
       <div className="hidden lg:block">
         <WorkspaceRail />
       </div>
 
-      {/* Desktop sidebar: always visible */}
-      <div className="hidden lg:flex flex-shrink-0">
-        <ChannelSidebar />
-      </div>
+      {/* Desktop sidebar: only visible in conversational views */}
+      {showChannelSidebar && (
+        <div className="hidden lg:flex flex-shrink-0">
+          <ChannelSidebar />
+        </div>
+      )}
 
       {/* Mobile sidebar: centered modal (lg:hidden keeps it out of desktop layout) */}
-      {sidebarOpen && (
+      {sidebarOpen && showChannelSidebar && (
         <div
           className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 flex items-center justify-center transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
           onClick={closeMobileSidebar}
@@ -121,34 +136,45 @@ function AppShell() {
         <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
           <div className="h-12 sm:h-14" />
         </div>
-        <div className="flex-1 relative min-h-0">
-          <div className="absolute inset-0 flex flex-col min-w-0">
-            {showMessageView && (
-              <>
-                <MessageList />
-                <MessageComposer />
-              </>
-            )}
-            {viewMode === 'agents' && <AgentsView />}
-            {viewMode === 'tasks' && <TasksView />}
-            {viewMode === 'memory' && <MemoryView />}
-            {!showMessageView && !sidebarOpen && (
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Open sidebar"
-                className="lg:hidden fixed left-4 z-20 w-10 h-10 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors"
-                style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
-              >
-                <Menu size={18} />
-              </button>
-            )}
-          </div>
-          <div className="absolute inset-y-0 right-0 z-20 flex pointer-events-none">
-            <div ref={rightPanelRef} className="pointer-events-auto h-full shadow-2xl">
-              <RightPanel />
+        <div className="flex-1 relative min-h-0 flex">
+          <div className="flex-1 min-w-0 relative">
+            <div className="absolute inset-0 flex flex-col min-w-0">
+              {showMessageView && (
+                <>
+                  <PinnedRail />
+                  <MessageList />
+                  <MessageComposer />
+                </>
+              )}
+              {viewMode === 'agents' && <AgentsView />}
+              {viewMode === 'tasks' && <TasksView />}
+              {viewMode === 'memory' && <MemoryView />}
+              {!showMessageView && showChannelSidebar && !sidebarOpen && (
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  aria-label="Open sidebar"
+                  className="lg:hidden fixed left-4 z-20 w-10 h-10 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors"
+                  style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
+                >
+                  <Menu size={18} />
+                </button>
+              )}
+            </div>
+            {/* Contextual right panels (thread / details / etc.) overlay above the message column on lg-, share width on xl+. */}
+            <div className="absolute inset-y-0 right-0 z-20 flex pointer-events-none">
+              <div ref={rightPanelRef} className="pointer-events-auto h-full shadow-2xl">
+                <RightPanel />
+              </div>
             </div>
           </div>
+
+          {/* NowRail — default right column on lg+ when no other panel is up. */}
+          {showNowRail && (
+            <div className="hidden lg:flex">
+              <NowRail />
+            </div>
+          )}
         </div>
       </div>
 

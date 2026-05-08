@@ -3,13 +3,13 @@ import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
 import StatusDot from './StatusDot';
-import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
+import { agentStatus } from '../lib/avatarStatus';
 import { isMobileViewport } from '../lib/layout';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
-import ScanlineTear from './glitch/ScanlineTear';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
+import { AgentAvatar, Eyebrow } from './zk/primitives';
 
 function AgentListItem({
   agent,
@@ -24,61 +24,71 @@ function AgentListItem({
   onOpenSettings: () => void;
   onDelete?: () => void;
 }) {
-  const { theme } = useApp();
   const status = agentStatus(agent);
-  const avatarStatus = agentAvatarStatus(agent);
   const isInactive = agent.status === 'inactive';
 
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`group w-full flex items-center gap-3 px-4 py-3 text-left transition-all border-b border-nc-border ${
-        isSelected
-          ? 'bg-nc-elevated border-l-2 border-l-nc-cyan'
-          : 'hover:bg-nc-elevated/50'
-      }`}
+      className="group w-full text-left transition-colors"
+      style={{
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '10px 14px',
+        background: isSelected ? 'var(--zk-bg-3)' : 'transparent',
+        borderBottom: '1px solid var(--zk-line)',
+        color: isSelected ? 'var(--zk-ink)' : 'var(--zk-ink-dim)',
+      }}
+      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
     >
-      <div className="relative w-8 h-8 shrink-0">
-        <div className={`w-8 h-8 border font-display font-bold text-xs flex items-center justify-center overflow-hidden ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)}`}>
-          {agent.picture ? (
-            <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-          ) : (
-            (agent.displayName || agent.name).charAt(0).toUpperCase()
-          )}
-        </div>
+      {isSelected && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute', left: 0, top: 8, bottom: 8,
+            width: 2, background: 'var(--zk-ember)', borderRadius: '0 2px 2px 0',
+          }}
+        />
+      )}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        <AgentAvatar agent={agent} size="md" />
         <StatusDot status={status} ringClass="border-nc-surface" />
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-display font-bold text-sm text-nc-text-bright">
-            {agent.displayName || agent.name}
-          </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--zk-ink)' }} className="zk-truncate">
+          {agent.displayName || agent.name}
         </div>
-        <div className="text-2xs text-nc-muted truncate font-mono">
+        <div
+          className="zk-truncate"
+          style={{ fontSize: 11, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)', marginTop: 1 }}
+        >
           {formatRuntime(agent.runtime) || 'No runtime'} · {agent.model || '—'}
         </div>
       </div>
-      {agent.archivedAt && (
-        <span className="status-chip-sm tone-neutral font-mono">
-          ARCHIVED
-        </span>
-      )}
+      {agent.archivedAt && <span className="zk-pill">Archived</span>}
       <span
         role="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenSettings();
+        onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
+        className="zk-btn zk-btn--ghost zk-btn--icon hidden sm:inline-flex"
+        style={{
+          opacity: 0,
+          transition: 'opacity 140ms var(--zk-ease-out)',
+          padding: 4,
         }}
-        className="shrink-0 w-6 h-6 hidden sm:flex items-center justify-center border border-transparent text-nc-muted opacity-0 group-hover:opacity-100 hover:border-nc-cyan/40 hover:bg-nc-cyan/10 hover:text-nc-cyan transition-all"
         title={`Configure ${agent.displayName || agent.name}`}
       >
-        <Settings size={13} />
+        <Settings size={12} />
       </span>
       {isInactive && onDelete && (
         <span
           role="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="shrink-0 w-6 h-6 flex items-center justify-center border border-nc-red/50 bg-nc-red/10 text-nc-red hover:bg-nc-red/20 transition-colors"
+          className="zk-btn zk-btn--ghost zk-btn--icon"
+          style={{ color: 'var(--zk-err)', padding: 4 }}
           title="Delete agent — its machine is gone"
         >
           <X size={12} />
@@ -90,16 +100,36 @@ function AgentListItem({
 
 function CompactMachineCard({ machine }: { machine: ServerMachine }) {
   return (
-    <div className="flex items-center gap-2 px-4 py-2 border-b border-nc-border">
-      <Server size={12} className="text-nc-green shrink-0" />
-      <span className="text-2xs font-bold text-nc-text-bright truncate font-mono">{machine.alias || machine.hostname}</span>
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '6px 14px',
+        borderBottom: '1px solid var(--zk-line)',
+        fontFamily: 'var(--zk-font-mono)',
+      }}
+    >
+      <Server size={11} color="var(--zk-ok)" style={{ flexShrink: 0 }} />
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--zk-ink)' }} className="zk-truncate">
+        {machine.alias || machine.hostname}
+      </span>
       {machine.alias && machine.alias !== machine.hostname && (
-        <span className="text-2xs text-nc-muted truncate font-mono">{machine.hostname}</span>
+        <span style={{ fontSize: 10, color: 'var(--zk-ink-mute)' }} className="zk-truncate">
+          {machine.hostname}
+        </span>
       )}
-      <span className="w-1.5 h-1.5 bg-nc-green shrink-0" />
+      <span
+        style={{
+          width: 6, height: 6, borderRadius: 999,
+          background: 'var(--zk-ok)', flexShrink: 0,
+        }}
+      />
       {machine.runtimes && (
         <span
-          className="text-2xs text-nc-muted truncate ml-auto font-mono max-w-[40%] opacity-70"
+          className="zk-truncate"
+          style={{
+            fontSize: 10, color: 'var(--zk-ink-low)',
+            marginLeft: 'auto', maxWidth: '40%',
+          }}
           title={formatRuntimes(machine.runtimes)}
         >
           {formatRuntimes(machine.runtimes)}
@@ -124,15 +154,14 @@ export default function AgentsView() {
     showArchived
       ? agents.filter((a) => a.archivedAt)
       : agents.filter((a) => !a.archivedAt),
-    [agents, showArchived]
+    [agents, showArchived],
   );
 
-  // Unified list: running agents + saved configs that aren't currently running
   const unifiedEntities = useMemo<ServerAgent[]>(() => {
-    const runningIds = new Set(agents.map(a => a.id));
+    const runningIds = new Set(agents.map((a) => a.id));
     const offlineFromConfigs = configs
-      .filter(c => c.id && !runningIds.has(c.id))
-      .map(c => ({
+      .filter((c) => c.id && !runningIds.has(c.id))
+      .map((c) => ({
         id: c.id!,
         name: c.name,
         displayName: c.displayName,
@@ -147,10 +176,11 @@ export default function AgentsView() {
   }, [filteredAgents, configs, agents]);
 
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
-  const selected = agents.find((a) => a.id === selectedAgentId) ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
+  const selected = agents.find((a) => a.id === selectedAgentId)
+    ?? (unifiedEntities.length > 0 ? unifiedEntities[0] : null);
 
   const handleDeleteInactive = async (agentId: string) => {
-    const config = configs.find(c => c.id === agentId);
+    const config = configs.find((c) => c.id === agentId);
     const label = config?.displayName || config?.name || agentId;
     const confirmed = window.confirm(`Delete agent ${label}? Its machine is gone, so it cannot be restarted.`);
     if (!confirmed) return;
@@ -211,151 +241,244 @@ export default function AgentsView() {
   }, [agentDetailTab, selected]);
 
   return (
-    <div className="flex-1 flex min-h-0 overflow-hidden">
-      <div className={`${mobileShowDetail ? 'hidden' : 'flex'} lg:flex w-full lg:w-72 shrink-0 border-r-0 lg:border-r border-nc-border flex-col bg-nc-surface`}>
-        <div className="flex h-12 items-center justify-between border-b border-nc-border px-4">
-          {!isGuest ? (
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                onClick={() => setShowMachineSetup(true)}
-                className="cyber-btn flex items-center gap-1.5 px-3 h-8 border border-nc-green bg-nc-green/10 text-xs font-bold font-mono text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green"
-                title="Machine Setup & API Keys"
-              >
-                <Settings size={14} />
-                MACHINE_SETUP
-              </button>
-            </ScanlineTear>
-          ) : (
-            <div />
-          )}
-          <div className="flex items-center gap-1.5">
-            {archivedCount > 0 && (
-              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  onClick={() => setShowArchived(!showArchived)}
-                  className={`cyber-btn px-2 py-0.5 border text-2xs font-bold font-mono transition-all ${
-                    showArchived
-                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                      : 'border-nc-border text-nc-muted hover:border-nc-cyan hover:text-nc-cyan'
-                  }`}
-                >
-                  {showArchived ? 'ACTIVE' : `ARCHIVED (${archivedCount})`}
-                </button>
-              </ScanlineTear>
-            )}
-            {!isGuest && (
-              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  onClick={() => setShowCreate(true)}
-                  className="cyber-btn flex items-center gap-1.5 px-3 h-8 border border-nc-cyan bg-nc-cyan/10 text-xs font-bold font-mono text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan"
-                  title="Add agent"
-                >
-                  <Plus size={14} />
-                  ADD_AGENT
-                </button>
-              </ScanlineTear>
-            )}
+    <div
+      style={{
+        flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden',
+        background: 'var(--zk-bg-0)', color: 'var(--zk-ink)',
+      }}
+    >
+      {/* Left list */}
+      <aside
+        className={mobileShowDetail ? 'hidden lg:flex' : 'flex'}
+        style={{
+          width: '100%', flexShrink: 0,
+          flexDirection: 'column',
+          background: 'var(--zk-bg-1)',
+        }}
+      >
+        {/* Header (page title + actions) */}
+        <header
+          className="safe-top"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14,
+            padding: '14px 18px 12px',
+            borderBottom: '1px solid var(--zk-line)',
+            flexShrink: 0,
+          }}
+        >
+          <div className="zk-col">
+            <Eyebrow>WORKSPACE</Eyebrow>
+            <h1
+              className="zk-display"
+              style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
+            >
+              Agents
+            </h1>
           </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
-          <div>
-            <div className="flex items-center justify-between px-4 py-2">
+          <span style={{ fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
+            {unifiedEntities.length} total
+          </span>
+          <span className="zk-grow" />
+          {archivedCount > 0 && (
+            <button
+              type="button"
+              className="zk-btn"
+              onClick={() => setShowArchived(!showArchived)}
+              style={{ fontSize: 11 }}
+            >
+              {showArchived ? 'Active' : `Archived (${archivedCount})`}
+            </button>
+          )}
+          {!isGuest && (
+            <>
               <button
-                onClick={() => setMachinesExpanded(!machinesExpanded)}
-                className="flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
+                type="button"
+                className="zk-btn"
+                onClick={() => setShowMachineSetup(true)}
+                title="Machine setup & API keys"
               >
-                {machinesExpanded ? <ChevronDown size={10} className="text-nc-muted" /> : <ChevronRight size={10} className="text-nc-muted" />}
-                <Monitor size={10} className="text-nc-green" />
-                <span className="text-2xs font-bold uppercase tracking-wider text-nc-muted font-mono">
+                <Settings size={12} /> Machine setup
+              </button>
+              <button
+                type="button"
+                className="zk-btn zk-btn--primary"
+                onClick={() => setShowCreate(true)}
+                title="Add agent"
+              >
+                <Plus size={12} /> Add agent
+              </button>
+            </>
+          )}
+        </header>
+
+        <div
+          style={{
+            flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden',
+          }}
+        >
+          {/* Agent list */}
+          <div className="zk-scroll" style={{
+            flex: '0 0 320px', overflow: 'auto',
+            borderRight: '1px solid var(--zk-line)',
+            background: 'var(--zk-bg-1)',
+          }}>
+            {/* Machines section */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setMachinesExpanded(!machinesExpanded)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '10px 14px 6px',
+                  background: 'transparent', border: 0, cursor: 'pointer',
+                  width: '100%', textAlign: 'left',
+                }}
+              >
+                {machinesExpanded
+                  ? <ChevronDown size={10} color="var(--zk-ink-mute)" />
+                  : <ChevronRight size={10} color="var(--zk-ink-mute)" />}
+                <Monitor size={10} color="var(--zk-ok)" />
+                <span
+                  style={{
+                    fontFamily: 'var(--zk-font-mono)', fontSize: 10,
+                    fontWeight: 500, letterSpacing: '0.16em',
+                    color: 'var(--zk-ink-mute)', textTransform: 'uppercase',
+                  }}
+                >
                   Machines ({machines.length})
                 </span>
               </button>
+              {machinesExpanded && (
+                machines.length > 0
+                  ? machines.map((m) => <CompactMachineCard key={m.id} machine={m} />)
+                  : (
+                    <div style={{ padding: '4px 14px 10px' }}>
+                      {isGuest ? (
+                        <p style={{ fontSize: 11, color: 'var(--zk-ink-mute)', textAlign: 'center', fontFamily: 'var(--zk-font-mono)' }}>
+                          No machines connected
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShowMachineSetup(true)}
+                          className="zk-btn"
+                          style={{
+                            width: '100%', justifyContent: 'center',
+                            border: '1px dashed var(--zk-line-bright)',
+                            color: 'var(--zk-ink-mute)', background: 'transparent',
+                            fontSize: 11,
+                          }}
+                        >
+                          <Plus size={11} /> Connect machine
+                        </button>
+                      )}
+                    </div>
+                  )
+              )}
             </div>
-            {machinesExpanded && (
-              machines.length > 0 ? (
-                machines.map(m => <CompactMachineCard key={m.id} machine={m} />)
-              ) : (
-                <div className="px-4 pb-2">
-                  {isGuest ? (
-                    <p className="text-2xs text-nc-muted text-center font-mono py-2">NO_MACHINES_CONNECTED</p>
-                  ) : (
-                    <ScanlineTear className="w-full" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                      <button
-                        onClick={() => setShowMachineSetup(true)}
-                        className="cyber-btn w-full border border-dashed border-nc-border px-3 py-2 text-2xs text-nc-muted text-center hover:border-nc-cyan hover:text-nc-cyan font-mono"
-                      >
-                        + CONNECT_MACHINE
-                      </button>
-                    </ScanlineTear>
-                  )}
+
+            {machines.length > 0 && (
+              <hr className="zk-hr" style={{ margin: '4px 14px' }} />
+            )}
+
+            {/* Agents */}
+            {unifiedEntities.length > 0 ? (
+              unifiedEntities.map((agent) => (
+                <AgentListItem
+                  key={agent.id}
+                  agent={agent}
+                  isSelected={agent.id === (selected?.id ?? '')}
+                  onClick={() => handleSelectAgent(agent.id)}
+                  onOpenSettings={() => handleOpenAgentSettings(agent.id)}
+                  onDelete={agent.status === 'inactive' ? () => handleDeleteInactive(agent.id) : undefined}
+                />
+              ))
+            ) : (
+              <div style={{ padding: '48px 16px', textAlign: 'center' }}>
+                <div
+                  style={{
+                    width: 48, height: 48,
+                    borderRadius: 12,
+                    background: 'var(--zk-bg-2)',
+                    border: '1px solid var(--zk-line)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <Bot size={20} color="var(--zk-ink-mute)" />
                 </div>
-              )
+                <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--zk-ink)' }}>
+                  {showArchived ? 'No archived agents' : 'No agents yet'}
+                </p>
+                {!showArchived && !isGuest && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreate(true)}
+                    className="zk-btn zk-btn--primary"
+                    style={{ marginTop: 12 }}
+                  >
+                    <Plus size={12} /> Create agent
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
-          {machines.length > 0 && (
-            <div className="cyber-divider mx-4 my-1" />
-          )}
-
-          {unifiedEntities.length > 0 ? (
-            unifiedEntities.map((agent) => (
-              <AgentListItem
-                key={agent.id}
-                agent={agent}
-                isSelected={agent.id === (selected?.id ?? '')}
-                onClick={() => handleSelectAgent(agent.id)}
-                onOpenSettings={() => handleOpenAgentSettings(agent.id)}
-                onDelete={agent.status === 'inactive' ? () => handleDeleteInactive(agent.id) : undefined}
+          {/* Right detail */}
+          <div
+            className={mobileShowDetail ? 'flex' : 'hidden lg:flex'}
+            style={{
+              flex: 1, minWidth: 0,
+              flexDirection: 'column',
+              background: 'var(--zk-bg-0)',
+            }}
+          >
+            {selected ? (
+              <AgentDetail
+                key={selected.id}
+                agent={selected}
+                machines={machines}
+                initialTab={agentDetailTab}
+                onUpdate={handleUpdateAgent}
+                onStop={() => stopAgent(selected.id)}
+                onDelete={handleDeleteAgent}
+                onBack={() => setMobileShowDetail(false)}
               />
-            ))
-          ) : (
-            <div className="flex flex-col items-center justify-center px-4 py-12 text-center">
-              <div className="w-12 h-12 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-3">
-                <Bot size={20} className="text-nc-green" />
+            ) : (
+              <div
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--zk-bg-0)',
+                }}
+              >
+                <div
+                  style={{
+                    width: 64, height: 64,
+                    borderRadius: 14,
+                    background: 'var(--zk-bg-1)',
+                    border: '1px solid var(--zk-line)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 16,
+                  }}
+                >
+                  <Bot size={26} color="var(--zk-ink-mute)" />
+                </div>
+                <h3 className="zk-display" style={{ fontSize: 17, fontWeight: 600, margin: 0, color: 'var(--zk-ink)' }}>
+                  No agent selected
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 6, fontFamily: 'var(--zk-font-mono)' }}>
+                  Select an agent from the list or create a new one.
+                </p>
               </div>
-              <p className="text-sm text-nc-muted font-bold font-mono">
-                {showArchived ? 'NO_ARCHIVED_AGENTS' : 'NO_AGENTS_FOUND'}
-              </p>
-              {!showArchived && !isGuest && (
-                <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                  <button
-                    onClick={() => setShowCreate(true)}
-                    className="cyber-btn mt-3 flex items-center gap-1 px-3 py-1.5 border border-nc-cyan bg-nc-cyan/10 text-sm font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono"
-                  >
-                    <Plus size={12} /> CREATE_AGENT
-                  </button>
-                </ScanlineTear>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className={`${mobileShowDetail ? 'flex' : 'hidden'} lg:flex flex-1 min-w-0 overflow-hidden flex-col`}>
-        {selected ? (
-          <AgentDetail
-            key={selected.id}
-            agent={selected}
-            machines={machines}
-            initialTab={agentDetailTab}
-            onUpdate={handleUpdateAgent}
-            onStop={() => stopAgent(selected.id)}
-            onDelete={handleDeleteAgent}
-            onBack={() => setMobileShowDetail(false)}
-          />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center bg-nc-surface">
-            <div className="w-16 h-16 border border-nc-green/30 bg-nc-green/10 flex items-center justify-center mb-4">
-              <Bot size={28} className="text-nc-green" />
-            </div>
-            <h3 className="font-display font-black text-xl text-nc-text-bright mb-2 tracking-wider">NO_AGENT_SELECTED</h3>
-            <p className="text-sm text-nc-muted font-mono">
-              Select an agent from the list or create a new one.
-            </p>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      </aside>
 
       {showCreate && !isGuest && (
         <CreateAgentDialog

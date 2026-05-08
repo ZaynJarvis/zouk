@@ -2,8 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import './themes/night-city';
-import './themes/brutalist';
+import './styles/zk-tokens.css';
+import './themes/atlas';
 import './themes/washington-post';
 import './themes/carbon';
 

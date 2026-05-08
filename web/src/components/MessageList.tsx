@@ -3,22 +3,22 @@ import { useApp } from '../store/AppContext';
 import MessageItem from './MessageItem';
 import type { MessageRecord } from '../types';
 import { Loader } from 'lucide-react';
-import { isNightCity } from '../lib/themeUtils';
 
 const OLDER_LOAD_TRIGGER_PX = 120;
 
-function DateDivider({ date }: { date: string }) {
-  const nc = isNightCity();
+function DaySeparator({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-3">
-      <div className={`flex-1 ${nc ? 'cyber-divider' : 'border-t-2 border-nc-border'}`} />
-      <span className={nc
-        ? 'bg-nc-elevated border border-nc-border px-3 py-1 text-xs font-bold text-nc-cyan font-mono tracking-wider'
-        : 'bg-nc-surface border-2 border-nc-border-bright px-3 py-1 text-xs font-bold text-nc-text-bright shadow-[2px_2px_0px_0px_#1A1A1A]'
-      }>
-        {date}
-      </span>
-      <div className={`flex-1 ${nc ? 'cyber-divider' : 'border-t-2 border-nc-border'}`} />
+    <div
+      className="zk-row"
+      style={{
+        gap: 12,
+        padding: '10px 22px',
+        alignItems: 'center',
+      }}
+    >
+      <hr className="zk-hr zk-grow" />
+      <span className="zk-eyebrow" style={{ fontSize: 10 }}>{label}</span>
+      <hr className="zk-hr zk-grow" />
     </div>
   );
 }
@@ -51,14 +51,10 @@ export default function MessageList() {
   } = useApp();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // true after a loading transition — signals we need an instant scroll
   const pendingInitialScrollRef = useRef(true);
-  // Snapshot scrollHeight right before an older-page prepends, so we can
-  // preserve the user's visual position after React rerenders with taller content.
   const preservedScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
-  const channelMessages = messages.filter(m => m.channel_type !== 'thread');
+  const channelMessages = messages.filter((m) => m.channel_type !== 'thread');
 
-  // When loading starts (channel switch or page load), mark pending initial scroll
   useEffect(() => {
     if (loadingMessages) {
       pendingInitialScrollRef.current = true;
@@ -74,8 +70,6 @@ export default function MessageList() {
     }
   }, []);
 
-  // Snapshot scroll position just before an older-page prepend, then
-  // restore visual position after the new content lays out.
   useLayoutEffect(() => {
     if (loadingOlderMessages && containerRef.current && !preservedScrollRef.current) {
       preservedScrollRef.current = {
@@ -88,33 +82,22 @@ export default function MessageList() {
   useLayoutEffect(() => {
     const snap = preservedScrollRef.current;
     if (!snap) return;
-    // Wait for the older-page fetch to finish before restoring — if length
-    // changes mid-flight we'd clear the snapshot too early.
     if (loadingOlderMessages) return;
     const container = containerRef.current;
     if (container) {
       const delta = container.scrollHeight - snap.scrollHeight;
       if (delta > 0) container.scrollTop = snap.scrollTop + delta;
     }
-    // Clear regardless of delta so an empty-result load doesn't strand the ref
-    // and block the next snapshot attempt.
     preservedScrollRef.current = null;
   }, [channelMessages.length, loadingOlderMessages]);
 
   useEffect(() => {
-    // Skip bottom-scroll when the length change was from an older-page prepend —
-    // the snapshot restore effect above handles position preservation instead.
     if (preservedScrollRef.current) return;
     if (channelMessages.length === 0) return;
     if (pendingInitialScrollRef.current) {
-      // Initial load or channel switch — scroll instantly so users land at the bottom
       scrollToBottom(true);
       pendingInitialScrollRef.current = false;
 
-      // Images in the message list load asynchronously after the initial scroll
-      // fires, expanding the content and pushing the viewport off the bottom.
-      // Watch the inner content div for size changes for 3s and re-snap to bottom
-      // each time an image loads and increases the layout height.
       const container = containerRef.current;
       const inner = container?.firstElementChild;
       if (!inner) return;
@@ -129,7 +112,6 @@ export default function MessageList() {
         observer.disconnect();
       };
     } else {
-      // New message arrived after initial load — smooth scroll
       scrollToBottom(false);
     }
   }, [channelMessages.length, scrollToBottom]);
@@ -148,31 +130,47 @@ export default function MessageList() {
   if (loadingMessages) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="flex items-center gap-3 cyber-panel px-6 py-4">
-          <Loader size={20} className="animate-spin text-nc-cyan" />
-          <span className="font-display font-bold text-sm text-nc-cyan tracking-wider">Loading messages...</span>
+        <div
+          className="zk-row"
+          style={{
+            gap: 10,
+            padding: '12px 18px',
+            background: 'var(--zk-bg-1)',
+            border: '1px solid var(--zk-line)',
+            borderRadius: 8,
+          }}
+        >
+          <Loader size={14} className="animate-spin" color="var(--zk-ember)" />
+          <span style={{ fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
+            Loading messages…
+          </span>
         </div>
       </div>
     );
   }
 
   if (channelMessages.length === 0) {
-    const nc = isNightCity();
     return (
       <div className="flex-1 flex items-center justify-center">
-        {nc ? (
-          <div className="text-center cyber-panel p-8 max-w-sm cyber-bevel">
-            <div className="text-4xl mb-3 opacity-50"><span className="neon-cyan">&gt;_</span></div>
-            <h3 className="font-display font-black text-xl text-nc-cyan neon-cyan mb-2 tracking-wider">NO_DATA</h3>
-            <p className="text-sm text-nc-muted font-mono">Initialize comms in #{activeChannelName}</p>
-          </div>
-        ) : (
-          <div className="text-center cyber-panel p-8 max-w-sm">
-            <div className="text-4xl mb-3">&#x1F4AC;</div>
-            <h3 className="font-display font-black text-xl text-nc-text-bright mb-2">No messages yet</h3>
-            <p className="text-sm text-nc-muted">Be the first to say something in #{activeChannelName}</p>
-          </div>
-        )}
+        <div
+          className="text-center"
+          style={{
+            padding: 32, maxWidth: 360,
+            border: '1px solid var(--zk-line)',
+            background: 'var(--zk-bg-1)',
+            borderRadius: 12,
+          }}
+        >
+          <h3
+            className="zk-display"
+            style={{ fontSize: 17, fontWeight: 600, color: 'var(--zk-ink)', margin: 0 }}
+          >
+            No messages yet
+          </h3>
+          <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 8, fontFamily: 'var(--zk-font-mono)' }}>
+            Be the first to say something in #{activeChannelName}
+          </p>
+        </div>
       </div>
     );
   }
@@ -183,18 +181,45 @@ export default function MessageList() {
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin"
+      className="zk-scroll"
+      style={{
+        flex: 1, overflowY: 'auto', overflowX: 'hidden',
+        background: 'var(--zk-bg-0)',
+      }}
     >
-      <div className="pt-2 pb-1 sm:pt-4 sm:pb-2 max-w-[var(--chat-max-width)] mx-auto w-full min-w-0">
+      <div
+        style={{
+          maxWidth: 'var(--chat-max-width, 56rem)',
+          margin: '0 auto',
+          width: '100%',
+          minWidth: 0,
+          padding: '14px 0 6px',
+        }}
+      >
         {loadingOlderMessages && (
-          <div className="flex items-center justify-center py-3">
-            <Loader size={16} className="animate-spin text-nc-cyan" />
-            <span className="ml-2 text-xs font-mono text-nc-muted tracking-wider">Loading older messages…</span>
+          <div className="zk-row" style={{ justifyContent: 'center', padding: '10px 0' }}>
+            <Loader size={12} className="animate-spin" color="var(--zk-ember)" />
+            <span
+              style={{
+                marginLeft: 8, fontSize: 11,
+                color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)',
+              }}
+            >
+              Loading older messages…
+            </span>
           </div>
         )}
         {!hasMoreMessages && channelMessages.length > 0 && !loadingOlderMessages && (
-          <div className="flex items-center justify-center py-3">
-            <span className="text-xs font-mono text-nc-muted tracking-wider opacity-60">— start of conversation —</span>
+          <div className="zk-row" style={{ justifyContent: 'center', padding: '8px 0' }}>
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)',
+                letterSpacing: '0.06em',
+              }}
+            >
+              — start of conversation —
+            </span>
           </div>
         )}
         {channelMessages.map((msg, i) => {
@@ -205,7 +230,7 @@ export default function MessageList() {
 
           return (
             <div key={msg.id}>
-              {showDate && <DateDivider date={msgDate} />}
+              {showDate && <DaySeparator label={msgDate} />}
               <MessageItem message={msg} isGrouped={!!isGrouped && !showDate} />
             </div>
           );

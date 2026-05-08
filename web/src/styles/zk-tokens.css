@@ -1,0 +1,383 @@
+/* ──────────────────────────────────────────────────────────────────────
+   Zouk · Rethink (zk) — design tokens + utility classes.
+
+   Direct port of tmp/agent-swarm-slack-discord-like-app/project/zouk-rethink/tokens.css.
+   Used by all new chrome (AppShell, sidebars, channel surface, tasks, memory).
+   Layered alongside the legacy --nc-* + cyber-* + tone-* system in index.css —
+   the legacy tokens stay so unmigrated panels keep working until we get to them.
+   ────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surfaces — near-black with a whisper of warmth */
+  --zk-bg-0:     #0a0b0d;     /* canvas — almost black */
+  --zk-bg-1:     #0e0f12;     /* primary panel */
+  --zk-bg-2:     #131418;     /* elevated */
+  --zk-bg-3:     #191b20;     /* hover */
+  --zk-bg-4:     #21242b;     /* selected */
+  --zk-bg-glass: rgba(14, 15, 18, 0.78);
+
+  /* Hairline borders — feather-light */
+  --zk-line:        rgba(255,255,255,0.045);
+  --zk-line-2:      rgba(255,255,255,0.075);
+  --zk-line-bright: rgba(255,255,255,0.13);
+
+  /* Ink — calmer top, more steps */
+  --zk-ink:     #e8eaee;
+  --zk-ink-dim: #aeb2bc;
+  --zk-ink-mute:#7a7f8a;
+  --zk-ink-low: #4a4e58;
+
+  /* Single warm accent (Claude clay) — slightly muted */
+  --zk-ember:        #d27656;
+  --zk-ember-bright: #e89172;
+  --zk-ember-soft:   rgba(210, 118, 86, 0.075);
+  --zk-ember-line:   rgba(210, 118, 86, 0.22);
+
+  /* Status — desaturated to a similar value range */
+  --zk-ok:        #6fb697;
+  --zk-ok-soft:   rgba(111, 182, 151, 0.09);
+  --zk-warn:      #d2b170;
+  --zk-warn-soft: rgba(210, 177, 112, 0.09);
+  --zk-err:       #d27474;
+  --zk-err-soft:  rgba(210, 116, 116, 0.09);
+  --zk-info:      #7aa3ce;
+  --zk-info-soft: rgba(122, 163, 206, 0.09);
+  --zk-idle:      #5c6370;
+  --zk-idle-soft: rgba(92, 99, 112, 0.09);
+
+  /* Type stack */
+  --zk-font-sans:    'Inter', system-ui, -apple-system, 'SF Pro Text', sans-serif;
+  --zk-font-display: 'Fraunces', 'Inter', Georgia, serif;
+  --zk-font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --zk-r-sm: 5px;
+  --zk-r-md: 7px;
+  --zk-r-lg: 10px;
+  --zk-r-xl: 14px;
+
+  --zk-shadow-1: 0 1px 0 rgba(255,255,255,0.025), 0 1px 2px rgba(0,0,0,0.32);
+  --zk-shadow-2: 0 20px 48px -16px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.3);
+  --zk-shadow-glow: 0 0 0 1px rgba(210,118,86,0.20), 0 12px 32px -12px rgba(210,118,86,0.14);
+
+  --zk-ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+  --zk-ease-in-out:  cubic-bezier(0.65, 0, 0.35, 1);
+  --zk-ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Light mode — gentle inversion, only when atlas + light. We default to
+   dark since the design is dark-first; light mode is a softer translation. */
+html[data-theme="atlas"][data-mode="light"] {
+  --zk-bg-0:     #fafaf9;
+  --zk-bg-1:     #ffffff;
+  --zk-bg-2:     #f5f5f4;
+  --zk-bg-3:     #ececeb;
+  --zk-bg-4:     #e7e5e4;
+  --zk-bg-glass: rgba(255, 255, 255, 0.78);
+
+  --zk-line:        rgba(28, 25, 23, 0.06);
+  --zk-line-2:      rgba(28, 25, 23, 0.10);
+  --zk-line-bright: rgba(28, 25, 23, 0.18);
+
+  --zk-ink:     #1c1917;
+  --zk-ink-dim: #44403c;
+  --zk-ink-mute:#78716c;
+  --zk-ink-low: #a8a29e;
+
+  --zk-ember:        #a05a44;
+  --zk-ember-bright: #b06a52;
+  --zk-ember-soft:   rgba(160, 90, 68, 0.08);
+  --zk-ember-line:   rgba(160, 90, 68, 0.25);
+
+  --zk-ok:    #2e7d56;
+  --zk-warn:  #a17436;
+  --zk-err:   #b14b4b;
+  --zk-info:  #4f7ea3;
+  --zk-idle:  #6b6660;
+
+  --zk-shadow-1: 0 1px 0 rgba(28,25,23,0.02), 0 1px 2px rgba(28,25,23,0.04);
+  --zk-shadow-2: 0 20px 48px -16px rgba(28,25,23,0.10), 0 2px 8px rgba(28,25,23,0.06);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Backgrounds
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-bg-grain {
+  background-image:
+    radial-gradient(circle at 30% 20%, rgba(217,119,87,0.04) 0%, transparent 40%),
+    radial-gradient(circle at 70% 80%, rgba(122,166,212,0.025) 0%, transparent 50%);
+}
+
+.zk-bg-grid {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.008) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.008) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
+  background-image:
+    linear-gradient(rgba(28,25,23,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(28,25,23,0.025) 1px, transparent 1px);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Typography utilities
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-display { font-family: var(--zk-font-display); font-weight: 500; letter-spacing: -0.015em; font-feature-settings: 'opsz' 144; }
+.zk-mono    { font-family: var(--zk-font-mono); font-feature-settings: 'calt'; }
+.zk-sans    { font-family: var(--zk-font-sans); }
+
+.zk-eyebrow {
+  font-family: var(--zk-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--zk-ink-mute);
+  font-feature-settings: 'tnum';
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Rail (left icon nav) buttons
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-rail-btn {
+  position: relative;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  color: var(--zk-ink-mute);
+  transition: color 180ms var(--zk-ease-out), background 180ms var(--zk-ease-out);
+}
+.zk-rail-btn:hover { color: var(--zk-ink-dim); background: var(--zk-bg-2); }
+.zk-rail-btn--active { color: var(--zk-ink); background: var(--zk-bg-3); }
+.zk-rail-btn--active::before {
+  content: '';
+  position: absolute; left: -8px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px;
+  background: var(--zk-ember); border-radius: 0 3px 3px 0;
+  transition: height 220ms var(--zk-ease-spring);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Segmented control
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-seg {
+  display: inline-flex; gap: 1px; padding: 2px;
+  background: var(--zk-bg-2); border: 1px solid var(--zk-line);
+  border-radius: 7px;
+}
+.zk-seg button {
+  padding: 4px 10px; font-size: 11px;
+  font-family: var(--zk-font-mono); letter-spacing: 0.04em;
+  background: transparent; border: 0; border-radius: 5px;
+  color: var(--zk-ink-mute); cursor: pointer;
+  transition: background 160ms var(--zk-ease-out), color 160ms var(--zk-ease-out);
+}
+.zk-seg button:hover { color: var(--zk-ink-dim); }
+.zk-seg button.is-active,
+.zk-seg button[aria-selected="true"] { background: var(--zk-bg-3); color: var(--zk-ink); }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Status dots
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-dot { width: 6px; height: 6px; border-radius: 999px; display: inline-block; flex-shrink: 0; }
+.zk-dot--online   { background: var(--zk-ok); }
+.zk-dot--working  { background: var(--zk-info); }
+.zk-dot--thinking { background: var(--zk-warn); }
+.zk-dot--offline  { background: var(--zk-idle); }
+.zk-dot--error    { background: var(--zk-err); }
+
+@keyframes zkBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.zk-pulse { position: relative; }
+.zk-pulse::after {
+  content: ''; position: absolute; inset: -2px; border-radius: 999px;
+  border: 1px solid currentColor; opacity: 0.5;
+  animation: zkPulse 1.8s ease-out infinite;
+}
+@keyframes zkPulse {
+  0%   { transform: scale(0.8); opacity: 0.5; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Avatar
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-avatar {
+  width: 28px; height: 28px;
+  background: var(--zk-bg-3);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--zk-font-sans);
+  font-size: 11px; font-weight: 600; color: var(--zk-ink-dim);
+  flex-shrink: 0;
+  position: relative;
+  /* No overflow:hidden — that clipped the status dot. The img/text inside
+     uses border-radius: inherit instead so they're shaped without clipping
+     siblings (status dot, ring) that intentionally protrude. */
+  border-radius: 50%;
+}
+.zk-avatar > img,
+.zk-avatar > .zk-avatar-initial {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: inherit;
+  overflow: hidden;
+}
+.zk-avatar--sm { width: 20px; height: 20px; font-size: 9px; }
+.zk-avatar--lg { width: 38px; height: 38px; font-size: 13px; }
+.zk-avatar--xl { width: 56px; height: 56px; font-size: 18px; }
+.zk-avatar--square { border-radius: var(--zk-r-md); }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Pills
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  font-family: var(--zk-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  border-radius: 999px;
+  border: 1px solid var(--zk-line);
+  color: var(--zk-ink-dim);
+  background: transparent;
+  white-space: nowrap;
+}
+.zk-pill--ok    { color: var(--zk-ok);    border-color: rgba(109, 184, 156, 0.25); background: var(--zk-ok-soft); }
+.zk-pill--info  { color: var(--zk-info);  border-color: rgba(122, 166, 212, 0.25); background: var(--zk-info-soft); }
+.zk-pill--warn  { color: var(--zk-warn);  border-color: rgba(214, 183, 119, 0.25); background: var(--zk-warn-soft); }
+.zk-pill--err   { color: var(--zk-err);   border-color: rgba(217, 119, 119, 0.25); background: var(--zk-err-soft); }
+.zk-pill--ember { color: var(--zk-ember); border-color: var(--zk-ember-line);     background: var(--zk-ember-soft); }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Buttons
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px;
+  font-size: 12px; font-weight: 500;
+  font-family: var(--zk-font-sans);
+  letter-spacing: -0.005em;
+  border-radius: var(--zk-r-md);
+  border: 1px solid var(--zk-line-2);
+  background: var(--zk-bg-2);
+  color: var(--zk-ink);
+  cursor: pointer;
+  transition: background 180ms var(--zk-ease-out), border-color 180ms var(--zk-ease-out),
+              color 180ms var(--zk-ease-out), transform 90ms var(--zk-ease-out),
+              box-shadow 180ms var(--zk-ease-out);
+}
+.zk-btn:hover { background: var(--zk-bg-3); border-color: var(--zk-line-bright); }
+.zk-btn:active { transform: translateY(0.5px); }
+.zk-btn:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--zk-bg-0), 0 0 0 3px rgba(210,118,86,0.45); }
+.zk-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+.zk-btn--primary {
+  background: var(--zk-ember); border-color: var(--zk-ember); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 1px 2px rgba(0,0,0,0.25);
+}
+.zk-btn--primary:hover { background: var(--zk-ember-bright); border-color: var(--zk-ember-bright); }
+
+.zk-btn--ghost { background: transparent; border-color: transparent; color: var(--zk-ink-mute); }
+.zk-btn--ghost:hover { background: var(--zk-bg-2); color: var(--zk-ink); }
+
+.zk-btn--icon { padding: 5px; }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Panels / dividers
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-panel {
+  background: var(--zk-bg-1);
+  border: 1px solid var(--zk-line);
+  border-radius: var(--zk-r-lg);
+}
+
+.zk-hr { height: 1px; background: var(--zk-line); border: 0; margin: 0; }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Scrollbars
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.zk-scroll::-webkit-scrollbar-track { background: transparent; }
+.zk-scroll::-webkit-scrollbar-thumb {
+  background: transparent; border-radius: 6px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+.zk-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--zk-line-bright);
+  background-clip: padding-box; border: 3px solid transparent;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Layout helpers
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-row { display: flex; align-items: center; }
+.zk-col { display: flex; flex-direction: column; }
+.zk-grow { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.zk-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zk-tabular { font-variant-numeric: tabular-nums; }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Prose (message body)
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-prose { font-size: 13px; line-height: 1.65; color: var(--zk-ink); font-family: var(--zk-font-sans); }
+.zk-prose code {
+  font-family: var(--zk-font-mono); font-size: 11.5px;
+  background: var(--zk-bg-3); border: 1px solid var(--zk-line);
+  padding: 1px 5px; border-radius: 3px; color: var(--zk-ember-bright);
+}
+.zk-prose strong { color: var(--zk-ink); font-weight: 600; }
+
+.zk-mention {
+  background: var(--zk-ember-soft);
+  color: var(--zk-ember-bright);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Animations / utilities
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-fade-in { animation: zkFadeIn 280ms var(--zk-ease-out) both; }
+@keyframes zkFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.zk-kbd {
+  font-family: var(--zk-font-mono);
+  font-size: 10px;
+  border: 1px solid var(--zk-line-2);
+  background: var(--zk-bg-2);
+  color: var(--zk-ink-mute);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+}
+
+/* OpenViking-specific accents */
+.zk-ov-tier-l0 { color: var(--zk-ok); }
+.zk-ov-tier-l1 { color: var(--zk-info); }
+.zk-ov-tier-l2 { color: var(--zk-warn); }
+
+.zk-ov-glow {
+  background: radial-gradient(ellipse at top, rgba(217,119,87,0.08) 0%, transparent 60%);
+}

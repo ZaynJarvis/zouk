@@ -267,7 +267,8 @@ export interface TaskRecord {
 
 export type ViewMode = 'channel' | 'dm' | 'agents' | 'tasks' | 'memory';
 export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
-export type Theme = 'washington-post' | 'carbon';
+export type Theme = 'atlas' | 'washington-post' | 'carbon';
+export type ColorMode = 'light' | 'dark' | 'system';
 
 export interface Toast {
   id: string;

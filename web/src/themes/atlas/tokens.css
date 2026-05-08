@@ -1,0 +1,152 @@
+/* ==========================================================================
+   Atlas — refined warm-neutral theme with light + dark modes.
+
+   Color philosophy: single warm-terracotta accent against tonal neutrals;
+   restraint over decoration. Typography: Inter for UI, JetBrains Mono for
+   monospace blocks — both system-friendly with iOS/Apple-grade legibility.
+
+   Mode resolution: the boot script in index.html computes the effective
+   mode (light | dark) from localStorage.zouk_color_mode (which can be
+   'light' | 'dark' | 'system') plus the OS prefers-color-scheme, and writes
+   it as data-mode. CSS only ever sees an explicit "light" or "dark".
+   ========================================================================== */
+
+html[data-theme="atlas"][data-mode="light"] {
+  /* Surfaces — warm off-white, slight beige tilt */
+  --nc-black: 250 250 249;          /* bg */
+  --nc-deep: 248 248 247;
+  --nc-surface: 255 255 255;
+  --nc-elevated: 245 245 244;
+  --nc-border: 231 229 228;
+  --nc-border-bright: 214 211 209;
+  --nc-panel: 255 255 255;
+
+  /* Accent palette — single warm terracotta drives all UI accent moments */
+  --nc-cyan: 160 90 68;             /* primary accent (#a05a44) */
+  --nc-magenta: 138 77 58;          /* accent-hover (#8a4d3a) */
+  --nc-indigo: 87 83 78;            /* tonal slate */
+
+  /* Status — clean semantic hues, mode-tuned chroma */
+  --nc-red: 220 38 38;
+  --nc-green: 22 163 74;
+  --nc-yellow: 217 119 6;
+  --nc-success: 22 163 74;
+  --nc-error: 220 38 38;
+  --nc-warning: 217 119 6;
+  --nc-info: 87 83 78;
+
+  /* Text — high contrast, warm gray */
+  --nc-text: 28 25 23;              /* stone-900 */
+  --nc-text-bright: 12 10 9;
+  --nc-muted: 87 83 78;             /* stone-600 */
+
+  --nc-selection-bg: 160 90 68;
+  --nc-selection-text: 255 255 255;
+
+  /* Type stack — Inter (UI/body/display) + JetBrains Mono.
+     Falls back to system stacks on machines without the webfont. */
+  --nc-font-display: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --nc-font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --nc-font-mono: 'JetBrains Mono', 'Fira Code', 'IBM Plex Mono', monospace;
+  --nc-font-message: inherit;
+
+  /* Atlas-only semantic tokens (not in nc-* — used directly in atlas-themed CSS) */
+  --atlas-accent: 160 90 68;
+  --atlas-accent-hover: 138 77 58;
+  --atlas-accent-soft: rgba(160, 90, 68, 0.08);
+  --atlas-accent-ring: rgba(160, 90, 68, 0.35);
+  --atlas-on-accent: 255 255 255;
+
+  /* Shadow — subtle, warm */
+  --atlas-shadow-sm: 0 1px 2px rgb(28 25 23 / 0.04);
+  --atlas-shadow-md: 0 4px 12px rgb(28 25 23 / 0.06), 0 1px 3px rgb(28 25 23 / 0.04);
+  --atlas-shadow-lg: 0 12px 32px rgb(28 25 23 / 0.08), 0 4px 12px rgb(28 25 23 / 0.06);
+}
+
+html[data-theme="atlas"][data-mode="dark"] {
+  /* Surfaces — near-black with subtle warmth */
+  --nc-black: 12 11 13;             /* bg */
+  --nc-deep: 17 16 18;
+  --nc-surface: 20 20 22;
+  --nc-elevated: 28 28 31;
+  --nc-border: 40 40 44;
+  --nc-border-bright: 58 58 64;
+  --nc-panel: 20 20 22;
+
+  /* Accent palette — lifted terracotta for dark surfaces */
+  --nc-cyan: 201 126 100;           /* primary accent (#c97e64) */
+  --nc-magenta: 214 141 118;        /* accent-hover */
+  --nc-indigo: 168 162 158;         /* tonal slate */
+
+  /* Status — saturated for dark BG */
+  --nc-red: 248 113 113;
+  --nc-green: 74 222 128;
+  --nc-yellow: 251 191 36;
+  --nc-success: 74 222 128;
+  --nc-error: 248 113 113;
+  --nc-warning: 251 191 36;
+  --nc-info: 168 162 158;
+
+  /* Text */
+  --nc-text: 237 237 237;
+  --nc-text-bright: 250 250 250;
+  --nc-muted: 168 162 158;
+
+  --nc-selection-bg: 201 126 100;
+  --nc-selection-text: 20 20 22;
+
+  --nc-font-display: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --nc-font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --nc-font-mono: 'JetBrains Mono', 'Fira Code', 'IBM Plex Mono', monospace;
+  --nc-font-message: inherit;
+
+  --atlas-accent: 201 126 100;
+  --atlas-accent-hover: 214 141 118;
+  --atlas-accent-soft: rgba(201, 126, 100, 0.12);
+  --atlas-accent-ring: rgba(201, 126, 100, 0.4);
+  --atlas-on-accent: 28 25 23;
+
+  --atlas-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --atlas-shadow-md: 0 4px 12px rgb(0 0 0 / 0.4), 0 1px 3px rgb(0 0 0 / 0.3);
+  --atlas-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5), 0 4px 12px rgb(0 0 0 / 0.4);
+}
+
+/* Fallback: when data-mode is missing entirely (e.g. before boot script
+   runs), default to light. */
+html[data-theme="atlas"]:not([data-mode]) {
+  /* Pull in the same vars as light mode by re-declaring. We keep this short
+     and only set what's needed to render. */
+  --nc-black: 250 250 249;
+  --nc-deep: 248 248 247;
+  --nc-surface: 255 255 255;
+  --nc-elevated: 245 245 244;
+  --nc-border: 231 229 228;
+  --nc-border-bright: 214 211 209;
+  --nc-panel: 255 255 255;
+  --nc-cyan: 160 90 68;
+  --nc-magenta: 138 77 58;
+  --nc-indigo: 87 83 78;
+  --nc-red: 220 38 38;
+  --nc-green: 22 163 74;
+  --nc-yellow: 217 119 6;
+  --nc-success: 22 163 74;
+  --nc-error: 220 38 38;
+  --nc-warning: 217 119 6;
+  --nc-info: 87 83 78;
+  --nc-text: 28 25 23;
+  --nc-text-bright: 12 10 9;
+  --nc-muted: 87 83 78;
+  --nc-selection-bg: 160 90 68;
+  --nc-selection-text: 255 255 255;
+  --nc-font-display: 'Inter', system-ui, sans-serif;
+  --nc-font-body: 'Inter', system-ui, sans-serif;
+  --nc-font-mono: 'JetBrains Mono', monospace;
+  --atlas-accent: 160 90 68;
+  --atlas-accent-hover: 138 77 58;
+  --atlas-accent-soft: rgba(160, 90, 68, 0.08);
+  --atlas-accent-ring: rgba(160, 90, 68, 0.35);
+  --atlas-on-accent: 255 255 255;
+  --atlas-shadow-sm: 0 1px 2px rgb(28 25 23 / 0.04);
+  --atlas-shadow-md: 0 4px 12px rgb(28 25 23 / 0.06);
+  --atlas-shadow-lg: 0 12px 32px rgb(28 25 23 / 0.08);
+}
