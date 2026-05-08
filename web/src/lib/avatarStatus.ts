@@ -64,13 +64,11 @@ export function agentLifecycle(a: Pick<ServerAgent, 'lifecycle'>): 'persistent' 
   return a.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent';
 }
 
-// Avatar corner-radius rules:
-// - atlas: agents square (rounded-md), humans circular (rounded-full)
-// - washington-post / carbon: shared light rounding (rounded-md)
+// Avatar corner-radius rules (atlas only):
+// - agents square (rounded-md), humans circular (rounded-full)
 // - kind defaults to 'agent' so badges and other non-portrait callsites
-//   still get a sensible square shape under atlas.
+//   still get a sensible square shape.
 export function avatarRadiusClass(theme: Theme, kind: 'agent' | 'human' = 'agent'): string {
-  if (theme === 'atlas') return kind === 'human' ? 'rounded-full' : 'rounded-md';
-  if (theme === 'washington-post' || theme === 'carbon') return 'rounded-md';
-  return '';
+  void theme;
+  return kind === 'human' ? 'rounded-full' : 'rounded-md';
 }

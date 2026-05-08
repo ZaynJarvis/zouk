@@ -1,12 +1,11 @@
 import type { ComponentType } from 'react';
 import { atlas } from './atlas';
-import { washingtonPost } from './washington-post';
-import { carbon } from './carbon';
 import AtlasThemeSelectButton from './atlas/ThemeSelectButton';
-import WashingtonPostThemeSelectButton from './washington-post/ThemeSelectButton';
-import CarbonThemeSelectButton from './carbon/ThemeSelectButton';
 
-export type ThemeId = 'atlas' | 'washington-post' | 'carbon';
+// Atlas is the only shipped theme. The legacy `washington-post` and `carbon`
+// theme tokens still live under web/src/themes/* but are no longer exposed
+// here; the boot script in index.html migrates any saved value to atlas.
+export type ThemeId = 'atlas';
 
 export type ColorMode = 'light' | 'dark' | 'system';
 
@@ -30,22 +29,14 @@ export interface ThemeDefinition {
 
 export const themes: ThemeDefinition[] = [
   { ...atlas, ThemeSelectButton: AtlasThemeSelectButton },
-  { ...washingtonPost, ThemeSelectButton: WashingtonPostThemeSelectButton },
-  { ...carbon, ThemeSelectButton: CarbonThemeSelectButton },
 ];
 
 export const DEFAULT_THEME: ThemeId = 'atlas';
 export const DEFAULT_COLOR_MODE: ColorMode = 'system';
 
-/* Themes that have a fixed appearance (color-mode is ignored).
-   Atlas is omitted — it adapts to data-mode. */
-const FIXED_LIGHT_THEMES = new Set<ThemeId>(['washington-post']);
-const FIXED_DARK_THEMES = new Set<ThemeId>(['carbon']);
-
-/** Resolve effective light/dark for a given theme + saved mode preference. */
+/** Resolve effective light/dark for atlas + saved mode preference. */
 export function resolveColorMode(theme: ThemeId, pref: ColorMode): 'light' | 'dark' {
-  if (FIXED_LIGHT_THEMES.has(theme)) return 'light';
-  if (FIXED_DARK_THEMES.has(theme)) return 'dark';
+  void theme;
   if (pref === 'system') {
     return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
       ? 'dark'
@@ -54,9 +45,10 @@ export function resolveColorMode(theme: ThemeId, pref: ColorMode): 'light' | 'da
   return pref;
 }
 
-/** Whether a theme exposes a Light/Dark/System toggle. */
+/** Whether a theme exposes a Light/Dark/System toggle. (Atlas always does.) */
 export function themeSupportsColorMode(theme: ThemeId): boolean {
-  return !FIXED_LIGHT_THEMES.has(theme) && !FIXED_DARK_THEMES.has(theme);
+  void theme;
+  return true;
 }
 
 export function applyTheme(id: ThemeId, mode: ColorMode = 'system') {
@@ -74,11 +66,10 @@ export function applyTheme(id: ThemeId, mode: ColorMode = 'system') {
   }
 }
 
-/** The chrome/tab color for a given theme + effective mode (matches token bg). */
+/** The chrome/tab color for the active theme + effective mode (matches token bg). */
 export function themeColorFor(id: ThemeId, mode: 'light' | 'dark'): string {
-  if (id === 'atlas') return mode === 'dark' ? '#0c0b0d' : '#fafaf9';
-  const theme = getTheme(id);
-  return theme?.preview.bg ?? '#fafaf9';
+  void id;
+  return mode === 'dark' ? '#0c0b0d' : '#fafaf9';
 }
 
 export function getTheme(id: ThemeId): ThemeDefinition | undefined {

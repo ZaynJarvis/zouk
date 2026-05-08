@@ -111,8 +111,11 @@ export default function LoginScreen() {
     setPendingAction(null);
   }, [pendingAction, loginAsGuest]);
 
-  const nc = theme === 'night-city' as string;
-  const isDark = theme === 'carbon';
+  // Atlas is the only theme. The Google sign-in button still wants to match
+  // the active light/dark mode — derive dark via the data-mode attribute that
+  // the boot script in index.html keeps in sync with the user's preference.
+  const nc = false;
+  const isDark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-mode') === 'dark';
 
   const hasSeparator = hasGoogleAuth || hasMagicLinkAuth;
   const showGuestDivider = hasSeparator && !allowlistActive;

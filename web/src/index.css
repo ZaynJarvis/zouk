@@ -399,13 +399,12 @@ html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 
-/* Phone/tablet composer surface: fixed radius equal to half the single-line
-   surface height (textarea min-h 36px + 2px border = 38px → 19px). Renders
-   as a pill when single-line and as a rounded rectangle when the textarea
-   grows, so the side-cap curvature stays consistent. */
+/* Phone/tablet composer surface: chip / pill shape. 9999px guarantees the
+   left and right caps stay perfectly round regardless of whether the textarea
+   is single-line (~38px) or grown to multi-line (max ~200px). */
 @media (max-width: 1023.98px) {
   .composer-surface {
-    border-radius: 19px;
+    border-radius: 9999px;
   }
 
   /* On mobile / PWA, anchor the TopBar to the viewport so iOS keyboard
@@ -499,7 +498,7 @@ html[data-theme="atlas"] .composer-surface {
 
 @media (max-width: 1023.98px) {
   html[data-theme="atlas"] .composer-surface {
-    border-radius: 22px;
+    border-radius: 9999px;
   }
 }
 

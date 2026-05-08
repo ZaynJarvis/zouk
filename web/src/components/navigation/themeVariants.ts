@@ -6,9 +6,11 @@ type TopBarAccent = 'cyan' | 'green' | 'yellow' | 'indigo';
 type RailButtonKey = 'home' | 'agents' | 'tasks' | 'workspace' | 'memory' | 'settings';
 
 export function resolveNavigationTheme(theme: Theme, nightCityEnabled?: boolean): NavigationThemeVariant {
-  void nightCityEnabled; // legacy param — kept for callsite compat; night-city removed
-  if (theme === 'atlas') return 'atlas';
-  if (theme === 'carbon' || theme === 'washington-post') return theme;
+  // Atlas is the only shipped theme. The other variants in this file are
+  // dead code retained until a follow-up cleanup; resolveNavigationTheme
+  // always returns 'atlas' so callsites stay on the live branch.
+  void theme;
+  void nightCityEnabled;
   return 'atlas';
 }
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Bot, User, Menu, ImagePlus, X, ArrowUp } from 'lucide-react';
+import { Bot, User, ImagePlus, X, ArrowUp } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { uploadAttachment } from '../lib/api';
@@ -38,7 +38,7 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, sidebarOpen, setSidebarOpen, addToast, closeRightPanel } = useApp();
+  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, addToast, closeRightPanel } = useApp();
   const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
   const draftsRef = useRef<Map<string, string>>(new Map());
   const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
@@ -72,7 +72,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     };
   }, []);
 
-  const showMobileSidebarBtn = isMobileSurface && !sidebarOpen;
   const showCloseThreadBtn = isMobileSurface && !!threadTarget && !text.trim();
   const showImageBtn = !text.trim();
   // Standalone PWA hides the send button: the soft keyboard's Send key
@@ -361,7 +360,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   return (
     <div className="flex-shrink-0 composer-outer safe-bottom">
-      <div className="composer-inner-pad px-4 sm:px-6 pt-1 sm:pt-2 pb-0 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
+      <div className="composer-inner-pad px-2 sm:px-6 pt-1 sm:pt-2 pb-0 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
         {mentionQuery !== null && mentionMatches.length > 0 && (
           <div
             className="absolute bottom-full left-4 right-4 sm:left-6 sm:right-6 mb-1 z-20 max-h-[240px] overflow-y-auto"
@@ -444,17 +443,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         )}
 
         <div className="flex items-end gap-2">
-          {showMobileSidebarBtn && (
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              aria-label="Open sidebar"
-              className="lg:!hidden flex-shrink-0 zk-btn zk-btn--ghost zk-btn--icon"
-              style={{ width: 32, height: 32 }}
-            >
-              <Menu size={16} />
-            </button>
-          )}
           <div
             className={`composer-surface flex-1 min-w-0 flex flex-col cursor-text transition-[border-color,background-color] duration-150 ${
               isDragOver ? 'composer-surface--drag' : ''
