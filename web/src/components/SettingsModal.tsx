@@ -58,8 +58,8 @@ export default function SettingsModal() {
     profilePresets, addProfilePreset, removeProfilePreset,
   } = useApp();
   const [section, setSection] = useState<Section>('profile');
-  const nc = theme === 'night-city';
-  const brutalist = theme === 'brutalist';
+  const nc = false;
+  const brutalist = false;
   const [displayName, setDisplayName] = useState(currentUser);
   const [glitchActive, setGlitchActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -87,9 +87,6 @@ export default function SettingsModal() {
   const handleThemeChange = useCallback((newTheme: ThemeId) => {
     if (newTheme === theme) return;
     setTheme(newTheme);
-    if (newTheme === 'night-city') {
-      setGlitchActive(true);
-    }
   }, [theme, setTheme]);
 
   const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
