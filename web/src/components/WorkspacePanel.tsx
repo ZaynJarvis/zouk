@@ -6,8 +6,13 @@ import {
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
 import { isNightCity, ncStyle } from '../lib/themeUtils';
+import { parseMarkdown } from '../lib/markdown';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
+
+function isMarkdownFile(path: string): boolean {
+  return /\.(md|mdx|markdown)$/i.test(path);
+}
 
 function AgentAvatarStrip({
   agents,
@@ -134,17 +139,17 @@ function FilePreview({
   onClose: () => void;
 }) {
   const { workspaceFileContent } = useApp();
-  const nc = isNightCity();
   const content = workspaceFileContent?.agentId === agentId && workspaceFileContent?.path === filePath
     ? workspaceFileContent.content
     : null;
 
   const fileName = filePath.split('/').pop() || filePath;
+  const isMd = isMarkdownFile(filePath);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 border-t border-nc-border">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/50">
-        <Eye size={12} className="text-nc-cyan flex-shrink-0" />
+        <Eye size={12} className="text-nc-muted flex-shrink-0" />
         <span className="flex-1 text-xs font-mono text-nc-text truncate" title={filePath}>
           {fileName}
         </span>
@@ -155,12 +160,19 @@ function FilePreview({
           <X size={12} />
         </button>
       </div>
-      <pre
-        className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50"
-        style={nc ? ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' }) : undefined}
-      >
-        {content ?? 'Loading...'}
-      </pre>
+      <div className="flex-1 overflow-auto scrollbar-thin">
+        {content === null ? (
+          <div className="p-3 text-xs font-mono text-nc-muted animate-pulse">Loading...</div>
+        ) : isMd ? (
+          <div className="p-3 text-xs leading-relaxed">
+            {parseMarkdown(content, [])}
+          </div>
+        ) : (
+          <pre className="p-3 text-xs font-mono text-nc-text whitespace-pre-wrap break-words">
+            {content}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }

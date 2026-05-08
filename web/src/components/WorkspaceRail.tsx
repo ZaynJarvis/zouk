@@ -16,8 +16,6 @@ export default function WorkspaceRail() {
   const nc = themeVariant === 'night-city';
   const wsOpen = rightPanel === 'workspace';
   const toggleWorkspace = () => setRightPanel(wsOpen ? null : 'workspace');
-  const memOpen = rightPanel === 'memory';
-  const toggleMemory = () => setRightPanel(memOpen ? null : 'memory');
   const railTheme = workspaceRailThemeConfig[themeVariant];
 
   if (!nc) {
@@ -44,7 +42,7 @@ export default function WorkspaceRail() {
           <FolderOpen size={20} />
         </button>
 
-        <button onClick={toggleMemory} className={getWorkspaceRailButtonClass(themeVariant, 'memory', memOpen)} title="Memory" aria-label="Memory" aria-pressed={memOpen}>
+        <button onClick={() => setViewMode('memory')} className={getWorkspaceRailButtonClass(themeVariant, 'memory', viewMode === 'memory')} title="Memory" aria-label="Memory">
           <Brain size={20} />
         </button>
 
@@ -119,11 +117,10 @@ export default function WorkspaceRail() {
 
       <ScanlineTear config={hoverConfig}>
         <button
-          onClick={toggleMemory}
-          className={getWorkspaceRailButtonClass(themeVariant, 'memory', memOpen)}
+          onClick={() => setViewMode('memory')}
+          className={getWorkspaceRailButtonClass(themeVariant, 'memory', viewMode === 'memory')}
           title="Memory"
           aria-label="Memory"
-          aria-pressed={memOpen}
         >
           <Brain size={20} />
         </button>

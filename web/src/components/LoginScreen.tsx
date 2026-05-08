@@ -111,7 +111,8 @@ export default function LoginScreen() {
     setPendingAction(null);
   }, [pendingAction, loginAsGuest]);
 
-  const nc = theme === 'night-city';
+  const nc = theme === 'night-city' as string;
+  const isDark = theme === 'carbon';
 
   const hasSeparator = hasGoogleAuth || hasMagicLinkAuth;
   const showGuestDivider = hasSeparator && !allowlistActive;
@@ -162,7 +163,7 @@ export default function LoginScreen() {
                   onError={() => setError('Google sign-in was cancelled or failed')}
                   text="signin_with"
                   shape="rectangular"
-                  theme={nc ? "filled_black" : "outline"}
+                  theme={isDark ? "filled_black" : "outline"}
                   width={280}
                 />
               </div>
@@ -282,9 +283,6 @@ export default function LoginScreen() {
                     if (theme !== t.id) {
                       setPendingAction(null);
                       setTheme(t.id);
-                      if (t.id === 'night-city') {
-                        setGlitchActive(true);
-                      }
                     }
                   }}
                 />

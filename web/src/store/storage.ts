@@ -46,13 +46,7 @@ export function createGuestUserName() {
 
 export function getStoredTheme(): Theme {
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (
-    stored === 'night-city' ||
-    stored === 'brutalist' ||
-    stored === 'washington-post' ||
-    stored === 'carbon' ||
-    stored === 'graphite'
-  ) {
+  if (stored === 'washington-post' || stored === 'carbon') {
     return stored;
   }
   return 'washington-post';

@@ -4,7 +4,6 @@ import ThreadPanel from './ThreadPanel';
 import DetailsPanel from './DetailsPanel';
 import MembersPanel from './MembersPanel';
 import WorkspacePanel from './WorkspacePanel';
-import MemoryPanel from './MemoryPanel';
 import AgentSettingsPanel from './AgentSettingsPanel';
 import AgentProfilePanel from './AgentProfilePanel';
 import ChannelSettingsPanel from './ChannelSettingsPanel';
@@ -35,8 +34,6 @@ export default function RightPanel() {
       return <MembersPanel />;
     case 'workspace':
       return <WorkspacePanel />;
-    case 'memory':
-      return <MemoryPanel />;
     case 'agent_settings':
       return <AgentSettingsPanel key={agentSettingsId ?? 'none'} />;
     case 'agent_profile':

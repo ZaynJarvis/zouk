@@ -265,9 +265,9 @@ export interface TaskRecord {
   updatedAt: string | null;
 }
 
-export type ViewMode = 'channel' | 'dm' | 'agents' | 'tasks';
-export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'memory' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
-export type Theme = 'night-city' | 'brutalist' | 'washington-post' | 'carbon' | 'graphite';
+export type ViewMode = 'channel' | 'dm' | 'agents' | 'tasks' | 'memory';
+export type RightPanel = 'thread' | 'details' | 'members' | 'agents' | 'workspace' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
+export type Theme = 'washington-post' | 'carbon';
 
 export interface Toast {
   id: string;
