@@ -47,12 +47,8 @@ export function createGuestUserName() {
 }
 
 export function getStoredTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === 'atlas' || stored === 'washington-post' || stored === 'carbon') {
-    return stored;
-  }
-  // Legacy themes (night-city / brutalist / graphite) and any other unknown
-  // value migrate to atlas — the new default.
+  // Atlas is the only shipped theme. Legacy values (night-city / brutalist /
+  // graphite / washington-post / carbon) all migrate to atlas.
   return 'atlas';
 }
 

@@ -8,13 +8,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-    <!-- theme-color is what iOS uses to tint the bottom safe area / home
-         indicator zone in standalone PWA mode. Use light/dark media variants
-         so the OS picks the right starting color before our JS overrides. The
-         boot script below still updates the active meta when the theme/mode
-         changes inside the app (covers in-session switching). -->
-    <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0c0b0d" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#fafaf9" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta id="color-scheme-meta" name="color-scheme" content="light dark" />
@@ -30,19 +24,15 @@
       (function(){
         // ---- theme ----
         var t=localStorage.getItem('zouk_theme');
-        // Migrate legacy themes that no longer exist (night-city / brutalist / graphite) to atlas.
-        var validThemes={'atlas':1,'washington-post':1,'carbon':1};
-        var theme=validThemes[t]?t:'atlas';
+        // Atlas is now the only shipped theme. Legacy values (night-city /
+        // brutalist / graphite / washington-post / carbon) all fall back.
+        var theme=t==='atlas'?'atlas':'atlas';
 
-        // ---- color mode (only meaningful for atlas; fixed themes ignore it) ----
+        // ---- color mode ----
         var modePref=localStorage.getItem('zouk_color_mode')||'system';
         if(modePref!=='light'&&modePref!=='dark'&&modePref!=='system') modePref='system';
-        var fixedLight={'washington-post':1};
-        var fixedDark={'carbon':1};
         var effectiveMode;
-        if(fixedLight[theme]) effectiveMode='light';
-        else if(fixedDark[theme]) effectiveMode='dark';
-        else if(modePref==='system'){
+        if(modePref==='system'){
           try{ effectiveMode=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'; }
           catch(e){ effectiveMode='light'; }
         } else effectiveMode=modePref;
@@ -60,35 +50,23 @@
         var csMeta=document.querySelector("meta[name='color-scheme']");
         if(csMeta) csMeta.setAttribute('content',effectiveMode);
 
-        var themeColors={
-          'atlas':{'light':'#fafaf9','dark':'#0c0b0d'},
-          'washington-post':{'light':'#f4eee3','dark':'#f4eee3'},
-          'carbon':{'light':'#151515','dark':'#151515'}
-        };
-        // Update BOTH theme-color metas (light/dark media variants) to the
-        // currently effective color, so iOS PWA's home-indicator zone picks
-        // up the active app theme regardless of the OS-level preference. The
-        // media variants exist so first-paint before JS still gets a sane
-        // initial value.
-        var themeMetas=document.querySelectorAll("meta[name='theme-color']");
-        var effectiveColor=(themeColors[theme]||themeColors.atlas)[effectiveMode];
-        themeMetas.forEach(function(m){ m.setAttribute('content', effectiveColor); });
+        var themeColors={'light':'#fafaf9','dark':'#0c0b0d'};
+        var themeMeta=document.querySelector("meta[name='theme-color']");
+        if(themeMeta) themeMeta.setAttribute('content', themeColors[effectiveMode]);
 
-        // Listen for OS theme changes when in 'system' mode (atlas only).
+        // Listen for OS theme changes when in 'system' mode.
         try{
           var mq=window.matchMedia('(prefers-color-scheme: dark)');
           var onChange=function(){
             var pref=localStorage.getItem('zouk_color_mode')||'system';
-            var t2=document.documentElement.getAttribute('data-theme');
-            if(pref!=='system'||t2!=='atlas') return;
+            if(pref!=='system') return;
             var m=mq.matches?'dark':'light';
             document.documentElement.setAttribute('data-mode',m);
             document.documentElement.style.colorScheme=m;
             var cs2=document.querySelector("meta[name='color-scheme']");
             if(cs2) cs2.setAttribute('content',m);
-            var tms=document.querySelectorAll("meta[name='theme-color']");
-            var c2=(themeColors[t2]||themeColors.atlas)[m];
-            tms.forEach(function(meta){ meta.setAttribute('content', c2); });
+            var tm=document.querySelector("meta[name='theme-color']");
+            if(tm) tm.setAttribute('content', themeColors[m]);
           };
           if(mq.addEventListener) mq.addEventListener('change',onChange);
           else if(mq.addListener) mq.addListener(onChange);

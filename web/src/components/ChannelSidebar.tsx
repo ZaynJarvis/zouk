@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import {
   Plus, Hash, ChevronDown, ChevronRight,
   Settings, Trash2, RotateCcw, SlidersHorizontal,
+  Home, Cpu, KanbanSquare, Brain,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
@@ -354,7 +355,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     createChannel, deleteChannel, currentUser, unreadCounts, isGuest,
     authUser, setSidebarOpen, setSettingsOpen,
     openAgentProfile, openAgentSettings, resetAgentContext,
-    openChannelSettings,
+    openChannelSettings, navigateToView,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -399,8 +400,13 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   const liveCount = agents.filter((a) => a.activity === 'working' || a.activity === 'thinking').length;
   const totalHumans = humans.length;
 
+  // phoneModal mode: use flex:1 + min-h:0 (instead of height:100%) so the
+  // shell sits as a flex child of the modal and the inner overflow:auto body
+  // actually picks up touch scroll on iOS PWA. The previous height:100% +
+  // flexShrink:0 collapsed the body's effective height so the channel list
+  // appeared "un-scrollable".
   const shellStyle: React.CSSProperties = phoneModal
-    ? { width: '100%', height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', flexShrink: 0 }
+    ? { width: '100%', flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }
     : {
         width: 248, background: 'var(--zk-bg-1)',
         borderRight: '1px solid var(--zk-line)',
@@ -408,8 +414,72 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
         height: '100%',
       };
 
+  // Phone-modal workspace nav: single row of icon buttons that mirrors the
+  // desktop WorkspaceRail (which is hidden on lg-). Keeps Agents / Tasks /
+  // Memory / Settings reachable from the channel modal without exposing a
+  // separate rail on mobile.
+  const phoneNavItems: Array<{
+    key: 'home' | 'agents' | 'tasks' | 'memory';
+    label: string;
+    icon: React.ReactNode;
+    active: boolean;
+  }> = [
+    { key: 'home',   label: 'Home',   icon: <Home size={16} />,         active: viewMode === 'channel' || viewMode === 'dm' },
+    { key: 'agents', label: 'Agents', icon: <Cpu size={16} />,          active: viewMode === 'agents' },
+    { key: 'tasks',  label: 'Tasks',  icon: <KanbanSquare size={16} />, active: viewMode === 'tasks' },
+    { key: 'memory', label: 'Memory', icon: <Brain size={16} />,        active: viewMode === 'memory' },
+  ];
+
+  const handlePhoneNav = (key: 'home' | 'agents' | 'tasks' | 'memory') => {
+    if (key === 'home') navigateToView('channel');
+    else navigateToView(key);
+    setSidebarOpen(false);
+  };
+
   return (
     <aside style={shellStyle} className="safe-top">
+      {/* Phone-modal workspace nav: row of view-switcher icons (Home/Agents/
+          Tasks/Memory + Settings). Mirrors the desktop WorkspaceRail so a
+          mobile user can leave Channels and reach the other top-level views
+          without an external rail. */}
+      {phoneModal && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '10px 12px',
+            borderBottom: '1px solid var(--zk-line)',
+            flexShrink: 0,
+          }}
+        >
+          {phoneNavItems.map((it) => (
+            <button
+              key={it.key}
+              type="button"
+              onClick={() => handlePhoneNav(it.key)}
+              aria-label={it.label}
+              title={it.label}
+              className={`zk-btn ${it.active ? 'zk-btn--primary' : 'zk-btn--ghost'} zk-btn--icon`}
+              style={{ width: 32, height: 32 }}
+            >
+              {it.icon}
+            </button>
+          ))}
+          <span style={{ flex: 1 }} />
+          <button
+            type="button"
+            onClick={() => { setSettingsOpen(true); setSidebarOpen(false); }}
+            aria-label="Settings"
+            title="Settings"
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            style={{ width: 32, height: 32 }}
+          >
+            <Settings size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       {!phoneModal && (
         <div style={{ padding: '16px 16px 12px' }}>

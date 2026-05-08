@@ -4,8 +4,6 @@ import App from './App.tsx';
 import './index.css';
 import './styles/zk-tokens.css';
 import './themes/atlas';
-import './themes/washington-post';
-import './themes/carbon';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
