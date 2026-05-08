@@ -21,8 +21,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
-import { parseMarkdown } from '../lib/markdown';
 import { Avatar, Eyebrow } from './zk/primitives';
+import { renderMarkdown as atlasMarkdown, renderJson, renderJsonl, renderPlainCode } from './memory/AtlasRenderers';
+import { highlightCode, LEVEL_META } from './memory/atlas-helpers';
+import '../styles/atlas-renderers.css';
 
 type Source = 'memory' | 'files';
 
@@ -53,6 +55,17 @@ function uriBasename(uri: string, source: Source): string {
 
 function isMarkdownFile(name: string): boolean { return /\.(md|mdx|markdown)$/i.test(name); }
 function isJsonFile(name: string): boolean { return /\.json$/i.test(name); }
+function isJsonlFile(name: string): boolean { return /\.(jsonl|ndjson)$/i.test(name); }
+
+function detectLang(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  const map: Record<string, string> = {
+    ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+    py: 'python', rs: 'rust', go: 'go', sh: 'bash', bash: 'bash',
+    css: 'css', scss: 'scss', json: 'json', yaml: 'yaml', yml: 'yaml',
+  };
+  return map[ext] || '';
+}
 
 function fileKindLabel(name: string): string {
   const dot = name.lastIndexOf('.');
@@ -254,6 +267,11 @@ function FilePreview({
   onBack?: () => void;
 }) {
   const { memoryFileContent, workspaceFileContent } = useApp();
+  const [activeLevels, setActiveLevels] = useState<string[] | null>(null);
+
+  // Reset levels when file changes
+  useEffect(() => { setActiveLevels(null); }, [fileUri]);
+
   if (!agentId || !fileUri) {
     return (
       <div
@@ -268,6 +286,7 @@ function FilePreview({
       </div>
     );
   }
+
   let content: string | null = null;
   if (source === 'memory') {
     const match = memoryFileContent?.agentId === agentId && memoryFileContent?.uri === fileUri
@@ -278,10 +297,67 @@ function FilePreview({
       ? workspaceFileContent : null;
     content = match?.content ?? null;
   }
+
   const fileName = uriBasename(fileUri, source);
   const isMd = isMarkdownFile(fileUri);
   const isJson = isJsonFile(fileUri);
-  const kind = isMd ? 'MARKDOWN' : isJson ? 'JSON' : fileKindLabel(fileUri);
+  const isJsonl = isJsonlFile(fileUri);
+  const lang = detectLang(fileUri);
+  const kind = isMd ? 'MARKDOWN' : isJson ? 'JSON' : isJsonl ? 'JSONL' : fileKindLabel(fileUri);
+
+  // Build available levels. For now: L2 (full content) is always the source.
+  // When the backend supports L0/L1, this will expand.
+  const available = content != null ? ['l2' as const] : [];
+  const active = activeLevels ?? available;
+
+  const toggleLevel = (lv: string) => {
+    setActiveLevels((prev) => {
+      const cur = prev ?? available;
+      if (cur.includes(lv)) {
+        const next = cur.filter((x) => x !== lv);
+        return next.length ? next : cur;
+      }
+      return [...cur, lv].sort();
+    });
+  };
+
+  function renderContent(text: string) {
+    if (isMd) {
+      return (
+        <div className="atlas-preview-md atlas-section-body" style={{ maxWidth: 760 }}>
+          {atlasMarkdown(text)}
+        </div>
+      );
+    }
+    if (isJsonl) {
+      return (
+        <div className="atlas-preview-jsonl atlas-section-body">
+          {renderJsonl(text)}
+        </div>
+      );
+    }
+    if (isJson) {
+      return (
+        <div className="atlas-preview-json atlas-section-body">
+          {renderJson(text)}
+        </div>
+      );
+    }
+    if (lang && ['javascript','typescript','tsx','jsx','python','bash','rust','go','css','scss'].includes(lang)) {
+      return (
+        <div className="atlas-preview-code atlas-section-body" style={{ padding: 0 }}>
+          <pre style={{ margin: 0, fontFamily: 'var(--zk-font-mono)', fontSize: 12, lineHeight: 1.6 }}>
+            {highlightCode(text, lang)}
+          </pre>
+        </div>
+      );
+    }
+    return (
+      <div className="atlas-preview-code" style={{ padding: 0 }}>
+        {renderPlainCode(text, lang || undefined)}
+      </div>
+    );
+  }
 
   return (
     <div className="zk-fade-in" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
@@ -334,26 +410,52 @@ function FilePreview({
         </div>
       </header>
 
+      {/* Level chips — shown when multiple levels available */}
+      {available.length > 1 && (
+        <div className="atlas-level-chips">
+          {available.map((lv) => {
+            const m = LEVEL_META[lv as keyof typeof LEVEL_META];
+            if (!m) return null;
+            return (
+              <button
+                key={lv}
+                className="atlas-level-chip"
+                data-active={active.includes(lv)}
+                onClick={() => toggleLevel(lv)}
+                title={m.desc}
+                type="button"
+              >
+                <span className="atlas-level-name">{m.name}</span>
+                <span className="atlas-level-label">{m.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="zk-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {content === null ? (
           <div style={{ padding: 64, textAlign: 'center', fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
             loading…
           </div>
-        ) : isMd ? (
-          <div className="zk-prose msg-body" style={{ padding: '20px 24px 28px', maxWidth: 760 }}>
-            {parseMarkdown(content, [])}
-          </div>
         ) : (
-          <pre
-            style={{
-              padding: '20px 24px 28px',
-              fontFamily: 'var(--zk-font-mono)', fontSize: 12.5, lineHeight: 1.75,
-              color: 'var(--zk-ink-dim)',
-              whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
-            }}
-          >
-            {content}
-          </pre>
+          active.map((lv, i) => {
+            const m = LEVEL_META[lv as keyof typeof LEVEL_META];
+            return (
+              <section key={lv}>
+                {i > 0 && <div className="atlas-section-divider" />}
+                {available.length > 1 && m && (
+                  <header className="atlas-section-head">
+                    <span className="atlas-level-name">{m.name}</span>
+                    <span className="atlas-level-label">{m.label}</span>
+                    <span style={{ flex: 1 }} />
+                    <span className="atlas-level-desc">{m.desc}</span>
+                  </header>
+                )}
+                {renderContent(content!)}
+              </section>
+            );
+          })
         )}
       </div>
     </div>
