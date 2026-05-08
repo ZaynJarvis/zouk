@@ -99,8 +99,8 @@ function AgentChipStrip({
     <div
       className="zk-scroll"
       style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '10px 22px',
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '6px 16px',
         borderBottom: '1px solid var(--zk-line)',
         overflowX: 'auto',
         flexShrink: 0,
@@ -915,12 +915,12 @@ export default function MemoryView() {
       <header
         style={{
           display: 'flex', alignItems: 'center', gap: 12,
-          padding: '14px 22px 12px',
+          padding: '10px 16px',
           borderBottom: '1px solid var(--zk-line)',
           flexShrink: 0,
         }}
       >
-        <Eyebrow>WORKSPACE</Eyebrow>
+        <Eyebrow className="hidden lg:block">WORKSPACE</Eyebrow>
 
         {/* Source toggle — Memory (OpenViking) / Files (workspace) */}
         <div className="zk-seg" role="tablist" aria-label="Source">
@@ -979,13 +979,15 @@ export default function MemoryView() {
         </div>
       ) : paradigm === 'columns' ? (
         <>
-          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-            {/* Columns scroller */}
+          {/* Mobile: vertical stack (columns top, preview bottom).
+              Desktop: side-by-side (columns left, preview right). */}
+          <div className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
             <div
               ref={scrollRef}
-              className={`zk-scroll ${selectedFile ? 'hidden lg:flex' : 'flex'}`}
+              className={`zk-scroll flex ${selectedFile ? 'max-h-[45%] lg:max-h-none border-b lg:border-b-0' : ''}`}
               style={{
-                flex: 1, minWidth: 0,
+                flex: selectedFile ? undefined : 1,
+                minWidth: 0,
                 overflowX: 'auto',
                 background: 'var(--zk-bg-0)',
               }}
@@ -1003,13 +1005,10 @@ export default function MemoryView() {
               ))}
             </div>
 
-            {/* Preview pane — right half on lg+ (50% width clamped 480-720px so
-                columns keep room to breathe). Mobile: full width when a file is
-                selected, hidden otherwise. The previous `width: 100%` collapsed
-                columns to 0 on lg+ when a file was opened. */}
             <div
-              className={`flex-shrink-0 flex-col ${selectedFile ? 'flex w-full' : 'hidden lg:flex'} lg:w-1/2 lg:min-w-[480px] lg:max-w-[720px]`}
+              className={`flex-col ${selectedFile ? 'flex' : 'hidden lg:flex'} lg:w-1/2 lg:min-w-[480px] lg:max-w-[720px]`}
               style={{
+                flex: 1, minHeight: 0,
                 borderLeft: '1px solid var(--zk-line)',
                 background: 'var(--zk-bg-0)',
               }}
@@ -1020,11 +1019,11 @@ export default function MemoryView() {
           <FooterShortcuts paradigm="columns" currentPath={currentPath} />
         </>
       ) : (
-        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        <div className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
           <div
-            className={selectedFile ? 'hidden lg:flex' : 'flex'}
+            className={`flex lg:w-[320px] ${selectedFile ? 'max-h-[45%] lg:max-h-none border-b lg:border-b-0' : ''}`}
             style={{
-              width: 320, flexShrink: 0,
+              flexShrink: 0,
               borderRight: '1px solid var(--zk-line)',
               flexDirection: 'column',
               background: 'var(--zk-bg-0)',
@@ -1041,7 +1040,7 @@ export default function MemoryView() {
             />
           </div>
           <div
-            className={selectedFile ? 'flex' : 'hidden lg:flex'}
+            className={`flex-col ${selectedFile ? 'flex' : 'hidden lg:flex'}`}
             style={{
               flex: 1, minWidth: 0,
               flexDirection: 'column',

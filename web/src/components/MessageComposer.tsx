@@ -74,10 +74,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   const showCloseThreadBtn = isMobileSurface && !!threadTarget && !text.trim();
   const showImageBtn = !text.trim();
-  // Standalone PWA hides the send button: the soft keyboard's Send key
-  // (driven by enterKeyHint) and the Enter handler already submit. Removing
-  // the button reclaims space and removes a redundant affordance.
-  const showSendBtn = !isStandalonePWA();
+  const showSendBtn = !isMobileSurface;
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
   const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
@@ -550,12 +547,6 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               <ArrowUp size={14} />
             </button>
           )}
-          </div>
-          {/* Caption strip — keyboard hints (lg+ only). Mirrors the v1 design. */}
-          <div className="hidden lg:block border-t border-nc-border/60 px-3 py-1 text-[10px] font-mono text-nc-muted/80 select-none">
-            <span className="text-nc-muted/60">↩</span> send <span className="text-nc-muted/40">·</span>{' '}
-            <span className="text-nc-muted/60">⇧↩</span> newline <span className="text-nc-muted/40">·</span>{' '}
-            <span className="text-nc-muted/60">@</span> mention agent
           </div>
           </div>
           {showCloseThreadBtn && (

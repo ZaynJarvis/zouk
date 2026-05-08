@@ -214,15 +214,16 @@ export default function TasksView() {
       }}
     >
       <header
+        className="px-4 lg:px-7"
         style={{
           display: 'flex', alignItems: 'baseline', gap: 14,
-          padding: '18px 28px 16px',
+          padding: '10px 16px',
           borderBottom: '1px solid var(--zk-line)',
           flexShrink: 0,
         }}
       >
         <div className="zk-col">
-          <Eyebrow>WORKSPACE</Eyebrow>
+          <Eyebrow className="hidden lg:block">WORKSPACE</Eyebrow>
           <h1
             className="zk-display"
             style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
@@ -230,7 +231,7 @@ export default function TasksView() {
             Tasks
           </h1>
         </div>
-        <span style={{ color: 'var(--zk-ink-mute)', fontSize: 12, fontFamily: 'var(--zk-font-mono)' }}>
+        <span className="hidden lg:inline" style={{ color: 'var(--zk-ink-mute)', fontSize: 12, fontFamily: 'var(--zk-font-mono)' }}>
           {total} total · {inFlight} in flight
         </span>
 
@@ -288,9 +289,10 @@ export default function TasksView() {
           style={{
             flex: 1, minHeight: 0,
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(4, minmax(220px, 1fr))',
             gap: 1,
             background: 'var(--zk-line)',
+            overflowX: 'auto',
           }}
         >
           {KANBAN_COLS.map((c) => (
