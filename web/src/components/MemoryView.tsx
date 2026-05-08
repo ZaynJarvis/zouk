@@ -677,6 +677,7 @@ export default function MemoryView() {
   const [trail, setTrail] = useState<string[]>([rootFor('memory')]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const rootRefreshKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!agentId && agents.length > 0) setAgentId(agents[0].id);
@@ -734,7 +735,12 @@ export default function MemoryView() {
     if (!agentId) return;
     const root = rootFor(source);
     const has = agentCache[root] || (source === 'memory' && agentCache['viking:///']);
-    if (!has) fetchList(source === 'memory' ? root : undefined);
+    const refreshKey = `${agentId}:${source}:${root}`;
+    const shouldRefreshRoot = source === 'memory' && rootRefreshKeyRef.current !== refreshKey;
+    if (!has || shouldRefreshRoot) {
+      rootRefreshKeyRef.current = refreshKey;
+      fetchList(source === 'memory' ? root : undefined);
+    }
   }, [agentId, source, agentCache, fetchList]);
 
   useLayoutEffect(() => {
@@ -763,7 +769,8 @@ export default function MemoryView() {
     if (!agentId) return;
     fetchList(rootFor(source));
     trail.slice(1).forEach((u) => fetchList(u));
-  }, [agentId, source, trail, fetchList]);
+    if (selectedFile) fetchContent(selectedFile);
+  }, [agentId, source, trail, selectedFile, fetchList, fetchContent]);
 
   useEffect(() => {
     if (paradigm !== 'columns' || !agentId) return;
