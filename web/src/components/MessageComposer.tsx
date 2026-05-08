@@ -506,10 +506,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               disabled={isGuest}
               tabIndex={showImageBtn ? 0 : -1}
               aria-label="Attach image"
-              className="zk-btn zk-btn--ghost zk-btn--icon"
-              style={{ width: 32, height: 32 }}
+              className="zk-btn zk-btn--ghost zk-btn--icon flex-shrink-0 self-end"
             >
-              <ImagePlus size={16} />
+              <ImagePlus size={14} />
             </button>
           </div>
           <textarea
@@ -538,14 +537,15 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               border: 0,
             }}
           />
-          {/* Send button — ember primary */}
+          {/* Send button — ember primary; default zk-btn--icon sizing
+              (~26px) so it sits cleanly inside the single-line textarea row
+              instead of looming above it. */}
           <button
             type="button"
             onClick={handleSubmit}
             disabled={isGuest || (!text.trim() && pendingImages.length === 0) || isSending}
             aria-label="Send message"
             className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-end"
-            style={{ width: 32, height: 32, padding: 0 }}
           >
             <ArrowUp size={14} />
           </button>

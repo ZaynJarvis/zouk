@@ -34,7 +34,7 @@ function loadPrefs(): Preferences {
   return defaultPrefs;
 }
 
-const defaultPrefs: Preferences = { fontSize: 'small', chatWidth: '4xl' };
+const defaultPrefs: Preferences = { fontSize: 'medium', chatWidth: '4xl' };
 
 function applyFontSizePreference(fontSize: Preferences['fontSize']) {
   if (fontSize === 'medium') {
