@@ -367,7 +367,7 @@ function FilePreview({
             <button
               type="button"
               onClick={onBack}
-              className="zk-btn zk-btn--ghost zk-btn--icon lg:hidden"
+              className="zk-btn zk-btn--ghost zk-btn--icon lg:!hidden"
               aria-label="Back"
               style={{ padding: 4 }}
             >

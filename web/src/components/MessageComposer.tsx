@@ -445,7 +445,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               type="button"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open sidebar"
-              className="lg:hidden flex-shrink-0 zk-btn zk-btn--ghost zk-btn--icon"
+              className="lg:!hidden flex-shrink-0 zk-btn zk-btn--ghost zk-btn--icon"
               style={{ width: 32, height: 32 }}
             >
               <Menu size={16} />
@@ -562,7 +562,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
               type="button"
               onClick={closeRightPanel}
               aria-label="Close thread"
-              className="lg:hidden flex-shrink-0 zk-btn zk-btn--ghost zk-btn--icon"
+              className="lg:!hidden flex-shrink-0 zk-btn zk-btn--ghost zk-btn--icon"
               style={{ width: 32, height: 32 }}
             >
               <X size={16} />

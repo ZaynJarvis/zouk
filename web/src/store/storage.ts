@@ -6,6 +6,7 @@ const AUTH_TOKEN_KEY = 'zouk_auth_token';
 const AUTH_USER_KEY = 'zouk_auth_user';
 const THEME_STORAGE_KEY = 'zouk_theme';
 const COLOR_MODE_STORAGE_KEY = 'zouk_color_mode';
+const NOW_RAIL_HIDDEN_KEY = 'zouk_now_rail_hidden';
 const LAST_VIEW_STORAGE_KEY = 'zouk_last_view';
 const LINK_TRANSFORMS_KEY = 'zouk_link_transforms';
 
@@ -69,6 +70,15 @@ export function getStoredColorMode(): ColorMode {
 
 export function setStoredColorMode(mode: ColorMode) {
   localStorage.setItem(COLOR_MODE_STORAGE_KEY, mode);
+}
+
+export function getStoredNowRailHidden(): boolean {
+  return localStorage.getItem(NOW_RAIL_HIDDEN_KEY) === '1';
+}
+
+export function setStoredNowRailHidden(hidden: boolean) {
+  if (hidden) localStorage.setItem(NOW_RAIL_HIDDEN_KEY, '1');
+  else localStorage.removeItem(NOW_RAIL_HIDDEN_KEY);
 }
 
 export function getStoredLastView(): StoredLastView | null {

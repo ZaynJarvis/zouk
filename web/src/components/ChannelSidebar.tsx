@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from 'react';
 import {
-  Home, Layers, Cpu, Brain, Plus, Hash, ChevronDown, ChevronRight,
+  Plus, Hash, ChevronDown, ChevronRight,
   Settings, Trash2, RotateCcw, SlidersHorizontal,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
@@ -78,43 +78,6 @@ function ActiveStripe() {
         width: 2, background: 'var(--zk-ember)', borderRadius: '0 2px 2px 0',
       }}
     />
-  );
-}
-
-/* ───── Workspace nav (Home / Inbox / Tasks / Agents) ───── */
-
-function NavItem({
-  icon, label, badge, active, onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  badge?: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={rowStyle(active)}
-      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
-      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-    >
-      {active && <ActiveStripe />}
-      <span style={{ color: active ? 'var(--zk-ink-dim)' : 'var(--zk-ink-mute)' }}>{icon}</span>
-      <span style={{ flex: 1 }}>{label}</span>
-      {badge !== undefined && badge > 0 && (
-        <span
-          style={{
-            fontSize: 10, fontFamily: 'var(--zk-font-mono)',
-            background: 'var(--zk-bg-3)', padding: '1px 6px', borderRadius: 999,
-            color: 'var(--zk-ink-dim)',
-          }}
-        >
-          {badge > 99 ? '99+' : badge}
-        </span>
-      )}
-    </button>
   );
 }
 
@@ -389,14 +352,13 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, isGuest,
-    authUser, setSidebarOpen, setSettingsOpen, setViewMode,
+    authUser, setSidebarOpen, setSettingsOpen,
     openAgentProfile, openAgentSettings, resetAgentContext,
     openChannelSettings,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [dmsCollapsed, setDmsCollapsed] = useState(false);
-  const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
@@ -473,44 +435,9 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
 
       {/* Body */}
       <div className="zk-scroll zk-grow" style={{ overflow: 'auto', padding: '4px 0' }}>
-        {/* WORKSPACE nav — Home + the implemented destinations only.
-            (Inbox / saved-search / pins are not implemented yet, so we don't
-            list placeholders that go nowhere.) */}
-        <div style={{ marginTop: 4 }}>
-          <SectionHeader
-            title="WORKSPACE"
-            collapsed={workspaceCollapsed}
-            onToggle={() => setWorkspaceCollapsed(!workspaceCollapsed)}
-          />
-          {!workspaceCollapsed && (
-            <>
-              <NavItem
-                icon={<Home size={14} />}
-                label="Home"
-                active={viewMode === 'channel' || viewMode === 'dm'}
-                onClick={() => setViewMode('channel')}
-              />
-              <NavItem
-                icon={<Layers size={14} />}
-                label="Tasks"
-                active={viewMode === 'tasks'}
-                onClick={() => setViewMode('tasks')}
-              />
-              <NavItem
-                icon={<Cpu size={14} />}
-                label="Agents"
-                active={viewMode === 'agents'}
-                onClick={() => setViewMode('agents')}
-              />
-              <NavItem
-                icon={<Brain size={14} />}
-                label="Memory"
-                active={viewMode === 'memory'}
-                onClick={() => setViewMode('memory')}
-              />
-            </>
-          )}
-        </div>
+        {/* WORKSPACE nav was here — Home/Tasks/Agents/Memory all duplicate the
+            WorkspaceRail icons on the left, so we keep the rail as the single
+            source of truth and start the sidebar with the channel list. */}
 
         {/* CHANNELS */}
         <div style={{ marginTop: 10 }}>

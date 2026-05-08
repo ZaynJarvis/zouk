@@ -22,6 +22,7 @@ import {
   getStoredLastView,
   getStoredTheme,
   getStoredColorMode,
+  getStoredNowRailHidden,
   setStoredAuth,
   setStoredAuthUser,
   setStoredAuthToken,
@@ -29,6 +30,7 @@ import {
   setStoredLastView,
   setStoredTheme,
   setStoredColorMode,
+  setStoredNowRailHidden,
 } from './storage';
 import { applyTheme } from '../themes';
 
@@ -82,6 +84,11 @@ function isValidSelection(
 export function useAppStore() {
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
   const [colorMode, setColorMode] = useState<ColorMode>(getStoredColorMode);
+  const [nowRailHidden, setNowRailHiddenState] = useState<boolean>(getStoredNowRailHidden);
+  const setNowRailHidden = useCallback((hidden: boolean) => {
+    setNowRailHiddenState(hidden);
+    setStoredNowRailHidden(hidden);
+  }, []);
   const [currentUser, setCurrentUser] = useState(getStoredCurrentUser);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
   const [agents, setAgents] = useState<ServerAgent[]>([]);
@@ -1004,6 +1011,7 @@ export function useAppStore() {
   return {
     theme, setTheme,
     colorMode, setColorMode,
+    nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
     channels, agents, humans, configs, machines,
     activeChannelName, selectChannel,

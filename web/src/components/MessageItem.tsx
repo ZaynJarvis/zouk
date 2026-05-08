@@ -50,75 +50,96 @@ function InlineThreadBlock({
 }: { parent: MessageRecord; replies: MessageRecord[]; replyCount: number }) {
   const { openThread, humans, agents, authUser, currentUser } = useApp();
   const totalLabel = replyCount === 1 ? '1 reply' : `${replyCount} replies`;
+
   return (
     <div
       style={{
-        marginTop: 8,
+        marginTop: 6,
+        // Subtle left rule + indent — no full-width ember-soft band.
         borderLeft: '2px solid var(--zk-ember-line)',
-        paddingLeft: 12,
-        paddingTop: 6, paddingBottom: 6,
-        background: 'var(--zk-ember-soft)',
-        borderRadius: '0 4px 4px 0',
+        paddingLeft: 10,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+        // Cap the visual span so the preview doesn't stretch to the full
+        // message column when content is short.
+        maxWidth: 640,
       }}
     >
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 4 }}>
-        {replies.map((reply) => {
-          const name = reply.sender_name || 'unknown';
-          const isAgentReply = reply.sender_type === 'agent';
-          const human = !isAgentReply ? humans.find((h) => h.name === name) : undefined;
-          const agent = isAgentReply ? agents.find((a) => a.name === name || a.displayName === name) : undefined;
-          const isSelf = !isAgentReply && name === currentUser;
-          const picture = human?.picture || human?.gravatarUrl || agent?.picture
-            || (isSelf ? authUser?.picture || authUser?.gravatarUrl : undefined);
-          return (
-            <li key={reply.id}>
-              <button
-                type="button"
-                onClick={() => openThread(parent)}
-                className="zk-row"
-                style={{
-                  width: '100%', gap: 8,
-                  padding: '2px 4px',
-                  background: 'transparent', border: 0,
-                  borderRadius: 4, cursor: 'pointer',
-                  color: 'inherit', textAlign: 'left',
-                  transition: 'background 140ms var(--zk-ease-out)',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+      {replies.slice(0, 3).map((reply) => {
+        const name = reply.sender_name || 'unknown';
+        const isAgentReply = reply.sender_type === 'agent';
+        const human = !isAgentReply ? humans.find((h) => h.name === name) : undefined;
+        const agent = isAgentReply ? agents.find((a) => a.name === name || a.displayName === name) : undefined;
+        const isSelf = !isAgentReply && name === currentUser;
+        const picture = human?.picture || human?.gravatarUrl || agent?.picture
+          || (isSelf ? authUser?.picture || authUser?.gravatarUrl : undefined);
+        const content = (reply.content || '').replace(/\s+/g, ' ').trim();
+
+        return (
+          <button
+            key={reply.id}
+            type="button"
+            onClick={() => openThread(parent)}
+            className="zk-row"
+            style={{
+              alignSelf: 'flex-start',
+              maxWidth: '100%',
+              gap: 6,
+              padding: '2px 6px 2px 2px',
+              background: 'transparent',
+              border: 0,
+              borderRadius: 4,
+              cursor: 'pointer',
+              color: 'inherit',
+              textAlign: 'left',
+              transition: 'background 140ms var(--zk-ease-out)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <Avatar src={picture} name={name} kind={isAgentReply ? 'agent' : 'human'} size="sm" />
+            <span
+              style={{
+                fontSize: 12, fontWeight: 600,
+                color: isAgentReply ? 'var(--zk-ink)' : 'var(--zk-info)',
+                flexShrink: 0,
+              }}
+            >
+              {name}
+            </span>
+            {content && (
+              <span
+                className="zk-truncate"
+                style={{ fontSize: 12, color: 'var(--zk-ink-dim)', minWidth: 0 }}
               >
-                <Avatar src={picture} name={name} kind={isAgentReply ? 'agent' : 'human'} size="sm" />
-                <span
-                  style={{
-                    fontSize: 11, fontWeight: 600,
-                    color: isAgentReply ? 'var(--zk-ink)' : 'var(--zk-info)',
-                  }}
-                  className="zk-truncate"
-                >
-                  {name}
-                </span>
-                <span className="zk-truncate" style={{ fontSize: 11, color: 'var(--zk-ink-dim)', flex: 1, minWidth: 0 }}>
-                  {reply.content || ''}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                {content}
+              </span>
+            )}
+          </button>
+        );
+      })}
+
+      {/* Compact "N replies" pill — alignSelf:flex-start so it doesn't stretch. */}
       <button
         type="button"
         onClick={() => openThread(parent)}
         title={`Reply in thread · ${totalLabel}`}
-        className="zk-row"
         style={{
-          marginTop: 4, gap: 6,
-          padding: '3px 8px',
+          alignSelf: 'flex-start',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          marginTop: 2,
+          padding: '2px 8px 2px 6px',
           fontSize: 11,
           background: 'transparent',
           border: '1px solid var(--zk-ember-line)',
           borderRadius: 999,
-          color: 'var(--zk-ember)', fontWeight: 500,
+          color: 'var(--zk-ember)',
+          fontWeight: 500,
           cursor: 'pointer',
+          lineHeight: 1.3,
         }}
       >
         <MessageSquare size={11} />

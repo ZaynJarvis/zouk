@@ -5,6 +5,7 @@
    (thread / details / etc.) is open. */
 
 import { useMemo, useState } from 'react';
+import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
 import { AgentAvatar, Eyebrow } from './zk/primitives';
@@ -106,7 +107,7 @@ function NowCard({
 }
 
 export default function NowRail() {
-  const { agents, machines, openAgentProfile } = useApp();
+  const { agents, machines, openAgentProfile, setNowRailHidden } = useApp();
   const [filter, setFilter] = useState<Filter>('live');
 
   const counts = useMemo(() => ({
@@ -151,8 +152,19 @@ export default function NowRail() {
       }}
     >
       <header style={{ padding: '12px 14px', borderBottom: '1px solid var(--zk-line)' }}>
-        <div className="zk-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="zk-row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setNowRailHidden(true)}
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            title="Collapse panel"
+            aria-label="Collapse live agents panel"
+            style={{ padding: 2 }}
+          >
+            <ChevronRight size={13} />
+          </button>
           <Eyebrow>NOW · LIVE AGENTS</Eyebrow>
+          <span className="zk-grow" />
           {counts.live > 0 && (
             <span className="zk-row" style={{ gap: 4 }}>
               <span
@@ -237,5 +249,63 @@ export default function NowRail() {
         </span>
       </div>
     </aside>
+  );
+}
+
+/* Thin vertical strip on the right edge — shown in place of the full NowRail
+   when the user has collapsed it. Click expands the rail back. */
+export function NowRailPeek() {
+  const { setNowRailHidden, agents } = useApp();
+  const liveCount = agents.filter(isLive).length;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setNowRailHidden(false)}
+      className="safe-top group"
+      title="Show live agents"
+      aria-label="Show live agents panel"
+      style={{
+        width: 24,
+        height: '100%',
+        flexShrink: 0,
+        background: 'var(--zk-bg-1)',
+        borderLeft: '1px solid var(--zk-line)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        padding: '12px 0',
+        cursor: 'pointer',
+        color: 'var(--zk-ink-mute)',
+        transition: 'background 140ms var(--zk-ease-out), color 140ms var(--zk-ease-out)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--zk-bg-2)';
+        e.currentTarget.style.color = 'var(--zk-ink)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'var(--zk-bg-1)';
+        e.currentTarget.style.color = 'var(--zk-ink-mute)';
+      }}
+    >
+      <ChevronLeft size={14} />
+      {liveCount > 0 && (
+        <span className="zk-row" style={{ flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+          <span className="zk-dot zk-dot--working" style={{ animation: 'zkBlink 1.5s infinite' }} />
+          <span
+            style={{
+              fontSize: 9,
+              fontFamily: 'var(--zk-font-mono)',
+              color: 'var(--zk-ink-mute)',
+            }}
+            className="zk-tabular"
+          >
+            {liveCount}
+          </span>
+        </span>
+      )}
+    </button>
   );
 }
