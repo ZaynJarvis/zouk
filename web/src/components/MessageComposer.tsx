@@ -74,6 +74,12 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
 
   const showCloseThreadBtn = isMobileSurface && !!threadTarget && !text.trim();
   const showImageBtn = !text.trim();
+  // Single-line tracking. Multi-line composer should NOT look like a pill —
+  // pill caps only feel right when the textarea fits in one row. We diff the
+  // textarea's scrollHeight against its single-line baseline (32px minHeight
+  // + 12px padding ≈ 44px) and treat anything taller as multi-line.
+  const SINGLE_LINE_TEXTAREA_THRESHOLD = 50;
+  const [isSingleLine, setIsSingleLine] = useState(true);
   // Standalone PWA hides the send button: the soft keyboard's Send key
   // (driven by enterKeyHint) and the Enter handler already submit. Removing
   // the button reclaims space and removes a redundant affordance.
@@ -193,6 +199,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+    setIsSingleLine(true);
   }, [text, sendMessage, threadTarget, draftKey, isSending, addToast]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -318,7 +325,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     const el = textareaRef.current;
     if (el) {
       el.style.height = 'auto';
-      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+      const next = Math.min(el.scrollHeight, 200);
+      el.style.height = next + 'px';
+      setIsSingleLine(el.scrollHeight <= SINGLE_LINE_TEXTAREA_THRESHOLD);
     }
 
     recomputeMentionState(val, e.target.selectionStart);
@@ -450,7 +459,13 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             style={{
               background: 'var(--zk-bg-1)',
               border: `1px solid ${isDragOver ? 'var(--zk-ember)' : 'var(--zk-line-2)'}`,
-              borderRadius: 10,
+              // Mobile: pill (9999px) when single-line, gently rounded when
+              // multi-line so the corners don't fight the line wrap. Desktop
+              // keeps its existing 10px (atlas CSS will override to 14px).
+              borderRadius: isMobileSurface ? (isSingleLine ? 9999 : 19) : 10,
+              // Smooth the transition between pill and rounded-rectangle so
+              // typing the first wrap doesn't snap.
+              transition: 'border-radius 160ms var(--zk-ease-out), border-color 150ms, background-color 150ms',
             }}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
