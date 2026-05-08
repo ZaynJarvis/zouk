@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent } from '../types';
-import { isNightCity, ncStyle } from '../lib/themeUtils';
+import { isNightCity } from '../lib/themeUtils';
 import { parseMarkdown } from '../lib/markdown';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';

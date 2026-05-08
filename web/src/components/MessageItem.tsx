@@ -3,7 +3,7 @@ import { Bot, MessageSquare, Paperclip } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
-import { getStoredLinkTransforms, subscribeLinkTransforms, type LinkTransformRule } from '../store/storage';
+import { getStoredLinkTransforms, subscribeLinkTransforms } from '../store/storage';
 import { parseMarkdown } from '../lib/markdown';
 import StatusDot from './StatusDot';
 import { agentStatus, avatarRadiusClass } from '../lib/avatarStatus';
