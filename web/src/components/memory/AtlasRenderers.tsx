@@ -542,14 +542,45 @@ interface JsonlRendererProps {
 
 function JsonlRenderer({ text }: JsonlRendererProps): React.JSX.Element {
   const [dialogMode, setDialogMode] = useState(true);
+  const [hideTools, setHideTools] = useState(false);
   const records = useMemo(() => parseJsonlRecords(text), [text]);
+  const toolCount = useMemo(
+    () => records.reduce((n, r) => {
+      const m = getJsonlMessage(r);
+      return n + (m.kind === 'tool-result' || m.toolName ? 1 : 0);
+    }, 0),
+    [records],
+  );
+  const visibleRecords = useMemo(() => {
+    if (!hideTools) return records;
+    return records.filter((r) => {
+      const m = getJsonlMessage(r);
+      return !(m.kind === 'tool-result' || m.toolName);
+    });
+  }, [records, hideTools]);
   if (records.length === 0) {
     return <div className="jsonl-empty">Empty JSONL.</div>;
   }
   return (
     <div className="jsonl-root" data-mode={dialogMode ? 'dialog' : 'raw'}>
       <div className="jsonl-meta">
-        <span className="jsonl-count">{records.length} record{records.length === 1 ? '' : 's'}</span>
+        <span className="jsonl-count">
+          {visibleRecords.length}
+          {hideTools && toolCount > 0 ? ` / ${records.length}` : ''}
+          {' '}record{records.length === 1 ? '' : 's'}
+        </span>
+        {toolCount > 0 && (
+          <label className="jsonl-mode-switch" title={hideTools ? 'Show tool calls' : 'Hide tool calls'}>
+            <span className="jsonl-mode-label">{hideTools ? 'Tools hidden' : 'Tools shown'}</span>
+            <input
+              type="checkbox"
+              checked={hideTools}
+              onChange={(e) => setHideTools(e.target.checked)}
+              aria-label="Hide tool calls"
+            />
+            <span className="jsonl-switch-track" aria-hidden="true"></span>
+          </label>
+        )}
         <label className="jsonl-mode-switch" title="Toggle dialog JSONL view">
           <span className="jsonl-mode-label">{dialogMode ? 'Dialog' : 'JSONL'}</span>
           <input
@@ -561,7 +592,7 @@ function JsonlRenderer({ text }: JsonlRendererProps): React.JSX.Element {
           <span className="jsonl-switch-track" aria-hidden="true"></span>
         </label>
       </div>
-      {dialogMode ? <JsonlConversationView records={records} /> : <JsonlRawView records={records} />}
+      {dialogMode ? <JsonlConversationView records={visibleRecords} /> : <JsonlRawView records={visibleRecords} />}
     </div>
   );
 }

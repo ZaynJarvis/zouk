@@ -293,7 +293,7 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 .zk-btn--ghost { background: transparent; border-color: transparent; color: var(--zk-ink-mute); }
 .zk-btn--ghost:hover { background: var(--zk-bg-2); color: var(--zk-ink); }
 
-.zk-btn--icon { padding: 5px; }
+.zk-btn--icon { padding: 5px; justify-content: center; }
 
 /* ──────────────────────────────────────────────────────────────────────
    Panels / dividers

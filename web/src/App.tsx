@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { Menu } from 'lucide-react';
 import { AppProvider, useApp } from './store/AppContext';
 import WorkspaceRail from './components/WorkspaceRail';
 import ChannelSidebar from './components/ChannelSidebar';
@@ -163,17 +162,6 @@ function AppShell() {
               {viewMode === 'agents' && <AgentsView />}
               {viewMode === 'tasks' && <TasksView />}
               {viewMode === 'memory' && <MemoryView />}
-              {!showMessageView && !sidebarOpen && (
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(true)}
-                  aria-label="Open sidebar"
-                  className="lg:hidden fixed left-4 z-20 w-10 h-10 rounded-full flex items-center justify-center border border-nc-border text-nc-muted bg-nc-surface hover:text-nc-cyan hover:border-nc-cyan/50 transition-colors"
-                  style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
-                >
-                  <Menu size={18} />
-                </button>
-              )}
             </div>
             {/* Contextual right panels (thread / details / etc.) overlay above the message column on lg-, share width on xl+. */}
             <div className="absolute inset-y-0 right-0 z-20 flex pointer-events-none">
