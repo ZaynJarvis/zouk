@@ -282,9 +282,6 @@ export default function LoginScreen() {
                     if (theme !== t.id) {
                       setPendingAction(null);
                       setTheme(t.id);
-                      if (t.id === 'night-city') {
-                        setGlitchActive(true);
-                      }
                     }
                   }}
                 />

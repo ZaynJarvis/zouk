@@ -1,4 +1,4 @@
-import { Hash, PanelRightOpen, PanelRightClose, Home, Cpu, KanbanSquare, Settings } from 'lucide-react';
+import { Hash, PanelRightOpen, PanelRightClose, Home, Cpu, KanbanSquare, Brain, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchText from './glitch/GlitchText';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -64,6 +64,17 @@ export default function TopBar() {
 
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
+              onClick={() => navigateToView('memory')}
+              className={getTopBarMobileIconButtonClass(themeVariant, 'yellow', viewMode === 'memory')}
+              title="Memory"
+              aria-label="Memory"
+            >
+              <Brain size={16} />
+            </button>
+          </ScanlineTear>
+
+          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <button
               onClick={() => setSettingsOpen(true)}
               className={getTopBarMobileIconButtonClass(themeVariant, 'yellow')}
               title="Settings"
@@ -93,6 +104,9 @@ export default function TopBar() {
             nc
               ? <GlitchText as="h1" className="font-display font-extrabold text-lg text-nc-text-bright tracking-wider" intensity="low">Agents</GlitchText>
               : <h1 className="font-display font-extrabold text-lg text-nc-text-bright">Agents</h1>
+          )}
+          {viewMode === 'memory' && (
+            <h1 className="font-display font-extrabold text-lg text-nc-text-bright">Memory</h1>
           )}
         </div>
 

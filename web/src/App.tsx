@@ -12,6 +12,7 @@ import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
 import TasksView from './components/TasksView';
+import MemoryView from './components/MemoryView';
 import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
@@ -130,6 +131,7 @@ function AppShell() {
             )}
             {viewMode === 'agents' && <AgentsView />}
             {viewMode === 'tasks' && <TasksView />}
+            {viewMode === 'memory' && <MemoryView />}
             {!showMessageView && !sidebarOpen && (
               <button
                 type="button"
