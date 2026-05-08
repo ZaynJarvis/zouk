@@ -3,8 +3,8 @@ import { FileText, FolderOpen, Activity, Settings, Save, Zap, ArrowLeft, Refresh
 import type { ServerAgent, ServerMachine } from '../types';
 import { useApp } from '../store/AppContext';
 import { activityLabels } from '../lib/activityStatus';
-import StatusDot from './StatusDot';
-import { agentStatus } from '../lib/avatarStatus';
+
+
 import { formatRuntime } from '../lib/runtimeLabels';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
@@ -444,7 +444,6 @@ export default function AgentDetail({
         )}
         <div style={{ position: 'relative' }}>
           <AgentAvatar agent={agent} size="lg" />
-          <StatusDot status={agentStatus(agent)} ringClass="border-nc-surface" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
