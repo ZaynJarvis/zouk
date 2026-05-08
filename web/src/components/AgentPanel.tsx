@@ -10,6 +10,7 @@ import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 import { AgentAvatar, Eyebrow } from './zk/primitives';
+import MobileMenuButton from './MobileMenuButton';
 
 function AgentListItem({
   agent,
@@ -260,12 +261,16 @@ export default function AgentsView() {
         {/* Header (page title + actions) */}
         <header
           style={{
-            display: 'flex', alignItems: 'center', gap: 14,
-            padding: '14px 18px 12px',
+            display: 'flex', alignItems: 'center', gap: 12,
+            paddingTop: 'calc(env(safe-area-inset-top, 0px) + 14px)',
+            paddingRight: 18,
+            paddingBottom: 12,
+            paddingLeft: 18,
             borderBottom: '1px solid var(--zk-line)',
             flexShrink: 0,
           }}
         >
+          <MobileMenuButton />
           <div className="zk-col">
             <Eyebrow className="hidden lg:inline">WORKSPACE</Eyebrow>
             <h1

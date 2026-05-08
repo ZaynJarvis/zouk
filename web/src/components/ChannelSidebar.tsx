@@ -384,7 +384,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     createChannel, deleteChannel, currentUser, unreadCounts, isGuest,
     authUser, setSidebarOpen,
     openAgentProfile, openAgentSettings, resetAgentContext,
-    openChannelSettings, navigateToView,
+    openChannelSettings, navigateToView, setSettingsOpen,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -448,7 +448,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   // Memory reachable from the channel modal without exposing a
   // separate rail on mobile.
   const phoneNavItems: Array<{
-    key: 'home' | 'agents' | 'tasks' | 'memory';
+    key: 'home' | 'agents' | 'tasks' | 'memory' | 'settings';
     label: string;
     icon: React.ReactNode;
     active: boolean;
@@ -457,9 +457,15 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     { key: 'agents', label: 'Agents', icon: <Cpu size={16} />,          active: viewMode === 'agents' },
     { key: 'tasks',  label: 'Tasks',  icon: <KanbanSquare size={16} />, active: viewMode === 'tasks' },
     { key: 'memory', label: 'Memory', icon: <Brain size={16} />,        active: viewMode === 'memory' },
+    { key: 'settings', label: 'Settings', icon: <Settings size={16} />, active: false },
   ];
 
-  const handlePhoneNav = (key: 'home' | 'agents' | 'tasks' | 'memory') => {
+  const handlePhoneNav = (key: 'home' | 'agents' | 'tasks' | 'memory' | 'settings') => {
+    if (key === 'settings') {
+      setSidebarOpen(false);
+      setSettingsOpen(true);
+      return;
+    }
     if (key === 'home') navigateToView('channel');
     else navigateToView(key);
     setSidebarOpen(false);

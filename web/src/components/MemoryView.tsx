@@ -26,6 +26,7 @@ import { isMobileViewport } from '../lib/layout';
 import { Avatar, Eyebrow } from './zk/primitives';
 import { renderMarkdown as atlasMarkdown, renderJson, renderJsonl, renderPlainCode } from './memory/AtlasRenderers';
 import { highlightCode, LEVEL_META } from './memory/atlas-helpers';
+import MobileMenuButton from './MobileMenuButton';
 import '../styles/atlas-renderers.css';
 
 type Source = 'memory' | 'files';
@@ -970,11 +971,16 @@ export default function MemoryView() {
       <header
         style={{
           display: 'flex', alignItems: 'center', gap: 12,
-          padding: '10px 16px',
+          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)',
+          paddingRight: 16,
+          paddingBottom: 10,
+          paddingLeft: 16,
           borderBottom: '1px solid var(--zk-line)',
           flexShrink: 0,
+          overflowX: 'auto',
         }}
       >
+        <MobileMenuButton />
         <Eyebrow className="hidden lg:block">WORKSPACE</Eyebrow>
 
         {/* Source toggle — Memory (OpenViking) / Files (workspace) */}
@@ -1039,13 +1045,14 @@ export default function MemoryView() {
           <div ref={stackRef} className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
             <div
               ref={scrollRef}
-              className={`zk-scroll flex ${showMobilePreview ? 'border-b lg:border-b-0' : ''}`}
+              className="zk-scroll flex"
               style={{
                 flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobileBrowserBasis}` : 1) : (selectedFile ? undefined : 1),
                 minWidth: 0,
                 minHeight: 0,
                 overflowX: 'auto',
                 background: 'var(--zk-bg-0)',
+                borderBottom: isMobileSurface && showMobilePreview ? '1px solid var(--zk-line)' : undefined,
               }}
             >
               {columns.map((col, i) => (
@@ -1107,11 +1114,12 @@ export default function MemoryView() {
       ) : (
         <div ref={stackRef} className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
           <div
-            className={`flex lg:w-[320px] ${showMobilePreview ? 'border-b lg:border-b-0' : ''}`}
+            className="flex lg:w-[320px]"
             style={{
               flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobileBrowserBasis}` : 1) : undefined,
               flexShrink: isMobileSurface ? 1 : 0,
               borderRight: isMobileSurface ? '0' : '1px solid var(--zk-line)',
+              borderBottom: isMobileSurface && showMobilePreview ? '1px solid var(--zk-line)' : undefined,
               flexDirection: 'column',
               minHeight: 0,
               background: 'var(--zk-bg-0)',

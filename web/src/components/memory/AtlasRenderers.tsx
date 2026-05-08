@@ -570,7 +570,7 @@ function JsonlRenderer({ text }: JsonlRendererProps): React.JSX.Element {
 
   const handleToolToggle = (checked: boolean) => {
     setShowTools(checked);
-    try { localStorage.setItem(TOOLCALL_STORAGE_KEY, checked ? '1' : '0'); } catch {}
+    try { localStorage.setItem(TOOLCALL_STORAGE_KEY, checked ? '1' : '0'); } catch { /* ignore storage errors */ }
   };
 
   if (records.length === 0) {
