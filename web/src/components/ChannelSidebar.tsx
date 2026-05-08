@@ -481,33 +481,48 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
             padding: '10px 12px',
             borderBottom: '1px solid var(--zk-line)',
             flexShrink: 0,
+            position: 'relative',
           }}
         >
-          {phoneNavItems.map((it) => (
-            <button
-              key={it.key}
-              type="button"
-              onClick={() => handlePhoneNav(it.key)}
-              aria-label={it.label}
-              title={it.label}
-              className={`zk-btn ${it.active ? 'zk-btn--primary' : 'zk-btn--ghost'} zk-btn--icon`}
-              style={{ width: 32, height: 32 }}
-            >
-              {it.icon}
-            </button>
-          ))}
-          <span style={{ flex: 1 }} />
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+            }}
+          >
+            {phoneNavItems.map((it) => (
+              <button
+                key={it.key}
+                type="button"
+                onClick={() => handlePhoneNav(it.key)}
+                aria-label={it.label}
+                title={it.label}
+                className={`zk-btn ${it.active ? 'zk-btn--primary' : 'zk-btn--ghost'} zk-btn--icon`}
+                style={{ width: 32, height: 32 }}
+              >
+                {it.icon}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => { setSettingsOpen(true); setSidebarOpen(false); }}
             aria-label="Settings"
             title="Settings"
             className="zk-btn zk-btn--ghost zk-btn--icon"
-            style={{ width: 32, height: 32 }}
+            style={{
+              width: 32, height: 32,
+              position: 'absolute',
+              right: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+            }}
           >
             <Settings size={16} />
           </button>

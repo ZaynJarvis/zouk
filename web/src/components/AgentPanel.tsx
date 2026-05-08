@@ -245,9 +245,12 @@ export default function AgentsView() {
         background: 'var(--zk-bg-0)', color: 'var(--zk-ink)',
       }}
     >
-      {/* Left list */}
+      {/* Left list. Aside stays mounted on every viewport — hiding it on mobile
+          (the previous behavior) hid the right-detail too because detail is a
+          child here, which is why "agent settings page" went blank on phone.
+          Instead we hide just the list section when mobileShowDetail is true. */}
       <aside
-        className={mobileShowDetail ? 'hidden lg:flex' : 'flex'}
+        className="flex"
         style={{
           width: '100%', flexShrink: 0,
           flexDirection: 'column',
@@ -313,12 +316,16 @@ export default function AgentsView() {
             flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden',
           }}
         >
-          {/* Agent list */}
-          <div className="zk-scroll" style={{
-            flex: '0 0 320px', overflow: 'auto',
-            borderRight: '1px solid var(--zk-line)',
-            background: 'var(--zk-bg-1)',
-          }}>
+          {/* Agent list — full width on mobile (when detail hidden), fixed 320px
+              on desktop. */}
+          <div
+            className={`zk-scroll w-full lg:w-[320px] lg:flex-none ${mobileShowDetail ? 'hidden lg:block' : 'block'}`}
+            style={{
+              overflow: 'auto',
+              borderRight: '1px solid var(--zk-line)',
+              background: 'var(--zk-bg-1)',
+            }}
+          >
             {/* Machines section */}
             <div>
               <button
