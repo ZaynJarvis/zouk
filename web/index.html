@@ -8,7 +8,13 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-    <meta name="theme-color" content="#fafaf9" />
+    <!-- theme-color is what iOS uses to tint the bottom safe area / home
+         indicator zone in standalone PWA mode. Use light/dark media variants
+         so the OS picks the right starting color before our JS overrides. The
+         boot script below still updates the active meta when the theme/mode
+         changes inside the app (covers in-session switching). -->
+    <meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0c0b0d" media="(prefers-color-scheme: dark)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta id="color-scheme-meta" name="color-scheme" content="light dark" />
@@ -59,11 +65,14 @@
           'washington-post':{'light':'#f4eee3','dark':'#f4eee3'},
           'carbon':{'light':'#151515','dark':'#151515'}
         };
-        var themeMeta=document.querySelector("meta[name='theme-color']");
-        if(themeMeta){
-          var c=(themeColors[theme]||themeColors.atlas)[effectiveMode];
-          themeMeta.setAttribute('content', c);
-        }
+        // Update BOTH theme-color metas (light/dark media variants) to the
+        // currently effective color, so iOS PWA's home-indicator zone picks
+        // up the active app theme regardless of the OS-level preference. The
+        // media variants exist so first-paint before JS still gets a sane
+        // initial value.
+        var themeMetas=document.querySelectorAll("meta[name='theme-color']");
+        var effectiveColor=(themeColors[theme]||themeColors.atlas)[effectiveMode];
+        themeMetas.forEach(function(m){ m.setAttribute('content', effectiveColor); });
 
         // Listen for OS theme changes when in 'system' mode (atlas only).
         try{
@@ -77,8 +86,9 @@
             document.documentElement.style.colorScheme=m;
             var cs2=document.querySelector("meta[name='color-scheme']");
             if(cs2) cs2.setAttribute('content',m);
-            var tm=document.querySelector("meta[name='theme-color']");
-            if(tm) tm.setAttribute('content',(themeColors[t2]||themeColors.atlas)[m]);
+            var tms=document.querySelectorAll("meta[name='theme-color']");
+            var c2=(themeColors[t2]||themeColors.atlas)[m];
+            tms.forEach(function(meta){ meta.setAttribute('content', c2); });
           };
           if(mq.addEventListener) mq.addEventListener('change',onChange);
           else if(mq.addListener) mq.addListener(onChange);

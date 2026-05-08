@@ -114,14 +114,19 @@ function AppShell() {
         </div>
       )}
 
-      {/* Mobile sidebar: centered modal (lg:hidden keeps it out of desktop layout) */}
+      {/* Mobile sidebar: centered modal (lg:hidden keeps it out of desktop layout).
+          dvh instead of vh so iOS Safari/PWA dynamic chrome (URL bar, keyboard,
+          home indicator) doesn't clip the modal — the previous max-h-[65vh]
+          left users with a list that "couldn't scroll" because the bottom
+          edge of the modal was sometimes off-screen. min-h-0 makes the
+          inner flex column allow its scroll body to shrink and scroll. */}
       {sidebarOpen && showChannelSidebar && (
         <div
           className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 flex items-center justify-center transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
           onClick={closeMobileSidebar}
         >
           <div
-            className={`w-[82vw] max-w-sm max-h-[65vh] flex flex-col cyber-panel rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
+            className={`w-[82vw] max-w-sm max-h-[80dvh] min-h-0 flex flex-col cyber-panel rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
             onClick={e => e.stopPropagation()}
           >
             <ChannelSidebar phoneModal />

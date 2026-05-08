@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
+import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { Avatar, Eyebrow } from './zk/primitives';
 import * as api from '../lib/api';
 import type { TaskRecord } from '../types';
@@ -12,6 +13,18 @@ import type { TaskRecord } from '../types';
 export default function PinnedRail() {
   const { agents, activeChannelName, channels, tasksVersion, viewMode } = useApp();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
+  const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
+
+  useEffect(() => {
+    const update = () => setIsMobileSurface(isMobileViewport() || isStandalonePWA());
+    window.addEventListener('resize', update);
+    const mql = window.matchMedia?.('(display-mode: standalone)');
+    mql?.addEventListener?.('change', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      mql?.removeEventListener?.('change', update);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,7 +128,12 @@ export default function PinnedRail() {
             )}
           </span>
         )}
-        {headline && (
+        {/* Headline description (agent name · activity detail) takes a non-trivial
+            slice of vertical / horizontal real estate on mobile. Hide on
+            mobile + standalone PWA so the LIVE rail stays compact and the
+            message stream reclaims the height. The avatars + STREAMING dot
+            still convey "something is active". */}
+        {headline && !isMobileSurface && (
           <span
             className="zk-truncate"
             style={{
