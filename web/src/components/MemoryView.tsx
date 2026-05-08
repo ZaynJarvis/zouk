@@ -951,15 +951,14 @@ export default function MemoryView() {
               ))}
             </div>
 
-            {/* Preview pane */}
+            {/* Preview pane — right half on lg+ (50% width clamped 480-720px so
+                columns keep room to breathe). Mobile: full width when a file is
+                selected, hidden otherwise. The previous `width: 100%` collapsed
+                columns to 0 on lg+ when a file was opened. */}
             <div
-              className={selectedFile ? 'flex' : 'hidden lg:flex'}
+              className={`flex-shrink-0 flex-col ${selectedFile ? 'flex w-full' : 'hidden lg:flex'} lg:w-1/2 lg:min-w-[480px] lg:max-w-[720px]`}
               style={{
-                width: selectedFile ? '100%' : 460,
-                maxWidth: '100%',
-                flexShrink: 0,
                 borderLeft: '1px solid var(--zk-line)',
-                flexDirection: 'column',
                 background: 'var(--zk-bg-0)',
               }}
             >

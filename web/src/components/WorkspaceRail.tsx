@@ -25,7 +25,7 @@ const ITEMS: RailItem[] = [
 
 export default function WorkspaceRail() {
   const {
-    viewMode, setViewMode, setSettingsOpen,
+    viewMode, navigateToView, setSettingsOpen,
     agents, currentUser, authUser, isGuest,
   } = useApp();
 
@@ -40,10 +40,10 @@ export default function WorkspaceRail() {
 
   const handleClick = (id: RailItem['id']) => {
     switch (id) {
-      case 'home': setViewMode('channel'); break;
-      case 'agents': setViewMode('agents'); break;
-      case 'tasks': setViewMode('tasks'); break;
-      case 'memory': setViewMode('memory'); break;
+      case 'home': navigateToView('channel'); break;
+      case 'agents': navigateToView('agents'); break;
+      case 'tasks': navigateToView('tasks'); break;
+      case 'memory': navigateToView('memory'); break;
     }
   };
 
