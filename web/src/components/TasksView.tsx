@@ -2,7 +2,6 @@
    tmp/.../zouk-rethink/v3-bold.jsx, wired to real /api/tasks data. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { TaskRecord, TaskStatus } from '../types';
 import * as api from '../lib/api';
@@ -253,15 +252,6 @@ export default function TasksView() {
             List
           </button>
         </div>
-
-        <button
-          type="button"
-          className="zk-btn zk-btn--primary"
-          title="New task"
-          onClick={() => {/* TODO: surface new-task UX */}}
-        >
-          <Plus size={11} /> New task
-        </button>
       </header>
 
       {error ? (

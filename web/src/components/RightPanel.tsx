@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import ThreadPanel from './ThreadPanel';
-import DetailsPanel from './DetailsPanel';
 import MembersPanel from './MembersPanel';
 import WorkspacePanel from './WorkspacePanel';
 import AgentSettingsPanel from './AgentSettingsPanel';
@@ -28,8 +27,6 @@ export default function RightPanel() {
   switch (rightPanel) {
     case 'thread':
       return <ThreadPanel />;
-    case 'details':
-      return <DetailsPanel />;
     case 'members':
       return <MembersPanel />;
     case 'workspace':

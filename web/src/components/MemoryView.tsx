@@ -16,11 +16,13 @@
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo,
 } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   ChevronRight, File, Folder, RefreshCw, ArrowLeft,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
+import { isMobileViewport } from '../lib/layout';
 import { Avatar, Eyebrow } from './zk/primitives';
 import { renderMarkdown as atlasMarkdown, renderJson, renderJsonl, renderPlainCode } from './memory/AtlasRenderers';
 import { highlightCode, LEVEL_META } from './memory/atlas-helpers';
@@ -705,8 +707,24 @@ export default function MemoryView() {
   const [paradigm, setParadigm] = useState<Paradigm>('columns');
   const [trail, setTrail] = useState<string[]>([rootFor('memory')]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport());
+  const [mobilePreviewRatio, setMobilePreviewRatio] = useState(0.46);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stackRef = useRef<HTMLDivElement | null>(null);
   const rootRefreshKeyRef = useRef<string | null>(null);
+  const previewResizeCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const update = () => setIsMobileSurface(isMobileViewport());
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      previewResizeCleanupRef.current?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!agentId && agents.length > 0) setAgentId(agents[0].id);
@@ -890,6 +908,43 @@ export default function MemoryView() {
 
   const previewUri = selectedFile ?? folderPreviewUri;
   const previewIsDir = !selectedFile && !!folderPreviewUri;
+  const showMobilePreview = isMobileSurface && !!previewUri;
+  const showPreviewPane = !isMobileSurface || !!previewUri;
+  const mobilePreviewPercent = Math.round(mobilePreviewRatio * 100);
+  const mobilePreviewBasis = `calc(${mobilePreviewPercent}% - 5px)`;
+  const mobileBrowserBasis = `calc(${100 - mobilePreviewPercent}% - 5px)`;
+
+  const beginPreviewResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const container = stackRef.current;
+    if (!container || !previewUri || !isMobileSurface) return;
+    event.preventDefault();
+
+    const updateRatio = (clientY: number) => {
+      const rect = container.getBoundingClientRect();
+      if (!rect.height) return;
+      const next = (rect.bottom - clientY) / rect.height;
+      setMobilePreviewRatio(Math.max(0.28, Math.min(0.72, next)));
+    };
+
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      previewResizeCleanupRef.current = null;
+    };
+
+    const onMove = (moveEvent: PointerEvent) => {
+      updateRatio(moveEvent.clientY);
+    };
+
+    previewResizeCleanupRef.current?.();
+    previewResizeCleanupRef.current = stop;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    updateRatio(event.clientY);
+  }, [previewUri, isMobileSurface]);
 
   const columns = useMemo(() => {
     return trail.map((uri, i) => {
@@ -981,13 +1036,14 @@ export default function MemoryView() {
         <>
           {/* Mobile: vertical stack (columns top, preview bottom).
               Desktop: side-by-side (columns left, preview right). */}
-          <div className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
+          <div ref={stackRef} className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
             <div
               ref={scrollRef}
-              className={`zk-scroll flex ${selectedFile ? 'max-h-[45%] lg:max-h-none border-b lg:border-b-0' : ''}`}
+              className={`zk-scroll flex ${showMobilePreview ? 'border-b lg:border-b-0' : ''}`}
               style={{
-                flex: selectedFile ? undefined : 1,
+                flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobileBrowserBasis}` : 1) : (selectedFile ? undefined : 1),
                 minWidth: 0,
+                minHeight: 0,
                 overflowX: 'auto',
                 background: 'var(--zk-bg-0)',
               }}
@@ -1005,27 +1061,59 @@ export default function MemoryView() {
               ))}
             </div>
 
+            {showMobilePreview && (
+              <div className="lg:hidden flex-shrink-0" style={{ background: 'var(--zk-bg-0)' }}>
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="Resize preview"
+                  onPointerDown={beginPreviewResize}
+                  style={{
+                    height: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'row-resize',
+                    touchAction: 'none',
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 40,
+                      height: 4,
+                      borderRadius: 999,
+                      background: 'var(--zk-line-2)',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             <div
-              className={`flex-col ${selectedFile ? 'flex' : 'hidden lg:flex'} lg:w-1/2 lg:min-w-[480px] lg:max-w-[720px]`}
+              className={`flex-col ${showPreviewPane ? 'flex' : 'hidden lg:flex'} lg:w-1/2 lg:min-w-[480px] lg:max-w-[720px]`}
               style={{
-                flex: 1, minHeight: 0,
-                borderLeft: '1px solid var(--zk-line)',
+                flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobilePreviewBasis}` : 1) : 1,
+                minHeight: 0,
+                borderLeft: isMobileSurface ? '0' : '1px solid var(--zk-line)',
                 background: 'var(--zk-bg-0)',
               }}
             >
-              <Preview agentId={agentId} previewUri={previewUri} isDirectory={previewIsDir} source={source} onBack={() => setSelectedFile(null)} />
+              <Preview agentId={agentId} previewUri={previewUri} isDirectory={previewIsDir} source={source} onBack={selectedFile ? () => setSelectedFile(null) : undefined} />
             </div>
           </div>
           <FooterShortcuts paradigm="columns" currentPath={currentPath} />
         </>
       ) : (
-        <div className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
+        <div ref={stackRef} className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
           <div
-            className={`flex lg:w-[320px] ${selectedFile ? 'max-h-[45%] lg:max-h-none border-b lg:border-b-0' : ''}`}
+            className={`flex lg:w-[320px] ${showMobilePreview ? 'border-b lg:border-b-0' : ''}`}
             style={{
-              flexShrink: 0,
-              borderRight: '1px solid var(--zk-line)',
+              flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobileBrowserBasis}` : 1) : undefined,
+              flexShrink: isMobileSurface ? 1 : 0,
+              borderRight: isMobileSurface ? '0' : '1px solid var(--zk-line)',
               flexDirection: 'column',
+              minHeight: 0,
               background: 'var(--zk-bg-0)',
             }}
           >
@@ -1039,15 +1127,47 @@ export default function MemoryView() {
               onSelectFile={setSelectedFile}
             />
           </div>
+
+          {showMobilePreview && (
+            <div className="lg:hidden flex-shrink-0" style={{ background: 'var(--zk-bg-0)' }}>
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Resize preview"
+                onPointerDown={beginPreviewResize}
+                style={{
+                  height: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'row-resize',
+                  touchAction: 'none',
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 40,
+                    height: 4,
+                    borderRadius: 999,
+                    background: 'var(--zk-line-2)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           <div
-            className={`flex-col ${selectedFile ? 'flex' : 'hidden lg:flex'}`}
+            className={`flex-col ${showPreviewPane ? 'flex' : 'hidden lg:flex'}`}
             style={{
-              flex: 1, minWidth: 0,
+              flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobilePreviewBasis}` : 1) : 1,
+              minWidth: 0,
+              minHeight: 0,
               flexDirection: 'column',
               background: 'var(--zk-bg-0)',
             }}
           >
-            <Preview agentId={selectedAgent.id} previewUri={previewUri} isDirectory={previewIsDir} source={source} onBack={() => setSelectedFile(null)} />
+            <Preview agentId={selectedAgent.id} previewUri={previewUri} isDirectory={previewIsDir} source={source} onBack={selectedFile ? () => setSelectedFile(null) : undefined} />
           </div>
         </div>
       )}
