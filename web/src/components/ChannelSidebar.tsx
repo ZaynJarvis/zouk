@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
-import { Avatar, AgentAvatar, HumanAvatar } from './zk/primitives';
+import { AgentAvatar, HumanAvatar } from './zk/primitives';
 import type { ServerAgent, ServerChannel, ServerHuman } from '../types';
 import {
   contextUsageTextTone,
@@ -682,42 +682,6 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
         </div>
       </div>
 
-      {/* Footer user card */}
-      {!phoneModal && (
-        <div
-          className="zk-row"
-          style={{
-            padding: 10,
-            borderTop: '1px solid var(--zk-line)',
-            gap: 10,
-            flexShrink: 0,
-          }}
-        >
-          <Avatar
-            src={authUser?.picture}
-            name={currentUser}
-            size="md"
-            kind="human"
-            online
-          />
-          <div className="zk-grow zk-col" style={{ minWidth: 0, lineHeight: 1.2 }}>
-            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--zk-ink)' }} className="zk-truncate">
-              {currentUser}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--zk-ink-mute)' }}>
-              {isGuest ? 'guest' : 'online'}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="zk-btn zk-btn--ghost zk-btn--icon"
-            onClick={() => setSettingsOpen(true)}
-            title="Settings"
-          >
-            <Settings size={14} />
-          </button>
-        </div>
-      )}
     </aside>
   );
 }

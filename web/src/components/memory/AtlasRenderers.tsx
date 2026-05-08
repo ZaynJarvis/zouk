@@ -540,9 +540,18 @@ interface JsonlRendererProps {
   text: string;
 }
 
+const TOOLCALL_STORAGE_KEY = 'zk-jsonl-toolcall';
+
+function readToolCallPref(): boolean {
+  try {
+    const v = localStorage.getItem(TOOLCALL_STORAGE_KEY);
+    return v === null ? true : v === '1';
+  } catch { return true; }
+}
+
 function JsonlRenderer({ text }: JsonlRendererProps): React.JSX.Element {
   const [dialogMode, setDialogMode] = useState(true);
-  const [hideTools, setHideTools] = useState(false);
+  const [showTools, setShowTools] = useState(readToolCallPref);
   const records = useMemo(() => parseJsonlRecords(text), [text]);
   const toolCount = useMemo(
     () => records.reduce((n, r) => {
@@ -552,12 +561,18 @@ function JsonlRenderer({ text }: JsonlRendererProps): React.JSX.Element {
     [records],
   );
   const visibleRecords = useMemo(() => {
-    if (!hideTools) return records;
+    if (showTools) return records;
     return records.filter((r) => {
       const m = getJsonlMessage(r);
       return !(m.kind === 'tool-result' || m.toolName);
     });
-  }, [records, hideTools]);
+  }, [records, showTools]);
+
+  const handleToolToggle = (checked: boolean) => {
+    setShowTools(checked);
+    try { localStorage.setItem(TOOLCALL_STORAGE_KEY, checked ? '1' : '0'); } catch {}
+  };
+
   if (records.length === 0) {
     return <div className="jsonl-empty">Empty JSONL.</div>;
   }
@@ -566,17 +581,17 @@ function JsonlRenderer({ text }: JsonlRendererProps): React.JSX.Element {
       <div className="jsonl-meta">
         <span className="jsonl-count">
           {visibleRecords.length}
-          {hideTools && toolCount > 0 ? ` / ${records.length}` : ''}
+          {!showTools && toolCount > 0 ? ` / ${records.length}` : ''}
           {' '}record{records.length === 1 ? '' : 's'}
         </span>
         {toolCount > 0 && (
-          <label className="jsonl-mode-switch" title={hideTools ? 'Show tool calls' : 'Hide tool calls'}>
-            <span className="jsonl-mode-label">{hideTools ? 'Tools hidden' : 'Tools shown'}</span>
+          <label className="jsonl-mode-switch" title={showTools ? 'Hide tool calls' : 'Show tool calls'}>
+            <span className="jsonl-mode-label">toolcall</span>
             <input
               type="checkbox"
-              checked={hideTools}
-              onChange={(e) => setHideTools(e.target.checked)}
-              aria-label="Hide tool calls"
+              checked={showTools}
+              onChange={(e) => handleToolToggle(e.target.checked)}
+              aria-label="Toggle tool calls"
             />
             <span className="jsonl-switch-track" aria-hidden="true"></span>
           </label>

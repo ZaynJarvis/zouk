@@ -58,7 +58,7 @@ export default function TopBar() {
             render their own header, so we suppress here to avoid a duplicate. */}
         {inHomeView ? (
           <div className="zk-col zk-grow" style={{ minWidth: 0 }}>
-            <span className="zk-eyebrow" style={{ fontSize: 9 }}>CHANNEL</span>
+            <span className="zk-eyebrow hidden lg:block" style={{ fontSize: 9 }}>CHANNEL</span>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 2 }}>
               <h1
                 className="zk-display zk-truncate"
@@ -68,6 +68,7 @@ export default function TopBar() {
               </h1>
               {activeChannel && (
                 <span
+                  className="hidden lg:inline"
                   style={{
                     color: 'var(--zk-ink-mute)', fontSize: 12,
                     fontFamily: 'var(--zk-font-mono)',
