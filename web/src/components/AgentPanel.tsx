@@ -2,8 +2,8 @@ import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings, X } fr
 import { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
-import StatusDot from './StatusDot';
-import { agentStatus } from '../lib/avatarStatus';
+
+
 import { isMobileViewport } from '../lib/layout';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
@@ -24,7 +24,6 @@ function AgentListItem({
   onOpenSettings: () => void;
   onDelete?: () => void;
 }) {
-  const status = agentStatus(agent);
   const isInactive = agent.status === 'inactive';
 
   return (
@@ -56,7 +55,6 @@ function AgentListItem({
       )}
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <AgentAvatar agent={agent} size="md" />
-        <StatusDot status={status} ringClass="border-nc-surface" />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--zk-ink)' }} className="zk-truncate">

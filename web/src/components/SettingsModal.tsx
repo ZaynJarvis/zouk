@@ -232,7 +232,7 @@ export default function SettingsModal() {
             </ScanlineTear>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+          <div className="overflow-y-auto p-6 scrollbar-thin">
             {section === 'profile' && (
               <div className="max-w-md space-y-6">
                 <div className="flex items-center gap-4">
