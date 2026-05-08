@@ -65,6 +65,10 @@ export default function PinnedRail() {
   );
 
   if (viewMode !== 'channel' && viewMode !== 'dm') return null;
+  // Hide the LIVE strip entirely on mobile / PWA — the agents list, tasks
+  // counts, and STREAMING dot all eat scarce vertical space and the equivalent
+  // signal lives in the dedicated panels for a focused phone reader.
+  if (isMobileSurface) return null;
 
   return (
     <div

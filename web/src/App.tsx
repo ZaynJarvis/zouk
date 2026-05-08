@@ -89,10 +89,13 @@ function AppShell() {
   }
 
   const showMessageView = viewMode === 'channel' || viewMode === 'dm';
-  // ChannelSidebar (channels/agents/people list) is only meaningful in
-  // conversational views. Memory / Tasks / Agents are full-canvas surfaces
-  // with their own internal layouts — the sidebar is hidden there.
-  const showChannelSidebar = showMessageView;
+  // Desktop only renders the ChannelSidebar in conversational views — Memory
+  // / Tasks / Agents are full-canvas surfaces with their own layouts.
+  // The MOBILE sidebar modal, the floating menu button, and the edge-swipe
+  // gesture all want to be reachable from any view (the channel modal also
+  // hosts the workspace nav row), so they are no longer gated on
+  // showChannelSidebar.
+  const showChannelSidebarDesktop = showMessageView;
   // NowRail shows by default on the right when in a conversation, no other
   // panel is open, and we have desktop width. Mobile keeps the right column
   // free for the message stream.
@@ -108,7 +111,7 @@ function AppShell() {
       </div>
 
       {/* Desktop sidebar: only visible in conversational views */}
-      {showChannelSidebar && (
+      {showChannelSidebarDesktop && (
         <div className="hidden lg:flex flex-shrink-0">
           <ChannelSidebar />
         </div>
@@ -119,8 +122,10 @@ function AppShell() {
           home indicator) doesn't clip the modal — the previous max-h-[65vh]
           left users with a list that "couldn't scroll" because the bottom
           edge of the modal was sometimes off-screen. min-h-0 makes the
-          inner flex column allow its scroll body to shrink and scroll. */}
-      {sidebarOpen && showChannelSidebar && (
+          inner flex column allow its scroll body to shrink and scroll.
+          The modal is reachable from any view (the workspace nav row inside
+          handles the cross-view navigation). */}
+      {sidebarOpen && (
         <div
           className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 flex items-center justify-center transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
           onClick={closeMobileSidebar}
@@ -158,7 +163,7 @@ function AppShell() {
               {viewMode === 'agents' && <AgentsView />}
               {viewMode === 'tasks' && <TasksView />}
               {viewMode === 'memory' && <MemoryView />}
-              {!showMessageView && showChannelSidebar && !sidebarOpen && (
+              {!showMessageView && !sidebarOpen && (
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(true)}

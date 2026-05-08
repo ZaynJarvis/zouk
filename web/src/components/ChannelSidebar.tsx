@@ -17,6 +17,12 @@ import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { Avatar, AgentAvatar, HumanAvatar } from './zk/primitives';
 import type { ServerAgent, ServerChannel, ServerHuman } from '../types';
+import {
+  contextUsageTextTone,
+  formatContextUsageCompact,
+  formatContextUsageTitle,
+  pickDisplayContextUsage,
+} from '../lib/contextUsage';
 
 /* ───── Section header ───── */
 
@@ -275,6 +281,29 @@ function AgentRow({
         </span>
       )}
 
+      {/* Context usage pill — phone view doesn't see NowRail, so the sidebar
+          is now the only surface that signals "agent is close to reset". */}
+      {(() => {
+        const usage = pickDisplayContextUsage(agent.contextUsage, agent.model);
+        const label = formatContextUsageCompact(usage);
+        if (!label) return null;
+        return (
+          <span
+            className="zk-tabular"
+            title={formatContextUsageTitle(agent.contextUsage, agent.model)}
+            style={{
+              fontSize: 9,
+              fontFamily: 'var(--zk-font-mono)',
+              letterSpacing: '0.04em',
+              color: 'var(--zk-ink-mute)',
+              flexShrink: 0,
+            }}
+          >
+            <span className={contextUsageTextTone(usage?.percent)}>{label}</span>
+          </span>
+        );
+      })()}
+
       {!isGuest && agent.status === 'active' && (
         <span
           className={`zk-row ${forceShowActions ? '' : 'opacity-0 group-hover:opacity-100'}`}
@@ -437,7 +466,12 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   };
 
   return (
-    <aside style={shellStyle} className="safe-top">
+    // safe-top adds env(safe-area-inset-top) padding — useful for the desktop
+    // sidebar (which extends to the device top edge) but wrong on the phone
+    // modal which is centered in the viewport with its own padding. Skipping
+    // safe-top on phoneModal removes the ~47px notch padding that was making
+    // the modal top look way too tall.
+    <aside style={shellStyle} className={phoneModal ? '' : 'safe-top'}>
       {/* Phone-modal workspace nav: row of view-switcher icons (Home/Agents/
           Tasks/Memory + Settings). Mirrors the desktop WorkspaceRail so a
           mobile user can leave Channels and reach the other top-level views
