@@ -65,6 +65,10 @@ export function Avatar({
   const showDot = activity || (online === true || online === false);
   const dotKey: AgentActivity | 'online' | 'offline' = activity ?? (online ? 'online' : 'offline');
   const dotSize = size === 'sm' ? 6 : size === 'xl' ? 12 : 8;
+  // Square avatars (agents) use bottom/right: 1 so the dot overlaps the rounded
+  // corner from inside rather than hanging below it. Circular avatars (humans)
+  // use -1 so the dot presses against the outside of the circle's edge.
+  const dotInset = kind === 'agent' ? 1 : -1;
 
   return (
     <span
@@ -77,8 +81,8 @@ export function Avatar({
           className={`zk-dot zk-dot--${dotKey}`}
           style={{
             position: 'absolute',
-            right: -1,
-            bottom: -1,
+            right: dotInset,
+            bottom: dotInset,
             width: dotSize,
             height: dotSize,
             border: '2px solid var(--zk-bg-1)',
