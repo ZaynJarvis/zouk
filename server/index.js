@@ -3069,16 +3069,20 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           replayPendingDeliveries(agentId);
         }
       }
-      // Reconcile stale agent state: any agent on this machine that is currently
-      // active+working but absent from runningAgents had its process die without
-      // the daemon sending agent:status inactive (e.g. daemon crash). Reset its
-      // activity to 'online' so the dot shows idle (green) instead of stuck-working.
+      // Reconcile stale agent state: any agent on this machine that is not
+      // in runningAgents but still shows working/thinking/error activity had its
+      // process die (or its turn_end event was dropped during a reconnect race)
+      // without the server receiving the final activity update. Reset to 'online'
+      // so it shows idle instead of stuck-working. Applies to both active and
+      // inactive agents — inactive agents can carry stale activity from a
+      // disconnect that happened mid-turn before they were marked inactive.
+      // Running agents are skipped here; the daemon re-broadcasts their current
+      // activity via agent:activity messages that follow immediately after 'ready'.
       {
         const runningSet = new Set(msg.runningAgents || []);
         for (const [agentId, agent] of Object.entries(store.agents)) {
           if (agent.machineId !== ws._machineId) continue;
           if (runningSet.has(agentId)) continue;
-          if (agent.status !== "active") continue;
           if (["working", "thinking", "error"].includes(agent.activity)) {
             store.agents[agentId].activity = "online";
             store.agents[agentId].activityDetail = undefined;
