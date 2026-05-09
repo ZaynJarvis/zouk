@@ -32,8 +32,8 @@ delivered agent still decides whether a reply is necessary.
 - **Visible agents**: agent delivery candidates for the channel, after channel
   membership/subscription and active-status filtering.
 - **Directed agents**: agents identified by the current message text through an
-  explicit `@agent` mention, plus optional keyword matching if product policy
-  enables it.
+  explicit `@agent` mention or a case-insensitive keyword match against the
+  canonical `agent.name`.
 - **Involved agents**: directed agents plus any agent sender and task metadata
   agents, such as assignee or claim owner.
 - **Channel scope**: a top-level channel conversation, keyed by `channelId`.
@@ -82,10 +82,10 @@ that prevents large-channel spam.
 Directed extraction should be shared by channel and thread routing:
 
 ```js
-function extractDirectedAgents(text, candidateAgents, { enableKeywordMatch }) {
+function extractDirectedAgents(text, candidateAgents) {
   return candidateAgents.filter((agent) =>
     hasExplicitAtMention(text, agent.name) ||
-    (enableKeywordMatch && hasAgentKeyword(text, agent.name))
+    hasAgentKeyword(text, agent.name)
   );
 }
 ```
@@ -93,23 +93,20 @@ function extractDirectedAgents(text, candidateAgents, { enableKeywordMatch }) {
 Rules:
 
 - Explicit mentions use the existing `@name` shape and are always enabled.
-- Keyword match, if enabled, reuses the canonical `agent.name`,
-  case-insensitive.
+- Keyword match reuses the canonical `agent.name`, case-insensitive.
 - Keyword match should avoid substring false positives. For ASCII names, require
   token boundaries such as start/end, whitespace, punctuation, or code-token
   separators around the agent name.
 - The same extraction path should be used for channel and thread routing.
 
-Keyword matching needs a product decision before implementation. Bare
-case-insensitive `agent.name` matching is convenient, but it can false-positive
-for short or common names such as `sam`, `bob`, `tim`, or `cook` (`let me cook`
-would target the agent named `cook`). A conservative v1 is explicit `@mention`
-only, with keyword routing added later behind an opt-in profile field such as
-`notificationKeywords`.
+Keyword matching is intentionally enabled for large-channel routing. False
+positives are acceptable because this feature should prefer over-inclusion to
+missing a relevant agent; delivered agents are still expected to decide whether
+the message needs a reply.
 
-If keyword matching is enabled for large-channel routing, do not use it to
-narrow delivery in the `<4 visible agents` path unless that behavioral change is
-explicitly accepted. Current small-channel narrowing is `@mention` based.
+Do not use keyword matching to narrow delivery in the `<4 visible agents` path.
+Current small-channel narrowing is `@mention` based, and keeping that behavior
+avoids a false-positive keyword match excluding the other small-channel agents.
 
 ## Window State
 
@@ -231,16 +228,16 @@ Messages should go through routing before they are queued, so pending deliveries
 do not become a bypass around spam reduction.
 
 Cached-idle wake policy is a separate layer. If a routed recipient is cached
-idle, the implementation still needs a product decision: wake it immediately, or
+idle, a later implementation can decide whether to wake it immediately or
 queue/catch it up later unless explicitly targeted. This design is compatible
 with either choice.
 
 ## Configurability
 
-The initial threshold is 4 visible agents because the feature is intended for
-large rooms where all-agent fanout becomes noisy. Implementation can start with
-a constant, but the threshold should be isolated in the router so it can become
-per-channel configuration later.
+The threshold is 4 visible agents because the feature is intended for rooms
+where all-agent fanout becomes noisy. Implement it as a server-side constant in
+the router. Per-channel tuning is not planned for v1, but the constant should be
+kept near the router policy rather than spread through call sites.
 
 ## Module Boundary
 
@@ -262,8 +259,8 @@ Responsibilities:
   policy.
 - `activeAgentWindowStore.js`: channel/thread ring state, LRU, TTL, hydration,
   and restart rebuild.
-- `involvedAgents.js`: explicit mention, optional keyword match, sender, and
-  task-agent extraction.
+- `involvedAgents.js`: explicit mention, keyword match, sender, and task-agent
+  extraction.
 
 The existing server path should change in one place: replace direct fanout to
 all visible agents with a call to the router.
@@ -284,7 +281,7 @@ Agents should still avoid replying when:
 
 Agents should reply when:
 
-- directly addressed by `@name` or an enabled name keyword;
+- directly addressed by `@name` or case-insensitive name keyword;
 - assigned, claimed, or asked to take a task;
 - holding context that is necessary to unblock the current discussion;
 - explicitly asked for review, synthesis, or a decision.
@@ -299,9 +296,8 @@ messages.
 - Channel with 4 visible agents and no directed agents delivers only to agents
   active in the latest 20 top-level channel messages.
 - `@name` directs delivery.
-- If keyword routing is enabled, case-insensitive name keyword directs delivery
-  without changing the small-channel `@mention` behavior unless explicitly
-  configured.
+- Case-insensitive name keyword directs delivery in large-channel routing
+  without changing the small-channel `@mention` behavior.
 - Keyword match does not trigger on substrings inside longer tokens.
 - Ring eviction decrements counts and deletes zero-count entries.
 - Current message recipients are resolved before the current message updates the
