@@ -263,7 +263,7 @@ function AgentRow({
         title={`View @${agent.displayName || agent.name} profile`}
         style={{ cursor: 'pointer' }}
       >
-        <AgentAvatar agent={agent} size="sm" />
+        <AgentAvatar agent={agent} size="sm" hideDotWhen={['online']} />
       </span>
       <span className="zk-truncate" style={{ flex: 1 }}>
         {agent.displayName || agent.name}
