@@ -24,8 +24,17 @@ import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
 import { isMobileViewport } from '../lib/layout';
 import { Avatar, Eyebrow } from './zk/primitives';
-import { renderMarkdown as atlasMarkdown, renderJson, renderJsonl, renderPlainCode } from './memory/AtlasRenderers';
-import { highlightCode, LEVEL_META } from './memory/atlas-helpers';
+import { renderMarkdown as atlasMarkdown } from './memory/AtlasRenderers';
+import { LEVEL_META } from './memory/atlas-helpers';
+import {
+  detectLang,
+  fileKindLabel,
+  isHighlightableLang,
+  isJsonFile,
+  isJsonlFile,
+  isMarkdownFile,
+  renderPreviewContent,
+} from './memory/renderPreviewContent';
 import MobileMenuButton from './MobileMenuButton';
 import '../styles/atlas-renderers.css';
 
@@ -54,26 +63,6 @@ function uriBasename(uri: string, source: Source): string {
   const idx = trimmed.lastIndexOf('/');
   if (idx < 0) return trimmed;
   return trimmed.slice(idx + 1) || '/';
-}
-
-function isMarkdownFile(name: string): boolean { return /\.(md|mdx|markdown)$/i.test(name); }
-function isJsonFile(name: string): boolean { return /\.json$/i.test(name); }
-function isJsonlFile(name: string): boolean { return /\.(jsonl|ndjson)$/i.test(name); }
-
-function detectLang(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  const map: Record<string, string> = {
-    ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
-    py: 'python', rs: 'rust', go: 'go', sh: 'bash', bash: 'bash',
-    css: 'css', scss: 'scss', json: 'json', yaml: 'yaml', yml: 'yaml',
-  };
-  return map[ext] || '';
-}
-
-function fileKindLabel(name: string): string {
-  const dot = name.lastIndexOf('.');
-  if (dot < 0) return 'FILE';
-  return name.slice(dot + 1).toUpperCase().slice(0, 8);
 }
 
 /* ---- Agent chip strip — horizontal, prominent (high-frequency switch) ---- */
@@ -299,6 +288,7 @@ function Preview({
       </div>
     );
   }
+  const activePreviewUri = previewUri;
 
   // Per-level content, with placeholder strings stripped to null.
   const bundle: Record<LevelKey, string | null> = { l0: null, l1: null, l2: null };
@@ -357,34 +347,17 @@ function Preview({
         </div>
       );
     }
-    if (isJsonl) {
-      return (
-        <div className="atlas-preview-jsonl atlas-section-body">
-          {renderJsonl(text)}
-        </div>
-      );
+    if (isJsonl || isJson) {
+      return renderPreviewContent(text, activePreviewUri, 'atlas-section-body');
     }
-    if (isJson) {
-      return (
-        <div className="atlas-preview-json atlas-section-body">
-          {renderJson(text)}
-        </div>
-      );
-    }
-    if (lang && ['javascript','typescript','tsx','jsx','python','bash','rust','go','css','scss'].includes(lang)) {
+    if (lang && isHighlightableLang(lang)) {
       return (
         <div className="atlas-preview-code atlas-section-body" style={{ padding: 0 }}>
-          <pre style={{ margin: 0, fontFamily: 'var(--zk-font-mono)', fontSize: 12, lineHeight: 1.6 }}>
-            {highlightCode(text, lang)}
-          </pre>
+          {renderPreviewContent(text, activePreviewUri)}
         </div>
       );
     }
-    return (
-      <div className="atlas-preview-code" style={{ padding: 0 }}>
-        {renderPlainCode(text, lang || undefined)}
-      </div>
-    );
+    return renderPreviewContent(text, activePreviewUri);
   }
 
   return (

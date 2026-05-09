@@ -29,9 +29,8 @@ export const STATUS_CLASS: Record<AvatarStatus, string> = {
   working: 'bg-nc-yellow animate-pulse',
 };
 
-// Offline swaps the whole palette to nc-muted (not just a grayscale filter) —
-// `grayscale` on washington-post's low-saturation cyan/green tokens leaves
-// icon-only avatars nearly identical to active ones.
+// Offline swaps the whole palette to nc-muted (not just a grayscale filter),
+// so icon-only avatars clearly differ from active ones in both Atlas modes.
 //
 // Ephemeral agents get an additional "non-permanent" cue: dashed border +
 // reduced saturation. Layered on top of the status palette so it composes with

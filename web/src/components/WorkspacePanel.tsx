@@ -8,24 +8,8 @@ import type { ServerAgent } from '../types';
 import { isNightCity } from '../lib/themeUtils';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
-import { renderMarkdown as atlasMarkdown, renderJson, renderJsonl, renderPlainCode } from './memory/AtlasRenderers';
-import { highlightCode } from './memory/atlas-helpers';
+import { renderPreviewContent } from './memory/renderPreviewContent';
 import '../styles/atlas-renderers.css';
-
-function isMarkdownFile(path: string): boolean {
-  return /\.(md|mdx|markdown)$/i.test(path);
-}
-function isJsonFile(path: string): boolean { return /\.json$/i.test(path); }
-function isJsonlFile(path: string): boolean { return /\.(jsonl|ndjson)$/i.test(path); }
-function detectLang(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  const map: Record<string, string> = {
-    ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
-    py: 'python', rs: 'rust', go: 'go', sh: 'bash', bash: 'bash',
-    css: 'css', scss: 'scss', json: 'json', yaml: 'yaml', yml: 'yaml',
-  };
-  return map[ext] || '';
-}
 
 function AgentAvatarStrip({
   agents,
@@ -157,7 +141,6 @@ function FilePreview({
     : null;
 
   const fileName = filePath.split('/').pop() || filePath;
-  const isMd = isMarkdownFile(filePath);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 border-t border-nc-border">
@@ -176,33 +159,9 @@ function FilePreview({
       <div className="flex-1 overflow-auto scrollbar-thin">
         {content === null ? (
           <div className="p-3 text-xs font-mono text-nc-muted animate-pulse">Loading...</div>
-        ) : isMd ? (
-          <div className="atlas-preview-md p-3" style={{ fontSize: 13, lineHeight: 1.65 }}>
-            {atlasMarkdown(content)}
-          </div>
-        ) : isJsonlFile(filePath) ? (
-          <div className="atlas-preview-jsonl p-3">
-            {renderJsonl(content)}
-          </div>
-        ) : isJsonFile(filePath) ? (
-          <div className="atlas-preview-json p-3">
-            {renderJson(content)}
-          </div>
-        ) : (() => {
-          const lang = detectLang(filePath);
-          if (lang && ['javascript','typescript','tsx','jsx','python','bash','rust','go','css','scss'].includes(lang)) {
-            return (
-              <pre className="p-3" style={{ margin: 0, fontFamily: 'var(--zk-font-mono, monospace)', fontSize: 12, lineHeight: 1.6 }}>
-                {highlightCode(content, lang)}
-              </pre>
-            );
-          }
-          return (
-            <div className="atlas-preview-code">
-              {renderPlainCode(content, lang || undefined)}
-            </div>
-          );
-        })()}
+        ) : (
+          renderPreviewContent(content, filePath, 'p-3')
+        )}
       </div>
     </div>
   );
