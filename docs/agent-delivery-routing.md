@@ -94,9 +94,9 @@ Rules:
 
 - Explicit mentions use the existing `@name` shape and are always enabled.
 - Keyword match reuses the canonical `agent.name`, case-insensitive.
-- Keyword match should avoid substring false positives. For ASCII names, require
-  token boundaries such as start/end, whitespace, punctuation, or code-token
-  separators around the agent name.
+- Keyword match is case-insensitive substring match against canonical
+  `agent.name`. Do not require word boundaries; messages such as `找tim帮忙`
+  should route to agent `tim`.
 - The same extraction path should be used for channel and thread routing.
 
 Keyword matching is intentionally enabled for large-channel routing. False
@@ -298,7 +298,8 @@ messages.
 - `@name` directs delivery.
 - Case-insensitive name keyword directs delivery in large-channel routing
   without changing the small-channel `@mention` behavior.
-- Keyword match does not trigger on substrings inside longer tokens.
+- Keyword match is case-insensitive substring match on canonical `agent.name`
+  for large-channel routing.
 - Ring eviction decrements counts and deletes zero-count entries.
 - Current message recipients are resolved before the current message updates the
   active-agent window.
