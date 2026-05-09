@@ -14,6 +14,7 @@ const { createStore: createProfilePresetsStore, MAX_PRESETS: PROFILE_PRESET_MAX 
 const { createStorage } = require("./storage");
 const mockData = require("./mockData");
 const { provisionAgentKey } = require("./openviking-admin");
+const { AgentDeliveryRouter } = require("./notifications/agentDeliveryRouter");
 
 function gravatarUrl(email) {
   if (!email) return null;
@@ -691,6 +692,17 @@ function collectThreadReplies(parentMsg) {
   return { replies: matched.slice(-INLINE_REPLY_PREVIEW_LIMIT), replyCount: matched.length };
 }
 
+const agentDeliveryRouter = new AgentDeliveryRouter({
+  getThreadRootMessage: (threadId) => {
+    const parent = messagesByShortId.get(threadId);
+    return parent && !parent.threadId ? parent : null;
+  },
+  getThreadReplies: (threadId, channelId) => {
+    const all = repliesByThreadId.get(threadId) || [];
+    return all.filter((m) => m.channelId === channelId);
+  },
+});
+
 function formatMessageForClient(msg, viewerName, options = {}) {
   const { includeReplies = false } = options;
   const isThread = !!msg.threadId;
@@ -1230,39 +1242,34 @@ function deliverToAgent(agentId, message) {
   queuePendingDelivery(agentId, message);
 }
 
-function mentionAliases(...values) {
-  const aliases = new Set();
-  for (const value of values) {
-    const trimmed = String(value || "").trim();
-    if (!trimmed) continue;
-    aliases.add(trimmed);
-    aliases.add(trimmed.replace(/\s+/g, "_"));
+function deliveryAgentsById() {
+  const agentsById = {};
+  for (const cfg of agentConfigs) {
+    agentsById[cfg.id] = {
+      id: cfg.id,
+      name: cfg.name || cfg.id,
+      displayName: cfg.displayName || cfg.name || cfg.id,
+    };
   }
-  return [...aliases].map((alias) => alias.toLowerCase());
+  for (const [agentId, runtime] of Object.entries(store.agents)) {
+    const cfg = agentConfigs.find((c) => c.id === agentId);
+    agentsById[agentId] = {
+      id: agentId,
+      ...runtime,
+      name: cfg?.name || runtime.name || agentId,
+      displayName: cfg?.displayName || cfg?.name || runtime.displayName || runtime.name || agentId,
+    };
+  }
+  return agentsById;
 }
 
-function agentMatchesMention(agent, mention) {
-  const normalizedMention = String(mention || "").trim().toLowerCase();
-  if (!normalizedMention) return false;
-  return mentionAliases(agent?.name, agent?.displayName).includes(normalizedMention);
-}
-
-function extractMentions(content) {
-  const mentions = [];
-  const regex = /@([\p{L}\p{N}_-]+)/gu;
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    mentions.push(match[1].toLowerCase());
-  }
-  return mentions;
+function rebuildDeliveryRoutingWindows() {
+  agentDeliveryRouter.rebuildChannelWindows(store.messages, {
+    agentsById: deliveryAgentsById(),
+  });
 }
 
 function deliverToAllAgents(message, excludeAgent = null) {
-  const mentions = extractMentions(message.content || "");
-  const hasSpecificMention = mentions.some((m) =>
-    Object.values(store.agents).some((a) => agentMatchesMention(a, m))
-  );
-
   // Resolve the channel row so we can ask who's subscribed. Messages always
   // carry channelId (set at write time); fall back to name/type lookup in
   // case of old records.
@@ -1282,19 +1289,23 @@ function deliverToAllAgents(message, excludeAgent = null) {
     subscribedIds = ch ? subscribedAgentIdsFor(ch.id) : [];
   }
 
-  for (const agentId of subscribedIds) {
-    if (excludeAgent && agentId === excludeAgent) continue;
+  const activeSubscribedIds = subscribedIds.filter((agentId) => {
     const agent = store.agents[agentId];
-    if (!agent || agent.status !== "active") continue;
+    return agent && agent.status === "active";
+  });
 
-    // If message mentions specific agent(s), only deliver to them
-    if (hasSpecificMention) {
-      const isTargeted = mentions.some((mention) => agentMatchesMention(agent, mention));
-      if (!isTargeted) continue;
-    }
+  const agentsById = deliveryAgentsById();
+  const recipientIds = agentDeliveryRouter.resolveRecipients({
+    message,
+    visibleAgentIds: activeSubscribedIds,
+    agentsById,
+    excludeAgentId: excludeAgent,
+  });
 
+  for (const agentId of recipientIds) {
     deliverToAgent(agentId, message);
   }
+  agentDeliveryRouter.recordMessage(message, { agentsById });
 }
 
 // ─── Express app ──────────────────────────────────────────────────
@@ -4148,6 +4159,7 @@ function reconcileAgentsWithConfigs() {
     // path), so the secondary indexes need a rebuild after it runs.
     rebuildMessageIndex();
   }
+  rebuildDeliveryRoutingWindows();
 
   server.listen(PORT, () => {
     console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);

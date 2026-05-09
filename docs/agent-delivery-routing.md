@@ -175,7 +175,7 @@ This means the first reply can notify agents involved by the root message even
 though the thread reply ring did not exist when the root was created.
 
 If a thread reply arrives and the thread window is absent, the router hydrates it
-from the database:
+from the server's loaded message indexes:
 
 1. Load the thread root message and extract `rootAgentIds`.
 2. Load the latest 20 replies for that thread.
@@ -183,10 +183,10 @@ from the database:
 4. Resolve delivery for the current reply.
 
 This hydration runs in the delivery path on cold cache misses. That is
-acceptable for v1 because each hydration reads at most the root plus 20 replies.
-If cold-thread bursts become visible in latency metrics, the fallback can be
-changed to deliver to directed agents immediately and hydrate asynchronously for
-future replies.
+acceptable for v1 because each hydration reads at most the root plus 20 replies
+from in-memory indexes. If older thread roots need to be recovered beyond the
+server bootstrap window, add a DB helper with the same root-plus-20-replies
+contract.
 
 ## Thread Cache Eviction
 
@@ -204,17 +204,18 @@ messages, the router may evict the matching thread window if present.
 
 ## Server Restart
 
-On server startup, rebuild only the state that is useful for large-channel
-delivery:
+On server startup, rebuild the loaded top-level channel windows that may be
+needed for large-channel delivery:
 
-1. Find channels with `visibleAgentCount >= 4`.
-2. For each eligible channel, read the latest 20 top-level messages and rebuild
-   the channel window.
+1. Read loaded non-DM top-level messages by channel.
+2. For each channel, keep the latest 20 top-level messages and rebuild the
+   channel window. The routing threshold still decides whether the window is
+   used for delivery.
 3. Do not scan all historical threads. Thread windows are lazy-hydrated on the
    next reply. A later optimization may prewarm recently active thread scopes,
    but that is not necessary for the first implementation.
 
-Startup cost is bounded by eligible channel count times 20 messages.
+Startup cost is bounded by loaded channel count times 20 messages.
 
 ## Pending Delivery And Idle Wake
 
