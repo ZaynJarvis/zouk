@@ -7,10 +7,14 @@ that can read the channel. That is correct for small rooms, but it breaks down
 in large agent channels: irrelevant delivery wakes agents, burns tokens, and
 creates low-value replies.
 
-This design keeps the feature inside the Zouk server notification path. Agents
-should not decide whether they should have received a message; the server should
-decide which agent deliveries are worth sending, then each delivered agent still
-decides whether a reply is necessary.
+This design keeps the feature inside the Zouk server notification path. It
+decides who should receive delivery. It does not replace the cached-idle wake
+policy described in `docs/idle-agent-wake.md`, which decides whether a selected
+recipient should be restarted immediately or caught up later.
+
+Agents should not decide whether they should have received a message; the
+server should decide which agent deliveries are worth sending, then each
+delivered agent still decides whether a reply is necessary.
 
 ## Goals
 
@@ -28,8 +32,8 @@ decides whether a reply is necessary.
 - **Visible agents**: agent delivery candidates for the channel, after channel
   membership/subscription and active-status filtering.
 - **Directed agents**: agents identified by the current message text through an
-  explicit `@agent` mention or a case-insensitive keyword match against the
-  canonical agent name.
+  explicit `@agent` mention, plus optional keyword matching if product policy
+  enables it.
 - **Involved agents**: directed agents plus any agent sender and task metadata
   agents, such as assignee or claim owner.
 - **Channel scope**: a top-level channel conversation, keyed by `channelId`.
@@ -57,7 +61,7 @@ The router applies these rules:
 
 1. If the message is a DM, keep canonical DM party delivery.
 2. If `visibleAgentIds.length < 4`, keep current behavior:
-   - if the message has directed agents, deliver only to those agents;
+   - if the message has explicit `@mentions`, deliver only to those agents;
    - otherwise deliver to all visible agents.
 3. If `visibleAgentIds.length >= 4` and the message is top-level channel text:
    - use channel-scope active agents from the latest 20 top-level channel rounds;
@@ -78,26 +82,34 @@ that prevents large-channel spam.
 Directed extraction should be shared by channel and thread routing:
 
 ```js
-function extractDirectedAgents(text, candidateAgents) {
+function extractDirectedAgents(text, candidateAgents, { enableKeywordMatch }) {
   return candidateAgents.filter((agent) =>
     hasExplicitAtMention(text, agent.name) ||
-    hasAgentKeyword(text, agent.name)
+    (enableKeywordMatch && hasAgentKeyword(text, agent.name))
   );
 }
 ```
 
 Rules:
 
-- Explicit mentions use the existing `@name` shape.
-- Keyword match reuses the canonical `agent.name`, case-insensitive.
+- Explicit mentions use the existing `@name` shape and are always enabled.
+- Keyword match, if enabled, reuses the canonical `agent.name`,
+  case-insensitive.
 - Keyword match should avoid substring false positives. For ASCII names, require
   token boundaries such as start/end, whitespace, punctuation, or code-token
   separators around the agent name.
-- The same extraction path should be used for current-message delivery and for
-  maintaining the active-agent windows.
+- The same extraction path should be used for channel and thread routing.
 
-This keeps the first version simple: no separate `notificationKeywords` profile
-field is required.
+Keyword matching needs a product decision before implementation. Bare
+case-insensitive `agent.name` matching is convenient, but it can false-positive
+for short or common names such as `sam`, `bob`, `tim`, or `cook` (`let me cook`
+would target the agent named `cook`). A conservative v1 is explicit `@mention`
+only, with keyword routing added later behind an opt-in profile field such as
+`notificationKeywords`.
+
+If keyword matching is enabled for large-channel routing, do not use it to
+narrow delivery in the `<4 visible agents` path unless that behavioral change is
+explicitly accepted. Current small-channel narrowing is `@mention` based.
 
 ## Window State
 
@@ -118,9 +130,14 @@ type ScopeWindow = {
 };
 ```
 
-When a new scoped message is persisted, the router extracts involved agents,
-adds them to the ring, increments counts, and evicts the oldest entry if the
-ring exceeds 20. Active agents are `counts.keys()`.
+For a new message, resolve recipients from the window state before inserting the
+current message into the window. After delivery is scheduled, extract involved
+agents from the current message, add them to the ring, increment counts, and
+evict the oldest entry if the ring exceeds 20. Active agents are `counts.keys()`.
+
+Eviction must decrement counts for every agent in the removed entry and delete
+the key when the count reaches 0. Otherwise the active set grows monotonically
+and no longer represents the latest 20 rounds.
 
 Hot-path cost is proportional to the number of agents involved in the new
 message and the number of active agents in the small window. It does not scale
@@ -168,6 +185,12 @@ from the database:
 3. Rebuild `replyWindow`.
 4. Resolve delivery for the current reply.
 
+This hydration runs in the delivery path on cold cache misses. That is
+acceptable for v1 because each hydration reads at most the root plus 20 replies.
+If cold-thread bursts become visible in latency metrics, the fallback can be
+changed to deliver to directed agents immediately and hydrate asynchronously for
+future replies.
+
 ## Thread Cache Eviction
 
 Thread windows are memory-only cache entries. Start with simple defaults:
@@ -196,6 +219,29 @@ delivery:
 
 Startup cost is bounded by eligible channel count times 20 messages.
 
+## Pending Delivery And Idle Wake
+
+Routing decides who is eligible for delivery. The existing delivery mechanism
+still decides how to deliver:
+
+- if the daemon WebSocket is connected, send `agent:deliver`;
+- otherwise call `queuePendingDelivery` for that selected agent.
+
+Messages should go through routing before they are queued, so pending deliveries
+do not become a bypass around spam reduction.
+
+Cached-idle wake policy is a separate layer. If a routed recipient is cached
+idle, the implementation still needs a product decision: wake it immediately, or
+queue/catch it up later unless explicitly targeted. This design is compatible
+with either choice.
+
+## Configurability
+
+The initial threshold is 4 visible agents because the feature is intended for
+large rooms where all-agent fanout becomes noisy. Implementation can start with
+a constant, but the threshold should be isolated in the router so it can become
+per-channel configuration later.
+
 ## Module Boundary
 
 Keep this feature inside notification delivery internals. Message creation,
@@ -216,8 +262,8 @@ Responsibilities:
   policy.
 - `activeAgentWindowStore.js`: channel/thread ring state, LRU, TTL, hydration,
   and restart rebuild.
-- `involvedAgents.js`: explicit mention, keyword match, sender, and task-agent
-  extraction.
+- `involvedAgents.js`: explicit mention, optional keyword match, sender, and
+  task-agent extraction.
 
 The existing server path should change in one place: replace direct fanout to
 all visible agents with a call to the router.
@@ -238,7 +284,7 @@ Agents should still avoid replying when:
 
 Agents should reply when:
 
-- directly addressed by `@name` or case-insensitive name keyword;
+- directly addressed by `@name` or an enabled name keyword;
 - assigned, claimed, or asked to take a task;
 - holding context that is necessary to unblock the current discussion;
 - explicitly asked for review, synthesis, or a decision.
@@ -252,8 +298,16 @@ messages.
 - Channel with 3 visible agents keeps current all-visible delivery.
 - Channel with 4 visible agents and no directed agents delivers only to agents
   active in the latest 20 top-level channel messages.
-- `@name` and case-insensitive name keyword both direct delivery.
+- `@name` directs delivery.
+- If keyword routing is enabled, case-insensitive name keyword directs delivery
+  without changing the small-channel `@mention` behavior unless explicitly
+  configured.
 - Keyword match does not trigger on substrings inside longer tokens.
+- Ring eviction decrements counts and deletes zero-count entries.
+- Current message recipients are resolved before the current message updates the
+  active-agent window.
+- Selected offline recipients still flow through `queuePendingDelivery`; queued
+  delivery does not bypass routing.
 - Thread root creates no thread state until first reply.
 - First thread reply hydrates root participants and can notify root-involved
   agents.
