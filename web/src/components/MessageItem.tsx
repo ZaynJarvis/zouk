@@ -7,7 +7,7 @@ import { getStoredLinkTransforms, subscribeLinkTransforms } from '../store/stora
 import { parseMarkdown } from '../lib/markdown';
 import ImageLightbox from './ImageLightbox';
 import FailableImage from './FailableImage';
-import { Avatar } from './zk/primitives';
+import { Avatar, AgentAvatar } from './zk/primitives';
 
 function isImageAttachment(att: { filename: string; contentType?: string }): boolean {
   if (att.contentType?.startsWith('image/')) return true;
@@ -275,30 +275,20 @@ export default function MessageItem({
             type="button"
             onClick={() => openAgentProfile(agentProfileId)}
             title={`View @${senderName} profile`}
-            style={{
-              position: 'relative',
-              padding: 0, border: 0, background: 'transparent',
-              cursor: 'pointer',
-            }}
+            style={{ padding: 0, border: 0, background: 'transparent', cursor: 'pointer', lineHeight: 0 }}
           >
-            <Avatar
-              src={senderPicture}
-              name={senderName}
-              kind="agent"
-            />
-            {senderAgent && ['working', 'thinking', 'error'].includes(senderAgent.activity ?? '') && (
-              <span style={{ position: 'absolute', right: -1, bottom: -1 }} className={`zk-dot zk-dot--${senderAgent.activity}`} />
+            {senderAgent ? (
+              <AgentAvatar agent={senderAgent} hideDotWhen={['offline', 'online']} />
+            ) : (
+              <Avatar src={senderPicture} name={senderName} kind="agent" />
             )}
           </button>
         ) : (
-          <div style={{ position: 'relative' }}>
-            <Avatar
-              src={senderPicture}
-              name={senderName}
-              kind={isAgent ? 'agent' : 'human'}
-            />
-            {isAgent && senderAgent && ['working', 'thinking', 'error'].includes(senderAgent.activity ?? '') && (
-              <span style={{ position: 'absolute', right: -1, bottom: -1 }} className={`zk-dot zk-dot--${senderAgent.activity}`} />
+          <div>
+            {isAgent && senderAgent ? (
+              <AgentAvatar agent={senderAgent} hideDotWhen={['offline', 'online']} />
+            ) : (
+              <Avatar src={senderPicture} name={senderName} kind={isAgent ? 'agent' : 'human'} />
             )}
           </div>
         )}
