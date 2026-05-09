@@ -1757,7 +1757,14 @@ function requireAuth(req, res, next) {
 // Single insert path for human-style messages — POST /api/messages and
 // POST /api/trigger both go through this so any new downstream side-effect
 // (mention-fanout, broadcast, persistence) lands in lockstep.
-function insertUserMessage({ channelId, channelName, channelType, threadId, senderName, senderType, content, attachments }) {
+//
+// Split into persist + fanout so handlers can flush the HTTP response between
+// them. If broadcast runs before res.json, a sender on a flaky network sees
+// their own WS event land while the HTTP ack times out — toast 'send failed'
+// despite the message being saved + delivered. Persisting first, responding,
+// then fanning out preserves all downstream behavior in the same tick while
+// removing that ordering trap.
+function persistUserMessage({ channelId, channelName, channelType, threadId, senderName, senderType, content, attachments }) {
   const msg = {
     id: uuidv4(),
     seq: nextSeq(),
@@ -1773,12 +1780,15 @@ function insertUserMessage({ channelId, channelName, channelType, threadId, send
   };
   appendMessage(msg);
   db.saveMessage(msg);
+  return msg;
+}
+
+function fanoutUserMessage(msg) {
   // Regular channel delivery uses channel_agents membership; DM delivery
   // resolves parties from the canonical channel name inside deliverToAllAgents.
   deliverToAllAgents(msg);
   // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
   broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
-  return msg;
 }
 
 // Send message from web UI (human user)
@@ -1793,7 +1803,7 @@ app.post("/api/messages", requireAuth, (req, res) => {
   const { channelName, channelType, threadId } = parseTarget(target, senderName);
   const ch = findOrCreateChannel(channelName, channelType);
 
-  const msg = insertUserMessage({
+  const msg = persistUserMessage({
     channelId: ch.id,
     channelName,
     channelType,
@@ -1805,6 +1815,7 @@ app.post("/api/messages", requireAuth, (req, res) => {
   });
 
   res.json({ messageId: msg.id, message: msg });
+  fanoutUserMessage(msg);
 });
 
 // Auth middleware for the external trigger API — validates the X-API-Key
@@ -1853,7 +1864,7 @@ app.post("/api/trigger", requireMachineKey, (req, res) => {
     return res.status(404).json({ error: `channel #${channelName} not found` });
   }
 
-  const msg = insertUserMessage({
+  const msg = persistUserMessage({
     channelId: ch.id,
     channelName,
     channelType: "channel",
@@ -1865,6 +1876,7 @@ app.post("/api/trigger", requireMachineKey, (req, res) => {
   });
 
   res.json({ messageId: msg.id, message: msg });
+  fanoutUserMessage(msg);
 });
 
 // Upload an attachment from the web UI. Shares the same on-disk storage the
