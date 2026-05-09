@@ -5,8 +5,6 @@ import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { getStoredLinkTransforms, subscribeLinkTransforms } from '../store/storage';
 import { parseMarkdown } from '../lib/markdown';
-import StatusDot from './StatusDot';
-import { agentStatus } from '../lib/avatarStatus';
 import ImageLightbox from './ImageLightbox';
 import FailableImage from './FailableImage';
 import { Avatar } from './zk/primitives';
@@ -288,8 +286,8 @@ export default function MessageItem({
               name={senderName}
               kind="agent"
             />
-            {senderAgent && (
-              <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
+            {senderAgent && ['working', 'thinking', 'error'].includes(senderAgent.activity ?? '') && (
+              <span style={{ position: 'absolute', right: -1, bottom: -1 }} className={`zk-dot zk-dot--${senderAgent.activity}`} />
             )}
           </button>
         ) : (
@@ -299,8 +297,8 @@ export default function MessageItem({
               name={senderName}
               kind={isAgent ? 'agent' : 'human'}
             />
-            {isAgent && senderAgent && (
-              <StatusDot status={agentStatus(senderAgent)} hideWhen={['offline', 'online']} />
+            {isAgent && senderAgent && ['working', 'thinking', 'error'].includes(senderAgent.activity ?? '') && (
+              <span style={{ position: 'absolute', right: -1, bottom: -1 }} className={`zk-dot zk-dot--${senderAgent.activity}`} />
             )}
           </div>
         )}

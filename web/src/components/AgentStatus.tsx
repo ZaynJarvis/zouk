@@ -1,7 +1,5 @@
-/* NowRail — persistent right-side panel showing live agent activity.
-   Direct port of NowRail/NowCard from
-   tmp/.../zouk-rethink/v1-conservative.jsx, wired to real agent + machine
-   state. 320px wide, hidden on mobile, hides whenever any other right panel
+/* AgentStatus — persistent right-side panel showing live agent activity.
+   320px wide, hidden on mobile, hides whenever any other right panel
    (thread / details / etc.) is open. */
 
 import { useMemo, useState } from 'react';
@@ -106,7 +104,7 @@ function NowCard({
   );
 }
 
-export default function NowRail() {
+export default function AgentStatus() {
   const { agents, machines, openAgentProfile, setNowRailHidden } = useApp();
   const [filter, setFilter] = useState<Filter>('live');
 
@@ -252,9 +250,9 @@ export default function NowRail() {
   );
 }
 
-/* Thin vertical strip on the right edge — shown in place of the full NowRail
+/* Thin vertical strip on the right edge — shown in place of the full AgentStatus panel
    when the user has collapsed it. Click expands the rail back. */
-export function NowRailPeek() {
+export function AgentStatusPeek() {
   const { setNowRailHidden, agents } = useApp();
   const liveCount = agents.filter(isLive).length;
 

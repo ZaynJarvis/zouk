@@ -7,7 +7,7 @@ import TopBar from './components/TopBar';
 import MessageList from './components/MessageList';
 import MessageComposer from './components/MessageComposer';
 import RightPanel from './components/RightPanel';
-import NowRail, { NowRailPeek } from './components/NowRail';
+import AgentStatus, { AgentStatusPeek } from './components/AgentStatus';
 import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
@@ -95,7 +95,7 @@ function AppShell() {
   // hosts the workspace nav row), so they are no longer gated on
   // showChannelSidebar.
   const showChannelSidebarDesktop = showMessageView;
-  // NowRail shows by default on the right when in a conversation, no other
+  // AgentStatus panel shows by default on the right when in a conversation, no other
   // panel is open, and we have desktop width. Mobile keeps the right column
   // free for the message stream.
   const showNowRail = showMessageView && !rightPanel;
@@ -174,10 +174,10 @@ function AppShell() {
             </div>
           </div>
 
-          {/* NowRail — default right column on lg+ when no other panel is up.
-              When the user collapses it, we render a thin NowRailPeek strip
+          {/* AgentStatus — default right column on lg+ when no other panel is up.
+              When the user collapses it, we render a thin AgentStatusPeek strip
               instead so the panel can be re-opened from the right edge. */}
-          {/* NowRail width transitions to 0 instead of unmounting, preventing
+          {/* Width transitions to 0 instead of unmounting, preventing
               the abrupt 320px layout shift when a right panel opens. */}
           <div
             className="hidden lg:block overflow-hidden"
@@ -187,7 +187,7 @@ function AppShell() {
               transition: 'width 180ms ease-out',
             }}
           >
-            {nowRailHidden ? <NowRailPeek /> : <NowRail />}
+            {nowRailHidden ? <AgentStatusPeek /> : <AgentStatus />}
           </div>
         </div>
       </div>

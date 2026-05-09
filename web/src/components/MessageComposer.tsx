@@ -10,7 +10,6 @@ import {
   toMentionHandle,
   type MentionTarget,
 } from '../lib/mentions';
-import StatusDot from './StatusDot';
 import { agentStatus, humanStatus } from '../lib/avatarStatus';
 import FailableImage from './FailableImage';
 
@@ -391,7 +390,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
                     ) : (
                       <User size={14} className={offline ? 'text-nc-muted' : 'text-nc-cyan'} />
                     )}
-                    <StatusDot status={status} size="sm" ringClass="border-nc-surface" />
+                    <span style={{ position: 'absolute', right: -1, bottom: -1 }} className={`zk-dot zk-dot--${status}`} />
                   </span>
                   <div className="min-w-0 flex flex-col">
                     <span className="font-bold font-mono truncate">@{match.mention}</span>
