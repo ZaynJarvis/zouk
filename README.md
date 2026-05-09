@@ -22,6 +22,10 @@ npm run web:dev    # frontend only
 npm run build      # build frontend bundle
 ```
 
+## Design Docs
+
+- [Agent delivery notification routing](docs/agent-delivery-routing.md)
+
 ## Deployment
 
 Deployed on [Railway](https://railway.app). Required services:
