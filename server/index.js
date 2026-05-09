@@ -3069,6 +3069,23 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           replayPendingDeliveries(agentId);
         }
       }
+      // Reconcile stale agent state: any agent on this machine that is currently
+      // active+working but absent from runningAgents had its process die without
+      // the daemon sending agent:status inactive (e.g. daemon crash). Reset its
+      // activity to 'online' so the dot shows idle (green) instead of stuck-working.
+      {
+        const runningSet = new Set(msg.runningAgents || []);
+        for (const [agentId, agent] of Object.entries(store.agents)) {
+          if (agent.machineId !== ws._machineId) continue;
+          if (runningSet.has(agentId)) continue;
+          if (agent.status !== "active") continue;
+          if (["working", "thinking", "error"].includes(agent.activity)) {
+            store.agents[agentId].activity = "online";
+            store.agents[agentId].activityDetail = undefined;
+            broadcastToWeb({ type: "agent_activity", agentId, activity: "online", detail: "Idle" });
+          }
+        }
+      }
       break;
     }
     case "agent:status": {
