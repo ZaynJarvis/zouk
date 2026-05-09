@@ -8,8 +8,7 @@ import type { ServerAgent, MemoryEntry } from '../types';
 import { activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
-import StatusDot from './StatusDot';
-import { agentAvatarStatus, agentLifecycle, agentStatus, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
+import { agentAvatarStatus, agentLifecycle, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
@@ -25,7 +24,6 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
   const { machines, openAgentSettings, selectChannel, loadAgentActivities, theme } = useApp();
   const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
   const activity = agent.activity || 'offline';
-  const status = agentStatus(agent);
   const avatarStatus = agentAvatarStatus(agent);
   const isActive = agent.status === 'active';
   const entries = agent.entries || [];
@@ -50,7 +48,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
                 (agent.displayName || agent.name).charAt(0).toUpperCase()
               )}
             </div>
-            <StatusDot status={status} ringClass="border-nc-surface" />
+            <span style={{ position: 'absolute', right: -1, bottom: -1 }} className={`zk-dot zk-dot--${activity}`} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 min-w-0">
