@@ -48,7 +48,16 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
                 (agent.displayName || agent.name).charAt(0).toUpperCase()
               )}
             </div>
-            <span style={{ position: 'absolute', right: -1, bottom: -1 }} className={`zk-dot zk-dot--${activity}`} />
+            <span
+              style={{
+                position: 'absolute', right: -1, bottom: -1,
+                width: 8, height: 8,
+                border: '2px solid var(--zk-bg-1)',
+                borderRadius: '50%',
+                boxSizing: 'content-box',
+              }}
+              className={`zk-dot zk-dot--${avatarStatus}`}
+            />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 min-w-0">
