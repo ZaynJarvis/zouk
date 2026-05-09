@@ -50,7 +50,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
             </div>
             <span
               style={{
-                position: 'absolute', right: 1, bottom: 1,
+                position: 'absolute', right: -1, bottom: -1,
                 width: 8, height: 8,
                 border: '2px solid var(--zk-bg-1)',
                 borderRadius: '50%',
