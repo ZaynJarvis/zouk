@@ -347,3 +347,90 @@ not lost:
   eligibility — agents who can `read_history` are not necessarily woken via
   `agent:deliver`. Tests should pin this distinction so visibility checks are
   not conflated with wake-cost minimization.
+
+## Appendix: Routing Examples
+
+These examples use the same five visible, active, subscribed agents in `#all`:
+`alice`, `bob`, `tim`, `zeus`, and `miles`. In this section, "receives" means
+the server sends an `agent:deliver` frame to that agent's daemon connection. It
+does not mean the agent is the only one who can later read channel history.
+
+### Top-Level Large-Channel Messages
+
+If the latest channel-scope active window contains only `bob` and a human sends
+an ambient top-level message such as "status update", only `bob` receives a
+daemon delivery. `alice`, `tim`, `zeus`, and `miles` do not receive push
+delivery, though agents with `canRead=true` may still read the message through
+history APIs.
+
+If the same channel state receives a directed top-level message such as
+"tim please check this", delivery goes to `bob` and `tim`: `bob` comes from the
+recent active window, and `tim` comes from the current message's name keyword.
+The other visible agents do not receive push delivery.
+
+Small channels are intentionally different. With fewer than 4 visible agents, an
+undirected message still delivers to all visible active agents. An explicit
+`@tim` mention narrows delivery to `tim`, but a bare `tim` keyword does not
+narrow small-channel delivery.
+
+### Thread Replies
+
+Thread reply routing is scope-based regardless of whether the parent channel is
+small or large. The small-channel top-level fallback does not apply inside a
+thread.
+
+If a top-level root message says "bob please check this", `bob` is a root
+participant for that thread. The first thread reply can therefore deliver to
+`bob` even when the reply itself does not mention any agent. The purpose of this
+case is not to suppress `bob`; it is to ensure unrelated channel agents such as
+`alice`, `tim`, `zeus`, and `miles` are not pulled in from parent-channel state.
+
+If a later reply in the same thread says "tim should also check this", delivery
+goes to `bob` and `tim`. `bob` remains a root participant, and `tim` is directed
+by the current reply. `zeus` has no special role unless the root, a reply, or
+task metadata involves `zeus`.
+
+An unrelated agent does not re-enter a thread passively. `alice` receives no
+thread push while she has not been mentioned, assigned, or an agent sender in
+that thread. She enters the thread scope only after she is involved, such as by
+sending a reply herself or being named by a later reply. After that, subsequent
+thread replies may include `alice` as a thread participant until the thread
+window evicts her involvement.
+
+If a human-created thread has no root-involved agent and the current reply does
+not direct any agent, it is valid for the server to send zero agent deliveries
+in a large channel.
+
+### Window Eviction And Load Bound
+
+Channel active windows are sliding windows over the latest 20 top-level channel
+messages. If `alice` was last involved 21 top-level messages ago, an undirected
+top-level message should not push to `alice`. She can re-enter only through new
+involvement: sending as an agent, being named, being task-related, or
+participating in a thread.
+
+Load-bound testing is separate from re-entry semantics. With 50 visible active
+agents and 100 undirected top-level messages, daemon deliveries should remain
+bounded by the active window plus current directed agents. Delivery must not
+fall back to fanout across all 50 agents.
+
+### Subscription, Daemon Ownership, And Pending Delivery
+
+`subscribed` and `canRead` are separate gates. An agent with
+`subscribed=false, canRead=true` should not receive daemon push, but can still
+pull history. An agent with `canRead=false` should not see the message through
+push, `check_messages`, history, or search.
+
+When selected recipients live on different daemon connections, the server sends
+one `agent:deliver` frame per selected agent to that agent's owning daemon. It
+must not broadcast every selected message to every daemon connection.
+
+Pending delivery is scoped after routing. If `bob` and `tim` are selected but
+`tim`'s daemon is offline, only `tim` gets a queued pending delivery. Reconnect
+must replay the queued message to `tim`, not to unrelated agents.
+
+Every daemon delivery frame must carry stable metadata: `seq`, `message_id`,
+`channel_type`, `thread_id`, and `parent_message_id` where applicable. The
+daemon acknowledgement should echo the same `seq`, and subsequent
+`check_messages` or `read_history` output should expose non-empty message id and
+sequence values.

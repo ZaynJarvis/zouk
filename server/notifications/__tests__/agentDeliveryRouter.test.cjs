@@ -10,6 +10,7 @@ const agentsById = {
   tim: { id: "tim", name: "tim", displayName: "Tim" },
   hela: { id: "hela", name: "hela", displayName: "Hela" },
   zeus: { id: "zeus", name: "zeus", displayName: "Zeus" },
+  miles: { id: "miles", name: "miles", displayName: "Miles" },
 };
 
 function msg(overrides) {
@@ -168,6 +169,82 @@ test("thread replies route to thread participants plus thread-local directed age
       agentsById,
     }).sort(),
     ["hela", "zeus"].sort()
+  );
+});
+
+test("thread-directed agents stay in thread scope for later ambient replies", () => {
+  const root = msg({
+    id: "root-msg-3",
+    content: "bob please check this",
+  });
+  const threadId = root.id.slice(0, 8);
+  const replies = [];
+  const router = new AgentDeliveryRouter({
+    getThreadRootMessage: () => root,
+    getThreadReplies: () => replies,
+  });
+  router.recordMessage(msg({ id: "channel-active", senderType: "agent", senderName: "alice" }), { agentsById });
+
+  const directedReply = msg({ id: "reply-directed", threadId, content: "tim should also check this" });
+  assert.deepEqual(
+    router.resolveRecipients({
+      message: directedReply,
+      visibleAgentIds: ["alice", "bob", "tim", "hela", "zeus"],
+      agentsById,
+    }).sort(),
+    ["bob", "tim"].sort()
+  );
+  replies.push(directedReply);
+  router.recordMessage(directedReply, { agentsById });
+
+  assert.deepEqual(
+    router.resolveRecipients({
+      message: msg({ id: "reply-ambient", threadId, content: "any update?" }),
+      visibleAgentIds: ["alice", "bob", "tim", "hela", "zeus"],
+      agentsById,
+    }).sort(),
+    ["bob", "tim"].sort()
+  );
+});
+
+test("agent senders enter thread scope only after participating", () => {
+  const root = msg({
+    id: "root-msg-4",
+    content: "bob please check this",
+  });
+  const threadId = root.id.slice(0, 8);
+  const replies = [];
+  const router = new AgentDeliveryRouter({
+    getThreadRootMessage: () => root,
+    getThreadReplies: () => replies,
+  });
+
+  assert.deepEqual(
+    router.resolveRecipients({
+      message: msg({ id: "reply-before-alice", threadId, content: "any update?" }),
+      visibleAgentIds: ["alice", "bob", "tim", "hela", "zeus"],
+      agentsById,
+    }),
+    ["bob"]
+  );
+
+  const aliceReply = msg({
+    id: "reply-alice",
+    threadId,
+    senderType: "agent",
+    senderName: "alice",
+    content: "I can help",
+  });
+  replies.push(aliceReply);
+  router.recordMessage(aliceReply, { agentsById });
+
+  assert.deepEqual(
+    router.resolveRecipients({
+      message: msg({ id: "reply-after-alice", threadId, content: "next update" }),
+      visibleAgentIds: ["alice", "bob", "tim", "hela", "zeus"],
+      agentsById,
+    }).sort(),
+    ["alice", "bob"].sort()
   );
 });
 
