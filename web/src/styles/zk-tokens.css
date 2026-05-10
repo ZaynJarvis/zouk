@@ -342,6 +342,11 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
   background: var(--zk-bg-3); border: 1px solid var(--zk-line);
   padding: 1px 5px; border-radius: 3px; color: var(--zk-ember-bright);
 }
+.zk-prose pre code {
+  font-size: inherit;
+  background: transparent; border: 0;
+  padding: 0; border-radius: 0; color: inherit;
+}
 .zk-prose strong { color: var(--zk-ink); font-weight: 600; }
 
 .zk-mention {
