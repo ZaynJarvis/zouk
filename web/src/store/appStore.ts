@@ -234,7 +234,22 @@ export function useAppStore() {
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
         setChannels(nextChannels);
-        setAgents(nextAgents);
+        // `init` replays on every WS reconnect. The server payload doesn't carry
+        // trajectory entries (those live in DB, not in the runtime store), so
+        // preserve any activity log already accumulated locally — otherwise the
+        // Activity tab silently goes empty after an idle reconnect.
+        setAgents(prev => {
+          if (prev.length === 0) return nextAgents;
+          const prevById = new Map(prev.map(a => [a.id, a]));
+          return nextAgents.map(a => {
+            const existing = prevById.get(a.id);
+            if (!existing) return a;
+            return {
+              ...a,
+              entries: a.entries ?? existing.entries,
+            };
+          });
+        });
         setHumans(nextHumans);
         setConfigs(e.configs || []);
         setMachines(e.machines || []);
