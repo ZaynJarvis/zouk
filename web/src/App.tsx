@@ -117,20 +117,32 @@ function AppShell() {
       )}
 
       {/* Mobile sidebar: centered modal (lg:hidden keeps it out of desktop layout).
+          The overlay pads for iOS safe areas so the centered modal can never
+          encroach on the status-bar or home-indicator bands — without this,
+          a tall sidebar at 80dvh on a small viewport could clip into the
+          notch on non-chat pages where the page header stops above it.
           dvh instead of vh so iOS Safari/PWA dynamic chrome (URL bar, keyboard,
-          home indicator) doesn't clip the modal — the previous max-h-[65vh]
-          left users with a list that "couldn't scroll" because the bottom
-          edge of the modal was sometimes off-screen. min-h-0 makes the
-          inner flex column allow its scroll body to shrink and scroll.
-          The modal is reachable from any view (the workspace nav row inside
-          handles the cross-view navigation). */}
+          home indicator) doesn't clip the modal. min-h-0 makes the inner
+          flex column allow its scroll body to shrink and scroll. The modal
+          is reachable from any view (the workspace nav row inside handles
+          cross-view navigation). The wrapper uses zk-* tokens (not the
+          legacy cyber-panel) so the surface and border match the rest of
+          the atlas chrome. */}
       {sidebarOpen && (
         <div
           className={`lg:hidden fixed inset-0 bg-nc-black/60 z-40 flex items-center justify-center transition-opacity duration-[180ms] ${mobileSidebarClosing ? 'opacity-0' : 'opacity-100 animate-fade-in'}`}
+          style={{
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          }}
           onClick={closeMobileSidebar}
         >
           <div
-            className={`w-[82vw] max-w-sm max-h-[80dvh] min-h-0 flex flex-col cyber-panel rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
+            className={`w-[82vw] max-w-sm max-h-[80dvh] min-h-0 flex flex-col rounded-xl overflow-hidden shadow-2xl ${mobileSidebarClosing ? '' : 'animate-slide-in-left'}`}
+            style={{
+              background: 'var(--zk-bg-1)',
+              border: '1px solid var(--zk-line)',
+            }}
             onClick={e => e.stopPropagation()}
           >
             <ChannelSidebar phoneModal />
