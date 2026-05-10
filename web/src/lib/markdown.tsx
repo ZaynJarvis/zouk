@@ -399,7 +399,7 @@ export function parseMarkdown(content: string, linkRules: LinkTransformRule[]): 
             {lang}
           </div>
         )}
-        <pre className="overflow-x-auto max-w-full">
+        <pre className="overflow-x-auto max-w-full bg-nc-black">
           {highlighted ? (
             <code
               className="hljs block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre"
@@ -411,11 +411,6 @@ export function parseMarkdown(content: string, linkRules: LinkTransformRule[]): 
             </code>
           )}
         </pre>
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute top-0 bottom-0 right-0 w-6"
-          style={{ background: 'linear-gradient(to left, rgb(var(--nc-black)) 20%, transparent)' }}
-        />
       </div>
     );
     lastIndex = match.index + match[0].length;
