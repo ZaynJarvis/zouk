@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  X, Bot, User as UserIcon, Activity, FolderOpen, Settings as SettingsIcon, MessageCircle,
+  X, User as UserIcon, Activity, FolderOpen, Settings as SettingsIcon, MessageCircle,
   Brain, ChevronRight, File, Folder, FolderOpen as FolderOpenIcon,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
@@ -404,16 +404,24 @@ export default function AgentProfilePanel() {
 
   return (
     <div className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
-      <div className="h-14 border-b border-nc-border flex items-center justify-between px-4 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Bot size={14} className="text-nc-cyan shrink-0" />
-          <h3 className="font-display font-extrabold text-base text-nc-text-bright tracking-wider truncate">
-            @{agent.displayName || agent.name}
-          </h3>
-        </div>
+      {/* Top bar: only a close button on the right. The agent identity
+          (avatar + @name + AGENT badge + status) is rendered by ProfileTab
+          right below, so duplicating @name here was just visual noise.
+          safe-area-inset-top padding keeps the button below the iOS notch /
+          status bar on phone PWA, where this panel covers the full viewport
+          on non-chat views (Agents / Tasks / Memory) and there is no parent
+          TopBar to absorb the safe-area inset. */}
+      <div
+        className="border-b border-nc-border flex items-center justify-end px-4 shrink-0"
+        style={{
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+          paddingBottom: 6,
+        }}
+      >
         <button
           onClick={closeRightPanel}
           className="w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-red hover:text-nc-red hover:bg-nc-red/10 transition-all shrink-0"
+          style={{ marginTop: 6 }}
           title="Close"
         >
           <X size={16} />
