@@ -2926,7 +2926,8 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 function handleDaemonConnection(ws, apiKey) {
-  console.log(`[daemon] Connected with key: ${apiKey?.substring(0, 8)}...`);
+  const keyAlias = findMachineKeyRecord(apiKey)?.name || '(unknown)';
+  console.log(`[daemon] Connected: key=${apiKey?.substring(0, 8)}... alias=${keyAlias}`);
   let connectedAgents = new Set();
   daemonConnections.add(ws);
   ws._apiKey = apiKey;
@@ -2959,7 +2960,7 @@ function handleDaemonConnection(ws, apiKey) {
   });
 
   ws.on("close", () => {
-    console.log("[daemon] Disconnected");
+    console.log(`[daemon] Disconnected: machine=${ws._machineId}`);
     daemonConnections.delete(ws);
     const replacementConnected = Array.from(daemonConnections).some((otherWs) => (
       otherWs.readyState === 1 && otherWs._machineId === ws._machineId
@@ -3009,7 +3010,7 @@ function enqueueActivity(agentId, task) {
 function handleDaemonMessage(ws, msg, connectedAgents) {
   switch (msg.type) {
     case "ready": {
-      console.log(`[daemon] Ready. Runtimes: ${msg.runtimes?.join(", ")}. Agents: ${msg.runningAgents?.join(", ") || "none"}`);
+      console.log(`[daemon] Ready: machine=${ws._machineId} runtimes=${msg.runtimes?.join(",")} agents=${msg.runningAgents?.join(",") || "none"}`);
       ws._runtimes = msg.runtimes || [];
       ws._capabilities = msg.capabilities || [];
       // Update machine record with real info from daemon
@@ -3163,7 +3164,7 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
           resolver();
         }
       }
-      console.log(`[agent:${agentId}] Status: ${status}`);
+      console.log(`[agent:${agentId}] Status: ${status} machine=${ws._machineId}`);
       break;
     }
     case "agent:activity": {
@@ -3175,16 +3176,20 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       }
       const ownerWs = daemonSockets.get(agentId);
       if (ownerWs && ownerWs !== ws) {
-        console.log(`[agent:${agentId}] Ignoring activity from stale daemon connection on machine ${ws._machineId}`);
+        console.warn(`[agent:${agentId}] Dropped activity=${activity} from stale connection machine=${ws._machineId} (owner=machine:${ownerWs._machineId})`);
         break;
       }
       enqueueActivity(agentId, async () => {
+        const prev = store.agents[agentId]?.activity;
         if (store.agents[agentId]) {
           store.agents[agentId].activity = activity;
           store.agents[agentId].activityDetail = detail;
           if (contextUsage) {
             store.agents[agentId].contextUsage = contextUsage;
           }
+        }
+        if (prev !== activity) {
+          console.log(`[agent:${agentId}] Activity: ${prev ?? '?'} → ${activity}${detail ? ` (${detail})` : ''}`);
         }
         if (Array.isArray(entries) && entries.length > 0) {
           try {
@@ -3212,7 +3217,6 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       if (store.agents[agentId]) {
         store.agents[agentId].sessionId = sessionId;
       }
-      console.log(`[agent:${agentId}] Session: ${sessionId?.substring(0, 8)}...`);
       break;
     }
     case "agent:deliver:ack": {
@@ -3313,7 +3317,6 @@ function handleWebConnection(ws, authenticated, token = null) {
   ws._humanName = token ? (authSessions.get(token)?.name || null) : null;
   ws._human = null;
   webSockets.add(ws);
-  console.log(`[web] Client connected (authenticated: ${ws._authenticated})`);
 
   // Defer the init send so a burst of reconnects doesn't monopolize one tick.
   // The init payload is large (channels + agents + humans + configs + machines
@@ -3349,7 +3352,6 @@ function handleWebConnection(ws, authenticated, token = null) {
     if (ws._humanName) removeHumanPresence(ws._humanName);
     webSockets.delete(ws);
     recordWsDisconnect(ws._trackerEntry);
-    console.log("[web] Client disconnected");
   });
 
   const pingInterval = setInterval(() => {
