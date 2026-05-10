@@ -221,3 +221,127 @@ test("thread scope cache enforces global LRU cap and TTL", () => {
   assert.deepEqual(store.activeThreadAgentIds("ch", "t1"), []);
   assert.deepEqual(store.activeThreadAgentIds("ch", "t3"), []);
 });
+
+// Regression for the 2026-05-10 #all:31f286f7 leak: alice received a thread
+// reply that did not direct her, in a channel whose visible-active count
+// dipped below 4. Spec (zaynjarvis 0c6109bc): thread participants continue to
+// receive subsequent messages; small and large channel thread routing must be
+// identical. The current resolveSmallChannel path ignores threadId entirely
+// and broadcasts to all visible agents.
+test("small channel thread reply uses thread scope, not all-visible fallback", () => {
+  const root = msg({
+    id: "root-small-1",
+    senderType: "agent",
+    senderName: "miles",
+    content: "ambient",
+  });
+  const threadId = root.id.slice(0, 8);
+  const router = new AgentDeliveryRouter({
+    getThreadRootMessage: () => root,
+    getThreadReplies: () => [],
+  });
+
+  // Small channel: only 3 visible active agents → enters resolveSmallChannel.
+  // Reply by miles, no @mention or keyword. Expected recipients: thread root
+  // participant {miles}, NOT the entire visible set.
+  assert.deepEqual(
+    router.resolveRecipients({
+      message: msg({
+        id: "reply-small-1",
+        threadId,
+        senderType: "agent",
+        senderName: "miles",
+        content: "bump",
+      }),
+      visibleAgentIds: ["alice", "bob", "miles"],
+      agentsById,
+      excludeAgentId: "miles",
+    }),
+    []
+  );
+});
+
+test("thread routing is independent of channel size (small/large symmetry)", () => {
+  const root = msg({
+    id: "root-sym-1",
+    senderType: "agent",
+    senderName: "zeus",
+    content: "kickoff",
+  });
+  const threadId = root.id.slice(0, 8);
+  const buildRouter = () => new AgentDeliveryRouter({
+    getThreadRootMessage: () => root,
+    getThreadReplies: () => [],
+  });
+  const reply = msg({
+    id: "reply-sym-1",
+    threadId,
+    content: "ask hela too",
+  });
+
+  const smallRecipients = buildRouter().resolveRecipients({
+    message: reply,
+    visibleAgentIds: ["alice", "zeus", "hela"],
+    agentsById,
+  });
+  const largeRecipients = buildRouter().resolveRecipients({
+    message: reply,
+    visibleAgentIds: ["alice", "bob", "tim", "zeus", "hela"],
+    agentsById,
+  });
+
+  // Same thread, same reply text → recipient set must contain identical
+  // thread-scope members regardless of how many other agents are subscribed
+  // to the parent channel. Bob/tim/alice never participated in this thread,
+  // so they should not appear in either list.
+  const intersect = (list, allowed) => list.filter((id) => allowed.has(id));
+  const threadParticipants = new Set(["zeus", "hela"]);
+  assert.deepEqual(intersect(smallRecipients, threadParticipants).sort(), ["hela", "zeus"]);
+  assert.deepEqual(intersect(largeRecipients, threadParticipants).sort(), ["hela", "zeus"]);
+  // And no parent-channel-only agent (bob/tim/alice) leaks into either path.
+  for (const stranger of ["alice", "bob", "tim"]) {
+    assert.equal(smallRecipients.includes(stranger), false, `small leaked ${stranger}`);
+    assert.equal(largeRecipients.includes(stranger), false, `large leaked ${stranger}`);
+  }
+});
+
+test("agent re-enters channel active window after replying once they aged out", () => {
+  const router = new AgentDeliveryRouter();
+  const visible = ["alice", "bob", "tim", "hela", "zeus"];
+
+  // alice was active 21 messages ago, then 20 unrelated top-level messages
+  // pushed her out of the latest-20 ring.
+  router.recordMessage(
+    msg({ id: "old", senderType: "agent", senderName: "alice", content: "early" }),
+    { agentsById }
+  );
+  for (let i = 0; i < 20; i += 1) {
+    router.recordMessage(msg({ id: `pad-${i}`, content: "" }), { agentsById });
+  }
+
+  // Next undirected top-level message must NOT route to alice — she aged out.
+  assert.deepEqual(
+    router.resolveRecipients({
+      message: msg({ id: "after-aging", content: "" }),
+      visibleAgentIds: visible,
+      agentsById,
+    }),
+    []
+  );
+
+  // alice replies → her involvement re-enters the window.
+  router.recordMessage(
+    msg({ id: "alice-back", senderType: "agent", senderName: "alice", content: "back" }),
+    { agentsById }
+  );
+
+  // Now an undirected top-level message routes to alice again.
+  assert.deepEqual(
+    router.resolveRecipients({
+      message: msg({ id: "after-return", content: "" }),
+      visibleAgentIds: visible,
+      agentsById,
+    }),
+    ["alice"]
+  );
+});

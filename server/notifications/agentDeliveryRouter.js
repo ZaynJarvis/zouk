@@ -49,15 +49,23 @@ class AgentDeliveryRouter {
       return [...visible];
     }
 
+    // Thread replies always route via thread-scope, regardless of how many
+    // agents are visible in the parent channel. The small-channel "deliver to
+    // all visible" fallback is for top-level channel messages only — applying
+    // it to thread replies leaks thread-only conversations to non-participants
+    // (regression: 2026-05-10 #all:31f286f7).
+    if (message.threadId) {
+      const directed = directedAgentIds(message.content || "", agentsById, { includeKeyword: true });
+      const active = this.resolveThreadActiveIds(message, agentsById);
+      return intersect([...active, ...directed], visible);
+    }
+
     if ((visibleAgentIds || []).length < this.largeChannelAgentThreshold) {
       return this.resolveSmallChannel(message, visible, agentsById);
     }
 
     const directed = directedAgentIds(message.content || "", agentsById, { includeKeyword: true });
-    const active = message.threadId
-      ? this.resolveThreadActiveIds(message, agentsById)
-      : this.windowStore.activeChannelAgentIds(message.channelId);
-
+    const active = this.windowStore.activeChannelAgentIds(message.channelId);
     return intersect([...active, ...directed], visible);
   }
 

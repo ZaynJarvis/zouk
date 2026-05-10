@@ -60,22 +60,26 @@ for (const agentId of recipients) deliverToAgent(agentId, message);
 The router applies these rules:
 
 1. If the message is a DM, keep canonical DM party delivery.
-2. If `visibleAgentIds.length < 4`, keep current behavior:
-   - if the message has explicit `@mentions`, deliver only to those agents;
-   - otherwise deliver to all visible agents.
-3. If `visibleAgentIds.length >= 4` and the message is top-level channel text:
-   - use channel-scope active agents from the latest 20 top-level channel rounds;
-   - union them with directed agents from the current message;
-   - intersect with visible agents and remove the sender.
-4. If `visibleAgentIds.length >= 4` and the message is a thread reply:
-   - use only thread-scope participants and directed agents;
+2. **Thread replies always use thread-scope routing**, regardless of how many
+   agents are visible in the parent channel:
+   - use thread-scope participants (root involved agents + reply-window active
+     agents) plus agents directed in the current reply;
    - do not include parent-channel active agents;
    - intersect with visible agents and remove the sender.
+3. For top-level channel messages, branch by visible-agent count:
+   - If `visibleAgentIds.length < 4`, keep simple behavior:
+     - if the message has explicit `@mentions`, deliver only to those agents;
+     - otherwise deliver to all visible agents.
+   - If `visibleAgentIds.length >= 4`:
+     - use channel-scope active agents from the latest 20 top-level channel rounds;
+     - union them with directed agents from the current message;
+     - intersect with visible agents and remove the sender.
 
 There is intentionally no fallback from a thread reply to all channel-visible
 agents. If a thread has no agent participant and the reply directs no agent, it
 is acceptable for server delivery to reach zero agents. This is the behavior
-that prevents large-channel spam.
+that prevents large-channel spam *and* keeps small-channel thread replies from
+leaking to non-participants.
 
 ## Directed Agent Extraction
 
@@ -310,7 +314,36 @@ messages.
 - First thread reply hydrates root participants and can notify root-involved
   agents.
 - Thread reply does not notify parent-channel active agents.
+- Thread reply routing is independent of channel size — small and large
+  channels apply the same thread-scope rule. (Regression: 2026-05-10
+  `#all:31f286f7` — small-channel branch previously ignored `threadId` and
+  fell back to "deliver to all visible agents", leaking thread-only
+  conversations.)
 - Evicting thread state via LRU or TTL does not change later delivery after DB
   hydration.
 - Server restart rebuilds eligible channel windows from latest 20 top-level
   messages and leaves thread windows lazy.
+
+## Phase 2 TODO
+
+These were scoped out of the initial routing fix and tracked here so they are
+not lost:
+
+- **Delivery payload contract enforcement**. Every `agent:deliver` frame must
+  carry non-undefined `seq`, `messageId`, `channelType`, `threadId`,
+  `parentMessageId`. The daemon `agent:deliver:ack` must echo the same `seq`.
+  `check_messages` and `read_history` responses must not return `-` /
+  `undefined` for `msg`/`seq`/`time`/`type`. (Observed broken on 2026-05-10:
+  `read_history(channel="#all:31f286f7")` returned all-`undefined` metadata.)
+- **Activity-log ↔ WS-frame symmetry invariant**. Every `agent:deliver` frame
+  ↔ exactly one activity-log row keyed on `(messageId, agentId)`. No
+  log-without-frame, no frame-without-log. Needed so activity log can be
+  trusted as ground truth during delivery debugging.
+- **Cross-host / multi-daemon ownership tests**. `agent:deliver` for an agent
+  must be sent only to that agent's owning daemon socket — never broadcast
+  across all daemon connections. Two daemons subscribing to the same channel
+  from different hosts must produce identical recipient sets per message.
+- **Subscription vs visibility split**. `canRead=true` does not imply WS push
+  eligibility — agents who can `read_history` are not necessarily woken via
+  `agent:deliver`. Tests should pin this distinction so visibility checks are
+  not conflated with wake-cost minimization.
