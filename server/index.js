@@ -1327,7 +1327,14 @@ function resolveAttachmentRefs(ids) {
   return ids.map((aid) => {
     const meta = attachmentStorage.statSync(aid);
     if (!meta) return { id: aid, filename: "unknown" };
-    return { id: aid, filename: meta.filename, contentType: meta.contentType };
+    const ref = { id: aid, filename: meta.filename, contentType: meta.contentType };
+    // Surface image dimensions so the client can reserve aspect-ratio space
+    // and avoid layout shift when the <img> loads.
+    if (typeof meta.width === "number" && typeof meta.height === "number") {
+      ref.width = meta.width;
+      ref.height = meta.height;
+    }
+    return ref;
   });
 }
 
@@ -1885,20 +1892,26 @@ app.post("/api/trigger", requireMachineKey, (req, res) => {
 app.post("/api/attachments", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file" });
   const id = uuidv4();
+  let meta;
   try {
-    await attachmentStorage.put(id, req.file.buffer, {
+    meta = await attachmentStorage.put(id, req.file.buffer, {
       filename: req.file.originalname,
       contentType: req.file.mimetype,
     });
   } catch (err) {
     return res.status(500).json({ error: "Failed to persist attachment", detail: err.message });
   }
-  res.json({
+  const payload = {
     id,
     filename: req.file.originalname,
     contentType: req.file.mimetype,
     sizeBytes: req.file.size,
-  });
+  };
+  if (typeof meta?.width === "number" && typeof meta?.height === "number") {
+    payload.width = meta.width;
+    payload.height = meta.height;
+  }
+  res.json(payload);
 });
 
 // Get messages for a channel

@@ -354,7 +354,13 @@ export default function MessageItem({
                     src={getAttachmentUrl(att.id)}
                     alt={att.filename}
                     className="block"
-                    style={{ maxWidth: 320, maxHeight: 240, objectFit: 'cover' }}
+                    width={att.width}
+                    height={att.height}
+                    style={
+                      att.width && att.height
+                        ? { maxWidth: 320, maxHeight: 240, width: 'auto', height: 'auto', objectFit: 'cover' }
+                        : { maxWidth: 320, maxHeight: 240, objectFit: 'cover' }
+                    }
                     fallbackClassName="w-40 h-28"
                     loading="lazy"
                   />
@@ -397,6 +403,8 @@ export default function MessageItem({
                 id: a.id,
                 src: getAttachmentUrl(a.id),
                 alt: a.filename,
+                width: a.width,
+                height: a.height,
               }))}
               initialIndex={lightboxIndex}
               onClose={() => setLightboxIndex(null)}
