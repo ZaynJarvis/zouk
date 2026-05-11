@@ -78,6 +78,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
               onClick={() => selectChannel(agent.name, true)}
               title="Message"
               className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-cyan bg-nc-cyan/10 text-nc-cyan hover:bg-nc-cyan/20"
+              style={{ borderRadius: '8px 8px 8px 0' }}
             >
               <MessageCircle size={13} />
             </button>
