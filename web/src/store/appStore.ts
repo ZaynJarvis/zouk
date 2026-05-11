@@ -67,6 +67,32 @@ function getValidStoredLastView(
   return null;
 }
 
+/**
+ * Resolve the channel key an agent message should be attributed to for the
+ * sidebar / LIVE rail. Mirrors the conversation key the rest of the store
+ * uses: plain channel name for channels, peer name (from currentUser's POV)
+ * for DMs. Thread replies bubble up to their parent channel so an agent that
+ * is mid-thread still shows up on the channel they're working in.
+ */
+function resolveAgentMessageChannel(msg: MessageRecord, currentUser: string): string | null {
+  if (!msg.sender_name) return null;
+  const isThread = msg.channel_type === 'thread';
+  const parentType = isThread ? (msg.parent_channel_type || 'channel') : msg.channel_type;
+  const parentName = isThread ? (msg.parent_channel_name || '') : msg.channel_name;
+  if (!parentName) return null;
+  if (parentType === 'dm') {
+    if (msg.dm_parties && msg.dm_parties.length >= 2) {
+      return msg.dm_parties.find(p => p !== currentUser) || msg.dm_parties[0];
+    }
+    if (parentName.startsWith('dm:')) {
+      const parties = parentName.substring(3).split(',');
+      return parties.find(p => p !== currentUser) || parties[0];
+    }
+    return parentName;
+  }
+  return parentName;
+}
+
 function isValidSelection(
   mode: ViewMode,
   name: string,
@@ -116,6 +142,13 @@ export function useAppStore() {
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [threadedMessageIds, setThreadedMessageIds] = useState<Set<string>>(new Set());
+  // agentName -> { channel, ts } of the most recent conversation we've observed
+  // the agent participating in. Used to scope the live status dot in the
+  // channel sidebar + LIVE rail to the channel where the agent is actually
+  // working, instead of every channel they have membership in. Channel value
+  // is the same key the sidebar selects with: plain channel name for channels,
+  // peer name (current-user perspective) for DMs.
+  const [agentLastChannel, setAgentLastChannel] = useState<Record<string, { channel: string; ts: string }>>({});
   // Workspace file trees per agent: agentId -> { dirPath, files }
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { dirPath: string; files: WorkspaceFile[] }>>({});
   // Tree cache: agentId -> dirPath -> files (for recursive tree rendering)
@@ -165,6 +198,18 @@ export function useAppStore() {
   const channelListReady = channels.length > 0;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
+
+  const recordAgentLastChannel = useCallback((msg: MessageRecord) => {
+    if (msg.sender_type !== 'agent' || !msg.sender_name) return;
+    const channelKey = resolveAgentMessageChannel(msg, currentUserRef.current);
+    if (!channelKey) return;
+    const ts = msg.timestamp || '';
+    setAgentLastChannel(prev => {
+      const existing = prev[msg.sender_name!];
+      if (existing && existing.ts && ts && existing.ts >= ts) return prev;
+      return { ...prev, [msg.sender_name!]: { channel: channelKey, ts } };
+    });
+  }, []);
 
   useLayoutEffect(() => {
     setStoredTheme(theme);
@@ -302,6 +347,8 @@ export function useAppStore() {
         if (msg.task_number) {
           setTasksVersion(v => v + 1);
         }
+
+        recordAgentLastChannel(msg);
 
         if (msg.channel_type === 'thread') {
           const parentId = msg.parent_message_id;
@@ -555,7 +602,7 @@ export function useAppStore() {
         break;
       }
     }
-  }, []);
+  }, [recordAgentLastChannel]);
 
   useEffect(() => {
     const ws = new SlockWebSocket(serverUrl);
@@ -662,6 +709,14 @@ export function useAppStore() {
           }
           return next;
         });
+        // Seed agent→last-channel so the sidebar status dot has data on first
+        // paint after a reload, not only after the next WS message arrives.
+        for (const m of res.messages) {
+          recordAgentLastChannel(m);
+          if (m.replies) {
+            for (const r of m.replies) recordAgentLastChannel(r);
+          }
+        }
       }
     }).catch(() => {
       if (!cancelled) {
@@ -671,7 +726,7 @@ export function useAppStore() {
       }
     });
     return () => { cancelled = true; };
-  }, [activeChannelName, viewMode, channelListReady]);
+  }, [activeChannelName, viewMode, channelListReady, recordAgentLastChannel]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages) return;
@@ -1060,6 +1115,7 @@ export function useAppStore() {
     settingsOpen, setSettingsOpen,
     sidebarOpen, setSidebarOpen,
     messages, threadMessages, threadedMessageIds,
+    agentLastChannel,
     toasts, addToast,
     wsConnected, daemonConnected,
     unreadCounts,
