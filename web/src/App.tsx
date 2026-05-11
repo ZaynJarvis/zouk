@@ -8,6 +8,7 @@ import MessageList from './components/MessageList';
 import MessageComposer from './components/MessageComposer';
 import RightPanel from './components/RightPanel';
 import AgentStatus, { AgentStatusPeek } from './components/AgentStatus';
+import AgentProfilePanel from './components/AgentProfilePanel';
 import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
@@ -40,7 +41,7 @@ function SupabaseConfigSync({ config }: { config: { url: string; anonKey: string
 }
 
 function AppShell() {
-  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId } = useApp();
   const rightPanelRef = useRef<HTMLDivElement | null>(null);
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
 
@@ -199,20 +200,35 @@ function AppShell() {
             </div>
           </div>
 
-          {/* AgentStatus — default right column on lg+ when no other panel is up.
-              When the user collapses it, we render a thin AgentStatusPeek strip
-              instead so the panel can be re-opened from the right edge. */}
-          {/* Width transitions to 0 instead of unmounting, preventing
-              the abrupt 320px layout shift when a right panel opens. */}
+          {/* Right rail — default right column on lg+ when no other panel is
+              up. Three states share the same animated container so width
+              transitions smoothly:
+                - LIVE: 320px, renders AgentStatus
+                - AGENT: clamp(340px, 30vw, 520px), renders AgentProfilePanel inline
+                - Collapsed: 24px AgentStatusPeek strip (user-toggled)
+              Width transitions to 0 (instead of unmounting) when a thread /
+              workspace / settings panel opens, preventing the abrupt layout
+              shift on toggle. Mobile uses the legacy rightPanel='agent_profile'
+              full-screen modal — the rail is desktop-only. */}
           <div
             className="hidden lg:block overflow-hidden"
             style={{
-              width: showNowRail ? (nowRailHidden ? 24 : 320) : 0,
+              width: !showNowRail
+                ? 0
+                : nowRailHidden
+                  ? 24
+                  : agentProfileId
+                    ? 'clamp(340px, 30vw, 520px)'
+                    : 320,
               flexShrink: 0,
-              transition: 'width 180ms ease-out',
+              transition: 'width 200ms var(--zk-ease-out)',
             }}
           >
-            {nowRailHidden ? <AgentStatusPeek /> : <AgentStatus />}
+            {nowRailHidden
+              ? <AgentStatusPeek />
+              : agentProfileId
+                ? <AgentProfilePanel inline />
+                : <AgentStatus />}
           </div>
         </div>
       </div>
