@@ -326,9 +326,11 @@ export default function AgentsView() {
           }}
         >
           {/* Agent list — full width on mobile (when detail hidden), fixed 320px
-              on desktop. */}
+              on desktop. safe-bottom-fill lets items render under the iOS home
+              indicator (no interactive controls live there) while keeping the
+              last item reachable above the inset when scrolled to the end. */}
           <div
-            className={`zk-scroll w-full lg:w-[320px] lg:flex-none ${mobileShowDetail ? 'hidden lg:block' : 'block'}`}
+            className={`zk-scroll safe-bottom-fill w-full lg:w-[320px] lg:flex-none ${mobileShowDetail ? 'hidden lg:block' : 'block'}`}
             style={{
               overflow: 'auto',
               borderRight: '1px solid var(--zk-line)',

@@ -78,6 +78,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
               onClick={() => selectChannel(agent.name, true)}
               title="Message"
               className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-cyan bg-nc-cyan/10 text-nc-cyan hover:bg-nc-cyan/20"
+              style={{ borderRadius: '8px 8px 8px 0' }}
             >
               <MessageCircle size={13} />
             </button>
@@ -142,7 +143,10 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
         <span className="text-2xs font-bold text-nc-muted font-mono tracking-wider">ACTIVITY</span>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+      {/* Activity feed reaches the bottom of the full-screen panel on phone
+          PWA. safe-bottom-fill lets entries bleed under the iOS home indicator
+          while keeping the last row reachable above it once scrolled to end. */}
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin safe-bottom-fill">
         {entries.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center py-8 px-4">
             <Activity size={20} className="text-nc-muted mb-2" />
@@ -314,7 +318,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
             <span className="text-xs font-mono text-nc-muted truncate block">{agent.workDir || '/'}</span>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 overflow-y-auto scrollbar-thin safe-bottom-fill">
           {agent.status === 'active' && rootFiles.length > 0 ? (
             <div className="py-0.5">
               <WorkspaceTree
@@ -352,7 +356,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
             </button>
           </div>
           <pre
-            className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50"
+            className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50 safe-bottom-fill"
             style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
           >
             {previewContent ?? 'Loading...'}
