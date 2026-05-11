@@ -11,6 +11,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { extractImageDimensions } = require("./imageDimensions");
 
 const DEFAULT_DIR = path.join(__dirname, "..", "uploads");
 
@@ -27,6 +28,16 @@ function createStorage(dir = DEFAULT_DIR) {
       size: buffer.length,
       createdAt: new Date().toISOString(),
     };
+    // Probe intrinsic dimensions so the web client can reserve aspect-ratio
+    // space at render time. Failures are silently ignored — unsupported
+    // formats fall back to the existing layout-shift behavior.
+    if ((contentType || "").startsWith("image/")) {
+      const dims = extractImageDimensions(buffer, contentType);
+      if (dims) {
+        meta.width = dims.width;
+        meta.height = dims.height;
+      }
+    }
     await fs.promises.writeFile(blobPath(id), buffer);
     await fs.promises.writeFile(metaPath(id), JSON.stringify(meta));
     return meta;

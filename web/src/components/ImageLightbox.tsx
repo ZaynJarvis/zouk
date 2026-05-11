@@ -6,6 +6,8 @@ export interface LightboxImage {
   id: string;
   src: string;
   alt: string;
+  width?: number;
+  height?: number;
 }
 
 interface Props {
@@ -49,6 +51,8 @@ export default function ImageLightbox({ images, initialIndex, onClose }: Props) 
       <FailableImage
         src={current.src}
         alt={current.alt}
+        width={current.width}
+        height={current.height}
         className="max-w-full max-h-full lg:max-w-[90vw] lg:max-h-[90vh] object-contain select-none"
         fallbackClassName="w-[240px] h-[180px] border border-nc-border"
         onClick={(e) => e.stopPropagation()}

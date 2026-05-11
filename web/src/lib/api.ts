@@ -128,6 +128,8 @@ export interface UploadedAttachment {
   filename: string;
   contentType: string;
   sizeBytes: number;
+  width?: number;
+  height?: number;
 }
 
 export async function uploadAttachment(file: File): Promise<UploadedAttachment> {
