@@ -181,7 +181,7 @@ export default function AgentConfigForm({
   const btnText = compact ? 'text-xs' : 'text-sm';
 
   return (
-    <div className={`flex-1 flex flex-col ${p} overflow-y-auto scrollbar-thin`}>
+    <div className={`flex-1 flex flex-col ${p} overflow-y-auto scrollbar-thin safe-bottom-fill`}>
       <div className={`max-w-lg ${space}`}>
         {/* PROFILE_PICTURE */}
         <div>
