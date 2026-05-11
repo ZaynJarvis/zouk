@@ -326,10 +326,19 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, [recomputeMentionState]);
 
   // Swap drafts when the active channel/thread changes: save outgoing text
-  // under the previous key, restore any stored draft for the new key.
+  // under the previous key, restore any stored draft for the new key. The
+  // textarea has an inline `style.height` set by handleChange to grow with
+  // content; without resetting it on swap, an empty channel inherits the
+  // previous channel's multi-line height.
   useEffect(() => {
     const drafts = draftsRef.current;
     setText(drafts.get(draftKey) ?? '');
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+    });
     return () => {
       const pending = textRef.current;
       if (pending) {
@@ -494,7 +503,24 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           >
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                // On iOS, tapping a file input dismisses the soft keyboard
+                // and presents the native action sheet anchored to wherever
+                // the input sits AT THE MOMENT of the click. If we click
+                // immediately, the textarea is still focused so the page is
+                // shifted upward by the keyboard — the sheet lands far from
+                // the icon's resting position. Blurring first, then deferring
+                // the click until after the keyboard collapse animation,
+                // anchors the sheet to the icon's stable position.
+                const wasFocused =
+                  document.activeElement === textareaRef.current;
+                if (wasFocused) {
+                  textareaRef.current?.blur();
+                  setTimeout(() => fileInputRef.current?.click(), 300);
+                } else {
+                  fileInputRef.current?.click();
+                }
+              }}
               disabled={isGuest}
               tabIndex={showImageBtn ? 0 : -1}
               aria-label="Attach image"
