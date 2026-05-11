@@ -168,6 +168,10 @@ const PENDING_SEND_CAP = 100;
 // counter resets, so steady-state behaviour for healthy clients is unchanged.
 const BASE_BACKOFF_MS = 3_000;
 const MAX_BACKOFF_MS = 60_000;
+// Fast probe after a connection that previously opened. Tuned to give a
+// graceful server restart ~500ms head start without burning extra reconnects
+// when servers are slow — second failure falls back to BASE_BACKOFF_MS.
+const FAST_PROBE_MS = 500;
 // After this many close-without-open events, validate the token via HTTP. If
 // the server says it's no longer good, drop it locally so subsequent
 // reconnects go as a guest (which lets the server accept them again) and the
@@ -206,6 +210,12 @@ export class SlockWebSocket {
   // the exponential backoff and token-revalidation logic in scheduleReconnect.
   private failedAttempts = 0;
   private validatingToken = false;
+  // True between onopen and onclose. We use it to short-circuit one fast
+  // reconnect attempt — server restart / NAT drop / cellular hop almost
+  // always means the next connect succeeds within a second, so waiting the
+  // full slow-schedule 3s on every blip is wasted downtime. Flag clears after
+  // the fast probe is scheduled so a second failure falls back to slow.
+  private wasConnected = false;
 
   constructor(serverUrl: string) {
     this.serverUrl = serverUrl;
@@ -246,6 +256,7 @@ export class SlockWebSocket {
 
     this.ws.onopen = () => {
       this._connected = true;
+      this.wasConnected = true;
       this.failedAttempts = 0;
       this.resetWatchdog();
       this.flushPending();
@@ -334,11 +345,20 @@ export class SlockWebSocket {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     this.failedAttempts += 1;
+    // Fast path: if the *previous* connection actually opened (server
+    // restart, NAT drop, watchdog kicked us), try again in ~500ms instead
+    // of the slow 3s baseline. The flag clears so a second failure falls
+    // back to the slow schedule — protects against tabs with revoked tokens
+    // spamming /ws upgrades after they could never open in the first place.
+    const fastProbe = this.wasConnected;
+    this.wasConnected = false;
     // 3s, 6s, 12s, 24s, 48s, then capped at 60s
-    const delay = Math.min(
-      BASE_BACKOFF_MS * Math.pow(2, Math.max(0, this.failedAttempts - 1)),
-      MAX_BACKOFF_MS,
-    );
+    const delay = fastProbe
+      ? FAST_PROBE_MS
+      : Math.min(
+          BASE_BACKOFF_MS * Math.pow(2, Math.max(0, this.failedAttempts - 1)),
+          MAX_BACKOFF_MS,
+        );
     if (this.failedAttempts === VALIDATE_TOKEN_AFTER_FAILURES) {
       // Fire-and-forget so the reconnect timer isn't blocked by the fetch.
       void this.maybeDropDeadToken();
