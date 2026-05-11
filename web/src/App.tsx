@@ -153,15 +153,20 @@ function AppShell() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* TopBar is only needed in home (channel/dm) view. Full-canvas views
             render a safe-area-aware header with the mobile menu button inside
-            the title row. */}
+            the title row. On phone we also hide TopBar when a right panel is
+            open so the panel covers the full viewport (matching the non-home
+            views, where there is no parent TopBar above the panel). The right
+            panel handles its own iOS safe-area-inset-top padding in that
+            mode. Desktop keeps TopBar visible since right panels are 30vw
+            wide and never cover the full layout. */}
         {showMessageView && (
-          <TopBar />
-        )}
-        {/* Mobile spacer: conversational views keep a fixed TopBar on phone;
-            full-canvas views own their header spacing. */}
-        {showMessageView && (
-          <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
-            <div className="h-12 sm:h-14" />
+          <div className={rightPanel ? 'hidden lg:contents' : 'contents'}>
+            <TopBar />
+            {/* Mobile spacer reserves the h-12/14 below the fixed TopBar so
+                message content does not slide under the bar. */}
+            <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
+              <div className="h-12 sm:h-14" />
+            </div>
           </div>
         )}
         <div className="flex-1 relative min-h-0 flex">
