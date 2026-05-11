@@ -390,7 +390,10 @@ export default function AgentProfilePanel() {
 
   if (!agent) {
     return (
-      <div className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col items-center justify-center">
+      <div
+        className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border flex flex-col items-center justify-center"
+        style={{ background: 'var(--zk-bg-0)' }}
+      >
         <p className="text-sm text-nc-muted font-mono mb-3">AGENT_NOT_FOUND</p>
         <button
           onClick={closeRightPanel}
@@ -403,32 +406,20 @@ export default function AgentProfilePanel() {
   }
 
   return (
-    <div className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border bg-nc-surface flex flex-col animate-slide-in-right">
-      {/* Top bar: only a close button on the right. The agent identity
-          (avatar + @name + AGENT badge + status) is rendered by ProfileTab
-          right below, so duplicating @name here was just visual noise.
-          safe-area-inset-top padding keeps the button below the iOS notch /
-          status bar on phone PWA, where this panel covers the full viewport
-          on non-chat views (Agents / Tasks / Memory) and there is no parent
-          TopBar to absorb the safe-area inset. */}
+    <div
+      className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border flex flex-col animate-slide-in-right"
+      style={{ background: 'var(--zk-bg-0)' }}
+    >
+      {/* Single header row: PROFILE / FILES tabs + close button share the
+          row to save vertical space; tab height drives the close-button
+          height so they align. safe-area-inset-top padding keeps the row
+          below the iOS notch on phone PWA where this panel covers the full
+          viewport without a parent TopBar. */}
       <div
-        className="border-b border-nc-border flex items-center justify-end px-4 shrink-0"
-        style={{
-          paddingTop: 'env(safe-area-inset-top, 0px)',
-          paddingBottom: 6,
-        }}
+        className="border-b border-nc-border flex items-stretch shrink-0"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
       >
-        <button
-          onClick={closeRightPanel}
-          className="w-8 h-8 border border-nc-border flex items-center justify-center text-nc-muted hover:border-nc-red hover:text-nc-red hover:bg-nc-red/10 transition-all shrink-0"
-          style={{ marginTop: 6 }}
-          title="Close"
-        >
-          <X size={16} />
-        </button>
-      </div>
-
-      <div className="flex border-b border-nc-border px-2 shrink-0">
+        <div className="flex-1" />
         {TAB_CONFIG.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -443,6 +434,13 @@ export default function AgentProfilePanel() {
             {label}
           </button>
         ))}
+        <button
+          onClick={closeRightPanel}
+          className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-red transition-colors shrink-0"
+          title="Close"
+        >
+          <X size={16} />
+        </button>
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
