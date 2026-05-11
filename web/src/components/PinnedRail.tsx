@@ -11,7 +11,7 @@ import * as api from '../lib/api';
 import type { TaskRecord } from '../types';
 
 export default function PinnedRail() {
-  const { agents, activeChannelName, channels, tasksVersion, viewMode } = useApp();
+  const { agents, activeChannelName, channels, tasksVersion, viewMode, agentLastChannel } = useApp();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
 
@@ -39,16 +39,15 @@ export default function PinnedRail() {
     [channels, activeChannelName],
   );
 
+  // LIVE only shows agents whose most recent participation is in this
+  // channel / DM. Previously this fell back to the wider workspace when
+  // no agent was active here, which made LIVE feel decoupled from "what's
+  // happening in this room".
   const liveAgents = useMemo(() => {
     const live = agents.filter((a) => a.activity === 'working' || a.activity === 'thinking');
-    if (channel) {
-      const inChannel = live.filter((a) => (a.channels || []).includes(channel.name));
-      // If any agent in this channel is live, focus on them; otherwise show the
-      // wider workspace activity so users still see what's happening.
-      if (inChannel.length > 0) return inChannel;
-    }
-    return live;
-  }, [agents, channel]);
+    if (!activeChannelName) return [];
+    return live.filter((a) => agentLastChannel[a.name]?.channel === activeChannelName);
+  }, [agents, activeChannelName, agentLastChannel]);
   const headline = liveAgents[0];
 
   const channelTasks = useMemo(() => {

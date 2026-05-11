@@ -91,11 +91,12 @@ function ActiveStripe() {
 /* ───── Channel row ───── */
 
 function ChannelRow({
-  channel, agents, active, unread, isGuest, forceShowActions,
+  channel, agents, agentLastChannel, active, unread, isGuest, forceShowActions,
   onClick, onConfigure, onDelete,
 }: {
   channel: ServerChannel;
   agents: ServerAgent[];
+  agentLastChannel: Record<string, { channel: string; ts: string }>;
   active: boolean;
   unread: number;
   isGuest: boolean;
@@ -104,14 +105,18 @@ function ChannelRow({
   onConfigure: () => void;
   onDelete?: () => void;
 }) {
+  // Status dots only follow the channel where the agent most recently
+  // participated, instead of every channel they have membership in. An agent
+  // working in multiple channels at once is the documented edge case we skip
+  // for now.
   const liveAgents = useMemo(
     () =>
       agents.filter(
         (a) =>
           (a.activity === 'working' || a.activity === 'thinking') &&
-          (a.channels || []).includes(channel.name),
+          agentLastChannel[a.name]?.channel === channel.name,
       ),
-    [agents, channel.name],
+    [agents, agentLastChannel, channel.name],
   );
 
   return (
@@ -382,7 +387,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   const {
     channels, agents, humans, activeChannelName, selectChannel, viewMode,
     createChannel, deleteChannel, currentUser, unreadCounts, isGuest,
-    authUser, setSidebarOpen,
+    authUser, setSidebarOpen, agentLastChannel,
     openAgentProfile, openAgentSettings, resetAgentContext,
     openChannelSettings, navigateToView, setSettingsOpen,
   } = useApp();
@@ -597,6 +602,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
               key={ch.id}
               channel={ch}
               agents={agents}
+              agentLastChannel={agentLastChannel}
               active={activeChannelName === ch.name && (viewMode === 'channel' || viewMode === 'dm')}
               unread={unreadCounts[ch.name] || 0}
               isGuest={isGuest}
