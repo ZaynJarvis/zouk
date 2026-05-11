@@ -821,15 +821,40 @@ export function useAppStore() {
     setActiveThreadMessage(null);
     setThreadMessages([]);
     setAgentSettingsId(null);
-    setAgentProfileId(null);
     setChannelSettingsId(null);
+    // `agentProfileId` is intentionally NOT cleared here: on desktop the
+    // AGENT view lives in the right rail independently of `rightPanel`, so
+    // closing a thread/workspace/settings panel must not also collapse the
+    // rail back to LIVE. Mobile + inline X both go through
+    // `closeAgentProfileRail` which clears it explicitly.
+  }, []);
+
+  const closeAgentProfileRail = useCallback(() => {
+    setAgentProfileId(null);
+    // Mobile route uses `rightPanel='agent_profile'`. Clear it so the modal
+    // unmounts. No-op on desktop where rightPanel was already null.
+    setRightPanel((current) => current === 'agent_profile' ? null : current);
   }, []);
 
   const openAgentProfile = useCallback((agentId: string) => {
     setAgentProfileId(agentId);
-    setRightPanel('agent_profile');
+    // On desktop the right rail morphs into the AGENT view by reacting to
+    // `agentProfileId`; close any other right panel so the rail can claim
+    // the space, and expand the rail if it was collapsed to the peek strip
+    // so the agent is actually visible. On mobile we keep the legacy
+    // full-screen modal path via `rightPanel='agent_profile'`.
+    if (isMobileViewport()) {
+      setRightPanel('agent_profile');
+    } else {
+      setRightPanel(null);
+      setActiveThreadMessage(null);
+      setThreadMessages([]);
+      setAgentSettingsId(null);
+      setChannelSettingsId(null);
+      setNowRailHidden(false);
+    }
     closeSidebarOnMobile();
-  }, [closeSidebarOnMobile]);
+  }, [closeSidebarOnMobile, setNowRailHidden]);
 
   const openAgentSettings = useCallback((agentId: string) => {
     setAgentSettingsId(agentId);
@@ -1111,7 +1136,7 @@ export function useAppStore() {
     agentSettingsId, setAgentSettingsId,
     agentProfileId, setAgentProfileId, openAgentProfile, openAgentSettings,
     channelSettingsId, openChannelSettings,
-    activeThreadMessage, openThread, closeRightPanel,
+    activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,
     sidebarOpen, setSidebarOpen,
     messages, threadMessages, threadedMessageIds,

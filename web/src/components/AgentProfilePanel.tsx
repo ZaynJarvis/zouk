@@ -367,8 +367,23 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   );
 }
 
-export default function AgentProfilePanel() {
-  const { agents, configs, closeRightPanel, agentProfileId } = useApp();
+/**
+ * Renders the agent profile (PROFILE / FILES tabs) for the right rail or the
+ * mobile full-screen right panel.
+ *
+ * - `inline` (default false): used inside `RightRail` on desktop. The rail
+ *   owns the outer width + slide animation, so the panel drops its own
+ *   `w-screen lg:w-[30vw]` wrapper and entry animation.
+ * - `inline=false`: legacy full-panel render path, still used on mobile via
+ *   `rightPanel='agent_profile'`.
+ *
+ * Both modes call `closeAgentProfileRail` from X. On desktop that just
+ * clears `agentProfileId`, returning the rail to LIVE mode and leaving any
+ * other right panel (thread, workspace, settings) untouched. On mobile it
+ * also clears `rightPanel='agent_profile'` so the modal unmounts.
+ */
+export default function AgentProfilePanel({ inline = false }: { inline?: boolean }) {
+  const { agents, configs, closeAgentProfileRail, agentProfileId } = useApp();
   const [tab, setTab] = useState<Tab>('profile');
 
   const liveAgent = agents.find((a) => a.id === agentProfileId);
@@ -392,15 +407,19 @@ export default function AgentProfilePanel() {
     activity: 'offline',
   } : null);
 
+  const outerClass = inline
+    ? 'w-full h-full border-l border-nc-border flex flex-col'
+    : 'w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border flex flex-col animate-slide-in-right';
+
   if (!agent) {
     return (
       <div
-        className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border flex flex-col items-center justify-center"
+        className={`${outerClass} items-center justify-center`}
         style={{ background: 'var(--zk-bg-0)' }}
       >
         <p className="text-sm text-nc-muted font-mono mb-3">AGENT_NOT_FOUND</p>
         <button
-          onClick={closeRightPanel}
+          onClick={closeAgentProfileRail}
           className="px-3 py-1.5 border border-nc-border text-xs text-nc-muted hover:text-nc-text-bright font-mono"
         >
           CLOSE
@@ -411,7 +430,7 @@ export default function AgentProfilePanel() {
 
   return (
     <div
-      className="w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border flex flex-col animate-slide-in-right"
+      className={outerClass}
       style={{ background: 'var(--zk-bg-0)' }}
     >
       {/* Single header row: PROFILE / FILES tabs + close button share the
@@ -439,7 +458,7 @@ export default function AgentProfilePanel() {
           </button>
         ))}
         <button
-          onClick={closeRightPanel}
+          onClick={closeAgentProfileRail}
           className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-red transition-colors shrink-0"
           title="Close"
         >
