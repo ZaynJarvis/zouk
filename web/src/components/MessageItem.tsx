@@ -220,12 +220,11 @@ export default function MessageItem({
           onClick={() => openThread(message)}
           title="Reply in thread"
           aria-label="Reply in thread"
-          className="zk-btn zk-btn--ghost zk-btn--icon"
+          className="zk-btn zk-btn--ghost zk-btn--icon opacity-0 group-hover:opacity-100"
           style={{
             position: 'absolute',
             top: isGrouped ? 4 : 10,
             right: 12, zIndex: 5,
-            opacity: 0,
             transition: 'opacity 140ms var(--zk-ease-out)',
             padding: 4,
           }}
