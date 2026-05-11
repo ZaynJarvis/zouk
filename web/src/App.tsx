@@ -153,21 +153,19 @@ function AppShell() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* TopBar is only needed in home (channel/dm) view. Full-canvas views
             render a safe-area-aware header with the mobile menu button inside
-            the title row. On phone we also hide TopBar when a right panel is
-            open so the panel covers the full viewport (matching the non-home
-            views, where there is no parent TopBar above the panel). The right
-            panel handles its own iOS safe-area-inset-top padding in that
-            mode. Desktop keeps TopBar visible since right panels are 30vw
-            wide and never cover the full layout. */}
+            the title row. TopBar stays mounted even when a right panel is
+            open — toggling it caused the chat to scroll up briefly before the
+            phone panel slid in. Instead, the panel positions itself fixed
+            inset-0 on phone so it covers TopBar without unmounting it. */}
         {showMessageView && (
-          <div className={rightPanel ? 'hidden lg:contents' : 'contents'}>
+          <>
             <TopBar />
             {/* Mobile spacer reserves the h-12/14 below the fixed TopBar so
                 message content does not slide under the bar. */}
             <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
               <div className="h-12 sm:h-14" />
             </div>
-          </div>
+          </>
         )}
         <div className="flex-1 relative min-h-0 flex">
           <div className="flex-1 min-w-0 relative">
@@ -183,8 +181,18 @@ function AppShell() {
               {viewMode === 'tasks' && <TasksView />}
               {viewMode === 'memory' && <MemoryView />}
             </div>
-            {/* Contextual right panels (thread / details / etc.) overlay above the message column on lg-, share width on xl+. */}
-            <div className="absolute inset-y-0 right-0 z-20 flex pointer-events-none">
+            {/* Contextual right panels (thread / details / etc.). On phone
+                we position fixed inset-0 so the panel covers TopBar (z-30)
+                without the layout-shift cost of unmounting the bar. Desktop
+                keeps the in-column absolute placement so the 30vw panel
+                shares width with the message list. */}
+            <div
+              className={
+                rightPanel
+                  ? 'fixed inset-0 z-30 flex pointer-events-none lg:absolute lg:inset-y-0 lg:left-auto lg:right-0 lg:z-20'
+                  : 'absolute inset-y-0 right-0 z-20 flex pointer-events-none'
+              }
+            >
               <div ref={rightPanelRef} className="pointer-events-auto h-full shadow-2xl">
                 <RightPanel />
               </div>
