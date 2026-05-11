@@ -126,7 +126,7 @@ async function loadEmailAllowlistFromDb() {
     console.warn("[auth] Failed to load email allowlist:", e.message);
   }
 }
-const CONFIG_DIR = path.join(__dirname, "..", "data");
+const CONFIG_DIR = process.env.ZOUK_CONFIG_DIR || path.join(__dirname, "..", "data");
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
 const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
 const SESSIONS_FILE = path.join(CONFIG_DIR, "sessions.json");
@@ -2976,6 +2976,14 @@ function handleDaemonConnection(ws, apiKey) {
         daemonSockets.delete(agentId);
         broadcastToWeb({ type: "agent_status", agentId, status: "inactive" });
       }
+    }
+    // Daemon swap on the same machine: another daemon authenticated with the
+    // same api key is still online, so reuse the existing autoStart path to
+    // re-bind orphaned agents. autoStartAgents respects per-config autoStart
+    // and startAgentOnDaemon enforces machineId match, so this can only
+    // re-target the surviving same-machine daemon.
+    if (replacementConnected) {
+      setTimeout(() => autoStartAgents(), 500);
     }
   });
 
