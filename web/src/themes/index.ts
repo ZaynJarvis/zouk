@@ -2,9 +2,8 @@ import type { ComponentType } from 'react';
 import { atlas } from './atlas';
 import AtlasThemeSelectButton from './atlas/ThemeSelectButton';
 
-// Atlas is the only shipped theme. The legacy `washington-post` and `carbon`
-// theme tokens still live under web/src/themes/* but are no longer exposed
-// here; the boot script in index.html migrates any saved value to atlas.
+// Atlas is the only shipped theme. The boot script in index.html migrates any
+// saved legacy theme value to atlas before React hydrates.
 export type ThemeId = 'atlas';
 
 export type ColorMode = 'light' | 'dark' | 'system';

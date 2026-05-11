@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 /* zk primitives — direct port of
    tmp/agent-swarm-slack-discord-like-app/project/zouk-rethink/primitives.jsx,
    adapted for our TypeScript / data types. */

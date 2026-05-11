@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { type ReactNode } from 'react';
 
 // ---------- Types ----------

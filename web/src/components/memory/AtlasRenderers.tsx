@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 /**
  * Rich content renderers — Markdown, JSON, JSONL.
  *

@@ -8,16 +8,17 @@ export default function ThreadPanel() {
   const { activeThreadMessage, threadMessages } = useApp();
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastThreadIdRef = useRef<string | null>(null);
+  const activeThreadId = activeThreadMessage?.id ?? null;
 
   // On thread open and on every reply that arrives, jump to the bottom
   // without animation so the latest message lands in view immediately.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || !activeThreadMessage) return;
-    const isNewThread = lastThreadIdRef.current !== activeThreadMessage.id;
+    if (!el || !activeThreadId) return;
+    const isNewThread = lastThreadIdRef.current !== activeThreadId;
     el.scrollTop = el.scrollHeight;
-    if (isNewThread) lastThreadIdRef.current = activeThreadMessage.id;
-  }, [activeThreadMessage?.id, threadMessages.length]);
+    if (isNewThread) lastThreadIdRef.current = activeThreadId;
+  }, [activeThreadId, threadMessages.length]);
 
   if (!activeThreadMessage) return null;
 
