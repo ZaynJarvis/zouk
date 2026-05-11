@@ -235,7 +235,11 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 .zk-avatar--sm { width: 20px; height: 20px; font-size: 9px; }
 .zk-avatar--lg { width: 38px; height: 38px; font-size: 13px; }
 .zk-avatar--xl { width: 56px; height: 56px; font-size: 18px; }
-.zk-avatar--square { border-radius: var(--zk-r-md); }
+/* Agents use a chat-bubble corner — three rounded corners + a square
+   bottom-left, the corner that "points" toward the message body. */
+.zk-avatar--square {
+  border-radius: var(--zk-r-md) var(--zk-r-md) var(--zk-r-md) 0;
+}
 
 /* ──────────────────────────────────────────────────────────────────────
    Pills

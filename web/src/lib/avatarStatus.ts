@@ -61,10 +61,12 @@ export function agentLifecycle(a: Pick<ServerAgent, 'lifecycle'>): 'persistent' 
 }
 
 // Avatar corner-radius rules (atlas only):
-// - agents square (rounded-md), humans circular (rounded-full)
+// - agents get a chat-bubble shape (rounded except the bottom-left corner,
+//   which "points" toward the message body)
+// - humans circular (rounded-full)
 // - kind defaults to 'agent' so badges and other non-portrait callsites
 //   still get a sensible square shape.
 export function avatarRadiusClass(theme: Theme, kind: 'agent' | 'human' = 'agent'): string {
   void theme;
-  return kind === 'human' ? 'rounded-full' : 'rounded-md';
+  return kind === 'human' ? 'rounded-full' : 'rounded-md rounded-bl-none';
 }
