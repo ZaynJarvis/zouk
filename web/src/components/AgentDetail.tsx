@@ -64,7 +64,7 @@ function InstructionsTab({
   };
 
   return (
-    <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin">
+    <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin safe-bottom-fill">
       <div className="flex items-center justify-between mb-3">
         <div>
           <h3 className="zk-display" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>System prompt</h3>
@@ -266,7 +266,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
       </div>
 
       {rootFiles.length > 0 ? (
-        <div className="zk-panel zk-scroll" style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+        <div className="zk-panel zk-scroll safe-bottom-fill" style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
           <WorkspaceTree
             files={rootFiles}
             treeCache={treeCache}
@@ -320,7 +320,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
         </button>
       </div>
       <pre
-        className="flex-1 zk-scroll"
+        className="flex-1 zk-scroll safe-bottom-fill"
         style={{
           overflow: 'auto', padding: 14,
           background: 'var(--zk-bg-1)',
@@ -365,7 +365,7 @@ function ActivityTab({ agent }: { agent: ServerAgent }) {
   }, [agent.id]);
 
   return (
-    <div className="flex-1 flex flex-col p-5 zk-scroll" style={{ overflowY: 'auto' }}>
+    <div className="flex-1 flex flex-col p-5 zk-scroll safe-bottom-fill" style={{ overflowY: 'auto' }}>
       <div className="mb-4">
         <h3 className="zk-display" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>Activity log</h3>
         <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>

@@ -31,6 +31,15 @@ export default function PanelShell({
         centered && 'items-center justify-center',
         className,
       )}
+      // Right panels render fixed inset-0 on phone (App.tsx), so their content
+      // would otherwise sit under the iOS notch / home indicator. Pad with
+      // env() insets directly so the standalone-PWA `.safe-bottom { 0 }`
+      // override doesn't disable the bottom inset for these full-screen panels.
+      // On desktop env() returns 0 so this is a no-op.
+      style={{
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
     >
       {children}
     </div>
