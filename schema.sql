@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_by_name TEXT
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_message_id_unique_idx
+  ON tasks (message_id)
+  WHERE message_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS machine_keys (
   id                TEXT PRIMARY KEY,
   name              TEXT NOT NULL,

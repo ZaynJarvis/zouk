@@ -65,8 +65,8 @@ node web/scripts/qa-runner.mjs --pr <PR_NUMBER>
 ## Task Workflow
 
 - `claim_tasks(task_numbers=[...])` claims an existing task by task-board number.
-- `claim_tasks(message_ids=[...])` only claims an existing task by the top-level task message id that already backs that task. It does not convert a regular message into a task.
-- If work starts from a normal top-level message, create a new task explicitly with `create_tasks(...)`. Reword the title if needed, then reply in-channel or in the relevant thread so humans can see which new task tracks the work.
+- `claim_tasks(message_ids=[...])` claims an existing task by backing message id, or atomically converts a normal top-level message into a task and claims it. Full UUIDs and unique 8+ character prefixes are accepted.
+- If there is no existing message to claim, create a new task explicitly with `create_tasks(...)`. Reword the title if needed, then reply in-channel or in the relevant thread so humans can see which new task tracks the work.
 - Thread replies are discussion context, not claimable tasks.
 
 ## High-Value Conventions
