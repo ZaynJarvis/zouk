@@ -65,15 +65,15 @@ Required:
 | `DATABASE_URL` | internal PostgreSQL connection string (Volcano RDS). Without it, the server runs in-memory and loses state on restart. |
 | `ALLOW` | comma-separated allowlist; gates session minting. Each entry is either an exact email (`alice@bytedance.com`) or a domain rule starting with `@` (`@bytedance.com` lets the whole tenant in). Mix freely. |
 
-Feishu SSO (set both to enable; `/api/auth/config` surfaces `feishuEnabled: true`):
+Feishu SSO (set both `*_APP_ID` and `*_APP_SECRET` to enable; `/api/auth/config` surfaces `feishuEnabled: true`):
 
 | Var | Purpose |
 | --- | --- |
-| `FEISHU_CLIENT_ID` | anycross app Client ID |
-| `FEISHU_CLIENT_SECRET` | anycross app Client Secret |
-| `FEISHU_OIDC_DISCOVERY_URL` | OIDC discovery doc. Defaults to `https://anycross.feishu.cn/.well-known/openid-configuration`; override for tenant-private deployments. |
-| `FEISHU_REDIRECT_URI` | Callback URL registered with anycross. Defaults to `${PUBLIC_URL}/api/oauth2/feishu/callback`. |
-| `FEISHU_SCOPES` | Space-separated OIDC scopes. Defaults to `openid email profile`. |
+| `FEISHU_APP_ID` | open.feishu.cn app id (`cli_…` prefix). |
+| `FEISHU_APP_SECRET` | open.feishu.cn app secret. |
+| `FEISHU_REDIRECT_URI` | Callback URL registered with the Feishu app. Defaults to `${PUBLIC_URL}/api/oauth2/feishu/callback`. |
+| `FEISHU_AUTHORIZE_URL` | Authorize endpoint. Defaults to `https://open.feishu.cn/open-apis/authen/v1/index`; override for Lark or custom hosts. |
+| `FEISHU_SCOPE` | Space-separated scope list. Defaults to `contact:user.email:readonly contact:user.employee_id:readonly` — the app's open-platform permission page must have these enabled. |
 
 Optional (defer until needed):
 
@@ -104,21 +104,23 @@ Will be added in the Feishu SSO milestone (not needed yet): `FEISHU_CLIENT_ID`, 
 
 ## 5. Feishu SSO
 
-Server-driven OIDC redirect flow. Two routes (`server/index.js`):
+Server-driven OAuth redirect flow over the Feishu Open Platform (open.feishu.cn). Two routes (`server/index.js`):
 
-- `GET /api/auth/feishu/start` — generates a CSRF state + nonce, 302s to the IdP's `authorization_endpoint` with `scope=openid email profile`.
-- `GET /api/oauth2/feishu/callback` — exchanges `code` at `token_endpoint`, verifies the `id_token` against the IdP's JWKS via `jose`, runs the email through `isEmailAllowed`, mints a 32-byte zouk session token, and 302s the browser to `/?auth=feishu&token=…`.
+- `GET /api/auth/feishu/start` — generates a CSRF state, 302s to `FEISHU_AUTHORIZE_URL` with `app_id` / `redirect_uri` / `scope` / `state` (note: Feishu requires `redirect_uri`, not `redirect_url`).
+- `GET /api/oauth2/feishu/callback` — uses `@larksuiteoapi/node-sdk`'s `client.authen.accessToken.create({ data: { grant_type: 'authorization_code', code } })` to swap the code; the SDK transparently fetches and caches an `app_access_token` for the auth header. The same response carries `name`, `avatar_url`, `email`, `enterprise_email`, `open_id`, `user_id`, so no second `user_info` round-trip is needed.
 
 The frontend (`web/src/App.tsx → AppWithAuth`) strips the query params and stores the token before bootstrapping the rest of the app — same shape as the Supabase magic-link path. `LoginScreen` shows a "Sign in with Feishu" button when `/api/auth/config` reports `feishuEnabled: true`.
 
-### Registering the anycross app
+### Registering the open.feishu.cn app
 
-1. Visit `https://anycross.feishu.cn` → **身份集成 → 应用单点登录 → 新建应用 → 自建应用**.
-2. Protocol: **OIDC**.
-3. Redirect URI: `${PUBLIC_URL}/api/oauth2/feishu/callback` (e.g. `https://zouk.byted.org/api/oauth2/feishu/callback`).
-4. Scopes: `openid email profile` — `email` is required (we reject id_tokens without an email claim).
-5. Copy Client ID / Client Secret. Set as TCE env (`FEISHU_CLIENT_ID`, `FEISHU_CLIENT_SECRET`).
-6. Confirm the discovery URL the platform exposes. If it's different from anycross's default, set `FEISHU_OIDC_DISCOVERY_URL`.
+Follow the steps from "【技术方案】平台接入飞书登录" (PDF). Briefly:
+
+1. Visit `https://open.feishu.cn`, create a **企业自建应用**, add a **网页应用** capability.
+2. **网页应用 → 桌面端主页**: the service URL (e.g. `https://zouk.bytedance.net`).
+3. **安全设置 → 重定向 URL**: add `${PUBLIC_URL}/api/oauth2/feishu/callback`. Multiple environments (BOE/Online) can be added side-by-side.
+4. **权限管理**: enable the scopes listed in `FEISHU_SCOPE` (`contact:user.email:readonly`, `contact:user.employee_id:readonly`).
+5. **应用发布 → 版本发布**: pick a 可用范围 broad enough for everyone who'll log in (default is just yourself).
+6. Copy 凭证与基础信息 → `App ID` / `App Secret`, set them as `FEISHU_APP_ID` / `FEISHU_APP_SECRET` on TCE.
 
 ### Allowlist behavior with Feishu
 
