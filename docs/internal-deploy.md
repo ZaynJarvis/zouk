@@ -62,8 +62,18 @@ Required:
 | --- | --- |
 | `PORT` | TCE-injected listen port; falls back to 7777 |
 | `PUBLIC_URL` | external base URL (e.g. `https://zouk.byted.org`) — used to compose OAuth callback URLs |
-| `DATABASE_URL` | internal PostgreSQL connection string (RDS / ByteDoc). Without it, the server runs in-memory and loses state on restart. |
-| `ALLOW` | comma-separated email allowlist; gates session minting |
+| `DATABASE_URL` | internal PostgreSQL connection string (Volcano RDS). Without it, the server runs in-memory and loses state on restart. |
+| `ALLOW` | comma-separated allowlist; gates session minting. Each entry is either an exact email (`alice@bytedance.com`) or a domain rule starting with `@` (`@bytedance.com` lets the whole tenant in). Mix freely. |
+
+Feishu SSO (set both to enable; `/api/auth/config` surfaces `feishuEnabled: true`):
+
+| Var | Purpose |
+| --- | --- |
+| `FEISHU_CLIENT_ID` | anycross app Client ID |
+| `FEISHU_CLIENT_SECRET` | anycross app Client Secret |
+| `FEISHU_OIDC_DISCOVERY_URL` | OIDC discovery doc. Defaults to `https://anycross.feishu.cn/.well-known/openid-configuration`; override for tenant-private deployments. |
+| `FEISHU_REDIRECT_URI` | Callback URL registered with anycross. Defaults to `${PUBLIC_URL}/api/oauth2/feishu/callback`. |
+| `FEISHU_SCOPES` | Space-separated OIDC scopes. Defaults to `openid email profile`. |
 
 Optional (defer until needed):
 
@@ -92,12 +102,32 @@ Will be added in the Feishu SSO milestone (not needed yet): `FEISHU_CLIENT_ID`, 
 4. Server logs should show `[db] Loaded N messages` (PG wired correctly) instead of `[db] DATABASE_URL not set`.
 5. Submit a daemon connect with `key=test` only in non-prod (`NODE_ENV` not starting with `prod`). `bootstrap.sh` sets `NODE_ENV=production` by default; override with TCE env if you want dev keys to work in BOE.
 
-## 5. Next milestone: Feishu SSO
+## 5. Feishu SSO
 
-Tracked separately. Outline:
+Server-driven OIDC redirect flow. Two routes (`server/index.js`):
 
-- Pick OIDC (preferred per the deployment guide).
-- Register the app at `https://anycross.feishu.cn` → 身份集成 → 应用单点登录 → 自建应用. Callback `${PUBLIC_URL}/api/oauth2/feishu/callback`.
-- Add a `/api/auth/feishu` flow in `server/index.js` next to the existing `/api/auth/google` and `/api/auth/supabase` handlers — exchange the code for an id_token, validate against Feishu's JWKS, mint a zouk session the same way `/api/auth/google` does.
-- Add a "Sign in with Feishu" button to the web login surface.
-- Strip the Google / Supabase code paths once Feishu is the canonical login.
+- `GET /api/auth/feishu/start` — generates a CSRF state + nonce, 302s to the IdP's `authorization_endpoint` with `scope=openid email profile`.
+- `GET /api/oauth2/feishu/callback` — exchanges `code` at `token_endpoint`, verifies the `id_token` against the IdP's JWKS via `jose`, runs the email through `isEmailAllowed`, mints a 32-byte zouk session token, and 302s the browser to `/?auth=feishu&token=…`.
+
+The frontend (`web/src/App.tsx → AppWithAuth`) strips the query params and stores the token before bootstrapping the rest of the app — same shape as the Supabase magic-link path. `LoginScreen` shows a "Sign in with Feishu" button when `/api/auth/config` reports `feishuEnabled: true`.
+
+### Registering the anycross app
+
+1. Visit `https://anycross.feishu.cn` → **身份集成 → 应用单点登录 → 新建应用 → 自建应用**.
+2. Protocol: **OIDC**.
+3. Redirect URI: `${PUBLIC_URL}/api/oauth2/feishu/callback` (e.g. `https://zouk.byted.org/api/oauth2/feishu/callback`).
+4. Scopes: `openid email profile` — `email` is required (we reject id_tokens without an email claim).
+5. Copy Client ID / Client Secret. Set as TCE env (`FEISHU_CLIENT_ID`, `FEISHU_CLIENT_SECRET`).
+6. Confirm the discovery URL the platform exposes. If it's different from anycross's default, set `FEISHU_OIDC_DISCOVERY_URL`.
+
+### Allowlist behavior with Feishu
+
+`isEmailAllowed` runs on the email claim. Three sensible defaults:
+
+- `ALLOW=@bytedance.com` — anyone with a `*@bytedance.com` Feishu account gets in. Recommended for a tenant-wide tool.
+- `ALLOW=alice@bytedance.com,bob@bytedance.com` — explicit roster.
+- Leave `ALLOW` unset — the zouk-side gate is open and the anycross app's own visibility settings (visible to specific employees / departments) are the only gate.
+
+### Once Feishu is canonical
+
+Delete `/api/auth/google` and `/api/auth/supabase`, drop `google-auth-library` and `@supabase/supabase-js` deps, remove the corresponding `LoginScreen` branches, and clean up `web/src/lib/supabase.ts`. Out of scope for this milestone; do it in a follow-up after Feishu has been the only login path in production for a release cycle.

@@ -321,10 +321,20 @@ export async function getAuthConfig(): Promise<{
   allowlistActive?: boolean;
   supabaseUrl?: string | null;
   supabaseAnonKey?: string | null;
+  feishuEnabled?: boolean;
 }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/config`);
   if (!res.ok) throw new Error('Failed to fetch auth config');
   return res.json();
+}
+
+export async function fetchAuthMe(token: string): Promise<AuthUser> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`auth/me failed: ${res.status}`);
+  const body = await res.json();
+  return body.user as AuthUser;
 }
 
 export async function supabaseLogin(accessToken: string): Promise<{ token: string; user: AuthUser }> {

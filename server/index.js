@@ -70,29 +70,52 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-// Email allowlist — union of two sources, both granting equal access:
-//   1. `ALLOW` env (comma-separated emails, immutable without restart)
+// Feishu / Lark OIDC for ByteDance intranet SSO (anycross.feishu.cn).
+// Endpoints come from a discovery document rather than being hardcoded so we
+// can flip between anycross and a tenant-private deployment via env only.
+const FEISHU_CLIENT_ID = process.env.FEISHU_CLIENT_ID || "";
+const FEISHU_CLIENT_SECRET = process.env.FEISHU_CLIENT_SECRET || "";
+const FEISHU_OIDC_DISCOVERY_URL =
+  process.env.FEISHU_OIDC_DISCOVERY_URL ||
+  "https://anycross.feishu.cn/.well-known/openid-configuration";
+const FEISHU_REDIRECT_URI =
+  process.env.FEISHU_REDIRECT_URI || `${PUBLIC_URL}/api/oauth2/feishu/callback`;
+const FEISHU_SCOPES = process.env.FEISHU_SCOPES || "openid email profile";
+const feishuEnabled = !!(FEISHU_CLIENT_ID && FEISHU_CLIENT_SECRET);
+if (feishuEnabled) {
+  console.log(`[auth] Feishu OIDC enabled (discovery=${FEISHU_OIDC_DISCOVERY_URL})`);
+}
+
+// Email allowlist — union of three sources, all granting equal access:
+//   1. `ALLOW` env, comma-separated. Entries starting with `@` match by domain
+//      (e.g. `@bytedance.com` lets the whole tenant in); bare entries match by
+//      exact address. Immutable without restart.
 //   2. `email_allowlist` Supabase table (managed via Settings UI, hot-reloaded)
 // When the union is non-empty, only listed addresses can mint sessions and
 // guest mode is disabled. Empty union = unrestricted (default).
-const ENV_ALLOW_EMAILS = new Set(
-  (process.env.ALLOW || "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
-);
+const ENV_ALLOW_EMAILS = new Set();
+const ENV_ALLOW_DOMAINS = new Set();
+for (const raw of (process.env.ALLOW || "").split(",")) {
+  const entry = raw.trim().toLowerCase();
+  if (!entry) continue;
+  if (entry.startsWith("@")) ENV_ALLOW_DOMAINS.add(entry);
+  else ENV_ALLOW_EMAILS.add(entry);
+}
 // email -> { addedAt, addedBy } (populated async from DB at startup)
 const dbAllowEmails = new Map();
 
 function allowlistActive() {
-  return ENV_ALLOW_EMAILS.size > 0 || dbAllowEmails.size > 0;
+  return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0 || dbAllowEmails.size > 0;
 }
 
 function isEmailAllowed(email) {
   if (!allowlistActive()) return true;
   if (!email || typeof email !== "string") return false;
   const norm = email.trim().toLowerCase();
-  return ENV_ALLOW_EMAILS.has(norm) || dbAllowEmails.has(norm);
+  if (ENV_ALLOW_EMAILS.has(norm) || dbAllowEmails.has(norm)) return true;
+  const at = norm.lastIndexOf("@");
+  if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
+  return false;
 }
 
 function normalizeEmailInput(raw) {
@@ -106,8 +129,11 @@ function normalizeEmailInput(raw) {
   return trimmed;
 }
 
-if (ENV_ALLOW_EMAILS.size > 0) {
-  console.log(`[auth] Email allowlist seeded from ALLOW env (${ENV_ALLOW_EMAILS.size} address(es))`);
+if (ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0) {
+  console.log(
+    `[auth] Email allowlist seeded from ALLOW env ` +
+    `(${ENV_ALLOW_EMAILS.size} address(es), ${ENV_ALLOW_DOMAINS.size} domain(s))`
+  );
 }
 
 async function loadEmailAllowlistFromDb() {
@@ -3629,6 +3655,46 @@ async function removeSession(token) {
   }
 }
 
+// ─── Feishu OIDC helpers ──────────────────────────────────────────
+// Discovery doc and JWKS are fetched lazily on first auth request and
+// cached for the process lifetime. JWKS rotation is handled by `jose`'s
+// createRemoteJWKSet which re-fetches when it sees an unknown `kid`.
+
+const FEISHU_STATE_TTL_MS = 5 * 60 * 1000;
+const feishuStates = new Map(); // state -> { createdAt, nonce, returnTo }
+
+function gcFeishuStates() {
+  const cutoff = Date.now() - FEISHU_STATE_TTL_MS;
+  for (const [state, info] of feishuStates) {
+    if (info.createdAt < cutoff) feishuStates.delete(state);
+  }
+}
+
+let _feishuMetaPromise = null;
+async function getFeishuMeta() {
+  if (!_feishuMetaPromise) {
+    _feishuMetaPromise = (async () => {
+      const res = await fetch(FEISHU_OIDC_DISCOVERY_URL);
+      if (!res.ok) throw new Error(`Feishu OIDC discovery failed: ${res.status}`);
+      return res.json();
+    })().catch((err) => {
+      _feishuMetaPromise = null; // allow retry on next request
+      throw err;
+    });
+  }
+  return _feishuMetaPromise;
+}
+
+let _feishuJWKS = null;
+async function getFeishuJWKS() {
+  if (_feishuJWKS) return _feishuJWKS;
+  const meta = await getFeishuMeta();
+  if (!meta.jwks_uri) throw new Error("Feishu discovery doc has no jwks_uri");
+  const { createRemoteJWKSet } = await import("jose");
+  _feishuJWKS = createRemoteJWKSet(new URL(meta.jwks_uri));
+  return _feishuJWKS;
+}
+
 app.post("/api/auth/google", async (req, res) => {
   const { credential } = req.body;
   if (!credential) return res.status(400).json({ error: "Missing credential" });
@@ -3729,6 +3795,127 @@ app.post("/api/auth/supabase", async (req, res) => {
   }
 });
 
+// Feishu / Lark OIDC — redirect flow. The browser hits /start, we 302 to the
+// IdP. After login the IdP 302s back to /callback?code=…&state=…, we exchange
+// the code, verify the id_token via JWKS, mint a zouk session, and bounce the
+// browser to `/?auth=feishu&token=…`. The frontend strips the token from the
+// URL and treats it like any other minted session.
+app.get("/api/auth/feishu/start", async (req, res) => {
+  if (!feishuEnabled) {
+    return res.status(501).send("Feishu OIDC not configured (set FEISHU_CLIENT_ID / FEISHU_CLIENT_SECRET)");
+  }
+  try {
+    const meta = await getFeishuMeta();
+    if (!meta.authorization_endpoint) throw new Error("discovery doc has no authorization_endpoint");
+    gcFeishuStates();
+    const state = crypto.randomBytes(24).toString("hex");
+    const nonce = crypto.randomBytes(24).toString("hex");
+    const rawReturn = typeof req.query.return_to === "string" ? req.query.return_to : "/";
+    const returnTo = rawReturn.startsWith("/") && !rawReturn.startsWith("//") ? rawReturn : "/";
+    feishuStates.set(state, { createdAt: Date.now(), nonce, returnTo });
+    const u = new URL(meta.authorization_endpoint);
+    u.searchParams.set("client_id", FEISHU_CLIENT_ID);
+    u.searchParams.set("redirect_uri", FEISHU_REDIRECT_URI);
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("scope", FEISHU_SCOPES);
+    u.searchParams.set("state", state);
+    u.searchParams.set("nonce", nonce);
+    res.redirect(u.toString());
+  } catch (err) {
+    console.error("[auth/feishu] start failed:", err.message);
+    res.status(502).send("Feishu auth init failed: " + err.message);
+  }
+});
+
+app.get("/api/oauth2/feishu/callback", async (req, res) => {
+  if (!feishuEnabled) {
+    return res.status(501).send("Feishu OIDC not configured");
+  }
+  const { code, state, error: errParam, error_description } = req.query;
+  if (errParam) {
+    return res.status(400).send(`Feishu auth error: ${errParam} ${error_description || ""}`);
+  }
+  if (typeof code !== "string" || typeof state !== "string") {
+    return res.status(400).send("Missing code or state");
+  }
+  const stateInfo = feishuStates.get(state);
+  if (!stateInfo || Date.now() - stateInfo.createdAt > FEISHU_STATE_TTL_MS) {
+    feishuStates.delete(state);
+    return res.status(400).send("Invalid or expired state");
+  }
+  feishuStates.delete(state);
+
+  try {
+    const meta = await getFeishuMeta();
+    if (!meta.token_endpoint) throw new Error("discovery doc has no token_endpoint");
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: FEISHU_REDIRECT_URI,
+      client_id: FEISHU_CLIENT_ID,
+      client_secret: FEISHU_CLIENT_SECRET,
+    });
+    const tokenRes = await fetch(meta.token_endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: body.toString(),
+    });
+    if (!tokenRes.ok) {
+      const text = await tokenRes.text();
+      console.error("[auth/feishu] token exchange failed:", tokenRes.status, text);
+      return res.status(502).send(`Feishu token exchange failed (${tokenRes.status})`);
+    }
+    const tokenJson = await tokenRes.json();
+    const idToken = tokenJson.id_token;
+    if (!idToken) return res.status(502).send("Feishu did not return id_token");
+
+    const { jwtVerify } = await import("jose");
+    const jwks = await getFeishuJWKS();
+    const { payload } = await jwtVerify(idToken, jwks, {
+      audience: FEISHU_CLIENT_ID,
+      issuer: meta.issuer || undefined,
+    });
+    if (stateInfo.nonce && payload.nonce && payload.nonce !== stateInfo.nonce) {
+      return res.status(400).send("Nonce mismatch");
+    }
+    const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+    if (!email) return res.status(401).send("Feishu id_token has no email claim");
+    if (!isEmailAllowed(email)) {
+      console.log(`[auth/feishu] rejected: ${email} not in allowlist`);
+      return res.status(403).send("Email not authorized to access this server.");
+    }
+    const emailPrefix = email.split("@")[0];
+    if (isReservedName(emailPrefix)) {
+      return res.status(403).send("Reserved username — please contact an admin.");
+    }
+    const grav = gravatarUrl(email);
+    const user = {
+      name: emailPrefix,
+      email,
+      picture: typeof payload.picture === "string" ? payload.picture : null,
+      gravatarUrl: grav,
+    };
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    authSessions.set(sessionToken, user);
+    persistSession(sessionToken, user).catch((e) =>
+      console.warn("[auth/feishu] persistSession error:", e.message)
+    );
+    const changed = upsertAllTimeHuman({
+      id: humanId(user.name),
+      name: user.name,
+      picture: user.picture || undefined,
+      gravatarUrl: user.gravatarUrl || undefined,
+    });
+    if (changed) broadcastHumans();
+
+    const sep = stateInfo.returnTo.includes("?") ? "&" : "?";
+    res.redirect(`${stateInfo.returnTo}${sep}auth=feishu&token=${sessionToken}`);
+  } catch (err) {
+    console.error("[auth/feishu] callback failed:", err.message);
+    res.status(500).send("Feishu auth callback failed: " + err.message);
+  }
+});
+
 app.get("/api/auth/me", (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token || !authSessions.has(token)) {
@@ -3824,6 +4011,7 @@ app.get("/api/auth/config", (_req, res) => {
     allowlistActive: allowlistActive(),
     supabaseUrl: SUPABASE_URL || null,
     supabaseAnonKey: SUPABASE_ANON_KEY || null,
+    feishuEnabled,
   });
 });
 
