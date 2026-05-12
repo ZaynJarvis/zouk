@@ -82,10 +82,28 @@ echo "[build] verifying server entry resolves"
 
 cat > "${OUT}/bootstrap.sh" <<'EOF'
 #!/usr/bin/env bash
-set -e
+set -eu
 cd "$(dirname "$0")"
 export NODE_ENV="${NODE_ENV:-production}"
-exec node server/index.js
+
+# TCE injects PORT as the dynamic *host-side* port when primary port is set,
+# so a naive `process.env.PORT || 7777` would make the app listen on the
+# wrong port and miss all forwarded traffic. Pin the in-container listen
+# port here; override with ZOUK_PORT if you really need to change it.
+export PORT="${ZOUK_PORT:-7777}"
+
+# Tee stdout/stderr to a file inside the pod so `tail -f` from TCE webshell
+# works, while keeping the original stream live for TCE's external log
+# collector. Fall back to /tmp if /opt/tiger isn't writable on this image.
+LOG_DIR="${ZOUK_LOG_DIR:-/opt/tiger/zouk/log}"
+if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+  LOG_DIR="/tmp/zouk"
+  mkdir -p "$LOG_DIR"
+fi
+LOG_FILE="$LOG_DIR/server.log"
+echo "[bootstrap] PORT=$PORT  log=$LOG_FILE"
+
+exec node server/index.js > >(tee -a "$LOG_FILE") 2>&1
 EOF
 chmod +x "${OUT}/bootstrap.sh"
 

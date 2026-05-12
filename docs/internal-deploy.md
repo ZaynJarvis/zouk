@@ -49,7 +49,7 @@ Create a service with:
 | --- | --- |
 | Image source | the ICM package produced by SCM |
 | Start command | `bash output/bootstrap.sh` (or `bash bootstrap.sh` depending on TCE's working dir) |
-| Listen port | `7777` (or set `PORT` env var) |
+| Primary port | `7777`. Container listens on 7777; if you need to change it, set `ZOUK_PORT` (not `PORT` — see Optional ops knobs below). |
 | Health check path | `/health` |
 | Health check method | HTTP GET, expect 200 |
 | Resource | start with `1C2G × 1` for BOE, scale on Online |
@@ -60,10 +60,16 @@ Required:
 
 | Var | Purpose |
 | --- | --- |
-| `PORT` | TCE-injected listen port; falls back to 7777 |
-| `PUBLIC_URL` | external base URL (e.g. `https://zouk.byted.org`) — used to compose OAuth callback URLs |
+| `PUBLIC_URL` | external base URL (e.g. `https://zouk.bytedance.net`) — used to compose OAuth callback URLs |
 | `DATABASE_URL` | internal PostgreSQL connection string (Volcano RDS). Without it, the server runs in-memory and loses state on restart. |
 | `ALLOW` | comma-separated allowlist; gates session minting. Each entry is either an exact email (`alice@bytedance.com`) or a domain rule starting with `@` (`@bytedance.com` lets the whole tenant in). Mix freely. |
+
+Optional ops knobs:
+
+| Var | Purpose |
+| --- | --- |
+| `ZOUK_PORT` | In-container listen port. Defaults to `7777`. **Do not use `PORT`** — TCE injects `PORT` as the dynamic host-side port when a primary port is configured, which would make Node listen on the wrong port. `bootstrap.sh` deliberately ignores `PORT` and respects `ZOUK_PORT` instead. |
+| `ZOUK_LOG_DIR` | Directory for the tee'd stdout/stderr log file. Defaults to `/opt/tiger/zouk/log`, falls back to `/tmp/zouk` if that path isn't writable. Tail with `tail -f $ZOUK_LOG_DIR/server.log` from the TCE webshell. |
 
 Feishu SSO (set both `*_APP_ID` and `*_APP_SECRET` to enable; `/api/auth/config` surfaces `feishuEnabled: true`):
 
