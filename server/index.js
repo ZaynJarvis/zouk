@@ -1314,6 +1314,13 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
+// TCE / k8s readiness probe. Kept above auth so it stays callable when
+// upstream services (Postgres, OpenViking) are degraded — health here means
+// "process is up", not "dependencies are healthy".
+app.get("/health", (req, res) => {
+  res.json({ ok: true, uptime: process.uptime() });
+});
+
 const attachmentStorage = createStorage(
   process.env.ZOUK_UPLOADS_DIR || path.join(__dirname, "..", "uploads")
 );

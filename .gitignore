@@ -6,4 +6,5 @@ data/
 *.log
 .DS_Store
 
+output/
 tmp/
