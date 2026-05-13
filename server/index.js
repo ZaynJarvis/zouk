@@ -3166,6 +3166,21 @@ function enqueueActivity(agentId, task) {
 
 function handleDaemonMessage(ws, msg, connectedAgents) {
   switch (msg.type) {
+    case "daemon:health": {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          type: "daemon:health:ack",
+          seq: msg.seq,
+          reason: msg.reason,
+          agentId: msg.agentId,
+          launchId: msg.launchId,
+          sentAt: msg.sentAt,
+          serverAt: new Date().toISOString(),
+          machineId: ws._machineId,
+        }));
+      }
+      break;
+    }
     case "ready": {
       console.log(`[daemon] Ready: machine=${ws._machineId} runtimes=${msg.runtimes?.join(",")} agents=${msg.runningAgents?.join(",") || "none"}`);
       ws._runtimes = msg.runtimes || [];

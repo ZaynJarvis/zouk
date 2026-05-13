@@ -6,13 +6,15 @@ type MentionSegment = { kind: 'mention'; start: number; end: number; handle: str
 type InlineSegment = { kind: 'inline'; start: number; end: number; raw: string };
 type LinkSegment = { kind: 'link'; start: number; end: number; href: string; display: string };
 
+const TRAILING_URL_PUNCT = '.,;:!?)，。！？；：、）】》」』';
+
 function stripTrailingPunct(url: string, prefix: string): { url: string; trail: string } {
   let body = url;
   let trail = '';
   let prefixView = prefix;
   while (body.length > 0) {
     const last = body[body.length - 1];
-    if ('.,;:!?)'.includes(last)) {
+    if (TRAILING_URL_PUNCT.includes(last)) {
       body = body.slice(0, -1);
       trail = last + trail;
       continue;
