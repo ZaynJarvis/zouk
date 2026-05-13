@@ -82,11 +82,9 @@ export default function MachineSetupDialog({
   };
 
   const apiKeyPart = generatedKey || '<api_key>';
-  const daemonCommand =
-    `# install once (bnpm scope; add @bnpm-viking:registry=https://bnpm.byted.org/ to ~/.npmrc to skip the prefix)\n` +
-    `NPM_CONFIG_REGISTRY=https://bnpm.byted.org npm install -g @bnpm-viking/zouk-daemon\n\n` +
-    `# then run on any machine\n` +
-    `zouk-daemon --server-url ${serverUrl} --api-key ${apiKeyPart}`;
+  const installCommand =
+    'NPM_CONFIG_REGISTRY=https://bnpm.byted.org npm install -g @bnpm-viking/zouk-daemon';
+  const runCommand = `zouk-daemon --server-url ${serverUrl} --api-key ${apiKeyPart}`;
 
   return (
     <div
@@ -115,15 +113,26 @@ export default function MachineSetupDialog({
             <label className="flex items-center gap-1.5 text-xs font-bold text-nc-muted mb-2 font-mono tracking-wider">
               <Terminal size={12} className="text-nc-green" /> DAEMON_COMMAND
             </label>
-            <div className="flex gap-2">
-              <code className="flex-1 px-3 py-2.5 border border-nc-border bg-nc-black text-xs font-mono text-nc-green break-all select-all whitespace-pre-line" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
-                {daemonCommand}
-              </code>
-              <CopyButton text={daemonCommand} />
+            <div className="space-y-2">
+              <div>
+                <div className="text-2xs text-nc-muted font-mono uppercase tracking-wider mb-1">install (once per machine)</div>
+                <div className="flex gap-2">
+                  <code className="flex-1 px-3 py-2.5 border border-nc-border bg-nc-black text-xs font-mono text-nc-green break-all select-all" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
+                    {installCommand}
+                  </code>
+                  <CopyButton text={installCommand} />
+                </div>
+              </div>
+              <div>
+                <div className="text-2xs text-nc-muted font-mono uppercase tracking-wider mb-1">run</div>
+                <div className="flex gap-2">
+                  <code className="flex-1 px-3 py-2.5 border border-nc-border bg-nc-black text-xs font-mono text-nc-green break-all select-all" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
+                    {runCommand}
+                  </code>
+                  <CopyButton text={runCommand} />
+                </div>
+              </div>
             </div>
-            <p className="text-2xs text-nc-muted mt-1.5 font-mono">
-              Run this on any machine to connect it as a daemon.
-            </p>
           </div>
 
           <div>
