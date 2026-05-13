@@ -218,6 +218,7 @@ export async function startAgent(config: {
   workDir?: string;
   channels?: string[];
   lifecycle?: 'persistent' | 'ephemeral';
+  openvikingEnabled?: boolean;
 }): Promise<{ agent: { id: string; name: string } }> {
   const url = `${getBaseUrl()}/api/agents/start`;
   const res = await fetch(url, {
