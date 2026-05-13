@@ -81,7 +81,7 @@ export async function fetchMessages(
   // rewrites both query strings and path segments during its 307 redirect
   // chain but leaves headers untouched.
   const headers: Record<string, string> = {
-    ...getWorkspaceHeaders(),
+    ...getAuthHeaders(),
     'X-Channel': target,
     'X-Limit': String(limit),
   };
@@ -107,7 +107,7 @@ export async function fetchThreadMessages(
   const shortId = messageId.slice(0, 8);
   const parentTarget = isDm ? `dm:@${channelName}` : `#${channelName}`;
   const threadTarget = `${parentTarget}:${shortId}`;
-  const headers: Record<string, string> = { ...getWorkspaceHeaders(), 'X-Channel': threadTarget, 'X-Limit': String(limit) };
+  const headers: Record<string, string> = { ...getAuthHeaders(), 'X-Channel': threadTarget, 'X-Limit': String(limit) };
   // Without X-Sender the server can't canonicalize dm:<peer> to dm:<a>,<b>
   // and falls into a name-overlap match that can leak cross-DM rows.
   if (isDm && senderName) headers['X-Sender'] = senderName;
@@ -272,7 +272,7 @@ export async function fetchRuntimeModels(
   runtime: string
 ): Promise<{ models: RuntimeModel[]; default: string | null; error: string | null }> {
   const url = `${getBaseUrl()}/api/machines/${encodeURIComponent(machineId)}/runtimes/${encodeURIComponent(runtime)}/models`;
-  const res = await fetch(url, { headers: getWorkspaceHeaders() });
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) {
     return { models: [], default: null, error: `http_${res.status}` };
   }
@@ -289,7 +289,7 @@ export async function fetchAgentActivities(
   limit = 100
 ): Promise<import('../types').AgentEntry[]> {
   const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/activities?limit=${limit}`;
-  const res = await fetch(url, { headers: getWorkspaceHeaders() });
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data.entries) ? data.entries : [];
@@ -561,7 +561,7 @@ export async function revokeMachineKey(keyId: string): Promise<void> {
 // ─── Agent profile presets ───────────────────────────────────────
 
 export async function listProfilePresets(): Promise<{ presets: AgentProfilePreset[]; max: number }> {
-  const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`, { headers: getWorkspaceHeaders() });
+  const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to list profile presets: ${res.status}`);
   return res.json();
 }
@@ -590,7 +590,7 @@ export async function deleteProfilePreset(id: string): Promise<void> {
 // ─── Tasks ───────────────────────────────────────────────────────
 
 export async function fetchTasks(): Promise<TaskRecord[]> {
-  const res = await fetch(`${getBaseUrl()}/api/tasks`, { cache: 'no-store', headers: getWorkspaceHeaders() });
+  const res = await fetch(`${getBaseUrl()}/api/tasks`, { cache: 'no-store', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.status}`);
   const data = await res.json();
   return Array.isArray(data.tasks) ? data.tasks : [];

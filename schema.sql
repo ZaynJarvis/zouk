@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS messages_workspace_channel_seq_idx ON messages (works
 CREATE TABLE IF NOT EXISTS channels (
   id          TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,
-  name        TEXT UNIQUE NOT NULL,
+  name        TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   type        TEXT NOT NULL DEFAULT 'channel'
 );
@@ -200,6 +200,25 @@ UPDATE agent_configs SET workspace_id = 'default' WHERE workspace_id IS NULL;
 UPDATE agent_profile_presets SET workspace_id = 'default' WHERE workspace_id IS NULL;
 UPDATE email_allowlist SET workspace_id = 'default' WHERE workspace_id IS NULL;
 UPDATE channel_agents SET workspace_id = 'default' WHERE workspace_id IS NULL;
+INSERT INTO channels (id, workspace_id, name, description, type)
+SELECT
+  'ch-' || md5(m.workspace_id || ':' || m.channel_type || ':' || m.channel_name),
+  m.workspace_id,
+  m.channel_name,
+  CASE WHEN m.channel_type = 'dm' THEN 'Direct message' ELSE '' END,
+  m.channel_type
+FROM (
+  SELECT DISTINCT workspace_id, channel_name, channel_type
+  FROM messages
+  WHERE channel_id IS NULL
+) m
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM channels c
+  WHERE c.workspace_id = m.workspace_id
+    AND c.name = m.channel_name
+    AND c.type = m.channel_type
+);
 UPDATE messages m
 SET channel_id = c.id
 FROM channels c

@@ -184,6 +184,8 @@ export function useAppStore() {
   const [tasksVersion, setTasksVersion] = useState(0);
 
   const wsRef = useRef<SlockWebSocket | null>(null);
+  const activeWorkspaceRef = useRef(activeWorkspaceId);
+  activeWorkspaceRef.current = activeWorkspaceId;
   const activeChannelRef = useRef(activeChannelName);
   activeChannelRef.current = activeChannelName;
   const viewModeRef = useRef(viewMode);
@@ -246,8 +248,10 @@ export function useAppStore() {
           if (lastMsg) {
             const isDm = viewModeRef.current === 'dm';
             const sender = isDm ? currentUserRef.current : undefined;
+            const workspaceId = activeWorkspaceRef.current;
             api.fetchMessages(activeChannelRef.current, isDm, 200, sender, undefined, lastMsg.id)
               .then(res => {
+                if (activeWorkspaceRef.current !== workspaceId) return;
                 if (res.messages.length === 0) return;
                 setMessages(prev => {
                   const known = new Set(prev.map(m => m.id));
@@ -264,8 +268,10 @@ export function useAppStore() {
           if (openThread) {
             const isThreadDm = openThread.channel_type === 'dm';
             const threadSender = isThreadDm ? currentUserRef.current : undefined;
+            const workspaceId = activeWorkspaceRef.current;
             api.fetchThreadMessages(openThread.channel_name, openThread.id, isThreadDm, 200, threadSender)
               .then(msgs => {
+                if (activeWorkspaceRef.current !== workspaceId) return;
                 setThreadMessages(prev => {
                   const known = new Set(prev.map(m => m.id));
                   const fresh = msgs.filter(m => !known.has(m.id));
@@ -286,9 +292,21 @@ export function useAppStore() {
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
         if (e.workspaces && e.workspaces.length > 0) setWorkspaces(e.workspaces);
-        if (e.workspaceId && e.workspaceId !== activeWorkspaceId) {
+        const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceId);
+        if (workspaceChanged && e.workspaceId) {
+          activeWorkspaceRef.current = e.workspaceId;
           setActiveWorkspaceIdState(e.workspaceId);
           setStoredActiveWorkspaceId(e.workspaceId);
+          setMessages([]);
+          setThreadMessages([]);
+          setUnreadCounts({});
+          setAgentLastChannel({});
+          setWorkspaceFiles({});
+          setWsTreeCache({});
+          setWorkspaceFileContent(null);
+          setMemoryTreeCache({});
+          setMemoryContentCache({});
+          setSkillsCache({});
         }
         setChannels(nextChannels);
         // `init` replays on every WS reconnect. The server payload doesn't carry
@@ -620,16 +638,24 @@ export function useAppStore() {
     const next = workspaceId || 'default';
     if (next === activeWorkspaceId) return;
     setStoredActiveWorkspaceId(next);
+    activeWorkspaceRef.current = next;
     setActiveWorkspaceIdState(next);
     hasResolvedInitialViewRef.current = false;
     setChannels([]);
     setAgents([]);
     setConfigs([]);
     setMachines([]);
+    setProfilePresets([]);
     setMessages([]);
     setThreadMessages([]);
     setUnreadCounts({});
     setAgentLastChannel({});
+    setWorkspaceFiles({});
+    setWsTreeCache({});
+    setWorkspaceFileContent(null);
+    setMemoryTreeCache({});
+    setMemoryContentCache({});
+    setSkillsCache({});
     setActiveThreadMessage(null);
     setRightPanel(prev => (prev === 'thread' || prev === 'channel_settings' ? null : prev));
     setViewMode('channel');
@@ -674,11 +700,13 @@ export function useAppStore() {
   useEffect(() => {
     if (!isLoggedIn || !authToken) return;
     let cancelled = false;
+    const workspaceId = activeWorkspaceRef.current;
     api.fetchWorkspaces()
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled || activeWorkspaceRef.current !== workspaceId) return;
         if (res.workspaces?.length) setWorkspaces(res.workspaces);
         if (res.activeWorkspaceId) {
+          activeWorkspaceRef.current = res.activeWorkspaceId;
           setActiveWorkspaceIdState(res.activeWorkspaceId);
           setStoredActiveWorkspaceId(res.activeWorkspaceId);
         }
@@ -739,6 +767,7 @@ export function useAppStore() {
     )) return;
 
     let cancelled = false;
+    const workspaceId = activeWorkspaceRef.current;
     // Clear immediately so that if the fetch fails (e.g. an intermediate proxy
     // returns a cached 304 for a different URL), the previous channel's
     // messages don't linger while the new title is already shown.
@@ -747,7 +776,7 @@ export function useAppStore() {
     setLoadingMessages(true);
     const isDm = viewModeRef.current === 'dm';
     api.fetchMessages(activeChannelName, isDm, 50, isDm ? currentUserRef.current : undefined).then(res => {
-      if (!cancelled) {
+      if (!cancelled && activeWorkspaceRef.current === workspaceId) {
         setMessages(res.messages);
         setHasMoreMessages(res.hasMore);
         setLoadingMessages(false);
@@ -776,7 +805,7 @@ export function useAppStore() {
         }
       }
     }).catch(() => {
-      if (!cancelled) {
+      if (!cancelled && activeWorkspaceRef.current === workspaceId) {
         setMessages([]);
         setHasMoreMessages(false);
         setLoadingMessages(false);
@@ -791,10 +820,12 @@ export function useAppStore() {
     const oldest = messagesRef.current[0];
     if (!oldest) return;
     setLoadingOlderMessages(true);
+    const workspaceId = activeWorkspaceRef.current;
     try {
       const isDm = viewModeRef.current === 'dm';
       const sender = isDm ? currentUserRef.current : undefined;
       const res = await api.fetchMessages(activeChannelRef.current, isDm, 50, sender, oldest.id);
+      if (activeWorkspaceRef.current !== workspaceId) return;
       setMessages(prev => {
         const known = new Set(prev.map(m => m.id));
         const fresh = res.messages.filter(m => !known.has(m.id));
@@ -866,7 +897,9 @@ export function useAppStore() {
     // Fetch existing thread replies
     const isDm = message.channel_type === 'dm';
     const sender = isDm ? currentUserRef.current : undefined;
+    const workspaceId = activeWorkspaceRef.current;
     api.fetchThreadMessages(message.channel_name, message.id, isDm, 200, sender).then(msgs => {
+      if (activeWorkspaceRef.current !== workspaceId) return;
       setThreadMessages(msgs);
     }).catch(() => {
       // Thread may have no history yet, that's fine
@@ -984,8 +1017,10 @@ export function useAppStore() {
   }, [addToast]);
 
   const addProfilePresetAction = useCallback(async (image: string, opts?: { silent?: boolean }) => {
+    const workspaceId = activeWorkspaceRef.current;
     try {
       const { preset } = await api.createProfilePreset(image);
+      if (activeWorkspaceRef.current !== workspaceId) return { ok: false as const, error: 'Workspace changed' };
       setProfilePresets(prev => (prev.find(p => p.id === preset.id) ? prev : [...prev, preset]));
       if (!opts?.silent) addToast('Avatar preset added', 'success');
       return { ok: true as const };
@@ -997,8 +1032,10 @@ export function useAppStore() {
   }, [addToast]);
 
   const removeProfilePresetAction = useCallback(async (id: string) => {
+    const workspaceId = activeWorkspaceRef.current;
     try {
       await api.deleteProfilePreset(id);
+      if (activeWorkspaceRef.current !== workspaceId) return;
       setProfilePresets(prev => prev.filter(p => p.id !== id));
     } catch {
       addToast('Failed to remove preset', 'error');
@@ -1031,8 +1068,10 @@ export function useAppStore() {
     // returns, any live entries at index >= baseLen arrived during the fetch
     // window and must be appended to the fetched history.
     const baseLen = agentsRef.current.find(a => a.id === agentId)?.entries?.length || 0;
+    const workspaceId = activeWorkspaceRef.current;
     try {
       const fetched = await api.fetchAgentActivities(agentId, 100);
+      if (activeWorkspaceRef.current !== workspaceId) return;
       if (fetched.length === 0) return;
       setAgents(prev => prev.map(a => {
         if (a.id !== agentId) return a;

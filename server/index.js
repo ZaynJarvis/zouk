@@ -26,7 +26,7 @@ const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
-const DEFAULT_WORKSPACE_ID = process.env.ZOUK_DEFAULT_WORKSPACE_ID || "default";
+const DEFAULT_WORKSPACE_ID = "default";
 const DEFAULT_WORKSPACE_NAME = process.env.ZOUK_DEFAULT_WORKSPACE_NAME || "Default";
 const DEFAULT_WORKSPACE_ICON = process.env.ZOUK_DEFAULT_WORKSPACE_ICON || "z";
 
@@ -588,17 +588,20 @@ function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) 
   }
   const existing = getWorkspaceMember(id, user.email);
   if (existing) return existing;
+  if (id !== DEFAULT_WORKSPACE_ID) return null;
   if (!isEmailAllowed(user.email, id)) return null;
   const role = workspaceMemberCount(id) === 0 ? "root" : "member";
   return setWorkspaceMember({ workspaceId: id, email: user.email, name: user.name, role });
 }
 
 function userWorkspaceRole(user, workspaceId = DEFAULT_WORKSPACE_ID) {
-  if (!user?.email) return allowlistActive(workspaceId) ? null : "member";
-  if (allowlistActive(workspaceId) && !isEmailAllowed(user.email, workspaceId)) return null;
-  const member = getWorkspaceMember(workspaceId, user.email);
+  const id = normalizeWorkspaceId(workspaceId);
+  if (!user?.email) return id === DEFAULT_WORKSPACE_ID && !allowlistActive(id) ? "member" : null;
+  if (allowlistActive(id) && !isEmailAllowed(user.email, id)) return null;
+  const member = getWorkspaceMember(id, user.email);
   if (member) return member.role || "member";
-  return isEmailAllowed(user.email, workspaceId) ? "member" : null;
+  if (id !== DEFAULT_WORKSPACE_ID) return null;
+  return isEmailAllowed(user.email, id) ? "member" : null;
 }
 
 function userCanAccessWorkspace(user, workspaceId = DEFAULT_WORKSPACE_ID) {
@@ -611,13 +614,16 @@ function userCanAdminWorkspace(user, workspaceId = DEFAULT_WORKSPACE_ID) {
 }
 
 function visibleWorkspacesForUser(user) {
+  if (!user) {
+    return [workspacePayload(ensureWorkspace({ id: DEFAULT_WORKSPACE_ID }))];
+  }
   const workspaces = [];
   for (const workspace of store.workspaces) {
-    if (!user || userCanAccessWorkspace(user, workspace.id)) {
+    if (userCanAccessWorkspace(user, workspace.id)) {
       workspaces.push(workspacePayload(workspace));
     }
   }
-  if (workspaces.length === 0 && user) {
+  if (workspaces.length === 0) {
     const member = ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
     if (member) workspaces.push(workspacePayload(ensureWorkspace({ id: DEFAULT_WORKSPACE_ID })));
   }
@@ -2182,6 +2188,22 @@ function requireSessionAuth(req, res, next) {
   next();
 }
 
+function requireWorkspaceRead(req, res, next) {
+  const workspaceId = workspaceIdFromReq(req);
+  if (!findWorkspace(workspaceId)) {
+    return res.status(404).json({ error: "Workspace not found." });
+  }
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const user = token ? authSessions.get(token) : null;
+  const defaultOpenRead = workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(workspaceId);
+  if (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, workspaceId))) {
+    return res.status(403).json({ error: "Not a member of this workspace." });
+  }
+  req.workspaceId = workspaceId;
+  req.user = user;
+  next();
+}
+
 function requireWorkspaceAdmin(req, res, next) {
   const user = req.user;
   const workspaceId = req.workspaceId || workspaceIdFromReq(req);
@@ -2363,8 +2385,8 @@ app.post("/api/attachments", requireAuth, upload.single("file"), async (req, res
 // its 307 redirect chain, so the primary web client passes the channel target
 // in request headers (X-Channel, X-Limit, X-Sender) which survive untouched.
 // Query-string fallback kept for backward compat (curl, daemon internal API).
-app.get("/api/messages", (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
+app.get("/api/messages", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const channel = req.headers["x-channel"] || req.query.channel || "#all";
   const limit = parseInt(req.headers["x-limit"] || req.query.limit || 100);
   const sender = req.headers["x-sender"] || req.query.sender || null;
@@ -2397,8 +2419,8 @@ app.get("/api/messages", (req, res) => {
 });
 
 // Get channels
-app.get("/api/channels", (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
+app.get("/api/channels", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   res.json({
     channels: store.channels.filter((ch) => (
       (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
@@ -2486,8 +2508,8 @@ app.delete("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
 // Read-only task list for the frontend kanban. Tasks don't carry their own
 // timestamps in the schema, so we derive createdAt/updatedAt from the system
 // messages stamped with each task_number (create → claim → status updates).
-app.get("/api/tasks", (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
+app.get("/api/tasks", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const taskTimes = new Map(); // taskNumber -> { createdAt, updatedAt }
   for (const m of store.messages) {
     if ((m.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) continue;
@@ -2524,8 +2546,8 @@ app.get("/api/tasks", (req, res) => {
 });
 
 // List connected machines (daemons)
-app.get("/api/machines", (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
+app.get("/api/machines", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const machineList = Array.from(machines.values())
     .filter((m) => (m.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
     .map((m) => ({
@@ -2539,9 +2561,9 @@ app.get("/api/machines", (req, res) => {
 // Daemons that don't implement the protocol (old zouk-daemon) will stay silent,
 // so we always fall back via the 5s timeout. Clients can treat
 // {models: []} and a timeout identically — both mean "free-form input please".
-app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
+app.get("/api/machines/:id/runtimes/:runtime/models", requireWorkspaceRead, (req, res) => {
   const { id, runtime } = req.params;
-  const workspaceId = workspaceIdFromReq(req);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const machine = machines.get(id);
   if (!machine || (machine.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
     return res.status(404).json({ error: "machine_not_found" });
@@ -2580,8 +2602,8 @@ app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
 });
 
 // Get agents (running + configs)
-app.get("/api/agents", (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
+app.get("/api/agents", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const agents = Object.keys(store.agents)
     .map((id) => agentPayload(id))
     .filter((agent) => (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
@@ -2605,9 +2627,12 @@ app.get("/api/agents/:id/channels", requireAuth, (req, res) => {
 });
 
 // Get recent activity entries for an agent (used by the Activity tab).
-app.get("/api/agents/:id/activities", async (req, res) => {
+app.get("/api/agents/:id/activities", requireWorkspaceRead, async (req, res) => {
   const agentId = req.params.id;
   if (!hasKnownAgentConfig(agentId)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
+  if (workspaceIdFromAgent(agentId) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
     return res.status(404).json({ error: "unknown agent" });
   }
   const rawLimit = parseInt(req.query.limit, 10);
@@ -2779,12 +2804,18 @@ function parseOvListResult(text, parentUri) {
   }).filter(Boolean);
 }
 
-app.get("/api/agents/:id/ov/status", (req, res) => {
+app.get("/api/agents/:id/ov/status", requireWorkspaceRead, (req, res) => {
+  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
   const creds = resolveOvCredentials(req.params.id);
   res.json({ enabled: !!creds, user: creds?.user || null, url: creds?.url || null, local: creds ? isLocalUrl(creds.url) : false });
 });
 
-app.get("/api/agents/:id/ov/ls", async (req, res) => {
+app.get("/api/agents/:id/ov/ls", requireWorkspaceRead, async (req, res) => {
+  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
   const creds = resolveOvCredentials(req.params.id);
   if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
   if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
@@ -2798,7 +2829,10 @@ app.get("/api/agents/:id/ov/ls", async (req, res) => {
   }
 });
 
-app.get("/api/agents/:id/ov/read", async (req, res) => {
+app.get("/api/agents/:id/ov/read", requireWorkspaceRead, async (req, res) => {
+  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
   const creds = resolveOvCredentials(req.params.id);
   if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
   if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
@@ -2816,8 +2850,8 @@ app.get("/api/agents/:id/ov/read", async (req, res) => {
 // ─── Agent config CRUD ───────────────────────────────────────────
 
 // List all agent configs
-app.get("/api/agent-configs", (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
+app.get("/api/agent-configs", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   res.json({
     configs: sanitizedAgentConfigs().filter((config) => (
       (config.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
@@ -2987,21 +3021,24 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
 
 // ─── Profile preset pool ────────────────────────────────────────
 
-app.get("/api/agent-profile-presets", (req, res) => {
-  res.json({ presets: profilePresets.list(), max: PROFILE_PRESET_MAX });
+app.get("/api/agent-profile-presets", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  res.json({ presets: profilePresets.list(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 app.post("/api/agent-profile-presets", requireAuth, async (req, res) => {
   const { image } = req.body || {};
-  const result = await profilePresets.add(image);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const result = await profilePresets.add(image, workspaceId);
   if (result.error) return res.status(400).json({ error: result.error });
-  res.json({ preset: result.preset, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+  res.json({ preset: result.preset, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 app.delete("/api/agent-profile-presets/:id", requireAuth, async (req, res) => {
-  const result = await profilePresets.remove(req.params.id);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const result = await profilePresets.remove(req.params.id, workspaceId);
   if (result.error) return res.status(404).json({ error: result.error });
-  res.json({ success: true, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+  res.json({ success: true, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 // ─── Machine API key management ─────────────────────────────────
@@ -3263,8 +3300,8 @@ async function startAgentOnDaemon(id, config) {
       persisted.openvikingUserId = ovUserId;
       persisted.openvikingApiKey = ovApiKey;
     }
-    const usedImages = new Set(agentConfigs.map((c) => c.picture).filter(Boolean));
-    const shardedPicture = profilePresets.pickForAgent(id, usedImages);
+    const usedImages = new Set(agentConfigs.filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId).map((c) => c.picture).filter(Boolean));
+    const shardedPicture = profilePresets.pickForAgent(id, usedImages, workspaceId);
     if (shardedPicture) persisted.picture = shardedPicture;
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
@@ -3895,10 +3932,10 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
   ws._authToken = token;
   ws._workspaceId = normalizeWorkspaceId(workspaceId);
   const user = token ? authSessions.get(token) : null;
-  if (user && findWorkspace(ws._workspaceId) && isEmailAllowed(user.email, ws._workspaceId)) {
+  if (user && ws._workspaceId === DEFAULT_WORKSPACE_ID && findWorkspace(ws._workspaceId) && isEmailAllowed(user.email, ws._workspaceId)) {
     ensureWorkspaceMemberForUser(user, ws._workspaceId);
   }
-  if ((user && !userCanAccessWorkspace(user, ws._workspaceId)) || !findWorkspace(ws._workspaceId)) {
+  if ((!user && ws._workspaceId !== DEFAULT_WORKSPACE_ID) || (user && !userCanAccessWorkspace(user, ws._workspaceId)) || !findWorkspace(ws._workspaceId)) {
     ws._workspaceId = DEFAULT_WORKSPACE_ID;
   }
   // Seed from the auth session so DM broadcasts can be filtered immediately;
@@ -3913,22 +3950,25 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
   // unrelated HTTP requests interleave instead of queuing behind a burst.
   setImmediate(() => {
     if (ws.readyState !== 1) return;
+    const canReadWorkspace = user
+      ? userCanAccessWorkspace(user, ws._workspaceId)
+      : ws._workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(ws._workspaceId);
     try {
       ws.send(JSON.stringify({
         type: "init",
         workspaceId: ws._workspaceId,
         workspaces: visibleWorkspacesForUser(user),
-        channels: store.channels.filter((ch) => (
+        channels: canReadWorkspace ? store.channels.filter((ch) => (
           (ch.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
           && (ch.type || "channel") === "channel"
-        )),
-        agents: Object.keys(store.agents)
+        )) : [],
+        agents: canReadWorkspace ? Object.keys(store.agents)
           .map((id) => agentPayload(id))
-          .filter((agent) => (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId),
+          .filter((agent) => (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
         humans: currentHumans(),
-        configs: sanitizedAgentConfigs().filter((config) => (config.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId),
-        machines: Array.from(machines.values()).filter((machine) => (machine.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId),
-        profilePresets: profilePresets.list(),
+        configs: canReadWorkspace ? sanitizedAgentConfigs().filter((config) => (config.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
+        machines: canReadWorkspace ? Array.from(machines.values()).filter((machine) => (machine.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
+        profilePresets: canReadWorkspace ? profilePresets.list(ws._workspaceId) : [],
       }));
     } catch (e) {
       console.warn("[web] init send failed:", e.message);
@@ -4227,6 +4267,9 @@ app.post("/api/auth/google", async (req, res) => {
       picture: payload.picture || null,
       gravatarUrl: grav,
     };
+    if (workspaceId !== DEFAULT_WORKSPACE_ID && !getWorkspaceMember(workspaceId, user.email)) {
+      return res.status(403).json({ error: "Not a member of this workspace." });
+    }
     authSessions.set(sessionToken, user);
     ensureWorkspaceMemberForUser(user, workspaceId);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
@@ -4284,6 +4327,9 @@ app.post("/api/auth/supabase", async (req, res) => {
     }
     const grav = gravatarUrl(email);
     const user = { name: emailPrefix, email, picture: null, gravatarUrl: grav };
+    if (workspaceId !== DEFAULT_WORKSPACE_ID && !getWorkspaceMember(workspaceId, user.email)) {
+      return res.status(403).json({ error: "Not a member of this workspace." });
+    }
     const sessionToken = crypto.randomBytes(32).toString("hex");
     authSessions.set(sessionToken, user);
     ensureWorkspaceMemberForUser(user, workspaceId);
@@ -4661,6 +4707,9 @@ app.post("/api/auth/guest-session", async (req, res) => {
   // Email allowlist disables guest access entirely — an active allowlist implies
   // "only these humans may enter", and guests have no email to check.
   const workspaceId = workspaceIdFromReq(req);
+  if (workspaceId !== DEFAULT_WORKSPACE_ID) {
+    return res.status(403).json({ error: "Guest access disabled on this server." });
+  }
   if (allowlistActive(workspaceId)) {
     return res.status(403).json({ error: "Guest access disabled on this server." });
   }

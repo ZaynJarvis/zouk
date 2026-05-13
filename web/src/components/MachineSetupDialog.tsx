@@ -4,6 +4,7 @@ import type { MachineApiKey, ServerMachine } from '../types';
 import * as api from '../lib/api';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
+import { useApp } from '../store/AppContext';
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -34,6 +35,7 @@ export default function MachineSetupDialog({
   machines: ServerMachine[];
   onClose: () => void;
 }) {
+  const { activeWorkspaceId } = useApp();
   const [keys, setKeys] = useState<MachineApiKey[]>([]);
   const [newKeyName, setNewKeyName] = useState('');
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
@@ -45,11 +47,13 @@ export default function MachineSetupDialog({
   const loadKeys = useCallback(async () => {
     try {
       const fetchedKeys = await api.listMachineKeys();
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setKeys(fetchedKeys);
     } catch {
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setKeys([]);
     }
-  }, []);
+  }, [activeWorkspaceId]);
 
   useEffect(() => {
     loadKeys();
@@ -61,13 +65,15 @@ export default function MachineSetupDialog({
     setError(null);
     try {
       const result = await api.generateMachineKey(newKeyName.trim());
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setGeneratedKey(result.rawKey);
       setKeys(prev => [...prev, result.key]);
       setNewKeyName('');
     } catch (e) {
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setError(e instanceof Error ? e.message : 'Failed to generate key');
     } finally {
-      setLoading(false);
+      if (api.getActiveWorkspaceId() === activeWorkspaceId) setLoading(false);
     }
   };
 
@@ -75,8 +81,10 @@ export default function MachineSetupDialog({
     if (!confirm('Revoke this API key? Connected daemons using it will be disconnected.')) return;
     try {
       await api.revokeMachineKey(keyId);
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setKeys(prev => prev.filter(k => k.id !== keyId));
     } catch {
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setError('Failed to revoke key');
     }
   };
