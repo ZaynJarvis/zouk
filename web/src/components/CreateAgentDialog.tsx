@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, ChevronDown, Server, AlertTriangle, Loader as Loader2 } from 'lucide-react';
+import { X, Plus, ChevronDown, Server, AlertTriangle, Loader as Loader2, Copy, Check, Star } from 'lucide-react';
 import type { ServerMachine } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
@@ -38,6 +38,14 @@ export default function CreateAgentDialog({
   // When true, the user opted into typing a custom model even though the
   // daemon offered a list. Default picks the first suggested model.
   const [customModel, setCustomModel] = useState(false);
+  const [ovInstallCopied, setOvInstallCopied] = useState(false);
+
+  // Runtimes whose ecosystems ship a first-class OpenViking memory plugin —
+  // we surface a "recommended for OV" badge + one-liner installer below the
+  // runtime row when one of these is picked.
+  const OV_RECOMMENDED_RUNTIMES = ['claude'] as const;
+  const OV_INSTALL_COMMAND =
+    'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/claude-code-memory-plugin/setup-helper/install.sh)';
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId);
   const machineRuntimes = useMemo(() => selectedMachine?.runtimes || [], [selectedMachine]);
@@ -212,27 +220,68 @@ export default function CreateAgentDialog({
             <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">RUNTIME</label>
             {machineRuntimes.length > 0 ? (
               <div className="flex gap-2 flex-wrap">
-                {machineRuntimes.map((rt) => (
-                  <ScanlineTear key={rt} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                    <button
-                      type="button"
-                      onClick={() => setRuntime(rt)}
-                      className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
-                        runtime === rt
-                          ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
-                          : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                      }`}
-                    >
-                      {formatRuntime(rt)}
-                    </button>
-                  </ScanlineTear>
-                ))}
+                {machineRuntimes.map((rt) => {
+                  const isOvRecommended = (OV_RECOMMENDED_RUNTIMES as readonly string[]).includes(rt);
+                  return (
+                    <ScanlineTear key={rt} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setRuntime(rt)}
+                        className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono inline-flex items-center gap-1.5 ${
+                          runtime === rt
+                            ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
+                            : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                        }`}
+                      >
+                        {formatRuntime(rt)}
+                        {isOvRecommended && (
+                          <span
+                            title="Recommended for OpenViking memory integration"
+                            className="inline-flex items-center gap-0.5 text-2xs text-nc-yellow"
+                          >
+                            <Star size={10} className="fill-current" /> OV
+                          </span>
+                        )}
+                      </button>
+                    </ScanlineTear>
+                  );
+                })}
               </div>
             ) : (
               <div className="px-3 py-2 border border-nc-border bg-nc-panel text-xs font-mono text-nc-muted">
                 {selectedMachine
                   ? 'This machine has no runtimes available. Install a supported CLI on the daemon host.'
                   : 'Connect a daemon to see available runtimes.'}
+              </div>
+            )}
+
+            {(OV_RECOMMENDED_RUNTIMES as readonly string[]).includes(runtime) && (
+              <div className="mt-2 border border-nc-yellow/30 bg-nc-yellow/5 p-2.5 text-2xs font-mono space-y-1.5">
+                <div className="flex items-center gap-1.5 text-nc-yellow">
+                  <Star size={10} className="fill-current" />
+                  <span>{formatRuntime(runtime)} is recommended for OpenViking memory integration.</span>
+                </div>
+                <div className="text-nc-muted">Install the memory plugin on the daemon host (one-liner):</div>
+                <div className="flex gap-2">
+                  <code
+                    className="flex-1 px-2 py-1.5 border border-nc-border bg-nc-black text-2xs font-mono text-nc-green break-all select-all"
+                    style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
+                  >
+                    {OV_INSTALL_COMMAND}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(OV_INSTALL_COMMAND);
+                      setOvInstallCopied(true);
+                      setTimeout(() => setOvInstallCopied(false), 2000);
+                    }}
+                    className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-border bg-nc-panel hover:bg-nc-elevated hover:border-nc-cyan shrink-0 text-nc-muted hover:text-nc-cyan"
+                    title="Copy install command"
+                  >
+                    {ovInstallCopied ? <Check size={12} className="text-nc-green" /> : <Copy size={12} />}
+                  </button>
+                </div>
               </div>
             )}
           </div>
