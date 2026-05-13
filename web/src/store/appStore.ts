@@ -3,6 +3,7 @@ import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, ColorMode, Toast,
   WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
+  Workspace,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -23,6 +24,7 @@ import {
   getStoredTheme,
   getStoredColorMode,
   getStoredNowRailHidden,
+  getStoredActiveWorkspaceId,
   setStoredAuth,
   setStoredAuthUser,
   setStoredAuthToken,
@@ -31,6 +33,7 @@ import {
   setStoredTheme,
   setStoredColorMode,
   setStoredNowRailHidden,
+  setStoredActiveWorkspaceId,
 } from './storage';
 import { applyTheme } from '../themes';
 
@@ -116,6 +119,10 @@ export function useAppStore() {
     setStoredNowRailHidden(hidden);
   }, []);
   const [currentUser, setCurrentUser] = useState(getStoredCurrentUser);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([
+    { id: 'default', name: 'Default', icon: 'z' },
+  ]);
+  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getStoredActiveWorkspaceId);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
   const [agents, setAgents] = useState<ServerAgent[]>([]);
   const [humans, setHumans] = useState<ServerHuman[]>([]);
@@ -274,10 +281,15 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
+        const e = event as { workspaceId?: string; workspaces?: Workspace[]; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
         const nextChannels = e.channels || [];
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
+        if (e.workspaces && e.workspaces.length > 0) setWorkspaces(e.workspaces);
+        if (e.workspaceId && e.workspaceId !== activeWorkspaceId) {
+          setActiveWorkspaceIdState(e.workspaceId);
+          setStoredActiveWorkspaceId(e.workspaceId);
+        }
         setChannels(nextChannels);
         // `init` replays on every WS reconnect. The server payload doesn't carry
         // trajectory entries (those live in DB, not in the runtime store), so
@@ -602,7 +614,36 @@ export function useAppStore() {
         break;
       }
     }
-  }, [recordAgentLastChannel]);
+  }, [activeWorkspaceId, recordAgentLastChannel]);
+
+  const setActiveWorkspaceId = useCallback((workspaceId: string) => {
+    const next = workspaceId || 'default';
+    if (next === activeWorkspaceId) return;
+    setStoredActiveWorkspaceId(next);
+    setActiveWorkspaceIdState(next);
+    hasResolvedInitialViewRef.current = false;
+    setChannels([]);
+    setAgents([]);
+    setConfigs([]);
+    setMachines([]);
+    setMessages([]);
+    setThreadMessages([]);
+    setUnreadCounts({});
+    setAgentLastChannel({});
+    setActiveThreadMessage(null);
+    setRightPanel(prev => (prev === 'thread' || prev === 'channel_settings' ? null : prev));
+    setViewMode('channel');
+    setActiveChannelName('all');
+    setTasksVersion(v => v + 1);
+  }, [activeWorkspaceId]);
+
+  const createWorkspace = useCallback(async (input: { name: string; icon?: string }) => {
+    const res = await api.createWorkspace(input);
+    setWorkspaces(res.workspaces);
+    setActiveWorkspaceId(res.workspace.id);
+    addToast(`Server ${res.workspace.name} created`, 'success');
+    return res.workspace;
+  }, [addToast, setActiveWorkspaceId]);
 
   useEffect(() => {
     const ws = new SlockWebSocket(serverUrl);
@@ -613,7 +654,7 @@ export function useAppStore() {
       unsub();
       ws.disconnect();
     };
-  }, [serverUrl, handleWsEvent]);
+  }, [serverUrl, activeWorkspaceId, handleWsEvent]);
 
   useEffect(() => {
     if (!wsConnected) return;
@@ -629,6 +670,22 @@ export function useAppStore() {
       gravatarUrl: authUser?.gravatarUrl,
     });
   }, [wsConnected, isLoggedIn, authToken, authUser, currentUser]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !authToken) return;
+    let cancelled = false;
+    api.fetchWorkspaces()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.workspaces?.length) setWorkspaces(res.workspaces);
+        if (res.activeWorkspaceId) {
+          setActiveWorkspaceIdState(res.activeWorkspaceId);
+          setStoredActiveWorkspaceId(res.activeWorkspaceId);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isLoggedIn, authToken, activeWorkspaceId]);
 
   // Register guest users on the server so presence lists see them.
   // Authenticated users are pushed into store.humans by /api/auth/google; guests
@@ -726,7 +783,7 @@ export function useAppStore() {
       }
     });
     return () => { cancelled = true; };
-  }, [activeChannelName, viewMode, channelListReady, recordAgentLastChannel]);
+  }, [activeChannelName, activeWorkspaceId, viewMode, channelListReady, recordAgentLastChannel]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlderMessages) return;
@@ -1127,6 +1184,7 @@ export function useAppStore() {
     colorMode, setColorMode,
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace,
     channels, agents, humans, configs, machines,
     activeChannelName, selectChannel,
     viewMode, setViewMode, navigateToView,

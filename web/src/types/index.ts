@@ -1,5 +1,7 @@
 export interface MessageRecord {
   id: string;
+  workspaceId?: string;
+  channelId?: string | null;
   channel_type: 'channel' | 'dm' | 'thread';
   channel_name: string;
   parent_channel_name?: string;
@@ -22,6 +24,7 @@ export interface MessageRecord {
 
 export interface ServerChannel {
   id: string;
+  workspaceId?: string;
   name: string;
   description?: string;
   type?: 'channel' | 'dm';
@@ -29,6 +32,7 @@ export interface ServerChannel {
 
 export interface ServerAgent {
   id: string;
+  workspaceId?: string;
   name: string;
   displayName?: string;
   description?: string;
@@ -170,6 +174,7 @@ export interface ServerHuman {
 
 export interface AgentConfig {
   id?: string;
+  workspaceId?: string;
   name: string;
   displayName?: string;
   description?: string;
@@ -205,6 +210,7 @@ export interface AgentConfig {
 
 export interface ServerMachine {
   id: string;
+  workspaceId?: string;
   hostname: string;
   alias?: string;
   os: string;
@@ -216,6 +222,14 @@ export interface ServerMachine {
 export interface AgentProfilePreset {
   id: string;
   image: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  icon: string;
+  ownerEmail?: string | null;
+  createdAt?: string | null;
 }
 
 export interface InitPayload {

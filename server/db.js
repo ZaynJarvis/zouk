@@ -14,6 +14,7 @@ const path = require('path');
 
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '800', 10);
+const DEFAULT_WORKSPACE_ID = 'default';
 
 const enabled = Boolean(DATABASE_URL);
 const pool = enabled
@@ -77,10 +78,12 @@ async function saveMessage(msg) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO messages (id, seq, channel_name, channel_type, thread_id, sender_name, sender_type, content, created_at, attachments, task_number, task_status, task_assignee_id, task_assignee_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      `INSERT INTO messages (id, seq, workspace_id, channel_id, channel_name, channel_type, thread_id, sender_name, sender_type, content, created_at, attachments, task_number, task_status, task_assignee_id, task_assignee_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (id) DO UPDATE SET
          seq = EXCLUDED.seq,
+         workspace_id = EXCLUDED.workspace_id,
+         channel_id = EXCLUDED.channel_id,
          channel_name = EXCLUDED.channel_name,
          channel_type = EXCLUDED.channel_type,
          thread_id = EXCLUDED.thread_id,
@@ -96,6 +99,8 @@ async function saveMessage(msg) {
       [
         msg.id,
         msg.seq,
+        msg.workspaceId || DEFAULT_WORKSPACE_ID,
+        msg.channelId || null,
         msg.channelName,
         msg.channelType,
         msg.threadId || null,
@@ -133,7 +138,8 @@ function rowToMessage(row) {
   return {
     id: row.id,
     seq: row.seq,
-    channelId: `ch-${row.channel_name}`,
+    workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+    channelId: row.channel_id || `ch-${row.channel_name}`,
     channelName: row.channel_name,
     channelType: row.channel_type,
     threadId: row.thread_id || null,
@@ -155,13 +161,14 @@ async function saveChannel(ch) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO channels (id, name, description, type)
-       VALUES ($1,$2,$3,$4)
+      `INSERT INTO channels (id, workspace_id, name, description, type)
+       VALUES ($1,$2,$3,$4,$5)
        ON CONFLICT (id) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
          name = EXCLUDED.name,
          description = EXCLUDED.description,
          type = EXCLUDED.type`,
-      [ch.id, ch.name, ch.description || '', ch.type || 'channel']
+      [ch.id, ch.workspaceId || DEFAULT_WORKSPACE_ID, ch.name, ch.description || '', ch.type || 'channel']
     );
   } catch (e) {
     console.error('[db] saveChannel error:', e.message);
@@ -183,6 +190,7 @@ async function loadChannels() {
     const { rows } = await pool.query('SELECT * FROM channels ORDER BY name ASC');
     return rows.map(row => ({
       id: row.id,
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       name: row.name,
       description: row.description || '',
       type: row.type || 'channel',
@@ -196,17 +204,18 @@ async function loadChannels() {
 
 // ─── Channel ↔ Agent membership ──────────────────────────────────
 
-async function saveChannelAgent({ channelId, agentId, canRead = true, subscribed = true }) {
+async function saveChannelAgent({ workspaceId = DEFAULT_WORKSPACE_ID, channelId, agentId, canRead = true, subscribed = true }) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO channel_agents (channel_id, agent_id, can_read, subscribed, updated_at)
-       VALUES ($1,$2,$3,$4, now())
+      `INSERT INTO channel_agents (workspace_id, channel_id, agent_id, can_read, subscribed, updated_at)
+       VALUES ($1,$2,$3,$4,$5, now())
        ON CONFLICT (channel_id, agent_id) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
          can_read   = EXCLUDED.can_read,
          subscribed = EXCLUDED.subscribed,
          updated_at = now()`,
-      [channelId, agentId, !!canRead, !!subscribed]
+      [workspaceId || DEFAULT_WORKSPACE_ID, channelId, agentId, !!canRead, !!subscribed]
     );
   } catch (e) {
     console.error('[db] saveChannelAgent error:', e.message);
@@ -229,9 +238,10 @@ async function loadChannelAgents() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      'SELECT channel_id, agent_id, can_read, subscribed FROM channel_agents'
+      'SELECT workspace_id, channel_id, agent_id, can_read, subscribed FROM channel_agents'
     );
     return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       channelId: row.channel_id,
       agentId: row.agent_id,
       canRead: row.can_read,
@@ -249,9 +259,10 @@ async function saveTask(task) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO tasks (task_number, channel_id, channel_name, title, status, message_id, claimed_by_name, claimed_by_type, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO tasks (task_number, workspace_id, channel_id, channel_name, title, status, message_id, claimed_by_name, claimed_by_type, created_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (task_number) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
          channel_id = EXCLUDED.channel_id,
          channel_name = EXCLUDED.channel_name,
          title = EXCLUDED.title,
@@ -262,6 +273,7 @@ async function saveTask(task) {
          created_by_name = EXCLUDED.created_by_name`,
       [
         task.taskNumber,
+        task.workspaceId || DEFAULT_WORKSPACE_ID,
         task.channelId || null,
         task.channelName || null,
         task.title,
@@ -283,6 +295,7 @@ async function loadTasks() {
     const { rows } = await pool.query('SELECT * FROM tasks ORDER BY task_number ASC');
     return rows.map(row => ({
       taskNumber: row.task_number,
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       channelId: row.channel_id,
       channelName: row.channel_name,
       title: row.title,
@@ -333,13 +346,14 @@ async function saveAgentConfig(config) {
     // is bound to a machine, that binding is immutable.
     await pool.query(
       `INSERT INTO agent_configs (
-         id, machine_id, name, display_name, description, runtime, model,
+         id, workspace_id, machine_id, name, display_name, description, runtime, model,
          system_prompt, instructions, work_dir, picture, visibility,
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
          openviking_user_id, openviking_api_key,
          openviking_mode, openviking_custom_url, openviking_custom_api_key
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        ON CONFLICT (id) DO UPDATE SET
+         workspace_id                 = EXCLUDED.workspace_id,
          name                       = EXCLUDED.name,
          display_name               = EXCLUDED.display_name,
          description                = EXCLUDED.description,
@@ -362,6 +376,7 @@ async function saveAgentConfig(config) {
          openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key`,
       [
         config.id,
+        config.workspaceId || DEFAULT_WORKSPACE_ID,
         config.machineId,
         config.name,
         config.displayName || config.name,
@@ -404,6 +419,7 @@ async function loadAgentConfigs() {
   try {
     const { rows } = await pool.query(
       `SELECT id, machine_id, name, display_name, description, runtime, model,
+              workspace_id,
               system_prompt, instructions, work_dir, picture, visibility,
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
               openviking_user_id, openviking_api_key,
@@ -413,6 +429,7 @@ async function loadAgentConfigs() {
     );
     return rows.map(row => ({
       id: row.id,
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       machineId: row.machine_id,
       name: row.name,
       displayName: row.display_name || row.name,
@@ -447,9 +464,10 @@ async function saveMachineKey(key) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO machine_keys (id, name, raw_key, created_at, last_used_at, revoked_at, bound_fingerprint)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO machine_keys (id, workspace_id, name, raw_key, created_at, last_used_at, revoked_at, bound_fingerprint)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (id) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
          name = EXCLUDED.name,
          raw_key = EXCLUDED.raw_key,
          created_at = EXCLUDED.created_at,
@@ -458,6 +476,7 @@ async function saveMachineKey(key) {
          bound_fingerprint = EXCLUDED.bound_fingerprint`,
       [
         key.id,
+        key.workspaceId || DEFAULT_WORKSPACE_ID,
         key.name,
         key.rawKey,
         key.createdAt,
@@ -487,6 +506,7 @@ async function loadMachineKeys() {
     const { rows } = await pool.query('SELECT * FROM machine_keys ORDER BY created_at ASC');
     return rows.map(row => ({
       id: row.id,
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       name: row.name,
       rawKey: row.raw_key,
       createdAt: row.created_at,
@@ -506,12 +526,13 @@ async function saveProfilePreset(preset) {
   if (!pool) return;
   try {
     await pool.query(
-      `INSERT INTO agent_profile_presets (id, image, created_at)
-       VALUES ($1,$2,$3)
+      `INSERT INTO agent_profile_presets (id, workspace_id, image, created_at)
+       VALUES ($1,$2,$3,$4)
        ON CONFLICT (id) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
          image = EXCLUDED.image,
          created_at = EXCLUDED.created_at`,
-      [preset.id, preset.image, preset.createdAt]
+      [preset.id, preset.workspaceId || DEFAULT_WORKSPACE_ID, preset.image, preset.createdAt]
     );
   } catch (e) {
     console.error('[db] saveProfilePreset error:', e.message);
@@ -533,6 +554,7 @@ async function loadProfilePresets() {
     const { rows } = await pool.query('SELECT * FROM agent_profile_presets ORDER BY created_at ASC');
     return rows.map(row => ({
       id: row.id,
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       image: row.image,
       createdAt: row.created_at,
     }));
@@ -544,11 +566,17 @@ async function loadProfilePresets() {
 
 // ─── Email allowlist ─────────────────────────────────────────────
 
-async function loadEmailAllowlist() {
+async function loadEmailAllowlist(workspaceId = null) {
   if (!pool) return null;
   try {
-    const { rows } = await pool.query('SELECT email, added_at, added_by FROM email_allowlist');
+    const { rows } = workspaceId
+      ? await pool.query(
+          'SELECT workspace_id, email, added_at, added_by FROM email_allowlist WHERE workspace_id = $1 ORDER BY email ASC',
+          [workspaceId]
+        )
+      : await pool.query('SELECT workspace_id, email, added_at, added_by FROM email_allowlist ORDER BY workspace_id ASC, email ASC');
     return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       email: row.email,
       addedAt: row.added_at,
       addedBy: row.added_by || null,
@@ -559,33 +587,126 @@ async function loadEmailAllowlist() {
   }
 }
 
-async function addEmailAllowlist(email, addedBy) {
+async function addEmailAllowlist(email, addedBy, workspaceId = DEFAULT_WORKSPACE_ID) {
   if (!pool) return { dbError: 'Database pool not initialised' };
   try {
     const { rows } = await pool.query(
-      `INSERT INTO email_allowlist (email, added_by)
-       VALUES ($1,$2)
-       ON CONFLICT (email) DO UPDATE SET added_by = EXCLUDED.added_by
-       RETURNING email, added_at, added_by`,
-      [email, addedBy || null]
+      `INSERT INTO email_allowlist (workspace_id, email, added_by)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (workspace_id, email) DO UPDATE SET added_by = EXCLUDED.added_by
+       RETURNING workspace_id, email, added_at, added_by`,
+      [workspaceId || DEFAULT_WORKSPACE_ID, email, addedBy || null]
     );
     const row = rows[0];
     if (!row) return { dbError: 'INSERT returned no rows' };
-    return { email: row.email, addedAt: row.added_at, addedBy: row.added_by || null };
+    return {
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      email: row.email,
+      addedAt: row.added_at,
+      addedBy: row.added_by || null,
+    };
   } catch (e) {
     console.error('[db] addEmailAllowlist error:', e.message);
     return { dbError: e.message };
   }
 }
 
-async function removeEmailAllowlist(email) {
+async function removeEmailAllowlist(email, workspaceId = DEFAULT_WORKSPACE_ID) {
   if (!pool) return false;
   try {
-    const { rowCount } = await pool.query('DELETE FROM email_allowlist WHERE email = $1', [email]);
+    const { rowCount } = await pool.query(
+      'DELETE FROM email_allowlist WHERE workspace_id = $1 AND email = $2',
+      [workspaceId || DEFAULT_WORKSPACE_ID, email]
+    );
     return rowCount > 0;
   } catch (e) {
     console.error('[db] removeEmailAllowlist error:', e.message);
     return false;
+  }
+}
+
+// ─── Workspaces ──────────────────────────────────────────────────
+
+async function saveWorkspace(workspace) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspaces (id, name, icon, owner_email, created_at)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         icon = EXCLUDED.icon,
+         owner_email = EXCLUDED.owner_email`,
+      [
+        workspace.id,
+        workspace.name,
+        workspace.icon || 'z',
+        workspace.ownerEmail || null,
+        workspace.createdAt || new Date().toISOString(),
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspace error:', e.message);
+  }
+}
+
+async function loadWorkspaces() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, icon, owner_email, created_at FROM workspaces ORDER BY created_at ASC, name ASC'
+    );
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      icon: row.icon || 'z',
+      ownerEmail: row.owner_email || null,
+      createdAt: row.created_at,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaces error:', e.message);
+    return null;
+  }
+}
+
+async function saveWorkspaceMember(member) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_members (workspace_id, email, role, name, joined_at)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (workspace_id, email) DO UPDATE SET
+         role = EXCLUDED.role,
+         name = EXCLUDED.name`,
+      [
+        member.workspaceId || DEFAULT_WORKSPACE_ID,
+        member.email,
+        member.role || 'member',
+        member.name || null,
+        member.joinedAt || new Date().toISOString(),
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceMember error:', e.message);
+  }
+}
+
+async function loadWorkspaceMembers() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      'SELECT workspace_id, email, role, name, joined_at FROM workspace_members ORDER BY workspace_id ASC, email ASC'
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      email: row.email,
+      role: row.role || 'member',
+      name: row.name || null,
+      joinedAt: row.joined_at,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceMembers error:', e.message);
+    return null;
   }
 }
 
@@ -743,6 +864,10 @@ module.exports = {
   saveChannelAgent,
   deleteChannelAgent,
   loadChannelAgents,
+  saveWorkspace,
+  loadWorkspaces,
+  saveWorkspaceMember,
+  loadWorkspaceMembers,
   saveTask,
   loadTasks,
   loadMaxSeq,

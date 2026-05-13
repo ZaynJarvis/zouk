@@ -1,6 +1,7 @@
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, AgentActivity, AgentEntry, AgentProfilePreset,
+  Workspace,
 } from '../types';
 
 export type WsEventType =
@@ -23,6 +24,8 @@ export type WsEventType =
 
 export interface WsInitEvent {
   type: 'init';
+  workspaceId?: string;
+  workspaces?: Workspace[];
   channels: ServerChannel[];
   agents: ServerAgent[];
   humans: ServerHuman[];
@@ -229,12 +232,16 @@ export class SlockWebSocket {
     // Re-read the token on every connect so reconnects after login/logout
     // use a fresh credential instead of the one captured at construction.
     const token = localStorage.getItem('zouk_auth_token');
-    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+    const workspaceId = localStorage.getItem('zouk_active_workspace_id') || 'default';
+    const params = new URLSearchParams();
+    if (token) params.set('token', token);
+    params.set('workspaceId', workspaceId);
+    const query = `?${params.toString()}`;
     if (this.serverUrl) {
-      return `${this.serverUrl.replace(/^http/, 'ws')}/ws${tokenQuery}`;
+      return `${this.serverUrl.replace(/^http/, 'ws')}/ws${query}`;
     }
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${window.location.host}/ws${tokenQuery}`;
+    return `${proto}//${window.location.host}/ws${query}`;
   }
 
   connect(): void {

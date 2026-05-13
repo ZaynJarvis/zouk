@@ -8,6 +8,7 @@ const THEME_STORAGE_KEY = 'zouk_theme';
 const COLOR_MODE_STORAGE_KEY = 'zouk_color_mode';
 const NOW_RAIL_HIDDEN_KEY = 'zouk_now_rail_hidden';
 const LAST_VIEW_STORAGE_KEY = 'zouk_last_view';
+export const ACTIVE_WORKSPACE_KEY = 'zouk_active_workspace_id';
 const LINK_TRANSFORMS_KEY = 'zouk_link_transforms';
 
 type StoredAuth = { token: string; user: AuthUser };
@@ -90,6 +91,14 @@ export function setStoredLastView(view: StoredLastView) {
 
 export function clearStoredLastView() {
   localStorage.removeItem(LAST_VIEW_STORAGE_KEY);
+}
+
+export function getStoredActiveWorkspaceId(): string {
+  return localStorage.getItem(ACTIVE_WORKSPACE_KEY) || 'default';
+}
+
+export function setStoredActiveWorkspaceId(workspaceId: string) {
+  localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId || 'default');
 }
 
 export function getStoredCurrentUser(): string {
