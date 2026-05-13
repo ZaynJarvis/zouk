@@ -109,7 +109,7 @@ if (feishuEnabled) {
 //   1. `ALLOW` env, comma-separated. Entries starting with `@` match by domain
 //      (e.g. `@bytedance.com` lets the whole tenant in); bare entries match by
 //      exact address. Immutable without restart.
-//   2. `email_allowlist` Supabase table (managed via Settings UI, hot-reloaded)
+//   2. `email_allowlist` DB table (managed via Settings UI, hot-reloaded)
 // When the union is non-empty, only listed addresses can mint sessions and
 // guest mode is disabled. Empty union = unrestricted (default).
 const ENV_ALLOW_EMAILS = new Set();
@@ -165,7 +165,7 @@ async function loadEmailAllowlistFromDb() {
       dbAllowEmails.set(row.email, { addedAt: row.addedAt, addedBy: row.addedBy });
     }
     if (rows.length > 0) {
-      console.log(`[auth] Loaded ${rows.length} allowlist entry(ies) from Supabase`);
+      console.log(`[auth] Loaded ${rows.length} allowlist entry(ies) from database`);
     }
   } catch (e) {
     console.warn("[auth] Failed to load email allowlist:", e.message);
@@ -1805,7 +1805,7 @@ function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const user = token ? authSessions.get(token) : null;
   if (!user) {
-    return res.status(403).json({ error: "Authentication required. Sign in with Google to perform this action." });
+    return res.status(403).json({ error: "Authentication required. Please sign in to perform this action." });
   }
   if (allowlistActive() && !isEmailAllowed(user.email)) {
     return res.status(403).json({ error: "Email not authorized to access this server." });
@@ -2396,7 +2396,7 @@ app.get("/api/agent-configs", (req, res) => {
 });
 
 // Mirror config fields that also live on the runtime agent record. Without
-// this, edits land in agentConfigs (and Supabase) but the live `store.agents`
+// this, edits land in agentConfigs (and the DB) but the live `store.agents`
 // keeps the old values until the next server restart — so the sidebar / detail
 // header keep showing the pre-rename name even though the user clicked SAVE.
 function syncRuntimeAgentFromConfig(id, config) {
@@ -3438,7 +3438,7 @@ function handleWebConnection(ws, authenticated, token = null) {
 function handleWebMessage(ws, msg) {
   // Block write-type messages from unauthenticated (guest) connections
   if (WS_AUTH_REQUIRED_TYPES.has(msg.type) && !ws._authenticated) {
-    ws.send(JSON.stringify({ type: "error", message: "Authentication required. Sign in with Google to perform this action." }));
+    ws.send(JSON.stringify({ type: "error", message: "Authentication required. Please sign in to perform this action." }));
     console.log(`[web] Blocked unauthenticated WS message: ${msg.type}`);
     return;
   }
@@ -3623,7 +3623,7 @@ function handleWebMessage(ws, msg) {
 // Persisted to data/sessions.json so sessions survive server restarts.
 const authSessions = new Map();
 
-// Load sessions from Supabase (when available) or local file fallback.
+// Load sessions from PostgreSQL (when available) or local file fallback.
 // Called at startup — must be awaited before server accepts requests.
 async function loadAuthSessions() {
   if (db.enabled) {
@@ -3631,14 +3631,14 @@ async function loadAuthSessions() {
       const rows = await db.loadSessions();
       if (rows) {
         for (const { token, user } of rows) authSessions.set(token, user);
-        console.log(`[auth] Loaded ${authSessions.size} session(s) from Supabase`);
+        console.log(`[auth] Loaded ${authSessions.size} session(s) from database`);
         return;
       }
     } catch (e) {
-      console.warn("[auth] Supabase session load failed, falling back to disk:", e.message);
+      console.warn("[auth] Database session load failed, falling back to disk:", e.message);
     }
   }
-  // Local file fallback (local dev without Supabase)
+  // Local file fallback (local dev without a database)
   try {
     if (fs.existsSync(SESSIONS_FILE)) {
       const entries = JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8"));

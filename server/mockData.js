@@ -1,10 +1,10 @@
 /**
- * Mock data seed for PR previews / dev environments where Supabase isn't
+ * Mock data seed for PR previews / dev environments where no DB is
  * configured. Populates a handful of agents, machines, channels, humans and
  * messages so the UI has something to render on a fresh boot.
  *
  * Only seeds when:
- *   - Supabase is disabled (no SUPABASE_URL / SUPABASE_SERVICE_KEY), AND
+ *   - DB persistence is disabled (no DATABASE_URL), AND
  *   - process.env.ZOUK_NO_MOCK is not set, AND
  *   - the relevant store slice is empty (so we never overwrite real data)
  */
@@ -192,7 +192,7 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
     store.seq = seq;
   }
 
-  console.log("[mock] Seeded mock channels, agents, machines, messages (Supabase off)");
+  console.log("[mock] Seeded mock channels, agents, machines, messages (no DB)");
 }
 
 module.exports = { shouldSeed, seed };

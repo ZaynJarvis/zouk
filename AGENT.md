@@ -87,7 +87,7 @@ Production server is on Railway, single replica in `asia-southeast1`. Built-in R
 
 ### Live state without leaving the app
 
-- **`Settings → CONNECTIONS`** — per-client `/ws` activity (open count, conn/min, blocked status, owner). `Revoke` deletes the auth session and force-closes any open sockets. Auto-blocks last 5 min; manual revokes 24h. All blocks live in process memory and reset on redeploy — that is expected; revoked auth sessions persist (Supabase) so the dead token stays dead.
+- **`Settings → CONNECTIONS`** — per-client `/ws` activity (open count, conn/min, blocked status, owner). `Revoke` deletes the auth session and force-closes any open sockets. Auto-blocks last 5 min; manual revokes 24h. All blocks live in process memory and reset on redeploy — that is expected; revoked auth sessions persist (PostgreSQL `sessions` table) so the dead token stays dead.
 - **`GET /api/_internal/ws-clients`** (auth required) — same data as JSON. Response includes `callerId` so a UI can mark "you".
 - **`GET /api/_internal/stats`** (auth required) — store/index sizes, in-memory message cap, socket counts. Curl this first when "feels slow" reports come in (`zouk 收发消息都很慢` style).
 
@@ -121,4 +121,4 @@ The defense layer (`server/index.js`, search `wsTrackers`) classifies each `/ws`
 | `ip` | No token (guest) | 12 connects / 60s | 5 min, HTTP 429 | `guest@<ip>` row |
 | `invalid_token` | Token sent but unknown to authSessions | 3 strikes / 60s | 24h, HTTP 401 then 429 | `bad-token@<ip>` row, status `BAD-TOKEN` |
 
-`invalid_token` upgrades are rejected *before* the upgrade completes — no init payload, no event-loop cost beyond the parse. Manual revokes from the UI also delete the auth session (Supabase + memory) so the dead token survives a redeploy even though the in-memory block does not.
+`invalid_token` upgrades are rejected *before* the upgrade completes — no init payload, no event-loop cost beyond the parse. Manual revokes from the UI also delete the auth session (DB + memory) so the dead token survives a redeploy even though the in-memory block does not.
