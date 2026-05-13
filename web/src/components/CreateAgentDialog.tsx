@@ -5,6 +5,7 @@ import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 import { fetchRuntimeModels, type RuntimeModel } from '../lib/api';
+import { useApp } from '../store/AppContext';
 
 export interface CreateAgentConfig {
   name: string;
@@ -40,10 +41,10 @@ export default function CreateAgentDialog({
   const [customModel, setCustomModel] = useState(false);
   const [ovInstallCopied, setOvInstallCopied] = useState(false);
 
-  // Runtimes whose ecosystems ship a first-class OpenViking memory plugin —
-  // we surface a "recommended for OV" badge + one-liner installer below the
-  // runtime row when one of these is picked.
-  const OV_RECOMMENDED_RUNTIMES = ['claude'] as const;
+  // Server is the source of truth for the OV-recommended runtime list. We use
+  // it to surface a "★ OV" badge + one-liner installer below the runtime row
+  // when one of these is picked.
+  const { ovRuntimeWhitelist } = useApp();
   const OV_INSTALL_COMMAND =
     'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/claude-code-memory-plugin/setup-helper/install.sh)';
 
@@ -221,7 +222,7 @@ export default function CreateAgentDialog({
             {machineRuntimes.length > 0 ? (
               <div className="flex gap-2 flex-wrap">
                 {machineRuntimes.map((rt) => {
-                  const isOvRecommended = (OV_RECOMMENDED_RUNTIMES as readonly string[]).includes(rt);
+                  const isOvRecommended = ovRuntimeWhitelist.includes(rt);
                   return (
                     <ScanlineTear key={rt} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                       <button
@@ -255,7 +256,7 @@ export default function CreateAgentDialog({
               </div>
             )}
 
-            {(OV_RECOMMENDED_RUNTIMES as readonly string[]).includes(runtime) && (
+            {ovRuntimeWhitelist.includes(runtime) && (
               <div className="mt-2 border border-nc-yellow/30 bg-nc-yellow/5 p-2.5 text-2xs font-mono space-y-1.5">
                 <div className="flex items-center gap-1.5 text-nc-yellow">
                   <Star size={10} className="fill-current" />

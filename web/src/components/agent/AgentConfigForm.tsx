@@ -44,6 +44,14 @@ export default function AgentConfigForm({
     savedConfig?.openvikingMode === 'custom' ? 'custom' : 'provisioned';
   const persistedOvCustomUrl = savedConfig?.openvikingCustomUrl ?? '';
   const persistedOvCustomConfigured = !!savedConfig?.openvikingCustomConfigured;
+  // Per-agent OV on/off — `openvikingEnabled` is the raw user override
+  // (boolean | undefined). `agent.ovEnabled` is the server-resolved effective
+  // value honoring the runtime default; we seed local state from that so the
+  // UI starts in sync regardless of whether the user has ever flipped it.
+  const persistedOvEnabledRaw = savedConfig?.openvikingEnabled;
+  const persistedOvEnabledResolved = typeof agent.ovEnabled === 'boolean' ? agent.ovEnabled : false;
+  const persistedOvIsDefault = agent.ovEnabledIsDefault !== false;
+  const persistedOvDefault = !!agent.ovDefault;
 
   const [displayName, setDisplayName] = useState(persistedDisplayName);
   const [description, setDescription] = useState(persistedDescription);
@@ -58,6 +66,7 @@ export default function AgentConfigForm({
   const [picture, setPicture] = useState<string | undefined>(agent.picture);
   const [envVars, setEnvVars] = useState<Record<string, string>>(persistedEnvVars);
   const [visibleChannels, setVisibleChannels] = useState<string[] | null>(agent.channels ?? null);
+  const [ovEnabled, setOvEnabled] = useState<boolean>(persistedOvEnabledResolved);
   const [ovMode, setOvMode] = useState<'provisioned' | 'custom'>(persistedOvMode);
   const [ovCustomUrl, setOvCustomUrl] = useState<string>(persistedOvCustomUrl ?? '');
   // We never receive the actual API key from the server, only a "configured"
@@ -121,11 +130,19 @@ export default function AgentConfigForm({
   }, [agent.id, updateAgentConfig]);
 
   const envVarsDirty = JSON.stringify(envVars) !== JSON.stringify(persistedEnvVars);
+  // ovEnabledDirty: toggle moved off either the persisted explicit value or
+  // the resolved default (when nothing was persisted yet).
+  const ovEnabledDirty = typeof persistedOvEnabledRaw === 'boolean'
+    ? ovEnabled !== persistedOvEnabledRaw
+    : ovEnabled !== persistedOvDefault;
   const ovDirty =
+    ovEnabledDirty ||
     ovMode !== persistedOvMode ||
     (ovMode === 'custom' && (ovCustomUrl !== (persistedOvCustomUrl ?? '') || ovCustomApiKeyDirty));
-  // Custom mode requires url + (existing configured key OR a freshly typed one).
+  // Custom mode requires url + (existing configured key OR a freshly typed one)
+  // — but only matters when OV is actually enabled. Disabled = inert fields.
   const ovCustomValid =
+    !ovEnabled ||
     ovMode !== 'custom' ||
     (ovCustomUrl.trim().length > 0 && (persistedOvCustomConfigured || ovCustomApiKey.length > 0));
   const isDirty =
@@ -152,6 +169,9 @@ export default function AgentConfigForm({
       envVars: envVars,
     };
     if (ovDirty) {
+      if (ovEnabledDirty) {
+        payload.openvikingEnabled = ovEnabled;
+      }
       payload.openvikingMode = ovMode;
       // Only include url when in custom mode (so toggling back to provisioned
       // doesn't overwrite stored values unintentionally).
@@ -472,67 +492,104 @@ export default function AgentConfigForm({
 
         {/* OPENVIKING */}
         <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">OPENVIKING</label>
+          <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
+            <span>OPENVIKING</span>
+            {persistedOvIsDefault && ovEnabled === persistedOvDefault && (
+              <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">(default for {agent.runtime || 'this runtime'})</span>
+            )}
+          </label>
           <div className="grid grid-cols-2 gap-2 mb-2">
             <button
               type="button"
-              onClick={() => setOvMode('provisioned')}
+              onClick={() => setOvEnabled(true)}
               className={`px-2.5 py-2 border font-bold text-xs font-mono ${
-                ovMode === 'provisioned'
+                ovEnabled
                   ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
                   : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
               }`}
             >
-              PROVISIONED
+              ENABLED
             </button>
             <button
               type="button"
-              onClick={() => setOvMode('custom')}
+              onClick={() => setOvEnabled(false)}
               className={`px-2.5 py-2 border font-bold text-xs font-mono ${
-                ovMode === 'custom'
+                !ovEnabled
                   ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
                   : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
               }`}
             >
-              CUSTOM
+              DISABLED
             </button>
           </div>
-          {ovMode === 'provisioned' ? (
-            <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
-              <span className={`w-2 h-2 shrink-0 ${savedConfig?.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
-              <span className="font-bold text-sm text-nc-text-bright font-mono">
-                {savedConfig?.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
-              </span>
-              {savedConfig?.openvikingUserId && (
-                <span className="text-xs text-nc-muted font-mono ml-auto truncate">{savedConfig.openvikingUserId}</span>
-              )}
+          {!ovEnabled ? (
+            <div className="p-3 border border-nc-border bg-nc-elevated text-xs text-nc-muted font-mono">
+              OV creds are not delivered to the daemon and Memory browsing is disabled for this agent. Toggle ENABLED above to turn on.
             </div>
           ) : (
-            <div className="space-y-2">
-              <div>
-                <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">URL</label>
-                <input
-                  type="text"
-                  value={ovCustomUrl}
-                  onChange={(e) => setOvCustomUrl(e.target.value)}
-                  placeholder="https://your-openviking.example.com"
-                  className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
-                />
+            <>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setOvMode('provisioned')}
+                  className={`px-2.5 py-2 border font-bold text-xs font-mono ${
+                    ovMode === 'provisioned'
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                  }`}
+                >
+                  PROVISIONED
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOvMode('custom')}
+                  className={`px-2.5 py-2 border font-bold text-xs font-mono ${
+                    ovMode === 'custom'
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                  }`}
+                >
+                  CUSTOM
+                </button>
               </div>
-              <div>
-                <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">API_KEY</label>
-                <input
-                  type="password"
-                  value={ovCustomApiKey}
-                  onChange={(e) => { setOvCustomApiKey(e.target.value); setOvCustomApiKeyDirty(true); }}
-                  placeholder={persistedOvCustomConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key'}
-                  className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
-                />
-              </div>
-              {!ovCustomValid && (
-                <p className="text-2xs text-nc-red font-mono">URL and API key are required for custom mode.</p>
+              {ovMode === 'provisioned' ? (
+                <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
+                  <span className={`w-2 h-2 shrink-0 ${savedConfig?.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
+                  <span className="font-bold text-sm text-nc-text-bright font-mono">
+                    {savedConfig?.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
+                  </span>
+                  {savedConfig?.openvikingUserId && (
+                    <span className="text-xs text-nc-muted font-mono ml-auto truncate">{savedConfig.openvikingUserId}</span>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">URL</label>
+                    <input
+                      type="text"
+                      value={ovCustomUrl}
+                      onChange={(e) => setOvCustomUrl(e.target.value)}
+                      placeholder="https://your-openviking.example.com"
+                      className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">API_KEY</label>
+                    <input
+                      type="password"
+                      value={ovCustomApiKey}
+                      onChange={(e) => { setOvCustomApiKey(e.target.value); setOvCustomApiKeyDirty(true); }}
+                      placeholder={persistedOvCustomConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key'}
+                      className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
+                    />
+                  </div>
+                  {!ovCustomValid && (
+                    <p className="text-2xs text-nc-red font-mono">URL and API key are required for custom mode.</p>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
         </div>
 

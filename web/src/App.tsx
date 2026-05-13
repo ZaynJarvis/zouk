@@ -46,6 +46,12 @@ function FeishuAuthSync({ enabled }: { enabled: boolean }) {
   return null;
 }
 
+function OvWhitelistSync({ whitelist }: { whitelist: string[] }) {
+  const { setOvRuntimeWhitelist } = useApp();
+  useEffect(() => { setOvRuntimeWhitelist(whitelist); }, [whitelist, setOvRuntimeWhitelist]);
+  return null;
+}
+
 function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId } = useApp();
   const rightPanelRef = useRef<HTMLDivElement | null>(null);
@@ -250,6 +256,7 @@ function AppWithAuth() {
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [feishuEnabled, setFeishuEnabled] = useState(false);
+  const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -277,6 +284,9 @@ function AppWithAuth() {
         setClientId(config.googleClientId || null);
         setAllowlistActive(!!config.allowlistActive);
         setFeishuEnabled(!!config.feishuEnabled);
+        if (Array.isArray(config.ovRuntimeWhitelist)) {
+          setOvRuntimeWhitelist(config.ovRuntimeWhitelist);
+        }
 
         if (config.supabaseUrl && config.supabaseAnonKey) {
           const sc = { url: config.supabaseUrl, anonKey: config.supabaseAnonKey };
@@ -326,6 +336,7 @@ function AppWithAuth() {
       <AllowlistSync active={allowlistActive} />
       {supabaseConfig && <SupabaseConfigSync config={supabaseConfig} />}
       <FeishuAuthSync enabled={feishuEnabled} />
+      <OvWhitelistSync whitelist={ovRuntimeWhitelist} />
     </>
   );
 

@@ -677,7 +677,18 @@ export default function MemoryView() {
     wsTreeCache, requestWorkspaceFiles, requestFileContent,
   } = useApp();
   const [agentId, setAgentId] = useState<string | null>(null);
+  const selectedAgent = useMemo(() => agentId ? agents.find(a => a.id === agentId) ?? null : null, [agentId, agents]);
+  // Treat undefined as enabled to stay forward-compatible with servers that
+  // haven't shipped the OV gate yet — only actively false flips behavior.
+  const ovEnabledForAgent = selectedAgent?.ovEnabled !== false;
   const [source, setSource] = useState<Source>('memory');
+  // When the selected agent has OV off, force the source tab to Files. Don't
+  // auto-flip back if the user later picks an OV-enabled agent — they can
+  // click Memory explicitly. The Memory tab is only greyed out (not hidden)
+  // so the affordance stays discoverable.
+  useEffect(() => {
+    if (!ovEnabledForAgent && source !== 'files') setSource('files');
+  }, [ovEnabledForAgent, source]);
   const [paradigm, setParadigm] = useState<Paradigm>('columns');
   const [trail, setTrail] = useState<string[]>([rootFor('memory')]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -862,7 +873,6 @@ export default function MemoryView() {
     return () => window.removeEventListener('keydown', onKey);
   }, [paradigm, agentId, trail, agentCache, selectedFile, fetchList, fetchContent]);
 
-  const selectedAgent = agents.find((a) => a.id === agentId);
   const root = rootFor(source);
 
   // Folder preview target: deepest non-root folder in trail when no file is
@@ -962,8 +972,11 @@ export default function MemoryView() {
             type="button"
             role="tab"
             aria-selected={source === 'memory'}
+            aria-disabled={!ovEnabledForAgent}
+            disabled={!ovEnabledForAgent}
+            title={ovEnabledForAgent ? undefined : 'OpenViking is not enabled for this agent — toggle it on in agent config'}
             className={source === 'memory' ? 'is-active' : ''}
-            onClick={() => setSource('memory')}
+            onClick={() => { if (ovEnabledForAgent) setSource('memory'); }}
           >
             Memory
           </button>

@@ -33,6 +33,25 @@ const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 // Legacy hex keys can't carry an account; provisioning is disabled in that case.
 const OPENVIKING_URL = (process.env.OPENVIKING_URL || "").replace(/\/+$/, "") || null;
 const OPENVIKING_ROOT_KEY = process.env.OPENVIKING_ROOT_KEY || null;
+
+// Runtimes that ship a first-class OV memory plugin — used as the default
+// value of each agent's `openvikingEnabled` toggle. Users can override per
+// agent via Agent Config; this list only controls the default at creation
+// time and the `★ OV` recommendation badge in the create dialog.
+const OV_RUNTIME_WHITELIST = (process.env.OV_RUNTIME_WHITELIST || "claude")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+function ovDefaultForRuntime(runtime) {
+  return !!runtime && OV_RUNTIME_WHITELIST.includes(runtime);
+}
+// Resolves the effective ON/OFF for a given agent config. `openvikingEnabled`
+// undefined / non-boolean means "follow the runtime default" — so existing
+// rows that never had the field work without a migration.
+function isOvEnabledForAgent(cfg) {
+  if (cfg && typeof cfg.openvikingEnabled === "boolean") return cfg.openvikingEnabled;
+  return ovDefaultForRuntime(cfg && cfg.runtime);
+}
 function decodeOvKey(key) {
   // New-format key: base64url(account).base64url(user).base64url(secret).
   // Returns { account, user } if both segments decode; null fields otherwise.
@@ -247,7 +266,15 @@ function agentPayload(agentId) {
   if (!a) return null;
   const cfg = agentConfigs.find((c) => c.id === agentId);
   const base = { id: agentId, ...a };
-  if (!cfg) return base;
+  if (!cfg) {
+    const runtime = a.runtime;
+    return {
+      ...base,
+      ovEnabled: ovDefaultForRuntime(runtime),
+      ovEnabledIsDefault: true,
+      ovDefault: ovDefaultForRuntime(runtime),
+    };
+  }
   return {
     ...base,
     name: cfg.name || a.name,
@@ -261,6 +288,9 @@ function agentPayload(agentId) {
     openvikingProvisioned: !!cfg.openvikingApiKey,
     openvikingMode: cfg.openvikingMode === 'custom' ? 'custom' : 'provisioned',
     openvikingCustomConfigured: !!cfg.openvikingCustomApiKey,
+    ovEnabled: isOvEnabledForAgent(cfg),
+    ovEnabledIsDefault: typeof cfg.openvikingEnabled !== 'boolean',
+    ovDefault: ovDefaultForRuntime(cfg.runtime || a.runtime),
   };
 }
 
@@ -274,6 +304,9 @@ function sanitizedAgentConfigs() {
     openvikingProvisioned: !!openvikingApiKey,
     openvikingMode: rest.openvikingMode === 'custom' ? 'custom' : 'provisioned',
     openvikingCustomConfigured: !!openvikingCustomApiKey,
+    ovEnabled: isOvEnabledForAgent(rest),
+    ovEnabledIsDefault: typeof rest.openvikingEnabled !== 'boolean',
+    ovDefault: ovDefaultForRuntime(rest.runtime),
   }));
 }
 
@@ -2354,12 +2387,24 @@ function parseOvListResult(text, parentUri) {
   }).filter(Boolean);
 }
 
+function lookupAgentCfgForOv(agentId) {
+  return agentConfigs.find((c) => c.id === agentId) || store.agents[agentId] || null;
+}
+
 app.get("/api/agents/:id/ov/status", (req, res) => {
+  const cfg = lookupAgentCfgForOv(req.params.id);
+  if (cfg && !isOvEnabledForAgent(cfg)) {
+    return res.json({ enabled: false, reason: "disabled", user: null, url: null, local: false });
+  }
   const creds = resolveOvCredentials(req.params.id);
   res.json({ enabled: !!creds, user: creds?.user || null, url: creds?.url || null, local: creds ? isLocalUrl(creds.url) : false });
 });
 
 app.get("/api/agents/:id/ov/ls", async (req, res) => {
+  const cfg = lookupAgentCfgForOv(req.params.id);
+  if (cfg && !isOvEnabledForAgent(cfg)) {
+    return res.status(403).json({ error: "ov_disabled", agentId: req.params.id });
+  }
   const creds = resolveOvCredentials(req.params.id);
   if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
   if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
@@ -2374,6 +2419,10 @@ app.get("/api/agents/:id/ov/ls", async (req, res) => {
 });
 
 app.get("/api/agents/:id/ov/read", async (req, res) => {
+  const cfg = lookupAgentCfgForOv(req.params.id);
+  if (cfg && !isOvEnabledForAgent(cfg)) {
+    return res.status(403).json({ error: "ov_disabled", agentId: req.params.id });
+  }
   const creds = resolveOvCredentials(req.params.id);
   if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
   if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
@@ -2464,10 +2513,19 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     openvikingUserId: _ignoredOvUserId,
     openvikingCustomApiKey: incomingCustomApiKey,
     openvikingMode: incomingMode,
+    openvikingEnabled: incomingEnabled,
     ...rest
   } = updates;
 
   const merged = { ...agentConfigs[idx], ...rest };
+
+  // openvikingEnabled: boolean = explicit override; null = clear to follow
+  // the runtime default; undefined = leave as-is.
+  if (incomingEnabled === null) {
+    delete merged.openvikingEnabled;
+  } else if (typeof incomingEnabled === 'boolean') {
+    merged.openvikingEnabled = incomingEnabled;
+  }
 
   // openvikingMode: clamp to known values; default unchanged.
   if (incomingMode !== undefined) {
@@ -2482,8 +2540,10 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     merged.openvikingCustomApiKey = null;
   }
 
-  // Reject save if mode is custom but no effective url + api key are set.
-  if (merged.openvikingMode === 'custom') {
+  // Reject save if OV is enabled, mode is custom, and url/key aren't set.
+  // When OV is disabled (toggle off), mode fields are inert so no validation
+  // needed — user can stage custom creds without filling everything in.
+  if (isOvEnabledForAgent(merged) && merged.openvikingMode === 'custom') {
     if (!merged.openvikingCustomUrl || !merged.openvikingCustomApiKey) {
       return res.status(400).json({
         error: "Custom OpenViking mode requires both openvikingCustomUrl and openvikingCustomApiKey",
@@ -2694,14 +2754,20 @@ async function startAgentOnDaemon(id, config) {
     machineId: targetWs._machineId,
   });
 
-  // OpenViking creds: choose between server-provisioned (default) and
-  // user-supplied custom creds based on agent's openvikingMode.
+  // OpenViking creds: gated on the per-agent `openvikingEnabled` toggle. When
+  // disabled (default for non-whitelisted runtimes), skip provisioning and
+  // never hand creds to the daemon — even custom-mode creds are withheld.
+  const ovEnabled = isOvEnabledForAgent({ openvikingEnabled: config.openvikingEnabled, runtime });
   const ovMode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
   let ovUserId = config.openvikingUserId || deriveOvUserId(id);
   let ovApiKey = config.openvikingApiKey || null;
   let daemonOv = null;
 
-  if (ovMode === 'custom') {
+  if (!ovEnabled) {
+    console.log(`[ov] skipping creds for ${id} (runtime=${runtime}, openvikingEnabled=false)`);
+    // Leave ovApiKey alone — DB-persisted keys for previously-enabled agents
+    // remain latent so flipping the toggle back on doesn't require re-provision.
+  } else if (ovMode === 'custom') {
     // User provides url + api key directly. Account/user are decoded from the
     // new-format key (or left blank — OV server can derive from key).
     if (config.openvikingCustomUrl && config.openvikingCustomApiKey) {
@@ -2792,6 +2858,9 @@ async function startAgentOnDaemon(id, config) {
     };
     if (requestedWorkDir) persisted.workDir = requestedWorkDir;
     if (config.envVars && typeof config.envVars === 'object') persisted.envVars = config.envVars;
+    if (typeof config.openvikingEnabled === 'boolean') {
+      persisted.openvikingEnabled = config.openvikingEnabled;
+    }
     if (ovApiKey) {
       persisted.openvikingUserId = ovUserId;
       persisted.openvikingApiKey = ovApiKey;
@@ -3983,6 +4052,7 @@ app.get("/api/auth/config", (_req, res) => {
     supabaseUrl: SUPABASE_URL || null,
     supabaseAnonKey: SUPABASE_ANON_KEY || null,
     feishuEnabled,
+    ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,
   });
 });
 
