@@ -14,6 +14,9 @@ export interface CreateAgentConfig {
   model: string;
   machineId?: string;
   lifecycle: 'persistent' | 'ephemeral';
+  // Omitted = follow server-side runtime default (OV_RUNTIME_WHITELIST).
+  // Explicit boolean = user-set override that persists on the agent.
+  openvikingEnabled?: boolean;
 }
 
 export default function CreateAgentDialog({
@@ -40,6 +43,10 @@ export default function CreateAgentDialog({
   // daemon offered a list. Default picks the first suggested model.
   const [customModel, setCustomModel] = useState(false);
   const [ovInstallCopied, setOvInstallCopied] = useState(false);
+  // `null` = user hasn't touched it; follows the runtime-derived default and
+  // we omit it from the submit payload. Once the user clicks one of the two
+  // buttons, it locks to that boolean and we include it explicitly.
+  const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
 
   // Server is the source of truth for the OV-recommended runtime list. We use
   // it to surface a "★ OV" badge + one-liner installer below the runtime row
@@ -88,6 +95,11 @@ export default function CreateAgentDialog({
   }, [runtime, selectedMachine]);
 
   const canSubmit = name.trim().length > 0 && runtime.length > 0;
+  // Resolved on-screen value: the user's explicit override wins, otherwise
+  // mirror the server-side runtime default. Recomputed when runtime changes
+  // so the visible state matches what would happen on submit.
+  const ovDefaultForRuntime = !!runtime && ovRuntimeWhitelist.includes(runtime);
+  const effectiveOvEnabled = ovEnabledOverride === null ? ovDefaultForRuntime : ovEnabledOverride;
   const handleSubmit = () => {
     if (!canSubmit) return;
     const agentName = name.trim().toLowerCase();
@@ -98,6 +110,10 @@ export default function CreateAgentDialog({
       model: model.trim(),
       machineId: selectedMachine?.id,
       lifecycle,
+      // Only forward when the user touched it. Server applies runtime default
+      // when this field is absent, so the new agent stays untouched DB-wise
+      // for users who don't care about OV.
+      ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
     });
   };
 
@@ -378,6 +394,46 @@ export default function CreateAgentDialog({
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {runtime && (
+            <div>
+              <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
+                <span>OPENVIKING</span>
+                {ovEnabledOverride === null && (
+                  <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">(default for {formatRuntime(runtime)})</span>
+                )}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOvEnabledOverride(true)}
+                  className={`cyber-btn px-2.5 py-2 border font-bold text-xs font-mono ${
+                    effectiveOvEnabled
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                  }`}
+                >
+                  ENABLED
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOvEnabledOverride(false)}
+                  className={`cyber-btn px-2.5 py-2 border font-bold text-xs font-mono ${
+                    !effectiveOvEnabled
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                  }`}
+                >
+                  DISABLED
+                </button>
+              </div>
+              <p className="text-2xs text-nc-muted mt-1.5 font-mono">
+                {effectiveOvEnabled
+                  ? 'OV creds will be delivered to the daemon. Configure PROVISIONED / CUSTOM in agent settings after creation.'
+                  : 'OV creds will not be delivered. You can enable later in agent settings.'}
+              </p>
             </div>
           )}
 
