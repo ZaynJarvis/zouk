@@ -15,13 +15,32 @@ const path = require('path');
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '800', 10);
 
+// pg 8.x's connection-string parser leaks the surrounding `[...]` brackets
+// of an IPv6 literal into the host string, and getaddrinfo then refuses
+// `"[::1]"`-shaped inputs with ENOTFOUND. Detect a bracketed IPv6 URL and
+// rebuild the Pool config with an explicit (unbracketed) host so the dns
+// path is skipped entirely and the literal is treated as an IP.
+function buildPoolConfig(databaseUrl) {
+  const sslOption = process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false };
+  const m = databaseUrl.match(
+    /^postgres(?:ql)?:\/\/(?:([^:@/]+)(?::([^@/]*))?@)?\[([^\]]+)\](?::(\d+))?\/([^?]+)(\?.*)?$/
+  );
+  if (!m) {
+    return { connectionString: databaseUrl, ssl: sslOption };
+  }
+  const [, user, password, host, port, database] = m;
+  return {
+    user: user ? decodeURIComponent(user) : undefined,
+    password: password ? decodeURIComponent(password) : undefined,
+    host,
+    port: port ? Number(port) : 5432,
+    database,
+    ssl: sslOption,
+  };
+}
+
 const enabled = Boolean(DATABASE_URL);
-const pool = enabled
-  ? new Pool({
-      connectionString: DATABASE_URL,
-      ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
-    })
-  : null;
+const pool = enabled ? new Pool(buildPoolConfig(DATABASE_URL)) : null;
 
 if (enabled) {
   console.log('[db] PostgreSQL persistence enabled');
