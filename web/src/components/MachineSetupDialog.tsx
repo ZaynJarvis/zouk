@@ -81,9 +81,12 @@ export default function MachineSetupDialog({
     }
   };
 
-  const daemonCommand = generatedKey
-    ? `# clone zouk-daemon first\nnpx tsx src/index.ts --server-url ${serverUrl} --api-key ${generatedKey}`
-    : `# clone zouk-daemon first\nnpx tsx src/index.ts --server-url ${serverUrl} --api-key <api_key>`;
+  const apiKeyPart = generatedKey || '<api_key>';
+  const daemonCommand =
+    `# install once (bnpm scope; add @bnpm-viking:registry=https://bnpm.byted.org/ to ~/.npmrc to skip the prefix)\n` +
+    `NPM_CONFIG_REGISTRY=https://bnpm.byted.org npm install -g @bnpm-viking/zouk-daemon\n\n` +
+    `# then run on any machine\n` +
+    `zouk-daemon --server-url ${serverUrl} --api-key ${apiKeyPart}`;
 
   return (
     <div
