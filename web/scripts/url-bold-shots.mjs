@@ -51,6 +51,10 @@ const CASES = [
     content: 'See https://example.com/d. Done.' },
   { id: 'bold-then-period', expectHref: 'https://example.com/bp',
     content: '**https://example.com/bp**.' },
+  { id: 'fullwidth-comma', expectHref: 'https://example.com/zh',
+    content: '中文链接：https://example.com/zh，继续。' },
+  { id: 'ideographic-period', expectHref: 'https://example.com/final',
+    content: '最后看 https://example.com/final。' },
   { id: 'plain', expectHref: 'https://example.com/plain',
     content: 'See https://example.com/plain done.' },
 ];

@@ -334,7 +334,7 @@ test('claim_tasks: existing task can be claimed by its task message id', async (
   const claimed = await json(await fetch(`${BASE}/internal/agent/${OTHER_AGENT}/tasks/claim`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ channel: '#all', message_ids: [messageId] }),
+    body: JSON.stringify({ channel: '#all', message_ids: [messageId.slice(0, 8)] }),
   }));
   assert.equal(claimed.status, 200);
   assert.deepEqual(claimed.body.results, [
@@ -342,7 +342,7 @@ test('claim_tasks: existing task can be claimed by its task message id', async (
   ]);
 });
 
-test('claim_tasks: normal message ids are rejected with explicit create_tasks guidance', async () => {
+test('claim_tasks: normal top-level message ids are converted to claimed tasks', async () => {
   const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -361,17 +361,100 @@ test('claim_tasks: normal message ids are rejected with explicit create_tasks gu
   const claimed = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks/claim`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ channel: '#all', message_ids: [sent.body.messageId] }),
+    body: JSON.stringify({ channel: '#all', message_ids: [sent.body.messageId.slice(0, 8)] }),
   }));
   assert.equal(claimed.status, 200);
-  assert.deepEqual(claimed.body.results, [
-    {
-      taskNumber: null,
-      messageId: sent.body.messageId,
-      success: false,
-      reason: 'message exists but is not a task; create a new task explicitly',
-    },
+  const [result] = claimed.body.results;
+  assert.equal(result.messageId, sent.body.messageId);
+  assert.equal(result.success, true);
+  assert.equal(result.reason, null);
+  assert.ok(Number.isInteger(result.taskNumber));
+
+  const tasks = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks?channel=%23all`));
+  const task = tasks.body.tasks.find((t) => t.taskNumber === result.taskNumber);
+  assert.equal(task.title, marker);
+  assert.equal(task.status, 'in_progress');
+  assert.equal(task.claimedByName, 'reviewer');
+
+  const history = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/history?channel=%23all&limit=50`));
+  const original = history.body.messages.find((m) => m.message_id === sent.body.messageId);
+  assert.equal(original.task_number, result.taskNumber);
+  assert.equal(original.task_status, 'in_progress');
+});
+
+test('claim_tasks: concurrent normal-message claims create only one task', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-task-race' }),
+  });
+  const { token } = await authRes.json();
+
+  const marker = `claim-race-probe-${Date.now()}`;
+  const sent = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content: marker }),
+  }));
+  assert.equal(sent.status, 200);
+
+  const claimBody = JSON.stringify({ channel: '#all', message_ids: [sent.body.messageId] });
+  const [a, b] = await Promise.all([
+    json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: claimBody,
+    })),
+    json(await fetch(`${BASE}/internal/agent/${OTHER_AGENT}/tasks/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: claimBody,
+    })),
   ]);
+
+  const results = [a.body.results[0], b.body.results[0]];
+  assert.equal(results.filter((r) => r.success).length, 1);
+  assert.equal(results.filter((r) => r.reason?.startsWith('already claimed by @')).length, 1);
+
+  const tasks = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks?channel=%23all`));
+  const matching = tasks.body.tasks.filter((t) => t.messageId === sent.body.messageId);
+  assert.equal(matching.length, 1);
+});
+
+test('claim_tasks: DM short message ids resolve in the canonical DM channel', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-dm-task-human' }),
+  });
+  const { token } = await authRes.json();
+
+  const marker = `dm-claim-probe-${Date.now()}`;
+  const sent = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: 'dm:@reviewer', content: marker }),
+  }));
+  assert.equal(sent.status, 200);
+
+  const claimed = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel: 'dm:@ci-dm-task-human', message_ids: [sent.body.messageId.slice(0, 8)] }),
+  }));
+  assert.equal(claimed.status, 200);
+  const [result] = claimed.body.results;
+  assert.equal(result.messageId, sent.body.messageId);
+  assert.equal(result.success, true);
+
+  const tasks = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks?channel=dm%3A%40ci-dm-task-human`));
+  const task = tasks.body.tasks.find((t) => t.taskNumber === result.taskNumber);
+  assert.equal(task.title, marker);
+  assert.equal(task.status, 'in_progress');
+
+  const history = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/history?channel=dm%3A%40ci-dm-task-human&limit=20`));
+  const systemClaim = history.body.messages.find((m) => m.content.includes(`claimed #${result.taskNumber}`));
+  assert.equal(systemClaim.parent_channel_type || systemClaim.channel_type, 'dm');
 });
 
 test('claim_tasks: missing message ids report message not found', async () => {

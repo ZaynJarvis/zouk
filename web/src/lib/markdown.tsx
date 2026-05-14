@@ -6,13 +6,16 @@ type MentionSegment = { kind: 'mention'; start: number; end: number; handle: str
 type InlineSegment = { kind: 'inline'; start: number; end: number; raw: string };
 type LinkSegment = { kind: 'link'; start: number; end: number; href: string; display: string };
 
+const TRAILING_URL_PUNCT = '.,;:!?)，。！？；：、）】》」』';
+const CJK_URL_BOUNDARY_PUNCT = '，。！？；：、）】》」』';
+
 function stripTrailingPunct(url: string, prefix: string): { url: string; trail: string } {
   let body = url;
   let trail = '';
   let prefixView = prefix;
   while (body.length > 0) {
     const last = body[body.length - 1];
-    if ('.,;:!?)'.includes(last)) {
+    if (TRAILING_URL_PUNCT.includes(last)) {
       body = body.slice(0, -1);
       trail = last + trail;
       continue;
@@ -44,7 +47,7 @@ export function renderInline(text: string, keyPrefix: string, linkRules: LinkTra
   const segments: (MentionSegment | InlineSegment | LinkSegment)[] = [];
   let m: RegExpExecArray | null;
 
-  const urlRegexG = /\bhttps?:\/\/[^\s<>`"]+/g;
+  const urlRegexG = new RegExp(`\\bhttps?:\\/\\/[^\\s<>\\\`"${CJK_URL_BOUNDARY_PUNCT}]+`, 'g');
   while ((m = urlRegexG.exec(text)) !== null) {
     const raw = m[0];
     const { url, trail } = stripTrailingPunct(raw, text.slice(0, m.index));

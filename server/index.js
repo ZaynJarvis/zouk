@@ -533,6 +533,89 @@ function now() {
   return new Date().toISOString();
 }
 
+function resolveUniqueByIdOrPrefix(items, rawId, getId) {
+  if (!rawId || typeof rawId !== "string") return { item: null, reason: "invalid id" };
+  const exact = items.find((item) => getId(item) === rawId);
+  if (exact) return { item: exact, reason: null };
+  // Agent notifications use 8-char message prefixes. Accept reasonably long
+  // unique prefixes so those headers can be passed back directly.
+  if (rawId.length < 8) return { item: null, reason: "not found" };
+  const matches = items.filter((item) => {
+    const id = getId(item);
+    return typeof id === "string" && id.startsWith(rawId);
+  });
+  if (matches.length === 1) return { item: matches[0], reason: null };
+  if (matches.length > 1) return { item: null, reason: "ambiguous id prefix" };
+  return { item: null, reason: "not found" };
+}
+
+const taskMutationLocks = new Map();
+async function withTaskMutationLock(key, fn) {
+  const previous = taskMutationLocks.get(key) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  const chain = previous.catch(() => {}).then(() => current);
+  taskMutationLocks.set(key, chain);
+  await previous.catch(() => {});
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (taskMutationLocks.get(key) === chain) taskMutationLocks.delete(key);
+  }
+}
+
+function channelForTask(task) {
+  if (!task) return null;
+  return store.channels.find((c) => c.id === task.channelId)
+    || (task.channelName ? store.channels.find((c) => c.name === task.channelName) : null)
+    || null;
+}
+
+function taskChannelPayload(task) {
+  const ch = channelForTask(task);
+  return {
+    channelId: task.channelId || ch?.id || "ch-all",
+    channelName: ch?.name || task.channelName || "all",
+    channelType: ch?.type || (task.channelName?.startsWith("dm:") ? "dm" : "channel"),
+  };
+}
+
+function taskTitleFromMessage(message) {
+  const text = String(message?.content || "").replace(/\s+/g, " ").trim();
+  if (!text) return "Untitled task";
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+async function syncTaskBackingMessage(task) {
+  const msg = store.messages.find((m) => m.id === task.messageId);
+  if (!msg) return;
+  msg.taskNumber = task.taskNumber;
+  msg.taskStatus = task.status;
+  msg.taskAssigneeId = task.claimedByName || null;
+  msg.taskAssigneeType = task.claimedByType || null;
+  await db.saveMessage(msg);
+}
+
+function taskMatchesTarget(task, target, agentName) {
+  if (!target) return true;
+  const { channelName, channelType } = parseTarget(target, agentName);
+  const ch = channelForTask(task);
+  const taskChannelName = ch?.name || task.channelName || null;
+  const taskChannelType = ch?.type || (taskChannelName?.startsWith("dm:") ? "dm" : "channel");
+  if (taskChannelType !== channelType) return false;
+  if (taskChannelName === channelName) return true;
+
+  // Compatibility for tasks created by older agent endpoints, which parsed
+  // dm:@peer without the agent name and stored them under single-party
+  // orphan channels such as dm:zaynjarvis.
+  if (channelType === "dm") {
+    const parties = dmChannelParties(channelName) || [];
+    return parties.some((party) => taskChannelName === `dm:${party}`);
+  }
+  return false;
+}
+
 function findOrCreateChannel(name, type = "channel") {
   let ch = store.channels.find((c) => c.name === name && (c.type || "channel") === (type || "channel"));
   if (!ch) {
@@ -1613,12 +1696,12 @@ app.get("/internal/agent/:agentId/search", (req, res) => {
 
 // list_tasks
 app.get("/internal/agent/:agentId/tasks", (req, res) => {
+  const { agentId } = req.params;
   const { channel, status } = req.query;
+  const agentName = store.agents[agentId]?.name || agentId;
   let tasks = store.tasks;
   if (channel) {
-    const { channelName } = parseTarget(channel);
-    const ch = store.channels.find((c) => c.name === channelName);
-    if (ch) tasks = tasks.filter((t) => t.channelId === ch.id);
+    tasks = tasks.filter((t) => taskMatchesTarget(t, channel, agentName));
   }
   if (status && status !== "all") {
     tasks = tasks.filter((t) => t.status === status);
@@ -1637,19 +1720,21 @@ app.get("/internal/agent/:agentId/tasks", (req, res) => {
 });
 
 // create_tasks
-app.post("/internal/agent/:agentId/tasks", (req, res) => {
+app.post("/internal/agent/:agentId/tasks", async (req, res) => {
   const { agentId } = req.params;
   const { channel, tasks: taskDefs } = req.body;
-  const { channelName, channelType } = parseTarget(channel);
-  const ch = findOrCreateChannel(channelName, channelType);
   const agentName = store.agents[agentId]?.name || agentId;
+  const { channelName, channelType } = parseTarget(channel, agentName);
+  const ch = findOrCreateChannel(channelName, channelType);
 
-  const created = taskDefs.map((td) => {
+  const created = [];
+  for (const td of taskDefs) {
     const taskNum = nextTaskNum();
     const msgId = uuidv4();
     const task = {
       taskNumber: taskNum,
       channelId: ch.id,
+      channelName: ch.name,
       title: td.title,
       status: "todo",
       messageId: msgId,
@@ -1658,14 +1743,13 @@ app.post("/internal/agent/:agentId/tasks", (req, res) => {
       createdByName: agentName,
     };
     store.tasks.push(task);
-    db.saveTask(task);
 
     // Create a system message for the task
     const msg = {
       id: msgId,
       seq: nextSeq(),
       channelId: ch.id,
-      channelName,
+      channelName: ch.name,
       channelType,
       threadId: null,
       senderName: "system",
@@ -1677,114 +1761,166 @@ app.post("/internal/agent/:agentId/tasks", (req, res) => {
       taskStatus: "todo",
     };
     appendMessage(msg);
-    db.saveMessage(msg);
+    await db.saveTask(task);
+    await db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
 
-    return { taskNumber: taskNum, messageId: msgId, title: td.title };
-  });
+    created.push({ taskNumber: taskNum, messageId: msgId, title: td.title });
+  }
 
   res.json({ tasks: created });
 });
 
 // claim_tasks
-// Claims existing tasks by task number or by the backing task-message id.
-// This route does not convert ordinary messages into tasks.
-app.post("/internal/agent/:agentId/tasks/claim", (req, res) => {
+// Claims existing tasks by task number or by backing message id.
+// If a top-level message has no task yet, atomically convert it into a task
+// and claim it. Thread replies remain discussion context and are not claimable.
+app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
   const { agentId } = req.params;
   const { channel, task_numbers, message_ids } = req.body;
   const agentName = store.agents[agentId]?.name || agentId;
 
-  // Resolve tasks from both task_numbers and message_ids.
-  // message_ids only match existing task messages; agents should use
-  // create_tasks for ordinary messages that need to become tasks.
-  const tasksToProcess = [];
-  if (task_numbers) {
-    for (const num of task_numbers) {
-      const task = store.tasks.find((t) => t.taskNumber === num);
-      const reason = task ? null : "task not found";
-      tasksToProcess.push({ task, taskNumber: num, reason });
-    }
-  }
-  if (message_ids) {
-    for (const mid of message_ids) {
-      const task = store.tasks.find((t) => t.messageId === mid);
-      if (task) {
-        tasksToProcess.push({ task, messageId: mid, taskNumber: task.taskNumber, reason: null });
-        continue;
-      }
-
-      const message = store.messages.find((m) => m.id === mid);
-      const reason = message
-        ? "message exists but is not a task; create a new task explicitly"
-        : "message not found";
-      tasksToProcess.push({ task: null, messageId: mid, taskNumber: message?.taskNumber ?? null, reason });
-    }
-  }
-
-  const results = tasksToProcess.map(({ task, taskNumber, messageId, reason }) => {
-    if (!task) return { taskNumber, messageId, success: false, reason };
+  const claimTask = async (task) => {
     const num = task.taskNumber;
     if (task.claimedByName && task.claimedByName !== agentName) {
       return { taskNumber: num, messageId: task.messageId, success: false, reason: `already claimed by @${task.claimedByName}` };
     }
+
+    const alreadyClaimedBySelf = task.claimedByName === agentName && task.status === "in_progress";
     task.claimedByName = agentName;
     task.claimedByType = "agent";
     task.status = "in_progress";
-    db.saveTask(task);
+    await db.saveTask(task);
+    await syncTaskBackingMessage(task);
 
-    const msg = {
-      id: uuidv4(), seq: nextSeq(),
-      channelId: task.channelId, channelName: store.channels.find((c) => c.id === task.channelId)?.name || "all",
-      channelType: "channel", threadId: null,
-      senderName: "system", senderType: "system",
-      content: `📌 ${agentName} claimed #${num} "${task.title}"`,
-      createdAt: now(), attachments: [], taskNumber: num, taskStatus: "in_progress",
-    };
-    appendMessage(msg);
-    db.saveMessage(msg);
-    broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+    if (!alreadyClaimedBySelf) {
+      const chPayload = taskChannelPayload(task);
+      const msg = {
+        id: uuidv4(), seq: nextSeq(),
+        ...chPayload,
+        threadId: null,
+        senderName: "system", senderType: "system",
+        content: `📌 ${agentName} claimed #${num} "${task.title}"`,
+        createdAt: now(), attachments: [], taskNumber: num, taskStatus: "in_progress",
+      };
+      appendMessage(msg);
+      await db.saveMessage(msg);
+      broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+    }
 
     return { taskNumber: num, messageId: task.messageId, success: true, reason: null };
-  });
+  };
+
+  const claimMessageId = async (mid) => {
+    const taskResolved = resolveUniqueByIdOrPrefix(store.tasks, mid, (t) => t.messageId);
+    if (taskResolved.item) {
+      return withTaskMutationLock(`task:${taskResolved.item.taskNumber}`, () => claimTask(taskResolved.item));
+    }
+    if (taskResolved.reason === "ambiguous id prefix") {
+      return { taskNumber: null, messageId: mid, success: false, reason: "ambiguous message id prefix" };
+    }
+
+    let candidateMessages = store.messages.filter((m) => messageVisibleToAgent(m, agentId));
+    if (channel) {
+      candidateMessages = candidateMessages.filter((m) => matchesTarget(m, channel, agentName));
+    }
+    const messageResolved = resolveUniqueByIdOrPrefix(candidateMessages, mid, (m) => m.id);
+    const message = messageResolved.item;
+    if (!message) {
+      const reason = messageResolved.reason === "ambiguous id prefix"
+        ? "ambiguous message id prefix"
+        : "message not found";
+      return { taskNumber: null, messageId: mid, success: false, reason };
+    }
+    if (message.threadId) {
+      return { taskNumber: null, messageId: message.id, success: false, reason: "thread messages cannot be claimed as tasks" };
+    }
+
+    return withTaskMutationLock(`message:${message.id}`, async () => {
+      const taskAfterLock = store.tasks.find((t) => t.messageId === message.id);
+      if (taskAfterLock) return claimTask(taskAfterLock);
+
+      const taskNum = nextTaskNum();
+      const task = {
+        taskNumber: taskNum,
+        channelId: message.channelId,
+        channelName: message.channelName,
+        title: taskTitleFromMessage(message),
+        status: "todo",
+        messageId: message.id,
+        claimedByName: null,
+        claimedByType: null,
+        createdByName: message.senderName || agentName,
+      };
+      store.tasks.push(task);
+      await db.saveTask(task);
+      message.taskNumber = taskNum;
+      message.taskStatus = "todo";
+      message.taskAssigneeId = null;
+      message.taskAssigneeType = null;
+      await db.saveMessage(message);
+
+      return claimTask(task);
+    });
+  };
+
+  const results = [];
+  if (task_numbers) {
+    for (const num of task_numbers) {
+      const task = store.tasks.find((t) => t.taskNumber === num);
+      if (!task) {
+        results.push({ taskNumber: num, messageId: null, success: false, reason: "task not found" });
+        continue;
+      }
+      results.push(await withTaskMutationLock(`task:${num}`, () => claimTask(task)));
+    }
+  }
+  if (message_ids) {
+    for (const mid of message_ids) {
+      results.push(await claimMessageId(mid));
+    }
+  }
 
   res.json({ results });
 });
 
 // unclaim_task
-app.post("/internal/agent/:agentId/tasks/unclaim", (req, res) => {
-  const { task_number, channel } = req.body;
+app.post("/internal/agent/:agentId/tasks/unclaim", async (req, res) => {
+  const { task_number } = req.body;
   const task = store.tasks.find((t) => t.taskNumber === task_number);
   if (task) {
     task.claimedByName = null;
     task.claimedByType = null;
     task.status = "todo";
-    db.saveTask(task);
+    await db.saveTask(task);
+    await syncTaskBackingMessage(task);
   }
   res.json({ success: true });
 });
 
 // update_task_status
-app.post("/internal/agent/:agentId/tasks/update-status", (req, res) => {
+app.post("/internal/agent/:agentId/tasks/update-status", async (req, res) => {
   const { agentId } = req.params;
-  const { task_number, status, channel } = req.body;
+  const { task_number, status } = req.body;
   const task = store.tasks.find((t) => t.taskNumber === task_number);
   if (task) {
-    const oldStatus = task.status;
     task.status = status;
-    db.saveTask(task);
+    await db.saveTask(task);
+    await syncTaskBackingMessage(task);
     const agentName = store.agents[agentId]?.name || agentId;
     const emoji = status === "done" ? "✅" : status === "in_review" ? "👀" : "🔄";
 
+    const chPayload = taskChannelPayload(task);
     const msg = {
       id: uuidv4(), seq: nextSeq(),
-      channelId: task.channelId, channelName: store.channels.find((c) => c.id === task.channelId)?.name || "all",
-      channelType: "channel", threadId: null,
+      ...chPayload,
+      threadId: null,
       senderName: "system", senderType: "system",
       content: `${emoji} ${agentName} moved #${task_number} "${task.title}" to ${status}`,
       createdAt: now(), attachments: [], taskNumber: task_number, taskStatus: status,
     };
     appendMessage(msg);
-    db.saveMessage(msg);
+    await db.saveMessage(msg);
     broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
   }
   res.json({ success: true });
@@ -3151,6 +3287,21 @@ function enqueueActivity(agentId, task) {
 
 function handleDaemonMessage(ws, msg, connectedAgents) {
   switch (msg.type) {
+    case "daemon:health": {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          type: "daemon:health:ack",
+          seq: msg.seq,
+          reason: msg.reason,
+          agentId: msg.agentId,
+          launchId: msg.launchId,
+          sentAt: msg.sentAt,
+          serverAt: new Date().toISOString(),
+          machineId: ws._machineId,
+        }));
+      }
+      break;
+    }
     case "ready": {
       console.log(`[daemon] Ready: machine=${ws._machineId} runtimes=${msg.runtimes?.join(",")} agents=${msg.runningAgents?.join(",") || "none"}`);
       ws._runtimes = msg.runtimes || [];

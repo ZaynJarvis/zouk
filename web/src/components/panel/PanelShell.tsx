@@ -7,6 +7,7 @@ type PanelShellProps = {
   bgClassName?: string;
   animated?: boolean;
   centered?: boolean;
+  safeArea?: 'both' | 'top' | 'bottom' | 'none';
 };
 
 function joinClasses(...classNames: Array<string | false | null | undefined>) {
@@ -20,6 +21,7 @@ export default function PanelShell({
   bgClassName = 'bg-nc-surface',
   animated = false,
   centered = false,
+  safeArea = 'both',
 }: PanelShellProps) {
   return (
     <div
@@ -37,8 +39,8 @@ export default function PanelShell({
       // override doesn't disable the bottom inset for these full-screen panels.
       // On desktop env() returns 0 so this is a no-op.
       style={{
-        paddingTop: 'env(safe-area-inset-top, 0px)',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        ...((safeArea === 'both' || safeArea === 'top') ? { paddingTop: 'env(safe-area-inset-top, 0px)' } : {}),
+        ...((safeArea === 'both' || safeArea === 'bottom') ? { paddingBottom: 'env(safe-area-inset-bottom, 0px)' } : {}),
       }}
     >
       {children}
