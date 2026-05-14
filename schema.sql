@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   openviking_api_key       TEXT,
   openviking_mode          TEXT NOT NULL DEFAULT 'provisioned',
   openviking_custom_url    TEXT,
-  openviking_custom_api_key TEXT
+  openviking_custom_api_key TEXT,
+  openviking_enabled       BOOLEAN
 );
 -- Migration for existing deployments — server runs schema.sql on every boot
 -- (db.js migrate()), so this ALTER lands automatically on the next restart.
@@ -88,6 +89,9 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_api_key TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_mode TEXT NOT NULL DEFAULT 'provisioned';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_url TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEXT;
+-- NULL means "follow the runtime default (OV_RUNTIME_WHITELIST)"; boolean is
+-- an explicit per-agent override.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_enabled BOOLEAN;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

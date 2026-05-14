@@ -15,13 +15,32 @@ const path = require('path');
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '800', 10);
 
+// pg 8.x's connection-string parser leaks the surrounding `[...]` brackets
+// of an IPv6 literal into the host string, and getaddrinfo then refuses
+// `"[::1]"`-shaped inputs with ENOTFOUND. Use pg-connection-string directly
+// (so we keep its query-string mapping for sslmode, application_name,
+// connect_timeout, etc.) and just strip the brackets off the host field.
+function buildPoolConfig(databaseUrl) {
+  const sslOption = process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false };
+  let parsed;
+  try {
+    parsed = require('pg-connection-string').parse(databaseUrl);
+  } catch {
+    // Fall back to letting pg parse the raw string at Pool construction time
+    // — same behavior as before this helper existed.
+    return { connectionString: databaseUrl, ssl: sslOption };
+  }
+  if (parsed.host && parsed.host.startsWith('[') && parsed.host.endsWith(']')) {
+    parsed.host = parsed.host.slice(1, -1);
+  }
+  // Process-level kill switch wins over whatever the URL says, otherwise
+  // default to lenient TLS verification (matches the pre-helper behavior).
+  parsed.ssl = sslOption;
+  return parsed;
+}
+
 const enabled = Boolean(DATABASE_URL);
-const pool = enabled
-  ? new Pool({
-      connectionString: DATABASE_URL,
-      ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
-    })
-  : null;
+const pool = enabled ? new Pool(buildPoolConfig(DATABASE_URL)) : null;
 
 if (enabled) {
   console.log('[db] PostgreSQL persistence enabled');
@@ -337,8 +356,9 @@ async function saveAgentConfig(config) {
          system_prompt, instructions, work_dir, picture, visibility,
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
          openviking_user_id, openviking_api_key,
-         openviking_mode, openviking_custom_url, openviking_custom_api_key
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         openviking_mode, openviking_custom_url, openviking_custom_api_key,
+         openviking_enabled
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        ON CONFLICT (id) DO UPDATE SET
          name                       = EXCLUDED.name,
          display_name               = EXCLUDED.display_name,
@@ -359,7 +379,8 @@ async function saveAgentConfig(config) {
          openviking_api_key         = EXCLUDED.openviking_api_key,
          openviking_mode            = EXCLUDED.openviking_mode,
          openviking_custom_url      = EXCLUDED.openviking_custom_url,
-         openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key`,
+         openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key,
+         openviking_enabled         = EXCLUDED.openviking_enabled`,
       [
         config.id,
         config.machineId,
@@ -383,6 +404,8 @@ async function saveAgentConfig(config) {
         config.openvikingMode === 'custom' ? 'custom' : 'provisioned',
         config.openvikingCustomUrl || null,
         config.openvikingCustomApiKey || null,
+        // null = follow runtime default; boolean = explicit override.
+        typeof config.openvikingEnabled === 'boolean' ? config.openvikingEnabled : null,
       ]
     );
   } catch (e) {
@@ -407,7 +430,8 @@ async function loadAgentConfigs() {
               system_prompt, instructions, work_dir, picture, visibility,
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
               openviking_user_id, openviking_api_key,
-              openviking_mode, openviking_custom_url, openviking_custom_api_key
+              openviking_mode, openviking_custom_url, openviking_custom_api_key,
+              openviking_enabled
          FROM agent_configs
          ORDER BY name ASC`
     );
@@ -434,6 +458,9 @@ async function loadAgentConfigs() {
       openvikingMode: row.openviking_mode === 'custom' ? 'custom' : 'provisioned',
       openvikingCustomUrl: row.openviking_custom_url || null,
       openvikingCustomApiKey: row.openviking_custom_api_key || null,
+      // SQL NULL → undefined so isOvEnabledForAgent falls back to the runtime
+      // default; boolean → explicit override.
+      openvikingEnabled: typeof row.openviking_enabled === 'boolean' ? row.openviking_enabled : undefined,
     }));
   } catch (e) {
     console.error('[db] loadAgentConfigs error:', e.message);

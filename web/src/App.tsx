@@ -40,6 +40,13 @@ function SupabaseConfigSync({ config }: { config: { url: string; anonKey: string
   return null;
 }
 
+function OvWhitelistSync({ whitelist }: { whitelist: string[] }) {
+  const { setOvRuntimeWhitelist } = useApp();
+  useEffect(() => { setOvRuntimeWhitelist(whitelist); }, [whitelist, setOvRuntimeWhitelist]);
+  return null;
+}
+
+
 function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId } = useApp();
   const rightPanelRef = useRef<HTMLDivElement | null>(null);
@@ -243,6 +250,7 @@ function AppWithAuth() {
   const [clientId, setClientId] = useState<string | null>(null);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
   const [allowlistActive, setAllowlistActive] = useState(false);
+  const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -251,6 +259,9 @@ function AppWithAuth() {
         const config = await api.getAuthConfig();
         setClientId(config.googleClientId || null);
         setAllowlistActive(!!config.allowlistActive);
+        if (Array.isArray(config.ovRuntimeWhitelist)) {
+          setOvRuntimeWhitelist(config.ovRuntimeWhitelist);
+        }
 
         if (config.supabaseUrl && config.supabaseAnonKey) {
           const sc = { url: config.supabaseUrl, anonKey: config.supabaseAnonKey };
@@ -299,6 +310,7 @@ function AppWithAuth() {
     <>
       <AllowlistSync active={allowlistActive} />
       {supabaseConfig && <SupabaseConfigSync config={supabaseConfig} />}
+      <OvWhitelistSync whitelist={ovRuntimeWhitelist} />
     </>
   );
 
