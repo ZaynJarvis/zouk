@@ -732,7 +732,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
           variant="sidebar"
           title="Zouk"
           mergeWorkspaceTitle
-          showWorkspaceSwitcher={false}
+          showWorkspaceSwitcher
           meta={
             <span className="zk-row" style={{ gap: 6, alignItems: 'center' }}>
               <span

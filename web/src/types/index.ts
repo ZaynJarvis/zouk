@@ -267,7 +267,6 @@ export interface InitPayload {
   humans: ServerHuman[];
   configs: AgentConfig[];
   machines: ServerMachine[];
-  profilePresets?: AgentProfilePreset[];
 }
 
 export interface WorkspaceFile {

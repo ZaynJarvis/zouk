@@ -296,7 +296,7 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
+        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
         const nextChannels = e.channels || [];
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
@@ -340,7 +340,6 @@ export function useAppStore() {
         setHumans(nextHumans);
         setConfigs(e.configs || []);
         setMachines(e.machines || []);
-        setProfilePresets(e.profilePresets || []);
         if (!hasResolvedInitialViewRef.current) {
           hasResolvedInitialViewRef.current = true;
           const stored = getValidStoredLastView(nextChannels, nextAgents, nextHumans, currentUserRef.current);
@@ -594,11 +593,6 @@ export function useAppStore() {
         setWorkspaceMembers(e.members || []);
         break;
       }
-      case 'agent_profile_presets_updated': {
-        const e = event as { presets: AgentProfilePreset[] };
-        setProfilePresets(e.presets || []);
-        break;
-      }
       case 'machine:connected': {
         const e = event as { machine: ServerMachine };
         setMachines(prev => {
@@ -768,6 +762,20 @@ export function useAppStore() {
       ws.disconnect();
     };
   }, [serverUrl, activeWorkspaceId, handleWsEvent]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setProfilePresets([]);
+      return;
+    }
+    let cancelled = false;
+    api.listProfilePresets()
+      .then((res) => {
+        if (!cancelled) setProfilePresets(res.presets || []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isLoggedIn, authToken]);
 
   useEffect(() => {
     if (!wsConnected) return;

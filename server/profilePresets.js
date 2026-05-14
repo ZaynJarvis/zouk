@@ -26,7 +26,7 @@ function pickPresetForAgent(presets, usedImages, agentKey) {
   return presets[0].image;
 }
 
-function createStore({ filePath, db, broadcast, onChange }) {
+function createStore({ filePath, db, onChange }) {
   if (!fs.existsSync(path.dirname(filePath))) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
   }
@@ -84,28 +84,26 @@ function createStore({ filePath, db, broadcast, onChange }) {
     }
   }
 
-  function list(workspaceId = null) {
+  function list() {
     return presets
-      .filter(p => !workspaceId || presetWorkspaceId(p) === workspaceId)
+      .filter(p => presetWorkspaceId(p) === DEFAULT_WORKSPACE_ID)
       .map(p => ({ id: p.id, workspaceId: presetWorkspaceId(p), image: p.image }));
   }
 
-  function count(workspaceId = null) {
-    return workspaceId
-      ? presets.filter(p => presetWorkspaceId(p) === workspaceId).length
-      : presets.length;
+  function count() {
+    return presets.filter(p => presetWorkspaceId(p) === DEFAULT_WORKSPACE_ID).length;
   }
 
-  async function add(image, workspaceId = DEFAULT_WORKSPACE_ID) {
+  async function add(image) {
     if (!isValidDataUrl(image)) {
       return { error: 'Invalid image — must be a data URL under 32KB' };
     }
-    if (count(workspaceId) >= MAX_PRESETS) {
+    if (count() >= MAX_PRESETS) {
       return { error: `Preset limit reached (max ${MAX_PRESETS})` };
     }
     const preset = {
       id: `pp-${uuidv4().slice(0, 8)}`,
-      workspaceId: workspaceId || DEFAULT_WORKSPACE_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
       image,
       createdAt: new Date().toISOString(),
     };
@@ -114,32 +112,30 @@ function createStore({ filePath, db, broadcast, onChange }) {
     if (db?.saveProfilePreset) {
       db.saveProfilePreset(preset).catch(e => console.warn('[presets] saveProfilePreset error:', e.message));
     }
-    broadcastAndNotify(preset.workspaceId);
+    notifyChange();
     return { preset: { id: preset.id, workspaceId: preset.workspaceId, image: preset.image } };
   }
 
-  async function remove(id, workspaceId = null) {
-    const idx = presets.findIndex(p => p.id === id && (!workspaceId || presetWorkspaceId(p) === workspaceId));
+  async function remove(id) {
+    const idx = presets.findIndex(p => p.id === id && presetWorkspaceId(p) === DEFAULT_WORKSPACE_ID);
     if (idx < 0) return { error: 'Preset not found' };
-    const removedWorkspaceId = presetWorkspaceId(presets[idx]);
     presets.splice(idx, 1);
     saveToFile();
     if (db?.deleteProfilePreset) {
       db.deleteProfilePreset(id).catch(e => console.warn('[presets] deleteProfilePreset error:', e.message));
     }
-    broadcastAndNotify(removedWorkspaceId);
+    notifyChange();
     return { success: true };
   }
 
-  function broadcastAndNotify(workspaceId = DEFAULT_WORKSPACE_ID) {
-    const payload = list(workspaceId);
-    if (broadcast) broadcast({ type: 'agent_profile_presets_updated', workspaceId, presets: payload });
+  function notifyChange() {
+    const payload = list();
     if (onChange) onChange(payload);
   }
 
-  function pickForAgent(agentKey, usedImages, workspaceId = null) {
+  function pickForAgent(agentKey, usedImages) {
     const used = usedImages instanceof Set ? usedImages : new Set(usedImages || []);
-    const scoped = workspaceId ? presets.filter(p => presetWorkspaceId(p) === workspaceId) : presets;
+    const scoped = presets.filter(p => presetWorkspaceId(p) === DEFAULT_WORKSPACE_ID);
     return pickPresetForAgent(scoped, used, agentKey);
   }
 
