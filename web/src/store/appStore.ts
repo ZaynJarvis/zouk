@@ -563,7 +563,18 @@ export function useAppStore() {
       }
       case 'humans_updated': {
         const e = event as { humans: ServerHuman[] };
-        setHumans(e.humans || []);
+        // Server omits base64 `picture` from this broadcast to keep the WS
+        // frame small. Preserve any picture we already had for known humans;
+        // unknown humans will show initials until they reload (their `init`
+        // payload carries pictures).
+        setHumans(prev => {
+          const prevByName = new Map(prev.map(h => [h.name, h]));
+          return (e.humans || []).map(h => {
+            if (h.picture) return h;
+            const existing = prevByName.get(h.name);
+            return existing?.picture ? { ...h, picture: existing.picture } : h;
+          });
+        });
         break;
       }
       case 'workspace:members': {
