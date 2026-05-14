@@ -26,6 +26,25 @@ const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+const DEFAULT_WORKSPACE_ID = "default";
+const DEFAULT_WORKSPACE_NAME = process.env.ZOUK_DEFAULT_WORKSPACE_NAME || "Default";
+const DEFAULT_WORKSPACE_ICON = process.env.ZOUK_DEFAULT_WORKSPACE_ICON || "z";
+
+function normalizeWorkspaceId(raw) {
+  if (typeof raw !== "string") return DEFAULT_WORKSPACE_ID;
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return DEFAULT_WORKSPACE_ID;
+  return trimmed.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || DEFAULT_WORKSPACE_ID;
+}
+
+function workspaceIdFromReq(req) {
+  return normalizeWorkspaceId(
+    req.headers["x-workspace-id"]
+      || req.query?.workspaceId
+      || req.body?.workspaceId
+      || DEFAULT_WORKSPACE_ID
+  );
+}
 
 // OpenViking server-issued per-agent keys.
 // New-format root keys are `base64url(account).base64url(user).base64url(secret)` —
@@ -125,9 +144,9 @@ if (feishuEnabled) {
 }
 
 // Email allowlist — union of three sources, all granting equal access:
-//   1. `ALLOW` env, comma-separated. Entries starting with `@` match by domain
-//      (e.g. `@bytedance.com` lets the whole tenant in); bare entries match by
-//      exact address. Immutable without restart.
+//   1. `ALLOW` env, comma-separated. Entries starting with `@` match by
+//      domain (e.g. `@example.com` lets the whole tenant in); bare entries
+//      match by exact address. Immutable without restart.
 //   2. `email_allowlist` DB table (managed via Settings UI, hot-reloaded)
 // When the union is non-empty, only listed addresses can mint sessions and
 // guest mode is disabled. Empty union = unrestricted (default).
@@ -139,21 +158,39 @@ for (const raw of (process.env.ALLOW || "").split(",")) {
   if (entry.startsWith("@")) ENV_ALLOW_DOMAINS.add(entry);
   else ENV_ALLOW_EMAILS.add(entry);
 }
-// email -> { addedAt, addedBy } (populated async from DB at startup)
+// `${workspaceId}:${email}` -> { workspaceId, email, addedAt, addedBy }
+// (populated async from DB at startup)
 const dbAllowEmails = new Map();
 
-function allowlistActive() {
-  return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0 || dbAllowEmails.size > 0;
+function allowlistKey(workspaceId, email) {
+  return `${normalizeWorkspaceId(workspaceId)}:${String(email || "").trim().toLowerCase()}`;
 }
 
-function isEmailAllowed(email) {
-  if (!allowlistActive()) return true;
+// ENV_ALLOW_EMAILS and ENV_ALLOW_DOMAINS only seed the default workspace; other
+// workspaces gate purely on workspace-scoped DB rows.
+function allowlistActive(workspaceId = null) {
+  if (!workspaceId) {
+    return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0 || dbAllowEmails.size > 0;
+  }
+  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (normalizedWorkspaceId === DEFAULT_WORKSPACE_ID && (ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0)) return true;
+  for (const meta of dbAllowEmails.values()) {
+    if ((meta.workspaceId || DEFAULT_WORKSPACE_ID) === normalizedWorkspaceId) return true;
+  }
+  return false;
+}
+
+function isEmailAllowed(email, workspaceId = DEFAULT_WORKSPACE_ID) {
+  if (!allowlistActive(workspaceId)) return true;
   if (!email || typeof email !== "string") return false;
   const norm = email.trim().toLowerCase();
-  if (ENV_ALLOW_EMAILS.has(norm) || dbAllowEmails.has(norm)) return true;
-  const at = norm.lastIndexOf("@");
-  if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
-  return false;
+  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (normalizedWorkspaceId === DEFAULT_WORKSPACE_ID) {
+    if (ENV_ALLOW_EMAILS.has(norm)) return true;
+    const at = norm.lastIndexOf("@");
+    if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
+  }
+  return dbAllowEmails.has(allowlistKey(normalizedWorkspaceId, norm));
 }
 
 function normalizeEmailInput(raw) {
@@ -181,7 +218,13 @@ async function loadEmailAllowlistFromDb() {
     if (!rows) return;
     dbAllowEmails.clear();
     for (const row of rows) {
-      dbAllowEmails.set(row.email, { addedAt: row.addedAt, addedBy: row.addedBy });
+      const workspaceId = row.workspaceId || DEFAULT_WORKSPACE_ID;
+      dbAllowEmails.set(allowlistKey(workspaceId, row.email), {
+        workspaceId,
+        email: row.email,
+        addedAt: row.addedAt,
+        addedBy: row.addedBy,
+      });
     }
     if (rows.length > 0) {
       console.log(`[auth] Loaded ${rows.length} allowlist entry(ies) from database`);
@@ -231,10 +274,16 @@ const agentConfigs = loadAgentConfigs(); // persistent agent configurations
 // runtime state (status, machineId, sessionId).  These helpers ensure that
 // every code path builds agent objects consistently.
 
+function workspaceIdFromAgent(agentId) {
+  const cfg = agentConfigs.find((c) => c.id === agentId);
+  return normalizeWorkspaceId(cfg?.workspaceId || store.agents[agentId]?.workspaceId || DEFAULT_WORKSPACE_ID);
+}
+
 /** Build a store.agents entry, always preferring agentConfigs values. */
 function buildRuntimeAgent(agentId, runtimeOverrides = {}) {
   const cfg = agentConfigs.find((c) => c.id === agentId);
   return {
+    workspaceId: cfg?.workspaceId || runtimeOverrides.workspaceId || DEFAULT_WORKSPACE_ID,
     name: cfg?.name || agentId,
     displayName: cfg?.displayName || cfg?.name || agentId,
     runtime: cfg?.runtime || runtimeOverrides.runtime || "unknown",
@@ -250,7 +299,9 @@ function buildRuntimeAgent(agentId, runtimeOverrides = {}) {
  *  Works for any agentId regardless of whether the agent is currently running. */
 function agentChannelNames(agentId) {
   const names = [];
+  const agentWorkspaceId = workspaceIdFromAgent(agentId);
   for (const ch of store.channels) {
+    if ((ch.workspaceId || DEFAULT_WORKSPACE_ID) !== agentWorkspaceId) continue;
     if ((ch.type || "channel") === "dm") continue;
     const row = getMembership(ch.id, agentId);
     if (row && row.canRead) names.push(ch.name);
@@ -277,6 +328,7 @@ function agentPayload(agentId) {
   }
   return {
     ...base,
+    workspaceId: cfg.workspaceId || a.workspaceId || DEFAULT_WORKSPACE_ID,
     name: cfg.name || a.name,
     displayName: cfg.displayName || cfg.name || a.displayName,
     runtime: cfg.runtime || a.runtime,
@@ -412,9 +464,13 @@ function resolveDaemonMachineId(apiKey) {
   return uuidv4();
 }
 
-function isPersistentMachineId(machineId) {
+function isPersistentMachineId(machineId, workspaceId = null) {
   if (!machineId) return false;
-  return machineKeys.some((k) => !k.revokedAt && k.id === machineId);
+  return machineKeys.some((k) => (
+    !k.revokedAt
+    && k.id === machineId
+    && (!workspaceId || (k.workspaceId || DEFAULT_WORKSPACE_ID) === normalizeWorkspaceId(workspaceId))
+  ));
 }
 
 // machineId is immutable. An agent with no configured machineId is invalid
@@ -434,8 +490,12 @@ const machineKeys = loadMachineKeys(); // persistent machine API keys
 // ─── In-memory store ──────────────────────────────────────────────
 
 const store = {
+  workspaces: [
+    { id: DEFAULT_WORKSPACE_ID, name: DEFAULT_WORKSPACE_NAME, icon: DEFAULT_WORKSPACE_ICON, ownerEmail: null },
+  ],
+  workspaceMembers: new Map(),
   channels: [
-    { id: "ch-all", name: "all", description: "General channel", members: [] },
+    { id: "ch-all", workspaceId: DEFAULT_WORKSPACE_ID, name: "all", description: "General channel", members: [] },
   ],
   messages: [], // { id, seq, channelId, channelName, channelType, threadId, senderName, senderType, content, createdAt, attachments, taskNumber, taskStatus, taskAssigneeId, taskAssigneeType }
   tasks: [], // { taskNumber, channelId, title, status, messageId, claimedByName, claimedByType, createdByName }
@@ -533,6 +593,144 @@ function now() {
   return new Date().toISOString();
 }
 
+function workspacePayload(workspace) {
+  return {
+    id: workspace.id,
+    name: workspace.name || workspace.id,
+    icon: workspace.icon || DEFAULT_WORKSPACE_ICON,
+    ownerEmail: workspace.ownerEmail || null,
+    createdAt: workspace.createdAt || null,
+  };
+}
+
+function findWorkspace(id) {
+  const workspaceId = normalizeWorkspaceId(id);
+  return store.workspaces.find((w) => w.id === workspaceId) || null;
+}
+
+function ensureWorkspace(workspace) {
+  const workspaceId = normalizeWorkspaceId(workspace?.id || DEFAULT_WORKSPACE_ID);
+  let existing = findWorkspace(workspaceId);
+  const next = {
+    id: workspaceId,
+    name: workspace?.name || existing?.name || (workspaceId === DEFAULT_WORKSPACE_ID ? DEFAULT_WORKSPACE_NAME : workspaceId),
+    icon: workspace?.icon || existing?.icon || (workspaceId === DEFAULT_WORKSPACE_ID ? DEFAULT_WORKSPACE_ICON : workspaceId.slice(0, 1).toUpperCase()),
+    ownerEmail: workspace?.ownerEmail ?? existing?.ownerEmail ?? null,
+    createdAt: workspace?.createdAt || existing?.createdAt || now(),
+  };
+  if (existing) {
+    Object.assign(existing, next);
+  } else {
+    store.workspaces.push(next);
+    existing = next;
+  }
+  return existing;
+}
+
+function workspaceMembersFor(workspaceId) {
+  const id = normalizeWorkspaceId(workspaceId);
+  let members = store.workspaceMembers.get(id);
+  if (!members) {
+    members = new Map();
+    store.workspaceMembers.set(id, members);
+  }
+  return members;
+}
+
+function workspaceMemberCount(workspaceId) {
+  return workspaceMembersFor(workspaceId).size;
+}
+
+function getWorkspaceMember(workspaceId, email) {
+  if (!email) return null;
+  return workspaceMembersFor(workspaceId).get(String(email).trim().toLowerCase()) || null;
+}
+
+function setWorkspaceMember(member, { persist = true } = {}) {
+  if (!member?.email) return null;
+  const workspaceId = normalizeWorkspaceId(member.workspaceId || DEFAULT_WORKSPACE_ID);
+  const email = member.email.trim().toLowerCase();
+  const next = {
+    workspaceId,
+    email,
+    role: member.role || "member",
+    name: member.name || null,
+    joinedAt: member.joinedAt || now(),
+  };
+  workspaceMembersFor(workspaceId).set(email, next);
+  if (persist) db.saveWorkspaceMember(next);
+  return next;
+}
+
+function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) {
+  if (!user?.email) return null;
+  const id = normalizeWorkspaceId(workspaceId);
+  if (!findWorkspace(id)) {
+    if (id !== DEFAULT_WORKSPACE_ID) return null;
+    ensureWorkspace({ id });
+  }
+  const existing = getWorkspaceMember(id, user.email);
+  if (existing) return existing;
+  if (id !== DEFAULT_WORKSPACE_ID) return null;
+  if (!isEmailAllowed(user.email, id)) return null;
+  const role = workspaceMemberCount(id) === 0 ? "root" : "member";
+  return setWorkspaceMember({ workspaceId: id, email: user.email, name: user.name, role });
+}
+
+function userWorkspaceRole(user, workspaceId = DEFAULT_WORKSPACE_ID) {
+  const id = normalizeWorkspaceId(workspaceId);
+  if (!user?.email) return id === DEFAULT_WORKSPACE_ID && !allowlistActive(id) ? "member" : null;
+  if (allowlistActive(id) && !isEmailAllowed(user.email, id)) return null;
+  const member = getWorkspaceMember(id, user.email);
+  if (member) return member.role || "member";
+  if (id !== DEFAULT_WORKSPACE_ID) return null;
+  return isEmailAllowed(user.email, id) ? "member" : null;
+}
+
+function userCanAccessWorkspace(user, workspaceId = DEFAULT_WORKSPACE_ID) {
+  return !!userWorkspaceRole(user, workspaceId);
+}
+
+function userCanAdminWorkspace(user, workspaceId = DEFAULT_WORKSPACE_ID) {
+  const role = userWorkspaceRole(user, workspaceId);
+  return role === "root" || role === "owner" || role === "admin";
+}
+
+function visibleWorkspacesForUser(user) {
+  if (!user) {
+    return [workspacePayload(ensureWorkspace({ id: DEFAULT_WORKSPACE_ID }))];
+  }
+  const workspaces = [];
+  for (const workspace of store.workspaces) {
+    if (userCanAccessWorkspace(user, workspace.id)) {
+      workspaces.push(workspacePayload(workspace));
+    }
+  }
+  if (workspaces.length === 0) {
+    const member = ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
+    if (member) workspaces.push(workspacePayload(ensureWorkspace({ id: DEFAULT_WORKSPACE_ID })));
+  }
+  return workspaces;
+}
+
+function workspaceEventIdFromPayload(event) {
+  if (event.workspaceId) return normalizeWorkspaceId(event.workspaceId);
+  const msg = event.message;
+  if (msg?.workspaceId) return normalizeWorkspaceId(msg.workspaceId);
+  if (event.channel?.workspaceId) return normalizeWorkspaceId(event.channel.workspaceId);
+  if (event.agent?.workspaceId) return normalizeWorkspaceId(event.agent.workspaceId);
+  if (event.agentId) return workspaceIdFromAgent(event.agentId);
+  if (event.machine?.workspaceId) return normalizeWorkspaceId(event.machine.workspaceId);
+  if (event.machineId) {
+    const machine = machines?.get?.(event.machineId);
+    if (machine?.workspaceId) return normalizeWorkspaceId(machine.workspaceId);
+    const key = machineKeys?.find?.((k) => k.id === event.machineId);
+    if (key?.workspaceId) return normalizeWorkspaceId(key.workspaceId);
+  }
+  if (event.config?.workspaceId) return normalizeWorkspaceId(event.config.workspaceId);
+  return null;
+}
+
 function resolveUniqueByIdOrPrefix(items, rawId, getId) {
   if (!rawId || typeof rawId !== "string") return { item: null, reason: "invalid id" };
   const exact = items.find((item) => getId(item) === rawId);
@@ -567,14 +765,16 @@ async function withTaskMutationLock(key, fn) {
 
 function channelForTask(task) {
   if (!task) return null;
-  return store.channels.find((c) => c.id === task.channelId)
-    || (task.channelName ? store.channels.find((c) => c.name === task.channelName) : null)
+  const workspaceId = normalizeWorkspaceId(task.workspaceId || DEFAULT_WORKSPACE_ID);
+  return store.channels.find((c) => c.id === task.channelId && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
+    || (task.channelName ? store.channels.find((c) => c.name === task.channelName && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId) : null)
     || null;
 }
 
 function taskChannelPayload(task) {
   const ch = channelForTask(task);
   return {
+    workspaceId: task.workspaceId || ch?.workspaceId || DEFAULT_WORKSPACE_ID,
     channelId: task.channelId || ch?.id || "ch-all",
     channelName: ch?.name || task.channelName || "all",
     channelType: ch?.type || (task.channelName?.startsWith("dm:") ? "dm" : "channel"),
@@ -616,12 +816,19 @@ function taskMatchesTarget(task, target, agentName) {
   return false;
 }
 
-function findOrCreateChannel(name, type = "channel") {
-  let ch = store.channels.find((c) => c.name === name && (c.type || "channel") === (type || "channel"));
+function findOrCreateChannel(name, type = "channel", workspaceId = DEFAULT_WORKSPACE_ID) {
+  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+  let ch = store.channels.find((c) => (
+    (c.workspaceId || DEFAULT_WORKSPACE_ID) === normalizedWorkspaceId
+    && c.name === name
+    && (c.type || "channel") === (type || "channel")
+  ));
   if (!ch) {
     const idPrefix = type === "dm" ? "dm-" : "ch-";
+    const defaultAll = normalizedWorkspaceId === DEFAULT_WORKSPACE_ID && type !== "dm" && name === "all";
     ch = {
-      id: `${idPrefix}${uuidv4().substring(0, 8)}`,
+      id: defaultAll ? "ch-all" : `${idPrefix}${uuidv4().substring(0, 8)}`,
+      workspaceId: normalizedWorkspaceId,
       name,
       description: "",
       type: type || "channel",
@@ -644,6 +851,7 @@ function getMembership(channelId, agentId) {
 }
 
 function setMembership(channelId, agentId, { canRead = true, subscribed = true } = {}) {
+  const channel = store.channels.find((c) => c.id === channelId);
   let ca = store.channelAgents.get(channelId);
   if (!ca) {
     ca = new Map();
@@ -652,7 +860,13 @@ function setMembership(channelId, agentId, { canRead = true, subscribed = true }
   const existing = ca.get(agentId);
   if (existing && existing.canRead === !!canRead && existing.subscribed === !!subscribed) return false;
   ca.set(agentId, { canRead: !!canRead, subscribed: !!subscribed });
-  db.saveChannelAgent({ channelId, agentId, canRead: !!canRead, subscribed: !!subscribed });
+  db.saveChannelAgent({
+    workspaceId: channel?.workspaceId || workspaceIdFromAgent(agentId),
+    channelId,
+    agentId,
+    canRead: !!canRead,
+    subscribed: !!subscribed,
+  });
   return true;
 }
 
@@ -698,9 +912,16 @@ function agentCanRead(channelId, agentId) {
 // leave an agent party without a membership row. Non-DM channels still
 // consult the membership table. Unknown channels fail closed.
 function messageVisibleToAgent(msg, agentId) {
+  const agentWorkspaceId = workspaceIdFromAgent(agentId);
+  const msgWorkspaceId = normalizeWorkspaceId(msg.workspaceId || DEFAULT_WORKSPACE_ID);
+  if (msgWorkspaceId !== agentWorkspaceId) return false;
   const ch = msg.channelId
     ? store.channels.find((c) => c.id === msg.channelId)
-    : store.channels.find((c) => c.name === msg.channelName && (c.type || "channel") === (msg.channelType || "channel"));
+    : store.channels.find((c) => (
+      (c.workspaceId || DEFAULT_WORKSPACE_ID) === msgWorkspaceId
+      && c.name === msg.channelName
+      && (c.type || "channel") === (msg.channelType || "channel")
+    ));
   if (!ch) return false;
   if ((ch.type || "channel") === "dm") {
     const parties = dmChannelParties(ch.name) || [];
@@ -743,8 +964,11 @@ function agentIdByName(name) {
 // New agents start with visibility only to #all; admins can subscribe them to
 // other channels via the API. DMs are not seeded here.
 function seedAgentIntoRegularChannels(agentId) {
+  const agentWorkspaceId = workspaceIdFromAgent(agentId);
   const allChannel = store.channels.find(
-    (ch) => ch.name === "all" && (ch.type || "channel") === "channel"
+    (ch) => (ch.workspaceId || DEFAULT_WORKSPACE_ID) === agentWorkspaceId
+      && ch.name === "all"
+      && (ch.type || "channel") === "channel"
   );
   if (allChannel && !getMembership(allChannel.id, agentId)) {
     setMembership(allChannel.id, agentId, { canRead: true, subscribed: true });
@@ -815,7 +1039,10 @@ function formatTarget(channelName, channelType, threadId) {
   return t;
 }
 
-function matchesTarget(msg, target, requesterName) {
+function matchesTarget(msg, target, requesterName, workspaceId = null) {
+  if (workspaceId && normalizeWorkspaceId(msg.workspaceId || DEFAULT_WORKSPACE_ID) !== normalizeWorkspaceId(workspaceId)) {
+    return false;
+  }
   const { channelName, channelType, threadId } = parseTarget(target, requesterName);
   // For DM without requesterName, fall back to checking if canonical names overlap
   if (channelType === "dm" && !requesterName && msg.channelType === "dm") {
@@ -876,6 +1103,8 @@ function formatMessageForClient(msg, viewerName, options = {}) {
   const base = {
     id: msg.id,
     messageId: msg.id,
+    workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID,
+    channelId: msg.channelId || null,
     senderName: msg.senderName,
     senderType: msg.senderType,
     channelName: isThread
@@ -911,6 +1140,7 @@ function formatMessageForAgent(msg, recipientAgentId) {
   const formatted = formatMessageForClient(msg, agentName);
   return {
     message_id: formatted.messageId,
+    workspace_id: formatted.workspaceId,
     sender_name: formatted.senderName,
     sender_type: formatted.senderType,
     channel_name: formatted.channelName,
@@ -1196,6 +1426,10 @@ function broadcastToWeb(event) {
 // DM messages must only reach the two parties; everything else (channel posts,
 // agent/machine/task/config updates) continues to broadcast globally.
 function shouldDeliverEventToWebViewer(event, ws) {
+  const eventWorkspaceId = workspaceEventIdFromPayload(event);
+  if (eventWorkspaceId && normalizeWorkspaceId(ws._workspaceId || DEFAULT_WORKSPACE_ID) !== eventWorkspaceId) {
+    return false;
+  }
   if (event.type !== "message" && event.type !== "new_message") return true;
   const msg = event.message;
   if (!msg) return true;
@@ -1431,12 +1665,17 @@ function rebuildDeliveryRoutingWindows() {
 }
 
 function deliverToAllAgents(message, excludeAgent = null) {
+  const workspaceId = normalizeWorkspaceId(message.workspaceId || DEFAULT_WORKSPACE_ID);
   // Resolve the channel row so we can ask who's subscribed. Messages always
   // carry channelId (set at write time); fall back to name/type lookup in
   // case of old records.
   const ch = message.channelId
     ? store.channels.find((c) => c.id === message.channelId)
-    : store.channels.find((c) => c.name === message.channelName && (c.type || "channel") === (message.channelType || "channel"));
+    : store.channels.find((c) => (
+      (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+      && c.name === message.channelName
+      && (c.type || "channel") === (message.channelType || "channel")
+    ));
 
   // DMs derive subscribers from the canonical party list — bypasses
   // channel_agents so a missing seed row can't strand the agent party.
@@ -1452,7 +1691,7 @@ function deliverToAllAgents(message, excludeAgent = null) {
 
   const activeSubscribedIds = subscribedIds.filter((agentId) => {
     const agent = store.agents[agentId];
-    return agent && agent.status === "active";
+    return agent && agent.status === "active" && workspaceIdFromAgent(agentId) === workspaceId;
   });
 
   const agentsById = deliveryAgentsById();
@@ -1512,16 +1751,18 @@ function resolveAttachmentRefs(ids) {
 app.post("/internal/agent/:agentId/send", (req, res) => {
   const { agentId } = req.params;
   const { target, content, attachmentIds } = req.body;
+  const workspaceId = workspaceIdFromAgent(agentId);
   // Use config-derived name (agentPayload overlays config on runtime).
   // store.agents[agentId].name may still be the raw ID for agents that
   // were already running before configs were loaded/fixed.
   const senderName = agentPayload(agentId)?.name || agentId;
   const { channelName, channelType, threadId } = parseTarget(target, senderName);
-  const ch = findOrCreateChannel(channelName, channelType);
+  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
 
   const msg = {
     id: uuidv4(),
     seq: nextSeq(),
+    workspaceId,
     channelId: ch.id,
     channelName,
     channelType,
@@ -1538,7 +1779,7 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
   // Deliver to other agents
   deliverToAllAgents(msg, agentId);
   // Broadcast to web UI
-  broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+  broadcastToWeb({ type: "message", workspaceId, message: formatMessageForClient(msg) });
 
   res.json({ messageId: msg.id, recentUnread: [] });
 });
@@ -1567,8 +1808,9 @@ app.get("/internal/agent/:agentId/receive", (req, res) => {
 // list_server
 app.get("/internal/agent/:agentId/server", (req, res) => {
   const { agentId } = req.params;
+  const workspaceId = workspaceIdFromAgent(agentId);
   const channels = store.channels
-    .filter((ch) => (ch.type || "channel") === "channel")
+    .filter((ch) => (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId && (ch.type || "channel") === "channel")
     .map((ch) => {
       const row = getMembership(ch.id, agentId);
       return {
@@ -1580,16 +1822,19 @@ app.get("/internal/agent/:agentId/server", (req, res) => {
     });
   const agents = Object.keys(store.agents).map((id) => {
     const p = agentPayload(id);
+    if ((p?.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) return null;
     return { name: p?.name || id, status: p?.status || "inactive" };
-  });
+  }).filter(Boolean);
   res.json({ channels, agents, humans: store.humans });
 });
 
 // list the agent's channel memberships (subscriptions)
 app.get("/internal/agent/:agentId/subscriptions", (req, res) => {
   const { agentId } = req.params;
+  const workspaceId = workspaceIdFromAgent(agentId);
   const out = [];
   for (const ch of store.channels) {
+    if ((ch.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) continue;
     const row = getMembership(ch.id, agentId);
     if (!row) continue;
     out.push({
@@ -1607,12 +1852,17 @@ app.get("/internal/agent/:agentId/subscriptions", (req, res) => {
 // Either channelId or (channelName[, channelType]) must be provided.
 app.patch("/internal/agent/:agentId/subscriptions", (req, res) => {
   const { agentId } = req.params;
+  const workspaceId = workspaceIdFromAgent(agentId);
   const { channelId, channelName, channelType = "channel", canRead, subscribed } = req.body || {};
   let ch;
   if (channelId) {
-    ch = store.channels.find((c) => c.id === channelId);
+    ch = store.channels.find((c) => c.id === channelId && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
   } else if (channelName) {
-    ch = store.channels.find((c) => c.name === channelName && (c.type || "channel") === channelType);
+    ch = store.channels.find((c) => (
+      (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+      && c.name === channelName
+      && (c.type || "channel") === channelType
+    ));
   }
   if (!ch) return res.status(404).json({ error: "channel_not_found" });
   const existing = getMembership(ch.id, agentId) || { canRead: true, subscribed: true };
@@ -1634,8 +1884,9 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
   const { agentId } = req.params;
   const { channel, limit = 50, before, after, around } = req.query;
   const agentName = store.agents[agentId]?.name || agentId;
+  const workspaceId = workspaceIdFromAgent(agentId);
   let msgs = store.messages.filter((m) => (
-    matchesTarget(m, channel, agentName) && messageVisibleToAgent(m, agentId)
+    matchesTarget(m, channel, agentName, workspaceId) && messageVisibleToAgent(m, agentId)
   ));
   const limitNum = parseInt(limit);
 
@@ -1671,12 +1922,13 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
 app.get("/internal/agent/:agentId/search", (req, res) => {
   const { agentId } = req.params;
   const agentName = store.agents[agentId]?.name || agentId;
+  const workspaceId = workspaceIdFromAgent(agentId);
   const { q, limit = 10, channel } = req.query;
   // Always limit search to channels the agent can read so DM / private-channel
   // content can't leak via the search path.
   let msgs = store.messages.filter((m) => messageVisibleToAgent(m, agentId));
   if (channel) {
-    msgs = msgs.filter((m) => matchesTarget(m, channel, agentName));
+    msgs = msgs.filter((m) => matchesTarget(m, channel, agentName, workspaceId));
   }
   if (q) {
     const query = q.toLowerCase();
@@ -1699,7 +1951,8 @@ app.get("/internal/agent/:agentId/tasks", (req, res) => {
   const { agentId } = req.params;
   const { channel, status } = req.query;
   const agentName = store.agents[agentId]?.name || agentId;
-  let tasks = store.tasks;
+  const workspaceId = workspaceIdFromAgent(agentId);
+  let tasks = store.tasks.filter((t) => (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
   if (channel) {
     tasks = tasks.filter((t) => taskMatchesTarget(t, channel, agentName));
   }
@@ -1724,8 +1977,9 @@ app.post("/internal/agent/:agentId/tasks", async (req, res) => {
   const { agentId } = req.params;
   const { channel, tasks: taskDefs } = req.body;
   const agentName = store.agents[agentId]?.name || agentId;
+  const workspaceId = workspaceIdFromAgent(agentId);
   const { channelName, channelType } = parseTarget(channel, agentName);
-  const ch = findOrCreateChannel(channelName, channelType);
+  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
 
   const created = [];
   for (const td of taskDefs) {
@@ -1733,6 +1987,7 @@ app.post("/internal/agent/:agentId/tasks", async (req, res) => {
     const msgId = uuidv4();
     const task = {
       taskNumber: taskNum,
+      workspaceId,
       channelId: ch.id,
       channelName: ch.name,
       title: td.title,
@@ -1748,6 +2003,7 @@ app.post("/internal/agent/:agentId/tasks", async (req, res) => {
     const msg = {
       id: msgId,
       seq: nextSeq(),
+      workspaceId,
       channelId: ch.id,
       channelName: ch.name,
       channelType,
@@ -1763,7 +2019,7 @@ app.post("/internal/agent/:agentId/tasks", async (req, res) => {
     appendMessage(msg);
     await db.saveTask(task);
     await db.saveMessage(msg);
-    broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+    broadcastToWeb({ type: "message", workspaceId, message: formatMessageForClient(msg) });
 
     created.push({ taskNumber: taskNum, messageId: msgId, title: td.title });
   }
@@ -1779,6 +2035,7 @@ app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
   const { agentId } = req.params;
   const { channel, task_numbers, message_ids } = req.body;
   const agentName = store.agents[agentId]?.name || agentId;
+  const workspaceId = workspaceIdFromAgent(agentId);
 
   const claimTask = async (task) => {
     const num = task.taskNumber;
@@ -1805,14 +2062,18 @@ app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
       };
       appendMessage(msg);
       await db.saveMessage(msg);
-      broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+      broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || workspaceId, message: formatMessageForClient(msg) });
     }
 
     return { taskNumber: num, messageId: task.messageId, success: true, reason: null };
   };
 
   const claimMessageId = async (mid) => {
-    const taskResolved = resolveUniqueByIdOrPrefix(store.tasks, mid, (t) => t.messageId);
+    const taskResolved = resolveUniqueByIdOrPrefix(
+      store.tasks.filter((t) => (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+      mid,
+      (t) => t.messageId
+    );
     if (taskResolved.item) {
       return withTaskMutationLock(`task:${taskResolved.item.taskNumber}`, () => claimTask(taskResolved.item));
     }
@@ -1837,12 +2098,16 @@ app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
     }
 
     return withTaskMutationLock(`message:${message.id}`, async () => {
-      const taskAfterLock = store.tasks.find((t) => t.messageId === message.id);
+      const taskAfterLock = store.tasks.find((t) => (
+        t.messageId === message.id
+        && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+      ));
       if (taskAfterLock) return claimTask(taskAfterLock);
 
       const taskNum = nextTaskNum();
       const task = {
         taskNumber: taskNum,
+        workspaceId,
         channelId: message.channelId,
         channelName: message.channelName,
         title: taskTitleFromMessage(message),
@@ -1867,7 +2132,7 @@ app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
   const results = [];
   if (task_numbers) {
     for (const num of task_numbers) {
-      const task = store.tasks.find((t) => t.taskNumber === num);
+      const task = store.tasks.find((t) => t.taskNumber === num && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
       if (!task) {
         results.push({ taskNumber: num, messageId: null, success: false, reason: "task not found" });
         continue;
@@ -1886,8 +2151,13 @@ app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
 
 // unclaim_task
 app.post("/internal/agent/:agentId/tasks/unclaim", async (req, res) => {
+  const { agentId } = req.params;
   const { task_number } = req.body;
-  const task = store.tasks.find((t) => t.taskNumber === task_number);
+  const workspaceId = workspaceIdFromAgent(agentId);
+  const task = store.tasks.find((t) => (
+    t.taskNumber === task_number
+    && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+  ));
   if (task) {
     task.claimedByName = null;
     task.claimedByType = null;
@@ -1902,7 +2172,11 @@ app.post("/internal/agent/:agentId/tasks/unclaim", async (req, res) => {
 app.post("/internal/agent/:agentId/tasks/update-status", async (req, res) => {
   const { agentId } = req.params;
   const { task_number, status } = req.body;
-  const task = store.tasks.find((t) => t.taskNumber === task_number);
+  const workspaceId = workspaceIdFromAgent(agentId);
+  const task = store.tasks.find((t) => (
+    t.taskNumber === task_number
+    && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+  ));
   if (task) {
     task.status = status;
     await db.saveTask(task);
@@ -1921,7 +2195,7 @@ app.post("/internal/agent/:agentId/tasks/update-status", async (req, res) => {
     };
     appendMessage(msg);
     await db.saveMessage(msg);
-    broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+    broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || workspaceId, message: formatMessageForClient(msg) });
   }
   res.json({ success: true });
 });
@@ -1930,9 +2204,10 @@ app.post("/internal/agent/:agentId/tasks/update-status", async (req, res) => {
 app.post("/internal/agent/:agentId/resolve-channel", (req, res) => {
   const { agentId } = req.params;
   const agentName = store.agents[agentId]?.name || agentId;
+  const workspaceId = workspaceIdFromAgent(agentId);
   const { target } = req.body;
   const { channelName, channelType } = parseTarget(target, agentName);
-  const ch = findOrCreateChannel(channelName, channelType);
+  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
   res.json({ channelId: ch.id });
 });
 
@@ -1973,11 +2248,57 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const user = token ? authSessions.get(token) : null;
+  const workspaceId = workspaceIdFromReq(req);
   if (!user) {
     return res.status(403).json({ error: "Authentication required. Please sign in to perform this action." });
   }
-  if (allowlistActive() && !isEmailAllowed(user.email)) {
+  if (allowlistActive(workspaceId) && !isEmailAllowed(user.email, workspaceId)) {
     return res.status(403).json({ error: "Email not authorized to access this server." });
+  }
+  ensureWorkspaceMemberForUser(user, workspaceId);
+  if (!findWorkspace(workspaceId) || !userCanAccessWorkspace(user, workspaceId)) {
+    return res.status(403).json({ error: "Not a member of this workspace." });
+  }
+  req.workspaceId = workspaceId;
+  req.user = user;
+  next();
+}
+
+function requireSessionAuth(req, res, next) {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const user = token ? authSessions.get(token) : null;
+  if (!user) {
+    return res.status(403).json({ error: "Authentication required. Please sign in to perform this action." });
+  }
+  if (visibleWorkspacesForUser(user).length === 0) {
+    return res.status(403).json({ error: "Email not authorized to access this server." });
+  }
+  req.workspaceId = workspaceIdFromReq(req);
+  req.user = user;
+  next();
+}
+
+function requireWorkspaceRead(req, res, next) {
+  const workspaceId = workspaceIdFromReq(req);
+  if (!findWorkspace(workspaceId)) {
+    return res.status(404).json({ error: "Workspace not found." });
+  }
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const user = token ? authSessions.get(token) : null;
+  const defaultOpenRead = workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(workspaceId);
+  if (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, workspaceId))) {
+    return res.status(403).json({ error: "Not a member of this workspace." });
+  }
+  req.workspaceId = workspaceId;
+  req.user = user;
+  next();
+}
+
+function requireWorkspaceAdmin(req, res, next) {
+  const user = req.user;
+  const workspaceId = req.workspaceId || workspaceIdFromReq(req);
+  if (!userCanAdminWorkspace(user, workspaceId)) {
+    return res.status(403).json({ error: "Workspace root/admin required." });
   }
   next();
 }
@@ -1992,10 +2313,11 @@ function requireAuth(req, res, next) {
 // despite the message being saved + delivered. Persisting first, responding,
 // then fanning out preserves all downstream behavior in the same tick while
 // removing that ordering trap.
-function persistUserMessage({ channelId, channelName, channelType, threadId, senderName, senderType, content, attachments }) {
+function persistUserMessage({ workspaceId, channelId, channelName, channelType, threadId, senderName, senderType, content, attachments }) {
   const msg = {
     id: uuidv4(),
     seq: nextSeq(),
+    workspaceId: workspaceId || DEFAULT_WORKSPACE_ID,
     channelId,
     channelName,
     channelType,
@@ -2016,7 +2338,7 @@ function fanoutUserMessage(msg) {
   // resolves parties from the canonical channel name inside deliverToAllAgents.
   deliverToAllAgents(msg);
   // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
-  broadcastToWeb({ type: "message", message: formatMessageForClient(msg) });
+  broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, message: formatMessageForClient(msg) });
 }
 
 // Send message from web UI (human user)
@@ -2028,10 +2350,12 @@ app.post("/api/messages", requireAuth, (req, res) => {
   const authedName = token ? authSessions.get(token)?.name : null;
   const { target, content, senderName: bodyName, attachmentIds } = req.body;
   const senderName = authedName || bodyName || "local-user";
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const { channelName, channelType, threadId } = parseTarget(target, senderName);
-  const ch = findOrCreateChannel(channelName, channelType);
+  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
 
   const msg = persistUserMessage({
+    workspaceId,
     channelId: ch.id,
     channelName,
     channelType,
@@ -2060,9 +2384,14 @@ function requireMachineKey(req, res, next) {
   }
   const keyRecord = findMachineKeyRecord(apiKey);
   if (keyRecord) {
+    const workspaceId = workspaceIdFromReq(req);
+    if ((keyRecord.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
+      return res.status(401).json({ error: "Machine key is not valid for this workspace" });
+    }
     keyRecord.lastUsedAt = now();
     saveMachineKeys(machineKeys);
     db.saveMachineKey(keyRecord);
+    req.machineKey = keyRecord;
   }
   next();
 }
@@ -2073,6 +2402,7 @@ function requireMachineKey(req, res, next) {
 // no attachments. Sender is hardcoded to "system"; the name is reserved
 // (see RESERVED_USER_NAMES) so it can't collide with a real user.
 app.post("/api/trigger", requireMachineKey, (req, res) => {
+  const workspaceId = workspaceIdFromReq(req);
   const { target, content } = req.body || {};
   if (typeof target !== "string" || !target.startsWith("#")) {
     return res.status(400).json({ error: "target must be a public channel like '#general' (DMs not supported)" });
@@ -2087,12 +2417,17 @@ app.post("/api/trigger", requireMachineKey, (req, res) => {
   }
   // Require channel to already exist — external systems shouldn't spawn new
   // channels by accident. Caller should create via the web UI first.
-  const ch = store.channels.find((c) => c.name === channelName && (c.type || "channel") === "channel");
+  const ch = store.channels.find((c) => (
+    (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+    && c.name === channelName
+    && (c.type || "channel") === "channel"
+  ));
   if (!ch) {
     return res.status(404).json({ error: `channel #${channelName} not found` });
   }
 
   const msg = persistUserMessage({
+    workspaceId,
     channelId: ch.id,
     channelName,
     channelType: "channel",
@@ -2140,14 +2475,15 @@ app.post("/api/attachments", requireAuth, upload.single("file"), async (req, res
 // its 307 redirect chain, so the primary web client passes the channel target
 // in request headers (X-Channel, X-Limit, X-Sender) which survive untouched.
 // Query-string fallback kept for backward compat (curl, daemon internal API).
-app.get("/api/messages", (req, res) => {
+app.get("/api/messages", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const channel = req.headers["x-channel"] || req.query.channel || "#all";
   const limit = parseInt(req.headers["x-limit"] || req.query.limit || 100);
   const sender = req.headers["x-sender"] || req.query.sender || null;
   const before = req.headers["x-before"] || req.query.before || null;
   const after = req.headers["x-after"] || req.query.after || null;
 
-  const filtered = store.messages.filter((m) => matchesTarget(m, channel, sender));
+  const filtered = store.messages.filter((m) => matchesTarget(m, channel, sender, workspaceId));
 
   // Catch-up mode: return all messages after the given message ID (for WS reconnect gap-fill)
   if (after) {
@@ -2173,38 +2509,49 @@ app.get("/api/messages", (req, res) => {
 });
 
 // Get channels
-app.get("/api/channels", (req, res) => {
+app.get("/api/channels", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   res.json({
-    channels: store.channels.filter((ch) => (ch.type || "channel") === "channel"),
+    channels: store.channels.filter((ch) => (
+      (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+      && (ch.type || "channel") === "channel"
+    )),
   });
 });
 
 // Create channel
 app.post("/api/channels", requireAuth, (req, res) => {
   const { name, description } = req.body;
-  const ch = findOrCreateChannel(name);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const ch = findOrCreateChannel(name, "channel", workspaceId);
   ch.description = description || "";
   db.saveChannel(ch);
-  broadcastToWeb({ type: "channel_created", channel: ch });
+  broadcastToWeb({ type: "channel_created", workspaceId, channel: ch });
   res.json({ channel: ch });
 });
 
 app.delete("/api/channels/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
-  const idx = store.channels.findIndex((ch) => ch.id === id && (ch.type || "channel") === "channel");
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const idx = store.channels.findIndex((ch) => (
+    ch.id === id
+    && (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+    && (ch.type || "channel") === "channel"
+  ));
   if (idx < 0) return res.status(404).json({ error: "Channel not found" });
 
   const [channel] = store.channels.splice(idx, 1);
   purgeChannelMemberships(channel.id);
   await db.deleteChannel(channel.id);
-  broadcastToWeb({ type: "channel_deleted", channelId: channel.id, channelName: channel.name });
+  broadcastToWeb({ type: "channel_deleted", workspaceId, channelId: channel.id, channelName: channel.name });
   res.json({ success: true, channel });
 });
 
 // List agents subscribed to a channel. Used by the admin UI.
 app.get("/api/channels/:id/agents", requireAuth, (req, res) => {
   const { id } = req.params;
-  const ch = store.channels.find((c) => c.id === id);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const ch = store.channels.find((c) => c.id === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
   if (!ch) return res.status(404).json({ error: "Channel not found" });
   const ca = store.channelAgents.get(ch.id);
   const rows = ca
@@ -2222,8 +2569,10 @@ app.get("/api/channels/:id/agents", requireAuth, (req, res) => {
 app.patch("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
   const { id, agentId } = req.params;
   const { canRead, subscribed } = req.body || {};
-  const ch = store.channels.find((c) => c.id === id);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const ch = store.channels.find((c) => c.id === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
   if (!ch) return res.status(404).json({ error: "Channel not found" });
+  if (workspaceIdFromAgent(agentId) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
   const existing = getMembership(ch.id, agentId) || { canRead: true, subscribed: true };
   const next = {
     canRead: canRead === undefined ? existing.canRead : !!canRead,
@@ -2239,7 +2588,8 @@ app.patch("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
 
 app.delete("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
   const { id, agentId } = req.params;
-  const ch = store.channels.find((c) => c.id === id);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const ch = store.channels.find((c) => c.id === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
   if (!ch) return res.status(404).json({ error: "Channel not found" });
   removeMembership(ch.id, agentId);
   res.json({ ok: true });
@@ -2248,9 +2598,11 @@ app.delete("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
 // Read-only task list for the frontend kanban. Tasks don't carry their own
 // timestamps in the schema, so we derive createdAt/updatedAt from the system
 // messages stamped with each task_number (create → claim → status updates).
-app.get("/api/tasks", (req, res) => {
+app.get("/api/tasks", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const taskTimes = new Map(); // taskNumber -> { createdAt, updatedAt }
   for (const m of store.messages) {
+    if ((m.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) continue;
     if (!m.taskNumber) continue;
     const cur = taskTimes.get(m.taskNumber);
     if (!cur) {
@@ -2261,12 +2613,14 @@ app.get("/api/tasks", (req, res) => {
     }
   }
 
-  const tasks = store.tasks.map((t) => {
+  const tasks = store.tasks
+    .filter((t) => (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
+    .map((t) => {
     const times = taskTimes.get(t.taskNumber) || { createdAt: null, updatedAt: null };
     return {
       taskNumber: t.taskNumber,
       channelId: t.channelId,
-      channelName: store.channels.find((c) => c.id === t.channelId)?.name || null,
+      channelName: store.channels.find((c) => c.id === t.channelId && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)?.name || null,
       title: t.title,
       status: t.status,
       messageId: t.messageId,
@@ -2282,11 +2636,14 @@ app.get("/api/tasks", (req, res) => {
 });
 
 // List connected machines (daemons)
-app.get("/api/machines", (req, res) => {
-  const machineList = Array.from(machines.values()).map((m) => ({
-    ...m,
-    agents: m.agentIds.map((id) => agentPayload(id)).filter(Boolean),
-  }));
+app.get("/api/machines", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const machineList = Array.from(machines.values())
+    .filter((m) => (m.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
+    .map((m) => ({
+      ...m,
+      agents: m.agentIds.map((id) => agentPayload(id)).filter((agent) => agent && (agent.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+    }));
   res.json({ machines: machineList });
 });
 
@@ -2294,9 +2651,11 @@ app.get("/api/machines", (req, res) => {
 // Daemons that don't implement the protocol (old zouk-daemon) will stay silent,
 // so we always fall back via the 5s timeout. Clients can treat
 // {models: []} and a timeout identically — both mean "free-form input please".
-app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
+app.get("/api/machines/:id/runtimes/:runtime/models", requireWorkspaceRead, (req, res) => {
   const { id, runtime } = req.params;
-  if (!machines.has(id)) {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const machine = machines.get(id);
+  if (!machine || (machine.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
     return res.status(404).json({ error: "machine_not_found" });
   }
   let targetWs = null;
@@ -2333,9 +2692,15 @@ app.get("/api/machines/:id/runtimes/:runtime/models", (req, res) => {
 });
 
 // Get agents (running + configs)
-app.get("/api/agents", (req, res) => {
-  const agents = Object.keys(store.agents).map((id) => agentPayload(id));
-  res.json({ agents, configs: sanitizedAgentConfigs() });
+app.get("/api/agents", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const agents = Object.keys(store.agents)
+    .map((id) => agentPayload(id))
+    .filter((agent) => (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
+  const configs = sanitizedAgentConfigs().filter((config) => (
+    (config.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+  ));
+  res.json({ agents, configs });
 });
 
 // Get channel memberships for any agent (running or configured).
@@ -2345,13 +2710,19 @@ app.get("/api/agents/:id/channels", requireAuth, (req, res) => {
   if (!hasKnownAgentConfig(agentId)) {
     return res.status(404).json({ error: "unknown agent" });
   }
+  if (workspaceIdFromAgent(agentId) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
   res.json({ channels: agentChannelNames(agentId) });
 });
 
 // Get recent activity entries for an agent (used by the Activity tab).
-app.get("/api/agents/:id/activities", async (req, res) => {
+app.get("/api/agents/:id/activities", requireWorkspaceRead, async (req, res) => {
   const agentId = req.params.id;
   if (!hasKnownAgentConfig(agentId)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
+  if (workspaceIdFromAgent(agentId) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
     return res.status(404).json({ error: "unknown agent" });
   }
   const rawLimit = parseInt(req.query.limit, 10);
@@ -2527,7 +2898,10 @@ function lookupAgentCfgForOv(agentId) {
   return agentConfigs.find((c) => c.id === agentId) || store.agents[agentId] || null;
 }
 
-app.get("/api/agents/:id/ov/status", (req, res) => {
+app.get("/api/agents/:id/ov/status", requireWorkspaceRead, (req, res) => {
+  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
   const cfg = lookupAgentCfgForOv(req.params.id);
   if (cfg && !isOvEnabledForAgent(cfg)) {
     return res.json({ enabled: false, reason: "disabled", user: null, url: null, local: false });
@@ -2536,7 +2910,10 @@ app.get("/api/agents/:id/ov/status", (req, res) => {
   res.json({ enabled: !!creds, user: creds?.user || null, url: creds?.url || null, local: creds ? isLocalUrl(creds.url) : false });
 });
 
-app.get("/api/agents/:id/ov/ls", async (req, res) => {
+app.get("/api/agents/:id/ov/ls", requireWorkspaceRead, async (req, res) => {
+  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
   const cfg = lookupAgentCfgForOv(req.params.id);
   if (cfg && !isOvEnabledForAgent(cfg)) {
     return res.status(403).json({ error: "ov_disabled", agentId: req.params.id });
@@ -2554,7 +2931,10 @@ app.get("/api/agents/:id/ov/ls", async (req, res) => {
   }
 });
 
-app.get("/api/agents/:id/ov/read", async (req, res) => {
+app.get("/api/agents/:id/ov/read", requireWorkspaceRead, async (req, res) => {
+  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    return res.status(404).json({ error: "unknown agent" });
+  }
   const cfg = lookupAgentCfgForOv(req.params.id);
   if (cfg && !isOvEnabledForAgent(cfg)) {
     return res.status(403).json({ error: "ov_disabled", agentId: req.params.id });
@@ -2576,8 +2956,13 @@ app.get("/api/agents/:id/ov/read", async (req, res) => {
 // ─── Agent config CRUD ───────────────────────────────────────────
 
 // List all agent configs
-app.get("/api/agent-configs", (req, res) => {
-  res.json({ configs: sanitizedAgentConfigs() });
+app.get("/api/agent-configs", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  res.json({
+    configs: sanitizedAgentConfigs().filter((config) => (
+      (config.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+    )),
+  });
 });
 
 // Mirror config fields that also live on the runtime agent record. Without
@@ -2599,38 +2984,51 @@ function syncRuntimeAgentFromConfig(id, config) {
 // Create/save agent config
 app.post("/api/agent-configs", requireAuth, (req, res) => {
   const config = req.body;
+  config.workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   if (!config.id) config.id = `agent-${uuidv4().substring(0, 8)}`;
   const existing = agentConfigs.findIndex((c) => c.id === config.id);
+  if (existing >= 0 && (agentConfigs[existing].workspaceId || DEFAULT_WORKSPACE_ID) !== config.workspaceId) {
+    return res.status(404).json({ error: "Agent not found" });
+  }
   if (existing >= 0) {
     // machineId is immutable — never let the payload overwrite the stored value.
     const { machineId: _ignored, ...rest } = config;
     agentConfigs[existing] = { ...agentConfigs[existing], ...rest };
   } else {
     if (!config.machineId) return res.status(400).json({ error: "machineId is required" });
-    if (!isPersistentMachineId(config.machineId)) return res.status(400).json({ error: "machineId does not match any machine key" });
+    if (!isPersistentMachineId(config.machineId, config.workspaceId)) return res.status(400).json({ error: "machineId does not match any machine key" });
     agentConfigs.push(config);
   }
   const saved = agentConfigs.find((c) => c.id === config.id);
   saveAgentConfigs(agentConfigs);
   db.saveAgentConfig(saved);
   if (syncRuntimeAgentFromConfig(saved.id, saved)) {
-    broadcastToWeb({ type: "agent_started", agent: agentPayload(saved.id) });
+    broadcastToWeb({ type: "agent_started", workspaceId: saved.workspaceId || DEFAULT_WORKSPACE_ID, agent: agentPayload(saved.id) });
   }
-  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
+  broadcastToWeb({
+    type: "config_updated",
+    workspaceId: saved.workspaceId || DEFAULT_WORKSPACE_ID,
+    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === (saved.workspaceId || DEFAULT_WORKSPACE_ID)),
+  });
   res.json({ config: saved });
 });
 
 // Update agent config (upsert: creates config from running agent if none exists)
 app.put("/api/agents/:id/config", requireAuth, (req, res) => {
   const { id } = req.params;
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const updates = req.body;
   let idx = agentConfigs.findIndex((c) => c.id === id);
+  if (idx >= 0 && (agentConfigs[idx].workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
+    return res.status(404).json({ error: "Agent not found" });
+  }
   if (idx < 0) {
     const running = store.agents[id];
     if (!running) return res.status(404).json({ error: "Agent not found" });
     if (!running.machineId) return res.status(400).json({ error: "Running agent has no machineId" });
     agentConfigs.push({
       id,
+      workspaceId,
       name: running.name,
       displayName: running.displayName,
       runtime: running.runtime,
@@ -2654,6 +3052,15 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
   } = updates;
 
   const merged = { ...agentConfigs[idx], ...rest };
+  merged.workspaceId = workspaceId;
+
+  // openvikingEnabled: boolean = explicit override; null = clear to follow
+  // the runtime default; undefined = leave as-is.
+  if (incomingEnabled === null) {
+    delete merged.openvikingEnabled;
+  } else if (typeof incomingEnabled === 'boolean') {
+    merged.openvikingEnabled = incomingEnabled;
+  }
 
   // openvikingEnabled: boolean = explicit override; null = clear to follow
   // the runtime default; undefined = leave as-is.
@@ -2695,9 +3102,13 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
   saveAgentConfigs(agentConfigs);
   db.saveAgentConfig(agentConfigs[idx]);
   if (syncRuntimeAgentFromConfig(id, agentConfigs[idx])) {
-    broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
+    broadcastToWeb({ type: "agent_started", workspaceId, agent: agentPayload(id) });
   }
-  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
+  broadcastToWeb({
+    type: "config_updated",
+    workspaceId,
+    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+  });
   // Strip secrets from the response too, so saving doesn't leak the api key
   // back to the client even though it's the same client that just sent it.
   const { openvikingApiKey: _stripA, openvikingCustomApiKey: _stripB, ...safeConfig } = agentConfigs[idx];
@@ -2713,6 +3124,8 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
 // Delete agent config
 app.delete("/api/agents/:id", requireAuth, (req, res) => {
   const { id } = req.params;
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  if (workspaceIdFromAgent(id) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
   sendAgentStop(id);
   const idx = agentConfigs.findIndex((c) => c.id === id);
   if (idx >= 0) {
@@ -2722,36 +3135,44 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
   }
   purgeAgentMemberships(id);
   purgeUnknownAgentState(id);
-  broadcastToWeb({ type: "agent_status", agentId: id, status: "deleted" });
-  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
+  broadcastToWeb({ type: "agent_status", workspaceId, agentId: id, status: "deleted" });
+  broadcastToWeb({
+    type: "config_updated",
+    workspaceId,
+    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+  });
   res.json({ success: true });
 });
 
 // ─── Profile preset pool ────────────────────────────────────────
 
-app.get("/api/agent-profile-presets", (req, res) => {
-  res.json({ presets: profilePresets.list(), max: PROFILE_PRESET_MAX });
+app.get("/api/agent-profile-presets", requireWorkspaceRead, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  res.json({ presets: profilePresets.list(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 app.post("/api/agent-profile-presets", requireAuth, async (req, res) => {
   const { image } = req.body || {};
-  const result = await profilePresets.add(image);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const result = await profilePresets.add(image, workspaceId);
   if (result.error) return res.status(400).json({ error: result.error });
-  res.json({ preset: result.preset, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+  res.json({ preset: result.preset, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 app.delete("/api/agent-profile-presets/:id", requireAuth, async (req, res) => {
-  const result = await profilePresets.remove(req.params.id);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const result = await profilePresets.remove(req.params.id, workspaceId);
   if (result.error) return res.status(404).json({ error: result.error });
-  res.json({ success: true, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+  res.json({ success: true, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 // ─── Machine API key management ─────────────────────────────────
 
 // List machine API keys (masked)
 app.get("/api/machine-keys", requireAuth, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const keys = machineKeys
-    .filter((k) => !k.revokedAt)
+    .filter((k) => !k.revokedAt && (k.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
     .map((k) => ({
       id: k.id,
       name: k.name,
@@ -2766,10 +3187,12 @@ app.get("/api/machine-keys", requireAuth, (req, res) => {
 app.post("/api/machine-keys", requireAuth, async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
 
   const rawKey = generateApiKey();
   const keyRecord = {
     id: `mk-${uuidv4().substring(0, 8)}`,
+    workspaceId,
     name,
     rawKey,
     createdAt: now(),
@@ -2797,13 +3220,14 @@ app.post("/api/machine-keys", requireAuth, async (req, res) => {
 // Delete a machine API key — cascades to agent_configs bound to this machine.
 app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
-  const idx = machineKeys.findIndex((k) => k.id === id);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const idx = machineKeys.findIndex((k) => k.id === id && (k.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
   if (idx < 0) return res.status(404).json({ error: "Key not found" });
   const key = machineKeys[idx];
 
   // Cascade: collect agents bound to this machine, stop them, purge state.
   const orphanedAgentIds = agentConfigs
-    .filter((c) => c.machineId === id)
+    .filter((c) => c.machineId === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
     .map((c) => c.id);
   for (const agentId of orphanedAgentIds) {
     sendAgentStop(agentId);
@@ -2811,7 +3235,9 @@ app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
     broadcastToWeb({ type: "agent_status", agentId, status: "deleted" });
   }
   for (let i = agentConfigs.length - 1; i >= 0; i--) {
-    if (agentConfigs[i].machineId === id) agentConfigs.splice(i, 1);
+    if (agentConfigs[i].machineId === id && (agentConfigs[i].workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId) {
+      agentConfigs.splice(i, 1);
+    }
   }
   saveAgentConfigs(agentConfigs);
 
@@ -2828,8 +3254,12 @@ app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
     }
   }
   machines.delete(id);
-  broadcastToWeb({ type: "machine:disconnected", machineId: id });
-  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
+  broadcastToWeb({ type: "machine:disconnected", workspaceId, machineId: id });
+  broadcastToWeb({
+    type: "config_updated",
+    workspaceId,
+    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+  });
   console.log(`[keys] Deleted machine key "${key.name}" (cascaded ${orphanedAgentIds.length} agent config(s))`);
   res.json({ success: true });
 });
@@ -2847,6 +3277,7 @@ function deriveOvUserId(agentId) {
 
 async function startAgentOnDaemon(id, config) {
   const runtime = config.runtime || "claude";
+  const workspaceId = normalizeWorkspaceId(config.workspaceId || DEFAULT_WORKSPACE_ID);
   const requestedMachineId = typeof config.machineId === "string" && config.machineId.trim()
     ? config.machineId.trim()
     : undefined;
@@ -2883,6 +3314,7 @@ async function startAgentOnDaemon(id, config) {
   // Register agent in store — buildRuntimeAgent reads from agentConfigs first,
   // then falls back to the request payload for fields not yet persisted.
   store.agents[id] = buildRuntimeAgent(id, {
+    workspaceId,
     runtime,
     model: config.model,
     workDir: requestedWorkDir,
@@ -2982,6 +3414,7 @@ async function startAgentOnDaemon(id, config) {
   if (existingIdx < 0) {
     const persisted = {
       id,
+      workspaceId,
       name: config.name || id,
       displayName: config.displayName || config.name || id,
       description: config.description || "",
@@ -3001,8 +3434,8 @@ async function startAgentOnDaemon(id, config) {
       persisted.openvikingUserId = ovUserId;
       persisted.openvikingApiKey = ovApiKey;
     }
-    const usedImages = new Set(agentConfigs.map((c) => c.picture).filter(Boolean));
-    const shardedPicture = profilePresets.pickForAgent(id, usedImages);
+    const usedImages = new Set(agentConfigs.filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId).map((c) => c.picture).filter(Boolean));
+    const shardedPicture = profilePresets.pickForAgent(id, usedImages, workspaceId);
     if (shardedPicture) persisted.picture = shardedPicture;
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
@@ -3020,8 +3453,12 @@ async function startAgentOnDaemon(id, config) {
   }
   // Existing configs: machineId is immutable — no rewrite on restart.
 
-  broadcastToWeb({ type: "agent_started", agent: agentPayload(id) });
-  broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
+  broadcastToWeb({ type: "agent_started", workspaceId, agent: agentPayload(id) });
+  broadcastToWeb({
+    type: "config_updated",
+    workspaceId,
+    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+  });
   console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
   return { agentId: id, status: "starting" };
 }
@@ -3029,12 +3466,17 @@ async function startAgentOnDaemon(id, config) {
 // Start an agent
 app.post("/api/agents/start", requireAuth, async (req, res) => {
   const config = req.body;
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const id = config.agentId || config.id || `agent-${uuidv4().substring(0, 8)}`;
 
   // If starting from a saved config, look it up. machineId on a saved config
   // is immutable, so the request body's machineId is ignored when one exists.
   const savedConfig = agentConfigs.find((c) => c.id === id);
+  if (savedConfig && (savedConfig.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
+    return res.status(404).json({ error: "Agent not found" });
+  }
   const mergedConfig = { ...savedConfig, ...config };
+  mergedConfig.workspaceId = workspaceId;
   if (savedConfig?.machineId) mergedConfig.machineId = savedConfig.machineId;
 
   if (store.agents[id] && store.agents[id].status === "active") {
@@ -3049,13 +3491,15 @@ app.post("/api/agents/start", requireAuth, async (req, res) => {
 // Stop an agent
 app.post("/api/agents/:id/stop", requireAuth, (req, res) => {
   const { id } = req.params;
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  if (workspaceIdFromAgent(id) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
   const ws = daemonSockets.get(id);
   if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
   }
   if (store.agents[id]) {
     store.agents[id].status = "stopping";
-    broadcastToWeb({ type: "agent_status", agentId: id, status: "stopping" });
+    broadcastToWeb({ type: "agent_status", workspaceId, agentId: id, status: "stopping" });
   }
   console.log(`[api] Stopping agent ${id}`);
   res.json({ success: true });
@@ -3065,8 +3509,10 @@ app.post("/api/agents/:id/stop", requireAuth, (req, res) => {
 // it to exit, then cold-start with a null session_id. Workspace is preserved.
 app.post("/api/agents/:id/reset-context", requireAuth, async (req, res) => {
   const { id } = req.params;
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const savedConfig = agentConfigs.find((c) => c.id === id);
   if (!savedConfig) return res.status(404).json({ error: "agent not found" });
+  if ((savedConfig.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) return res.status(404).json({ error: "agent not found" });
 
   const ws = daemonSockets.get(id);
   const isActive = store.agents[id]?.status === "active";
@@ -3084,7 +3530,7 @@ app.post("/api/agents/:id/reset-context", requireAuth, async (req, res) => {
       ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
       if (store.agents[id]) {
         store.agents[id].status = "stopping";
-        broadcastToWeb({ type: "agent_status", agentId: id, status: "stopping" });
+        broadcastToWeb({ type: "agent_status", workspaceId, agentId: id, status: "stopping" });
       }
     });
   }
@@ -3188,7 +3634,7 @@ server.on("upgrade", (request, socket, head) => {
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
       ws._trackerEntry = decision.entry;
-      handleWebConnection(ws, wsAuthenticated, wsToken || null);
+      handleWebConnection(ws, wsAuthenticated, wsToken || null, parsed.searchParams.get("workspaceId") || DEFAULT_WORKSPACE_ID);
     });
   } else {
     socket.destroy();
@@ -3205,10 +3651,13 @@ function handleDaemonConnection(ws, apiKey) {
   ws._capabilities = [];
   const keyRecord = findMachineKeyRecord(apiKey);
   const machineId = resolveDaemonMachineId(apiKey);
+  const workspaceId = keyRecord?.workspaceId || DEFAULT_WORKSPACE_ID;
   ws._machineId = machineId;
+  ws._workspaceId = workspaceId;
   const existingMachine = machines.get(machineId);
   const machineRecord = {
     id: machineId,
+    workspaceId,
     alias: keyRecord?.name || existingMachine?.alias,
     hostname: existingMachine?.hostname || 'unknown',
     os: existingMachine?.os || 'unknown',
@@ -3218,7 +3667,7 @@ function handleDaemonConnection(ws, apiKey) {
     agentIds: [],
   };
   machines.set(machineId, machineRecord);
-  broadcastToWeb({ type: existingMachine ? 'machine:updated' : 'machine:connected', machine: machineRecord });
+  broadcastToWeb({ type: existingMachine ? 'machine:updated' : 'machine:connected', workspaceId, machine: machineRecord });
 
   ws.on("message", (data) => {
     try {
@@ -3237,7 +3686,7 @@ function handleDaemonConnection(ws, apiKey) {
     ));
     if (!replacementConnected) {
       machines.delete(ws._machineId);
-      broadcastToWeb({ type: 'machine:disconnected', machineId: ws._machineId });
+      broadcastToWeb({ type: 'machine:disconnected', workspaceId: ws._workspaceId || DEFAULT_WORKSPACE_ID, machineId: ws._machineId });
     }
     for (const agentId of connectedAgents) {
       if (daemonSockets.get(agentId) !== ws) continue;
@@ -3438,7 +3887,12 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         broadcastToWeb({ type: "agent_status", agentId, status });
         if (workDirChanged) {
           broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
-          broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
+          const workspaceId = workspaceIdFromAgent(agentId);
+          broadcastToWeb({
+            type: "config_updated",
+            workspaceId,
+            configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+          });
         }
       }
       if (status === "active") hydrateAgentContextUsage(agentId);
@@ -3533,7 +3987,12 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       });
       if (workDirChanged) {
         broadcastToWeb({ type: "agent_started", agent: agentPayload(msg.agentId) });
-        broadcastToWeb({ type: "config_updated", configs: sanitizedAgentConfigs() });
+        const workspaceId = workspaceIdFromAgent(msg.agentId);
+        broadcastToWeb({
+          type: "config_updated",
+          workspaceId,
+          configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+        });
       }
       break;
     }
@@ -3602,9 +4061,17 @@ const WS_AUTH_REQUIRED_TYPES = new Set([
   "machine:workspace:scan",
 ]);
 
-function handleWebConnection(ws, authenticated, token = null) {
+function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFAULT_WORKSPACE_ID) {
   ws._authenticated = !!authenticated;
   ws._authToken = token;
+  ws._workspaceId = normalizeWorkspaceId(workspaceId);
+  const user = token ? authSessions.get(token) : null;
+  if (user && ws._workspaceId === DEFAULT_WORKSPACE_ID && findWorkspace(ws._workspaceId) && isEmailAllowed(user.email, ws._workspaceId)) {
+    ensureWorkspaceMemberForUser(user, ws._workspaceId);
+  }
+  if ((!user && ws._workspaceId !== DEFAULT_WORKSPACE_ID) || (user && !userCanAccessWorkspace(user, ws._workspaceId)) || !findWorkspace(ws._workspaceId)) {
+    ws._workspaceId = DEFAULT_WORKSPACE_ID;
+  }
   // Seed from the auth session so DM broadcasts can be filtered immediately;
   // setWebPresence() will overwrite this with the canonical presence identity.
   ws._humanName = token ? (authSessions.get(token)?.name || null) : null;
@@ -3617,15 +4084,25 @@ function handleWebConnection(ws, authenticated, token = null) {
   // unrelated HTTP requests interleave instead of queuing behind a burst.
   setImmediate(() => {
     if (ws.readyState !== 1) return;
+    const canReadWorkspace = user
+      ? userCanAccessWorkspace(user, ws._workspaceId)
+      : ws._workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(ws._workspaceId);
     try {
       ws.send(JSON.stringify({
         type: "init",
-        channels: store.channels.filter((ch) => (ch.type || "channel") === "channel"),
-        agents: Object.keys(store.agents).map((id) => agentPayload(id)),
+        workspaceId: ws._workspaceId,
+        workspaces: visibleWorkspacesForUser(user),
+        channels: canReadWorkspace ? store.channels.filter((ch) => (
+          (ch.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
+          && (ch.type || "channel") === "channel"
+        )) : [],
+        agents: canReadWorkspace ? Object.keys(store.agents)
+          .map((id) => agentPayload(id))
+          .filter((agent) => (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
         humans: currentHumans(),
-        configs: sanitizedAgentConfigs(),
-        machines: Array.from(machines.values()),
-        profilePresets: profilePresets.list(),
+        configs: canReadWorkspace ? sanitizedAgentConfigs().filter((config) => (config.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
+        machines: canReadWorkspace ? Array.from(machines.values()).filter((machine) => (machine.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
+        profilePresets: canReadWorkspace ? profilePresets.list(ws._workspaceId) : [],
       }));
     } catch (e) {
       console.warn("[web] init send failed:", e.message);
@@ -3911,6 +4388,7 @@ function gcFeishuStates() {
 
 app.post("/api/auth/google", async (req, res) => {
   const { credential } = req.body;
+  const workspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
   if (!credential) return res.status(400).json({ error: "Missing credential" });
   if (!googleClient) return res.status(501).json({ error: "Google OAuth not configured (set GOOGLE_CLIENT_ID)" });
 
@@ -3920,7 +4398,7 @@ app.post("/api/auth/google", async (req, res) => {
       audience: GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    if (!isEmailAllowed(payload.email)) {
+    if (!isEmailAllowed(payload.email, workspaceId)) {
       console.log(`[auth] Rejected login: ${payload.email} not in allowlist`);
       return res.status(403).json({ error: "Email not authorized to access this server." });
     }
@@ -3938,7 +4416,11 @@ app.post("/api/auth/google", async (req, res) => {
       picture: payload.picture || null,
       gravatarUrl: grav,
     };
+    if (workspaceId !== DEFAULT_WORKSPACE_ID && !getWorkspaceMember(workspaceId, user.email)) {
+      return res.status(403).json({ error: "Not a member of this workspace." });
+    }
     authSessions.set(sessionToken, user);
+    ensureWorkspaceMemberForUser(user, workspaceId);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
 
     // Surface this user in the people list immediately, even before any WS
@@ -3961,6 +4443,7 @@ app.post("/api/auth/google", async (req, res) => {
 // Verify a Supabase access_token (from magic link or OAuth) and mint a zouk session.
 app.post("/api/auth/supabase", async (req, res) => {
   const { accessToken } = req.body;
+  const workspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
   if (!accessToken) return res.status(400).json({ error: "Missing accessToken" });
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(501).json({ error: "Supabase auth not configured (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)" });
@@ -3983,7 +4466,7 @@ app.post("/api/auth/supabase", async (req, res) => {
     if (!email) {
       return res.status(401).json({ error: "No email in Supabase session" });
     }
-    if (!isEmailAllowed(email)) {
+    if (!isEmailAllowed(email, workspaceId)) {
       console.log(`[auth] Rejected Supabase login: ${email} not in allowlist`);
       return res.status(403).json({ error: "Email not authorized to access this server." });
     }
@@ -3993,8 +4476,12 @@ app.post("/api/auth/supabase", async (req, res) => {
     }
     const grav = gravatarUrl(email);
     const user = { name: emailPrefix, email, picture: null, gravatarUrl: grav };
+    if (workspaceId !== DEFAULT_WORKSPACE_ID && !getWorkspaceMember(workspaceId, user.email)) {
+      return res.status(403).json({ error: "Not a member of this workspace." });
+    }
     const sessionToken = crypto.randomBytes(32).toString("hex");
     authSessions.set(sessionToken, user);
+    ensureWorkspaceMemberForUser(user, workspaceId);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
     const changed = upsertAllTimeHuman({
       id: humanId(user.name),
@@ -4196,14 +4683,68 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
   res.json({ user });
 });
 
-app.get("/api/auth/config", (_req, res) => {
+app.get("/api/auth/config", (req, res) => {
+  const workspaceId = workspaceIdFromReq(req);
   res.json({
     googleClientId: GOOGLE_CLIENT_ID || null,
-    allowlistActive: allowlistActive(),
+    allowlistActive: allowlistActive(workspaceId),
     supabaseUrl: SUPABASE_URL || null,
     supabaseAnonKey: SUPABASE_ANON_KEY || null,
     feishuEnabled,
     ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,
+  });
+});
+
+app.get("/api/workspaces", requireSessionAuth, (req, res) => {
+  res.json({
+    workspaces: visibleWorkspacesForUser(req.user),
+    activeWorkspaceId: req.workspaceId || DEFAULT_WORKSPACE_ID,
+  });
+});
+
+app.post("/api/workspaces", requireSessionAuth, async (req, res) => {
+  if (!req.user?.email) {
+    return res.status(403).json({ error: "Authenticated email required to create a server." });
+  }
+  const rawName = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  const name = rawName || "New Server";
+  const baseId = normalizeWorkspaceId(req.body?.id || name);
+  let id = baseId;
+  let suffix = 2;
+  while (findWorkspace(id)) {
+    id = `${baseId}-${suffix++}`;
+  }
+  const iconRaw = typeof req.body?.icon === "string" ? req.body.icon.trim() : "";
+  const icon = iconRaw.slice(0, 4) || name.slice(0, 1).toUpperCase() || "S";
+  const ownerEmail = req.user?.email || null;
+  const workspace = ensureWorkspace({ id, name, icon, ownerEmail, createdAt: now() });
+  await db.saveWorkspace(workspace);
+  if (ownerEmail) {
+    const member = setWorkspaceMember({
+      workspaceId: id,
+      email: ownerEmail,
+      name: req.user.name,
+      role: "root",
+    });
+    await db.saveWorkspaceMember(member);
+    if (db.enabled) {
+      const row = await db.addEmailAllowlist(ownerEmail.trim().toLowerCase(), ownerEmail, id);
+      if (row && !row.dbError) {
+        dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
+          workspaceId: row.workspaceId,
+          email: row.email,
+          addedAt: row.addedAt,
+          addedBy: row.addedBy,
+        });
+      }
+    }
+  }
+  const all = findOrCreateChannel("all", "channel", id);
+  all.description = "General channel";
+  await db.saveChannel(all);
+  res.json({
+    workspace: workspacePayload(workspace),
+    workspaces: visibleWorkspacesForUser(req.user),
   });
 });
 
@@ -4338,56 +4879,71 @@ app.post("/api/_internal/ws-clients/:id/unblock", requireAuth, (req, res) => {
 // the ALLOW env are read-only here (listed with source="env") — editing them
 // requires a server restart. DB entries are mutable.
 
-app.get("/api/settings/allowlist", requireAuth, (_req, res) => {
-  const env = [...ENV_ALLOW_EMAILS].map((email) => ({ email, source: "env" }));
-  const dbList = [...dbAllowEmails.entries()].map(([email, meta]) => ({
-    email,
+app.get("/api/settings/allowlist", requireAuth, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const env = workspaceId === DEFAULT_WORKSPACE_ID
+    ? [...ENV_ALLOW_EMAILS].map((email) => ({ email, source: "env" }))
+    : [];
+  const dbList = [...dbAllowEmails.values()]
+    .filter((meta) => (meta.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
+    .map((meta) => ({
+    email: meta.email,
     source: "db",
     addedAt: meta.addedAt,
     addedBy: meta.addedBy || null,
   }));
   res.json({
+    workspaceId,
     env,
     db: dbList,
-    allowlistActive: allowlistActive(),
+    allowlistActive: allowlistActive(workspaceId),
     dbWritable: db.enabled,
   });
 });
 
-app.post("/api/settings/allowlist", requireAuth, async (req, res) => {
+app.post("/api/settings/allowlist", requireAuth, requireWorkspaceAdmin, async (req, res) => {
   if (!db.enabled) {
     return res.status(501).json({ error: "Database not configured — cannot persist allowlist entries. Use the ALLOW env var instead." });
   }
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const normalized = normalizeEmailInput(req.body?.email);
   if (!normalized) {
     return res.status(400).json({ error: "Invalid email address" });
   }
   const token = req.headers.authorization?.replace("Bearer ", "");
   const addedBy = token ? authSessions.get(token)?.email || null : null;
-  const row = await db.addEmailAllowlist(normalized, addedBy);
+  const row = await db.addEmailAllowlist(normalized, addedBy, workspaceId);
   if (!row || row.dbError) {
     return res.status(500).json({ error: row?.dbError || "Failed to add allowlist entry" });
   }
-  dbAllowEmails.set(row.email, { addedAt: row.addedAt, addedBy: row.addedBy });
+  dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
+    workspaceId: row.workspaceId,
+    email: row.email,
+    addedAt: row.addedAt,
+    addedBy: row.addedBy,
+  });
+  setWorkspaceMember({ workspaceId, email: row.email, role: "member" });
   res.json({ ok: true, entry: { email: row.email, source: "db", addedAt: row.addedAt, addedBy: row.addedBy } });
 });
 
-app.delete("/api/settings/allowlist/:email", requireAuth, async (req, res) => {
+app.delete("/api/settings/allowlist/:email", requireAuth, requireWorkspaceAdmin, async (req, res) => {
   if (!db.enabled) {
     return res.status(501).json({ error: "Database not configured" });
   }
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const normalized = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
   if (!normalized) {
     return res.status(400).json({ error: "Invalid email address" });
   }
-  if (!dbAllowEmails.has(normalized)) {
+  const key = allowlistKey(workspaceId, normalized);
+  if (!dbAllowEmails.has(key)) {
     return res.status(404).json({ error: "Entry not found (env-seeded entries cannot be removed via API)" });
   }
-  const ok = await db.removeEmailAllowlist(normalized);
+  const ok = await db.removeEmailAllowlist(normalized, workspaceId);
   if (!ok) {
     return res.status(500).json({ error: "Failed to remove allowlist entry" });
   }
-  dbAllowEmails.delete(normalized);
+  dbAllowEmails.delete(key);
   res.json({ ok: true });
 });
 
@@ -4399,7 +4955,11 @@ app.delete("/api/settings/allowlist/:email", requireAuth, async (req, res) => {
 app.post("/api/auth/guest-session", async (req, res) => {
   // Email allowlist disables guest access entirely — an active allowlist implies
   // "only these humans may enter", and guests have no email to check.
-  if (allowlistActive()) {
+  const workspaceId = workspaceIdFromReq(req);
+  if (workspaceId !== DEFAULT_WORKSPACE_ID) {
+    return res.status(403).json({ error: "Guest access disabled on this server." });
+  }
+  if (allowlistActive(workspaceId)) {
     return res.status(403).json({ error: "Guest access disabled on this server." });
   }
   const { name } = req.body || {};
@@ -4446,9 +5006,22 @@ async function initFromDB() {
   try {
     await db.migrate();
 
-    const [maxSeq, maxTaskNum, msgs, channels, tasks, dbConfigs, dbKeys, channelAgents] = await Promise.all([
+    const [
+      maxSeq,
+      maxTaskNum,
+      workspaces,
+      workspaceMembers,
+      msgs,
+      channels,
+      tasks,
+      dbConfigs,
+      dbKeys,
+      channelAgents,
+    ] = await Promise.all([
       db.loadMaxSeq(),
       db.loadMaxTaskNum(),
+      db.loadWorkspaces(),
+      db.loadWorkspaceMembers(),
       db.loadMessages(),
       db.loadChannels(),
       db.loadTasks(),
@@ -4460,6 +5033,20 @@ async function initFromDB() {
     if (maxSeq > store.seq) store.seq = maxSeq;
     if (maxTaskNum > store.taskSeq) store.taskSeq = maxTaskNum;
 
+    if (workspaces !== null && workspaces.length > 0) {
+      store.workspaces = [];
+      for (const workspace of workspaces) ensureWorkspace(workspace);
+      console.log(`[db] Loaded ${workspaces.length} workspaces`);
+    } else if (workspaces !== null) {
+      await db.saveWorkspace(ensureWorkspace({ id: DEFAULT_WORKSPACE_ID, name: DEFAULT_WORKSPACE_NAME, icon: DEFAULT_WORKSPACE_ICON }));
+    }
+
+    if (workspaceMembers !== null && workspaceMembers.length > 0) {
+      store.workspaceMembers.clear();
+      for (const member of workspaceMembers) setWorkspaceMember(member, { persist: false });
+      console.log(`[db] Loaded ${workspaceMembers.length} workspace memberships`);
+    }
+
     if (msgs.length > 0) {
       setStoreMessages(msgs);
       console.log(`[db] Loaded ${msgs.length} messages`);
@@ -4470,7 +5057,7 @@ async function initFromDB() {
         store.channels.push(ch);
       } else {
         const existing = store.channels.find((c) => c.id === ch.id);
-        if (existing) existing.description = ch.description;
+        if (existing) Object.assign(existing, ch);
       }
     }
     if (channels.length > 0) console.log(`[db] Loaded ${channels.length} channels`);
@@ -4500,7 +5087,7 @@ async function initFromDB() {
 
     // Persist the default `all` channel if it's not already in DB — so it has
     // a row for channel_agents to FK against and doesn't drift between runs.
-    const allCh = store.channels.find((c) => c.name === "all" && (c.type || "channel") === "channel");
+    const allCh = findOrCreateChannel("all", "channel", DEFAULT_WORKSPACE_ID);
     if (allCh) await db.saveChannel(allCh);
 
     // Agent configs: DB wins over file when DB has entries
@@ -4553,13 +5140,14 @@ function reconcileAgentsWithConfigs() {
     if (cfg.runtime) a.runtime = cfg.runtime;
     if (cfg.model) a.model = cfg.model;
     if (cfg.workDir) a.workDir = cfg.workDir;
+    if (cfg.workspaceId) a.workspaceId = cfg.workspaceId;
     const changed =
       before.name !== a.name ||
       before.displayName !== a.displayName ||
       before.runtime !== a.runtime ||
       before.model !== a.model;
     if (changed) {
-      broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
+      broadcastToWeb({ type: "agent_started", workspaceId: cfg.workspaceId || DEFAULT_WORKSPACE_ID, agent: agentPayload(agentId) });
     }
   }
 }

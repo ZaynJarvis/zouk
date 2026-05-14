@@ -88,6 +88,19 @@ test('schema migration parser keeps channel_agents create-table statement after 
   );
 });
 
+test('schema bootstrap creates channel rows before message channel_id backfill', () => {
+  const schemaSql = fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8');
+  const statements = splitSqlStatements(schemaSql);
+  const channelBootstrapIdx = statements.findIndex((statement) => (
+    statement.startsWith('INSERT INTO channels')
+    && statement.includes('SELECT DISTINCT workspace_id, channel_name, channel_type')
+    && statement.includes('FROM messages')
+  ));
+  const messageBackfillIdx = statements.findIndex((statement) => statement.startsWith('UPDATE messages m'));
+  assert.ok(channelBootstrapIdx >= 0, 'schema must create missing channel rows from distinct message channel tuples');
+  assert.ok(messageBackfillIdx > channelBootstrapIdx, 'messages.channel_id backfill must run after channel bootstrap');
+});
+
 test('guest session: returns token and user for valid name', async () => {
   const res = await fetch(`${BASE}/api/auth/guest-session`, {
     method: 'POST',
@@ -100,6 +113,15 @@ test('guest session: returns token and user for valid name', async () => {
   assert.equal(body.user.name, 'ci-tester');
   assert.equal(body.user.guest, true);
   assert.ok(typeof body.token === 'string' && body.token.length > 8, 'token must be a non-trivial string');
+});
+
+test('guest session: rejects non-default workspaces', async () => {
+  const res = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Workspace-Id': 'private-ci' },
+    body: JSON.stringify({ name: 'ci-private-guest' }),
+  });
+  assert.equal(res.status, 403);
 });
 
 test('guest session: rejects missing name', async () => {
