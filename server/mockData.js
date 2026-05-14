@@ -15,7 +15,7 @@ function shouldSeed(db) {
   return true;
 }
 
-function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateChannel, setMembership, getMembership }) {
+function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateChannel, setMembership, getMembership, appendMessage }) {
   // Channels
   const wantedChannels = [
     { name: "all", description: "General workspace channel" },
@@ -158,8 +158,11 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
     }
   }
 
-  // Mock messages — only if store.messages is empty so we don't double-seed
-  if (store.messages.length === 0) {
+  // Mock messages — only seed when the per-channel cache is empty so we never
+  // double-seed. Route through appendMessage so the threading index, channel
+  // cache, and taskTimes all stay consistent with normal runtime writes.
+  const alreadySeeded = [...store.channelMessages.values()].some((arr) => arr.length > 0);
+  if (!alreadySeeded && typeof appendMessage === "function") {
     const baseTime = Date.now() - 1000 * 60 * 60 * 6;
     const samples = [
       { channel: "all", sender: "alice", senderType: "human", content: "morning! just kicked off the release branch QA." },
@@ -171,13 +174,12 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
       { channel: "ops", sender: "Deploy Bot", senderType: "agent", content: "deploy preview-2026-04-18 healthy ✅" },
       { channel: "ops", sender: "bob", senderType: "human", content: "thanks. holding the prod push until QA signs off." },
     ];
-    let seq = store.seq;
     samples.forEach((s, i) => {
       const ch = findOrCreateChannel(s.channel);
-      seq += 1;
-      store.messages.push({
+      store.seq += 1;
+      appendMessage({
         id: `mock-msg-${i + 1}`,
-        seq,
+        seq: store.seq,
         channelId: ch.id,
         channelName: s.channel,
         channelType: "channel",
@@ -189,7 +191,6 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
         attachments: [],
       });
     });
-    store.seq = seq;
   }
 
   console.log("[mock] Seeded mock channels, agents, machines, messages (no DB)");

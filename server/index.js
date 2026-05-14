@@ -462,7 +462,11 @@ const store = {
   channels: [
     { id: "ch-all", workspaceId: DEFAULT_WORKSPACE_ID, name: "all", description: "General channel", members: [] },
   ],
-  messages: [], // { id, seq, channelId, channelName, channelType, threadId, senderName, senderType, content, createdAt, attachments, taskNumber, taskStatus, taskAssigneeId, taskAssigneeType }
+  // Per-channel tail cache: channelId -> Message[] in seq ASC order, capped
+  // at CHANNEL_CACHE_TAIL per channel. Serves /api/messages "latest page" fast
+  // path and masks the fire-and-forget db.saveMessage race window. Older
+  // history is always fetched from DB.
+  channelMessages: new Map(),
   tasks: [], // { taskNumber, channelId, title, status, messageId, claimedByName, claimedByType, createdByName }
   agents: {}, // agentId -> { name, displayName, runtime, model, status, sessionId, ws }
   humans: [],
@@ -475,20 +479,23 @@ const store = {
   taskSeq: 0,
 };
 
-// In-memory secondary indexes over store.messages. These exist purely so
-// hot-path lookups (parent-of-thread, replies-of-thread) don't have to scan
-// the whole array on every formatMessageForClient call. They are maintained
-// in lockstep with store.messages via appendMessage / setStoreMessages, and
-// must NEVER be mutated directly outside indexMessage / unindexMessage.
+// In-memory secondary indexes — best-effort O(1) lookups for very recent
+// messages. Populated by appendMessage (every new message) and by
+// seedFromBootstrap (the most recent N messages at startup). NOT a full
+// history cache: lookups that miss must fall back to DB.
 const messagesById = new Map();         // full id   -> msg
 const messagesByShortId = new Map();    // id.slice(0,8) -> msg (parent lookup; threadId is always an 8-char shortid)
 const repliesByThreadId = new Map();    // 8-char threadId -> Message[] (replies, push order = seq order)
 
-// Sliding window cap. Without one, store.messages grew unbounded and
-// every history fetch scaled with total accumulated traffic, not channel
-// size. 5000 is well above the 800-message bootstrap so the eviction
-// floor sits comfortably below the user-visible history horizon.
-const MAX_IN_MEMORY_MESSAGES = parseInt(process.env.MAX_IN_MEMORY_MESSAGES || '5000', 10);
+// Per-channel tail cache size. Sized at the typical /api/messages page limit
+// so the "latest page" fast path almost always hits without a DB round-trip;
+// pagination beyond this window always goes to DB.
+const CHANNEL_CACHE_TAIL = parseInt(process.env.CHANNEL_CACHE_TAIL || '50', 10);
+
+// Derived map for /api/tasks createdAt/updatedAt — first/last message
+// timestamps per task, keyed by `${workspaceId}:${taskNumber}`. Seeded from a
+// dedicated DB aggregate at boot, then maintained incrementally.
+const taskTimes = new Map();
 
 function indexMessage(msg) {
   if (!msg) return;
@@ -504,45 +511,52 @@ function indexMessage(msg) {
   }
 }
 
-function unindexMessage(msg) {
-  if (!msg) return;
-  if (messagesById.get(msg.id) === msg) messagesById.delete(msg.id);
-  // Only clear the short-id slot if it still points at this exact message —
-  // a brand-new message could (astronomically rarely) share an 8-char prefix.
-  const short = msg.id.slice(0, 8);
-  if (messagesByShortId.get(short) === msg) messagesByShortId.delete(short);
-  if (msg.threadId) {
-    const arr = repliesByThreadId.get(msg.threadId);
-    if (arr) {
-      const idx = arr.indexOf(msg);
-      if (idx >= 0) arr.splice(idx, 1);
-      if (arr.length === 0) repliesByThreadId.delete(msg.threadId);
-    }
+function appendToChannelCache(msg) {
+  if (!msg || !msg.channelId) return;
+  let arr = store.channelMessages.get(msg.channelId);
+  if (!arr) {
+    arr = [];
+    store.channelMessages.set(msg.channelId, arr);
+  }
+  arr.push(msg);
+  if (arr.length > CHANNEL_CACHE_TAIL) arr.shift();
+}
+
+function recordTaskTime(msg) {
+  if (!msg || !msg.taskNumber) return;
+  const key = `${msg.workspaceId || DEFAULT_WORKSPACE_ID}:${msg.taskNumber}`;
+  const cur = taskTimes.get(key);
+  if (!cur) {
+    taskTimes.set(key, { createdAt: msg.createdAt, updatedAt: msg.createdAt });
+  } else {
+    if (msg.createdAt < cur.createdAt) cur.createdAt = msg.createdAt;
+    if (msg.createdAt > cur.updatedAt) cur.updatedAt = msg.createdAt;
   }
 }
 
-function rebuildMessageIndex() {
+// All hot-path message inserts go through this: in-memory indexes + per-channel
+// cache stay in sync, taskTimes track the message timestamp for /api/tasks.
+// DB persistence is the caller's responsibility (saveMessage is fire-and-forget
+// at the call site).
+function appendMessage(msg) {
+  indexMessage(msg);
+  appendToChannelCache(msg);
+  recordTaskTime(msg);
+}
+
+// Boot-from-DB seed: populates the threading indexes, per-channel tail cache,
+// and clears any prior state. Bootstrap msgs come back from DB in seq ASC.
+function seedFromBootstrap(msgs) {
   messagesById.clear();
   messagesByShortId.clear();
   repliesByThreadId.clear();
-  for (const msg of store.messages) indexMessage(msg);
-}
-
-// Wrapper for store.messages.push: keeps indexes in sync and enforces the
-// sliding-window cap. All hot-path message inserts go through this.
-function appendMessage(msg) {
-  store.messages.push(msg);
-  indexMessage(msg);
-  while (store.messages.length > MAX_IN_MEMORY_MESSAGES) {
-    const evicted = store.messages.shift();
-    unindexMessage(evicted);
+  store.channelMessages.clear();
+  for (const m of msgs) {
+    indexMessage(m);
+    appendToChannelCache(m);
+    // taskTimes is seeded separately from db.loadTaskMessageTimes() which
+    // sees ALL messages, not just the bootstrap window.
   }
-}
-
-// Replace the entire array (boot-from-DB path). Resets indexes after.
-function setStoreMessages(msgs) {
-  store.messages = msgs;
-  rebuildMessageIndex();
 }
 
 function nextSeq() {
@@ -753,13 +767,23 @@ function taskTitleFromMessage(message) {
 }
 
 async function syncTaskBackingMessage(task) {
-  const msg = store.messages.find((m) => m.id === task.messageId);
-  if (!msg) return;
-  msg.taskNumber = task.taskNumber;
-  msg.taskStatus = task.status;
-  msg.taskAssigneeId = task.claimedByName || null;
-  msg.taskAssigneeType = task.claimedByType || null;
-  await db.saveMessage(msg);
+  // Targeted UPDATE so we don't need the backing message in memory — historical
+  // messages live only in DB. Also patch the in-memory mirror if the message
+  // is in the recent index, so subsequent cache reads see the new state.
+  const cached = messagesById.get(task.messageId);
+  if (cached) {
+    cached.taskNumber = task.taskNumber;
+    cached.taskStatus = task.status;
+    cached.taskAssigneeId = task.claimedByName || null;
+    cached.taskAssigneeType = task.claimedByType || null;
+  }
+  await db.updateMessageTaskFields({
+    id: task.messageId,
+    taskNumber: task.taskNumber,
+    taskStatus: task.status,
+    taskAssigneeId: task.claimedByName || null,
+    taskAssigneeType: task.claimedByType || null,
+  });
 }
 
 function taskMatchesTarget(task, target, agentName) {
@@ -1023,26 +1047,180 @@ function matchesTarget(msg, target, requesterName, workspaceId = null) {
     && (threadId ? msg.threadId === threadId : !msg.threadId);
 }
 
+// Resolve a target string (e.g. "#engineering", "dm:@alice:abc12345") to the
+// concrete channel row + thread filter. Returns null when the channel doesn't
+// exist in the requested workspace — caller should 404 / return empty.
+function resolveTargetChannel(target, requesterName, workspaceId = DEFAULT_WORKSPACE_ID) {
+  const wsId = normalizeWorkspaceId(workspaceId);
+  const { channelName, channelType, threadId } = parseTarget(target, requesterName);
+  const ch = store.channels.find((c) => (
+    (c.workspaceId || DEFAULT_WORKSPACE_ID) === wsId
+    && c.name === channelName
+    && (c.type || "channel") === channelType
+  ));
+  if (!ch) return { channel: null, channelName, channelType, threadId };
+  return { channel: ch, channelName, channelType, threadId };
+}
+
+// Channel ids the agent is allowed to read messages in: regular channels via
+// channel_agents (canRead = true) + DMs that include the agent by name.
+function visibleChannelIdsForAgent(agentId) {
+  const wsId = workspaceIdFromAgent(agentId);
+  const agentName = (agentPayload(agentId)?.name
+    || agentConfigs.find((c) => c.id === agentId)?.name
+    || "").toLowerCase();
+  const ids = [];
+  for (const ch of store.channels) {
+    if ((ch.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+    if ((ch.type || "channel") === "dm") {
+      const parties = dmChannelParties(ch.name) || [];
+      if (agentName && parties.some((p) => String(p).toLowerCase() === agentName)) ids.push(ch.id);
+    } else {
+      if (agentCanRead(ch.id, agentId)) ids.push(ch.id);
+    }
+  }
+  return ids;
+}
+
+// Look up a message by full id from the in-memory index first (recent messages)
+// and fall back to DB. Returns null if not found anywhere.
+async function getMessageByIdAnywhere(id) {
+  if (!id) return null;
+  const cached = messagesById.get(id);
+  if (cached) return cached;
+  return await db.getMessageById(id);
+}
+
 const INLINE_REPLY_PREVIEW_LIMIT = 3;
 
 function findThreadParentId(threadId) {
   if (!threadId) return null;
-  // threadId is always an 8-char shortid (see parseTarget). Any message whose
-  // id starts with that prefix gets indexed by its prefix in messagesByShortId,
-  // so this is an O(1) lookup that replaces a full store.messages scan.
+  // threadId is always an 8-char shortid (see parseTarget). messagesByShortId
+  // covers messages seen since boot — for threads whose parent predates the
+  // bootstrap window the lookup misses and the API returns null. Frontend
+  // treats parentMessageId as a hint, not a hard requirement.
   const parent = messagesByShortId.get(threadId);
   return parent && !parent.threadId ? parent.id : null;
 }
 
-function collectThreadReplies(parentMsg) {
+function collectThreadReplies(parentMsg, override = null) {
   if (!parentMsg || parentMsg.threadId) return { replies: [], replyCount: 0 };
   const shortid = parentMsg.id.slice(0, 8);
+  // The override map (used by /api/messages for historical pages) carries
+  // pre-fetched DB replies keyed by `${threadShortId}:${channelId}` — but ONLY
+  // for the parents whose replies weren't already in the in-memory index.
+  // Parents that are in the index keep the fast path; the override is a
+  // gap-filler, not a wholesale replacement.
+  const key = `${shortid}:${parentMsg.channelId}`;
+  if (override && override.has(key)) {
+    const matched = override.get(key);
+    return { replies: matched.slice(-INLINE_REPLY_PREVIEW_LIMIT), replyCount: matched.length };
+  }
   const all = repliesByThreadId.get(shortid) || [];
   // channelId guard preserves the original semantics — if two parents share
   // an 8-char prefix in different channels, we still attribute replies to the
   // right one. The reply array is small per-thread so this is cheap.
   const matched = all.filter((m) => m.channelId === parentMsg.channelId);
   return { replies: matched.slice(-INLINE_REPLY_PREVIEW_LIMIT), replyCount: matched.length };
+}
+
+// Unified read helpers: cache-first, DB-fallback. When DB is disabled the
+// per-channel cache is the only source of truth, so these helpers degrade
+// cleanly into "scan whatever's cached" without hitting null helpers.
+
+async function readChannelHistory({ workspaceId, channelId, threadId = null, beforeSeq = null, afterSeq = null, limit = 100 }) {
+  const wsId = normalizeWorkspaceId(workspaceId);
+  const cached = store.channelMessages.get(channelId) || [];
+  const cacheView = cached.filter((m) => (
+    (m.workspaceId || DEFAULT_WORKSPACE_ID) === wsId
+    && (threadId === null ? !m.threadId : m.threadId === threadId)
+    && (beforeSeq == null || m.seq < beforeSeq)
+    && (afterSeq == null || m.seq > afterSeq)
+  ));
+  if (!db.enabled) return cacheView.slice(-limit);
+  // Latest-page fast path: no before cursor + cache covers the limit → skip DB.
+  if (beforeSeq == null && cacheView.length >= limit) return cacheView.slice(-limit);
+  return await db.queryMessages({ workspaceId: wsId, channelId, threadId, beforeSeq, afterSeq, limit });
+}
+
+async function readChannelHistoryAround({ workspaceId, channelId, centerSeq, limit }) {
+  if (db.enabled) {
+    return await db.queryMessagesAround({ workspaceId, channelId, centerSeq, limit });
+  }
+  // No-DB fallback: in-cache around-window.
+  const cached = store.channelMessages.get(channelId) || [];
+  const idx = cached.findIndex((m) => m.seq === centerSeq);
+  if (idx < 0) return cached.slice(-limit);
+  const half = Math.floor(limit / 2);
+  return cached.slice(Math.max(0, idx - half), Math.min(cached.length, idx + half + 1));
+}
+
+async function readMessagesForAgent({ workspaceId, channelIds, sinceSeq, limit }) {
+  if (!db.enabled) {
+    const wsId = normalizeWorkspaceId(workspaceId);
+    const set = new Set(channelIds);
+    const out = [];
+    for (const cid of set) {
+      const arr = store.channelMessages.get(cid) || [];
+      for (const m of arr) {
+        if ((m.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+        if (m.seq > sinceSeq) out.push(m);
+      }
+    }
+    out.sort((a, b) => a.seq - b.seq);
+    return out.slice(0, limit);
+  }
+  return await db.queryMessagesForAgent({ workspaceId, channelIds, sinceSeq, limit });
+}
+
+async function searchVisibleMessages({ workspaceId, channelIds, keyword, limit }) {
+  if (!db.enabled) {
+    const wsId = normalizeWorkspaceId(workspaceId);
+    const set = new Set(channelIds);
+    const out = [];
+    const lowered = keyword ? keyword.toLowerCase() : null;
+    for (const cid of set) {
+      const arr = store.channelMessages.get(cid) || [];
+      for (const m of arr) {
+        if ((m.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+        if (lowered && !String(m.content || '').toLowerCase().includes(lowered)) continue;
+        out.push(m);
+      }
+    }
+    out.sort((a, b) => b.seq - a.seq);
+    return out.slice(0, limit);
+  }
+  return await db.searchMessages({ workspaceId, channelIds, keyword, limit });
+}
+
+async function readThreadReplies({ threadId, channelId, limit = 50 }) {
+  if (!db.enabled) {
+    const arr = repliesByThreadId.get(threadId) || [];
+    return arr.filter((m) => m.channelId === channelId).slice(0, limit);
+  }
+  return await db.queryThreadReplies({ threadId, channelId, limit });
+}
+
+// Pre-fetch thread replies for any thread root in `parents` whose replies
+// aren't already in the in-memory index. Used by /api/messages for historical
+// pages — older threads typically aren't in repliesByThreadId and would
+// otherwise show empty reply previews.
+async function fetchThreadRepliesForPage(parents) {
+  const missing = []; // [{ threadId, channelId }]
+  for (const m of parents) {
+    if (m.threadId) continue;
+    const shortid = m.id.slice(0, 8);
+    if (!repliesByThreadId.has(shortid)) missing.push({ threadId: shortid, channelId: m.channelId });
+  }
+  if (missing.length === 0) return null;
+  const out = new Map();
+  // One query per (threadId, channelId) pair. Pages are limited (typically <=
+  // 100), and the (thread_id) index makes each query a cheap point-lookup.
+  await Promise.all(missing.map(async ({ threadId, channelId }) => {
+    const rows = await readThreadReplies({ threadId, channelId });
+    out.set(`${threadId}:${channelId}`, rows);
+  }));
+  return out;
 }
 
 const agentDeliveryRouter = new AgentDeliveryRouter({
@@ -1057,7 +1235,7 @@ const agentDeliveryRouter = new AgentDeliveryRouter({
 });
 
 function formatMessageForClient(msg, viewerName, options = {}) {
-  const { includeReplies = false } = options;
+  const { includeReplies = false, threadReplyOverride = null } = options;
   const isThread = !!msg.threadId;
   // For DMs: if viewerName provided, show peer name; otherwise include dm_parties
   const resolveDmName = (name) => {
@@ -1093,7 +1271,7 @@ function formatMessageForClient(msg, viewerName, options = {}) {
     ...(parties && !viewerName ? { dmParties: parties } : {}),
   };
   if (includeReplies && !isThread) {
-    const { replies, replyCount } = collectThreadReplies(msg);
+    const { replies, replyCount } = collectThreadReplies(msg, threadReplyOverride);
     base.replies = replies.map((r) => formatMessageForClient(r, viewerName));
     base.replyCount = replyCount;
   }
@@ -1623,8 +1801,11 @@ function deliveryAgentsById() {
   return agentsById;
 }
 
-function rebuildDeliveryRoutingWindows() {
-  agentDeliveryRouter.rebuildChannelWindows(store.messages, {
+function rebuildDeliveryRoutingWindows(seedMessages = []) {
+  // Called at bootstrap with the last N messages loaded from DB. After boot,
+  // routing windows are maintained incrementally via recordMessage on each
+  // new message. Cold-start coverage = the bootstrap window size.
+  agentDeliveryRouter.rebuildChannelWindows(seedMessages, {
     agentsById: deliveryAgentsById(),
   });
 }
@@ -1750,22 +1931,31 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
 });
 
 // check_messages (receive)
-app.get("/internal/agent/:agentId/receive", (req, res) => {
+const AGENT_RECEIVE_BATCH_LIMIT = 500;
+app.get("/internal/agent/:agentId/receive", async (req, res) => {
   const { agentId } = req.params;
   const lastRead = store.agentReadSeq[agentId] || 0;
   const selfName = agentPayload(agentId)?.name || agentId;
-  // Filter to messages the agent is allowed to see: later than lastRead,
-  // not from self, AND in a channel the agent is a member of (can_read).
-  const unread = store.messages
-    .filter((m) => (
-      m.seq > lastRead
-      && m.senderName !== selfName
-      && messageVisibleToAgent(m, agentId)
-    ))
+  const workspaceId = workspaceIdFromAgent(agentId);
+  const channelIds = visibleChannelIdsForAgent(agentId);
+  const rows = channelIds.length > 0
+    ? await readMessagesForAgent({
+        workspaceId, channelIds, sinceSeq: lastRead, limit: AGENT_RECEIVE_BATCH_LIMIT,
+      })
+    : [];
+  // Self-send suppression stays in JS — DM and channel messages can include
+  // ones from the agent itself when posting on its own behalf.
+  const unread = rows
+    .filter((m) => m.senderName !== selfName)
     .map((m) => formatMessageForAgent(m, agentId));
-  // Update read position (across all messages so we never revisit old seqs)
-  if (store.messages.length > 0) {
-    store.agentReadSeq[agentId] = store.messages[store.messages.length - 1].seq;
+  // Advance the read pointer. If we hit the batch limit there are likely
+  // more — only advance to the last seq we actually fetched so the next call
+  // continues from there. Otherwise we've drained everything ≤ store.seq, so
+  // jump to store.seq to skip past any messages this agent can't see.
+  if (rows.length >= AGENT_RECEIVE_BATCH_LIMIT) {
+    store.agentReadSeq[agentId] = rows[rows.length - 1].seq;
+  } else {
+    store.agentReadSeq[agentId] = store.seq;
   }
   res.json({ messages: unread });
 });
@@ -1845,35 +2035,50 @@ app.patch("/internal/agent/:agentId/subscriptions", (req, res) => {
 });
 
 // read_history
-app.get("/internal/agent/:agentId/history", (req, res) => {
+app.get("/internal/agent/:agentId/history", async (req, res) => {
   const { agentId } = req.params;
   const { channel, limit = 50, before, after, around } = req.query;
   const agentName = store.agents[agentId]?.name || agentId;
   const workspaceId = workspaceIdFromAgent(agentId);
-  let msgs = store.messages.filter((m) => (
-    matchesTarget(m, channel, agentName, workspaceId) && messageVisibleToAgent(m, agentId)
-  ));
+  const resolved = resolveTargetChannel(channel, agentName, workspaceId);
+  if (!resolved.channel || !messageVisibleToAgent({
+    workspaceId, channelId: resolved.channel.id,
+    channelName: resolved.channelName, channelType: resolved.channelType,
+  }, agentId)) {
+    return res.json({
+      messages: [], last_read_seq: store.seq,
+      has_more: false, has_older: false, has_newer: false,
+      historyLimited: false, historyLimitMessage: null,
+    });
+  }
+  const channelId = resolved.channel.id;
+  const threadId = resolved.threadId;
   const limitNum = parseInt(limit);
 
+  let rows;
   if (around) {
-    // Find the message and return context around it
-    const idx = msgs.findIndex((m) => m.id === around || String(m.seq) === around);
-    if (idx >= 0) {
-      const half = Math.floor(limitNum / 2);
-      const start = Math.max(0, idx - half);
-      const end = Math.min(msgs.length, idx + half + 1);
-      msgs = msgs.slice(start, end);
+    // around can be a message id or a numeric seq string.
+    let centerSeq;
+    const aroundNum = parseInt(around);
+    if (Number.isFinite(aroundNum) && String(aroundNum) === String(around)) {
+      centerSeq = aroundNum;
     } else {
-      msgs = msgs.slice(-limitNum);
+      const centerMsg = await getMessageByIdAnywhere(around);
+      centerSeq = centerMsg ? centerMsg.seq : null;
     }
+    rows = centerSeq != null
+      ? await readChannelHistoryAround({ workspaceId, channelId, centerSeq, limit: limitNum })
+      : await readChannelHistory({ workspaceId, channelId, threadId, limit: limitNum });
   } else {
-    if (before) msgs = msgs.filter((m) => m.seq < parseInt(before));
-    if (after) msgs = msgs.filter((m) => m.seq > parseInt(after));
-    msgs = msgs.slice(-limitNum);
+    const beforeSeq = before ? parseInt(before) : null;
+    const afterSeq = after ? parseInt(after) : null;
+    rows = await readChannelHistory({
+      workspaceId, channelId, threadId, beforeSeq, afterSeq, limit: limitNum,
+    });
   }
 
   res.json({
-    messages: msgs.map((m) => formatMessageForAgent(m, agentId)),
+    messages: rows.map((m) => formatMessageForAgent(m, agentId)),
     last_read_seq: store.seq,
     has_more: false,
     has_older: false,
@@ -1884,25 +2089,31 @@ app.get("/internal/agent/:agentId/history", (req, res) => {
 });
 
 // search_messages
-app.get("/internal/agent/:agentId/search", (req, res) => {
+app.get("/internal/agent/:agentId/search", async (req, res) => {
   const { agentId } = req.params;
   const agentName = store.agents[agentId]?.name || agentId;
   const workspaceId = workspaceIdFromAgent(agentId);
   const { q, limit = 10, channel } = req.query;
-  // Always limit search to channels the agent can read so DM / private-channel
-  // content can't leak via the search path.
-  let msgs = store.messages.filter((m) => messageVisibleToAgent(m, agentId));
+  // Pre-scope to channels the agent can read so DM/private-channel content
+  // can't leak via the search path. If a target channel is given, narrow
+  // further to just that channel (if visible).
+  let scopedChannelIds = visibleChannelIdsForAgent(agentId);
   if (channel) {
-    msgs = msgs.filter((m) => matchesTarget(m, channel, agentName, workspaceId));
+    const resolved = resolveTargetChannel(channel, agentName, workspaceId);
+    if (!resolved.channel || !scopedChannelIds.includes(resolved.channel.id)) {
+      return res.json({ results: [] });
+    }
+    scopedChannelIds = [resolved.channel.id];
   }
-  if (q) {
-    const query = q.toLowerCase();
-    msgs = msgs.filter((m) => m.content.toLowerCase().includes(query));
-  }
-  msgs = msgs.slice(-parseInt(limit));
+  const rows = q
+    ? await searchVisibleMessages({ workspaceId, channelIds: scopedChannelIds, keyword: q, limit: parseInt(limit) })
+    : [];
+  // searchMessages returns seq DESC (newest first); flip so the API stays
+  // consistent with the old "slice(-limit)" shape (oldest first within the page).
+  rows.reverse();
 
   res.json({
-    results: msgs.map((m) => ({
+    results: rows.map((m) => ({
       ...formatMessageForClient(m),
       seq: m.seq,
       createdAt: m.createdAt,
@@ -2046,17 +2257,42 @@ app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
       return { taskNumber: null, messageId: mid, success: false, reason: "ambiguous message id prefix" };
     }
 
-    let candidateMessages = store.messages.filter((m) => messageVisibleToAgent(m, agentId));
-    if (channel) {
-      candidateMessages = candidateMessages.filter((m) => matchesTarget(m, channel, agentName));
+    // Resolve mid → message via in-memory index first (recent messages), then
+    // DB (exact id, then 8-char prefix). Visibility / channel filtering happen
+    // after the lookup so the caller's policy is enforced uniformly.
+    const channelMatch = (m) => !channel || matchesTarget(m, channel, agentName);
+    const visibleAndOnTarget = (m) => messageVisibleToAgent(m, agentId) && channelMatch(m);
+
+    let message = null;
+    let reason = null;
+    if (typeof mid === "string" && mid.length > 0) {
+      const cachedExact = messagesById.get(mid);
+      if (cachedExact && visibleAndOnTarget(cachedExact)) {
+        message = cachedExact;
+      } else {
+        const dbExact = await db.getMessageById(mid);
+        if (dbExact && visibleAndOnTarget(dbExact)) {
+          message = dbExact;
+        } else if (mid.length >= 8 && mid.length < 36) {
+          // Prefix search — agent notifications header short message IDs as 8 chars.
+          const cachedShort = messagesByShortId.get(mid.slice(0, 8));
+          const candidates = [];
+          if (cachedShort && cachedShort.id.startsWith(mid)) candidates.push(cachedShort);
+          const dbPrefix = await db.findMessagesByIdPrefix({ prefix: mid, workspaceId });
+          for (const m of dbPrefix) {
+            if (!candidates.some((c) => c.id === m.id)) candidates.push(m);
+          }
+          const visible = candidates.filter(visibleAndOnTarget);
+          if (visible.length === 1) {
+            message = visible[0];
+          } else if (visible.length > 1) {
+            reason = "ambiguous message id prefix";
+          }
+        }
+      }
     }
-    const messageResolved = resolveUniqueByIdOrPrefix(candidateMessages, mid, (m) => m.id);
-    const message = messageResolved.item;
     if (!message) {
-      const reason = messageResolved.reason === "ambiguous id prefix"
-        ? "ambiguous message id prefix"
-        : "message not found";
-      return { taskNumber: null, messageId: mid, success: false, reason };
+      return { taskNumber: null, messageId: mid, success: false, reason: reason || "message not found" };
     }
     if (message.threadId) {
       return { taskNumber: null, messageId: message.id, success: false, reason: "thread messages cannot be claimed as tasks" };
@@ -2440,7 +2676,7 @@ app.post("/api/attachments", requireAuth, upload.single("file"), async (req, res
 // its 307 redirect chain, so the primary web client passes the channel target
 // in request headers (X-Channel, X-Limit, X-Sender) which survive untouched.
 // Query-string fallback kept for backward compat (curl, daemon internal API).
-app.get("/api/messages", requireWorkspaceRead, (req, res) => {
+app.get("/api/messages", requireWorkspaceRead, async (req, res) => {
   const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const channel = req.headers["x-channel"] || req.query.channel || "#all";
   const limit = parseInt(req.headers["x-limit"] || req.query.limit || 100);
@@ -2448,28 +2684,45 @@ app.get("/api/messages", requireWorkspaceRead, (req, res) => {
   const before = req.headers["x-before"] || req.query.before || null;
   const after = req.headers["x-after"] || req.query.after || null;
 
-  const filtered = store.messages.filter((m) => matchesTarget(m, channel, sender, workspaceId));
+  const resolved = resolveTargetChannel(channel, sender, workspaceId);
+  if (!resolved.channel) {
+    return res.json({ messages: [], hasMore: false });
+  }
+  const channelId = resolved.channel.id;
+  const threadId = resolved.threadId;
 
-  // Catch-up mode: return all messages after the given message ID (for WS reconnect gap-fill)
+  // `before` / `after` are message IDs (not seqs). Resolve to seq via the
+  // in-memory index when possible, else DB lookup.
+  const beforeMsg = before ? await getMessageByIdAnywhere(before) : null;
+  const afterMsg = after ? await getMessageByIdAnywhere(after) : null;
+  const beforeSeq = beforeMsg ? beforeMsg.seq : null;
+  const afterSeq = afterMsg ? afterMsg.seq : null;
+
+  let msgs;
+  let hasMore;
+
   if (after) {
-    const idx = filtered.findIndex((m) => m.id === after);
-    const msgs = idx >= 0 ? filtered.slice(idx + 1) : [];
-    return res.json({
-      messages: msgs.map((m) => formatMessageForClient(m, sender, { includeReplies: true })),
-      hasMore: false,
-    });
+    // Catch-up mode: WS reconnect gap-fill. Return everything newer than the
+    // last message the client has, no upper bound — gaps are usually tiny.
+    msgs = afterSeq != null
+      ? await readChannelHistory({ workspaceId, channelId, threadId, afterSeq, limit: 500 })
+      : [];
+    hasMore = false;
+  } else {
+    msgs = await readChannelHistory({ workspaceId, channelId, threadId, beforeSeq, limit });
+    hasMore = msgs.length === limit;
   }
 
-  let windowEnd = filtered.length;
-  if (before) {
-    const idx = filtered.findIndex((m) => m.id === before);
-    if (idx >= 0) windowEnd = idx;
-  }
-  const windowStart = Math.max(0, windowEnd - limit);
-  const msgs = filtered.slice(windowStart, windowEnd);
+  // Historical pages need thread reply previews to come from DB since the
+  // in-memory index only covers recent messages.
+  const replyOverride = await fetchThreadRepliesForPage(msgs);
+
   res.json({
-    messages: msgs.map((m) => formatMessageForClient(m, sender, { includeReplies: true })),
-    hasMore: windowStart > 0,
+    messages: msgs.map((m) => formatMessageForClient(m, sender, {
+      includeReplies: true,
+      threadReplyOverride: replyOverride,
+    })),
+    hasMore,
   });
 });
 
@@ -2565,23 +2818,12 @@ app.delete("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
 // messages stamped with each task_number (create → claim → status updates).
 app.get("/api/tasks", requireWorkspaceRead, (req, res) => {
   const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const taskTimes = new Map(); // taskNumber -> { createdAt, updatedAt }
-  for (const m of store.messages) {
-    if ((m.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) continue;
-    if (!m.taskNumber) continue;
-    const cur = taskTimes.get(m.taskNumber);
-    if (!cur) {
-      taskTimes.set(m.taskNumber, { createdAt: m.createdAt, updatedAt: m.createdAt });
-    } else {
-      if (m.createdAt < cur.createdAt) cur.createdAt = m.createdAt;
-      if (m.createdAt > cur.updatedAt) cur.updatedAt = m.createdAt;
-    }
-  }
-
+  // taskTimes is maintained incrementally in appendMessage and seeded at boot
+  // from a dedicated DB aggregate — no full-message-table scan here.
   const tasks = store.tasks
     .filter((t) => (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
     .map((t) => {
-    const times = taskTimes.get(t.taskNumber) || { createdAt: null, updatedAt: null };
+    const times = taskTimes.get(`${workspaceId}:${t.taskNumber}`) || { createdAt: null, updatedAt: null };
     return {
       taskNumber: t.taskNumber,
       channelId: t.channelId,
@@ -4597,13 +4839,16 @@ app.post("/api/workspaces", requireSessionAuth, async (req, res) => {
 app.get("/api/_internal/stats", requireAuth, (_req, res) => {
   let threadReplyTotal = 0;
   for (const arr of repliesByThreadId.values()) threadReplyTotal += arr.length;
+  let cachedMessageTotal = 0;
+  for (const arr of store.channelMessages.values()) cachedMessageTotal += arr.length;
   res.json({
     timestamp: now(),
     seq: store.seq,
     taskSeq: store.taskSeq,
     store: {
-      messages: store.messages.length,
-      messagesCap: MAX_IN_MEMORY_MESSAGES,
+      cachedMessages: cachedMessageTotal,
+      cachedChannels: store.channelMessages.size,
+      channelCacheTail: CHANNEL_CACHE_TAIL,
       channels: store.channels.length,
       tasks: store.tasks.length,
       agents: Object.keys(store.agents).length,
@@ -4860,6 +5105,7 @@ async function initFromDB() {
       dbConfigs,
       dbKeys,
       channelAgents,
+      taskTimeRows,
     ] = await Promise.all([
       db.loadMaxSeq(),
       db.loadMaxTaskNum(),
@@ -4871,6 +5117,7 @@ async function initFromDB() {
       db.loadAgentConfigs(),
       db.loadMachineKeys(),
       db.loadChannelAgents(),
+      db.loadTaskMessageTimes(),
     ]);
 
     if (maxSeq > store.seq) store.seq = maxSeq;
@@ -4891,8 +5138,21 @@ async function initFromDB() {
     }
 
     if (msgs.length > 0) {
-      setStoreMessages(msgs);
-      console.log(`[db] Loaded ${msgs.length} messages`);
+      seedFromBootstrap(msgs);
+      console.log(`[db] Seeded threading index + cache from ${msgs.length} recent messages`);
+    }
+
+    // taskTimes covers ALL historical messages (via a SQL aggregate), not just
+    // the bootstrap window — /api/tasks needs accurate timestamps regardless of
+    // how old the originating message is.
+    if (taskTimeRows && taskTimeRows.length > 0) {
+      for (const row of taskTimeRows) {
+        taskTimes.set(`${row.workspaceId}:${row.taskNumber}`, {
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        });
+      }
+      console.log(`[db] Loaded ${taskTimeRows.length} task time entries`);
     }
 
     for (const ch of channels) {
@@ -5028,12 +5288,15 @@ function reconcileAgentsWithConfigs() {
       findOrCreateChannel,
       setMembership,
       getMembership,
+      appendMessage,
     });
-    // Mock seed pushes onto store.messages directly (it's a one-shot bootstrap
-    // path), so the secondary indexes need a rebuild after it runs.
-    rebuildMessageIndex();
   }
-  rebuildDeliveryRoutingWindows();
+  // Seed routing windows from the bootstrap cache contents (DB-loaded or
+  // mock-seeded). The router maintains its own state incrementally after this.
+  const seedMessages = [];
+  for (const arr of store.channelMessages.values()) seedMessages.push(...arr);
+  seedMessages.sort((a, b) => a.seq - b.seq);
+  rebuildDeliveryRoutingWindows(seedMessages);
 
   server.listen(PORT, () => {
     console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);
