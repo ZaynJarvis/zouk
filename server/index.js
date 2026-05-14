@@ -89,29 +89,36 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-// Email allowlist — union of two sources, both granting equal access:
-//   1. `ALLOW` env (comma-separated emails, immutable without restart)
+// Email allowlist — union of three sources, all granting equal access:
+//   1. `ALLOW` env, comma-separated. Entries starting with `@` match by
+//      domain (e.g. `@example.com` lets the whole tenant in); bare entries
+//      match by exact address. Immutable without restart.
 //   2. `email_allowlist` DB table (managed via Settings UI, hot-reloaded)
 // When the union is non-empty, only listed addresses can mint sessions and
 // guest mode is disabled. Empty union = unrestricted (default).
-const ENV_ALLOW_EMAILS = new Set(
-  (process.env.ALLOW || "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean)
-);
+const ENV_ALLOW_EMAILS = new Set();
+const ENV_ALLOW_DOMAINS = new Set();
+for (const raw of (process.env.ALLOW || "").split(",")) {
+  const entry = raw.trim().toLowerCase();
+  if (!entry) continue;
+  if (entry.startsWith("@")) ENV_ALLOW_DOMAINS.add(entry);
+  else ENV_ALLOW_EMAILS.add(entry);
+}
 // email -> { addedAt, addedBy } (populated async from DB at startup)
 const dbAllowEmails = new Map();
 
 function allowlistActive() {
-  return ENV_ALLOW_EMAILS.size > 0 || dbAllowEmails.size > 0;
+  return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0 || dbAllowEmails.size > 0;
 }
 
 function isEmailAllowed(email) {
   if (!allowlistActive()) return true;
   if (!email || typeof email !== "string") return false;
   const norm = email.trim().toLowerCase();
-  return ENV_ALLOW_EMAILS.has(norm) || dbAllowEmails.has(norm);
+  if (ENV_ALLOW_EMAILS.has(norm) || dbAllowEmails.has(norm)) return true;
+  const at = norm.lastIndexOf("@");
+  if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
+  return false;
 }
 
 function normalizeEmailInput(raw) {
@@ -125,8 +132,11 @@ function normalizeEmailInput(raw) {
   return trimmed;
 }
 
-if (ENV_ALLOW_EMAILS.size > 0) {
-  console.log(`[auth] Email allowlist seeded from ALLOW env (${ENV_ALLOW_EMAILS.size} address(es))`);
+if (ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0) {
+  console.log(
+    `[auth] Email allowlist seeded from ALLOW env ` +
+    `(${ENV_ALLOW_EMAILS.size} address(es), ${ENV_ALLOW_DOMAINS.size} domain(s))`
+  );
 }
 
 async function loadEmailAllowlistFromDb() {
