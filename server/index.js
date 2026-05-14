@@ -211,6 +211,23 @@ if (ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0) {
   );
 }
 
+// ZOUK_SUPERUSERS — comma-separated emails that get root access on every
+// workspace (read, admin, member CRUD, see all workspaces in the list).
+// Backend-only; there is no superuser UI yet — these users simply have
+// elevated authority everywhere they hit the API.
+const ENV_SUPERUSERS = new Set();
+for (const raw of (process.env.ZOUK_SUPERUSERS || "").split(",")) {
+  const entry = raw.trim().toLowerCase();
+  if (entry) ENV_SUPERUSERS.add(entry);
+}
+function isSuperuser(email) {
+  if (!email || typeof email !== "string") return false;
+  return ENV_SUPERUSERS.has(email.trim().toLowerCase());
+}
+if (ENV_SUPERUSERS.size > 0) {
+  console.log(`[auth] ${ENV_SUPERUSERS.size} superuser(s) seeded from ZOUK_SUPERUSERS env`);
+}
+
 async function loadEmailAllowlistFromDb() {
   if (!db.enabled) return;
   try {
@@ -676,6 +693,30 @@ function setWorkspaceMember(member, { persist = true } = {}) {
   return next;
 }
 
+function removeWorkspaceMember(workspaceId, email) {
+  if (!email) return false;
+  const id = normalizeWorkspaceId(workspaceId);
+  const normalized = String(email).trim().toLowerCase();
+  const removed = workspaceMembersFor(id).delete(normalized);
+  if (removed) db.deleteWorkspaceMember(id, normalized);
+  return removed;
+}
+
+function workspaceMemberPayload(member) {
+  return {
+    workspaceId: member.workspaceId,
+    email: member.email,
+    role: member.role || "member",
+    name: member.name || null,
+    joinedAt: member.joinedAt || null,
+  };
+}
+
+function listWorkspaceMembers(workspaceId) {
+  const id = normalizeWorkspaceId(workspaceId);
+  return [...workspaceMembersFor(id).values()].map(workspaceMemberPayload);
+}
+
 function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) {
   if (!user?.email) return null;
   const id = normalizeWorkspaceId(workspaceId);
@@ -694,6 +735,9 @@ function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) 
 function userWorkspaceRole(user, workspaceId = DEFAULT_WORKSPACE_ID) {
   const id = normalizeWorkspaceId(workspaceId);
   if (!user?.email) return id === DEFAULT_WORKSPACE_ID && !allowlistActive(id) ? "member" : null;
+  // Superusers override every other gate — they can read and admin any
+  // workspace regardless of allowlist or membership rows.
+  if (isSuperuser(user.email)) return "root";
   if (allowlistActive(id) && !isEmailAllowed(user.email, id)) return null;
   const member = getWorkspaceMember(id, user.email);
   if (member) return member.role || "member";
@@ -1687,6 +1731,15 @@ function upsertAllTimeHuman(human) {
 function broadcastHumans() {
   store.humans = currentHumans();
   broadcastToWeb({ type: "humans_updated", humans: store.humans });
+}
+
+function broadcastWorkspaceMembers(workspaceId) {
+  const id = normalizeWorkspaceId(workspaceId);
+  broadcastToWeb({
+    type: "workspace:members",
+    workspaceId: id,
+    members: listWorkspaceMembers(id),
+  });
 }
 
 function addHumanPresence(human) {
@@ -4334,6 +4387,9 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
         type: "init",
         workspaceId: ws._workspaceId,
         workspaces: visibleWorkspacesForUser(user),
+        workspaceMembers: canReadWorkspace ? listWorkspaceMembers(ws._workspaceId) : [],
+        viewerRole: user ? userWorkspaceRole(user, ws._workspaceId) : null,
+        isSuperuser: !!(user && isSuperuser(user.email)),
         channels: canReadWorkspace ? store.channels.filter((ch) => (
           (ch.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
           && (ch.type || "channel") === "channel"
@@ -4984,10 +5040,156 @@ app.post("/api/workspaces", requireSessionAuth, async (req, res) => {
   const all = findOrCreateChannel("all", "channel", id);
   all.description = "General channel";
   await db.saveChannel(all);
+  if (ownerEmail) broadcastWorkspaceMembers(id);
   res.json({
     workspace: workspacePayload(workspace),
     workspaces: visibleWorkspacesForUser(req.user),
   });
+});
+
+// ─── Workspace members ──────────────────────────────────────────
+// Any workspace member can list members; only admins (root/owner/admin or
+// superuser) may invite, change roles, or remove. Inviting also seeds the
+// per-workspace email_allowlist so requireAuth lets the invitee in next time
+// they OAuth.
+const VALID_MEMBER_ROLES = new Set(["root", "owner", "admin", "member"]);
+
+app.get("/api/workspaces/:id/members", requireAuth, (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.params.id);
+  if (req.workspaceId !== workspaceId) {
+    return res.status(400).json({ error: "Workspace id mismatch — pass X-Workspace-Id matching the path." });
+  }
+  res.json({ workspaceId, members: listWorkspaceMembers(workspaceId) });
+});
+
+app.post("/api/workspaces/:id/members", requireAuth, requireWorkspaceAdmin, async (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.params.id);
+  if (req.workspaceId !== workspaceId) {
+    return res.status(400).json({ error: "Workspace id mismatch — pass X-Workspace-Id matching the path." });
+  }
+  const email = normalizeEmailInput(req.body?.email);
+  if (!email) return res.status(400).json({ error: "Invalid email address" });
+  const rawRole = typeof req.body?.role === "string" ? req.body.role.trim().toLowerCase() : "member";
+  // Inviting someone as `root` would let them demote the original owner.
+  // Restrict invites to admin/member; existing root/owner rows can only be
+  // changed by the holder themselves (or a superuser).
+  if (!["admin", "member"].includes(rawRole)) {
+    return res.status(400).json({ error: "role must be 'admin' or 'member'" });
+  }
+  const existing = getWorkspaceMember(workspaceId, email);
+  if (existing) {
+    return res.status(409).json({ error: "Already a member", member: workspaceMemberPayload(existing) });
+  }
+  const rawName = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 100) : null;
+  const member = setWorkspaceMember({
+    workspaceId,
+    email,
+    role: rawRole,
+    name: rawName || null,
+  });
+
+  // Non-default workspaces gate on per-workspace email_allowlist; without
+  // this row requireAuth would still reject the invitee on their next login.
+  // Default workspace does not require this — `userWorkspaceRole` falls back
+  // to "member" for any authenticated email when no allowlist is active.
+  if (db.enabled && workspaceId !== DEFAULT_WORKSPACE_ID) {
+    const row = await db.addEmailAllowlist(email, req.user.email || null, workspaceId);
+    if (row && !row.dbError) {
+      dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
+        workspaceId: row.workspaceId,
+        email: row.email,
+        addedAt: row.addedAt,
+        addedBy: row.addedBy,
+      });
+    }
+  }
+
+  broadcastWorkspaceMembers(workspaceId);
+  res.json({ ok: true, member: workspaceMemberPayload(member) });
+});
+
+app.put("/api/workspaces/:id/members/:email", requireAuth, requireWorkspaceAdmin, async (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.params.id);
+  if (req.workspaceId !== workspaceId) {
+    return res.status(400).json({ error: "Workspace id mismatch" });
+  }
+  const email = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
+  if (!email) return res.status(400).json({ error: "Invalid email address" });
+  const target = getWorkspaceMember(workspaceId, email);
+  if (!target) return res.status(404).json({ error: "Member not found" });
+
+  const role = typeof req.body?.role === "string" ? req.body.role.trim().toLowerCase() : null;
+  if (!role || !VALID_MEMBER_ROLES.has(role)) {
+    return res.status(400).json({ error: "role must be one of root/owner/admin/member" });
+  }
+
+  // Only the existing root (or a superuser) may promote to root or demote the
+  // workspace root. Without this gate any admin could pull root out from under
+  // the workspace creator.
+  const callerRole = userWorkspaceRole(req.user, workspaceId);
+  const callerIsSuper = isSuperuser(req.user?.email);
+  if ((target.role === "root" || role === "root") && callerRole !== "root" && !callerIsSuper) {
+    return res.status(403).json({ error: "Only root or a superuser can grant or revoke the root role." });
+  }
+  // A root must always exist on a workspace. Block demoting the only root.
+  if (target.role === "root" && role !== "root") {
+    const otherRoots = [...workspaceMembersFor(workspaceId).values()]
+      .filter((m) => m.email !== email && m.role === "root");
+    if (otherRoots.length === 0) {
+      return res.status(409).json({ error: "Cannot demote the only root — promote another member to root first." });
+    }
+  }
+
+  const updated = setWorkspaceMember({
+    workspaceId,
+    email,
+    name: target.name,
+    joinedAt: target.joinedAt,
+    role,
+  });
+  broadcastWorkspaceMembers(workspaceId);
+  res.json({ ok: true, member: workspaceMemberPayload(updated) });
+});
+
+app.delete("/api/workspaces/:id/members/:email", requireAuth, requireWorkspaceAdmin, async (req, res) => {
+  const workspaceId = normalizeWorkspaceId(req.params.id);
+  if (req.workspaceId !== workspaceId) {
+    return res.status(400).json({ error: "Workspace id mismatch" });
+  }
+  const email = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
+  if (!email) return res.status(400).json({ error: "Invalid email address" });
+  const target = getWorkspaceMember(workspaceId, email);
+  if (!target) return res.status(404).json({ error: "Member not found" });
+
+  // Root removal: same constraints as demotion — must keep at least one root,
+  // and only root or superuser can revoke another root.
+  const callerRole = userWorkspaceRole(req.user, workspaceId);
+  const callerIsSuper = isSuperuser(req.user?.email);
+  if (target.role === "root" && callerRole !== "root" && !callerIsSuper) {
+    return res.status(403).json({ error: "Only root or a superuser can remove the root member." });
+  }
+  if (target.role === "root") {
+    const otherRoots = [...workspaceMembersFor(workspaceId).values()]
+      .filter((m) => m.email !== email && m.role === "root");
+    if (otherRoots.length === 0) {
+      return res.status(409).json({ error: "Cannot remove the only root — promote another member to root first." });
+    }
+  }
+
+  removeWorkspaceMember(workspaceId, email);
+
+  // Mirror the invite path: drop the per-workspace allowlist row so the
+  // removed user can't reauth their way back in.
+  if (db.enabled && workspaceId !== DEFAULT_WORKSPACE_ID) {
+    const key = allowlistKey(workspaceId, email);
+    if (dbAllowEmails.has(key)) {
+      await db.removeEmailAllowlist(email, workspaceId);
+      dbAllowEmails.delete(key);
+    }
+  }
+
+  broadcastWorkspaceMembers(workspaceId);
+  res.json({ ok: true });
 });
 
 // Internal diagnostics: in-memory store sizes + index counts. Auth-gated so
@@ -5432,6 +5634,27 @@ function reconcileAgentsWithConfigs() {
       picture: user.picture || undefined,
       gravatarUrl: user.gravatarUrl || (user.email ? gravatarUrl(user.email) : undefined),
     });
+  }
+  // Backfill default-workspace membership. The default workspace is the
+  // public lobby — every authenticated email implicitly has 'member' access,
+  // but pre-#300 sessions may not have a workspace_members row yet. Without
+  // a row, admins can't manage them (change role, remove) and they don't
+  // show up with the expected ADMIN/MEMBER badge in the sidebar. Materialise
+  // a 'member' row for every known email that doesn't already have one.
+  let defaultBackfill = 0;
+  for (const user of authSessions.values()) {
+    if (!user?.email || user.guest) continue;
+    if (getWorkspaceMember(DEFAULT_WORKSPACE_ID, user.email)) continue;
+    setWorkspaceMember({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      email: user.email,
+      name: user.name || null,
+      role: "member",
+    });
+    defaultBackfill += 1;
+  }
+  if (defaultBackfill > 0) {
+    console.log(`[auth] Backfilled ${defaultBackfill} default-workspace member row(s) from auth sessions`);
   }
   await loadEmailAllowlistFromDb();
   reconcileAgentsWithConfigs();

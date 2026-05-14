@@ -9,8 +9,8 @@ import AgentDetail from './AgentDetail';
 import CreateAgentDialog from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
-import { AgentAvatar, Eyebrow } from './zk/primitives';
-import MobileMenuButton from './MobileMenuButton';
+import { AgentAvatar } from './zk/primitives';
+import ViewHeader from './ViewHeader';
 
 function AgentListItem({
   agent,
@@ -261,66 +261,48 @@ export default function AgentsView() {
         }}
       >
         {/* Header (page title + actions) */}
-        <header
-          style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            paddingTop: 'calc(env(safe-area-inset-top, 0px) + 14px)',
-            paddingRight: 18,
-            paddingBottom: 12,
-            paddingLeft: 18,
-            borderBottom: '1px solid var(--zk-line)',
-            flexShrink: 0,
-          }}
-        >
-          <MobileMenuButton />
-          <div className="zk-col">
-            <Eyebrow className="hidden lg:inline">WORKSPACE</Eyebrow>
-            <h1
-              className="zk-display"
-              style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
-            >
-              Agents
-            </h1>
-          </div>
-          <span style={{ fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
-            {unifiedEntities.length} total
-          </span>
-          <span className="zk-grow" />
-          {archivedCount > 0 && (
-            <button
-              type="button"
-              className="zk-btn"
-              onClick={() => setShowArchived(!showArchived)}
-              style={{ fontSize: 11 }}
-            >
-              {showArchived ? 'Active' : `Archived (${archivedCount})`}
-            </button>
-          )}
-          {!isGuest && (
+        <ViewHeader
+          title="Agents"
+          meta={`${unifiedEntities.length} total`}
+          actions={
             <>
-              <button
-                type="button"
-              className="zk-btn"
-              onClick={() => setShowMachineSetup(true)}
-              title="Machine setup & API keys"
-              aria-label="Machine setup & API keys"
-              >
-                <Settings size={12} />
-                <span className="hidden lg:inline">Machine setup</span>
-              </button>
-              <button
-                type="button"
-                className="zk-btn zk-btn--primary"
-                onClick={() => setShowCreate(true)}
-                title="Add agent"
-                aria-label="Add agent"
-              >
-                <Plus size={12} />
-                <span className="hidden lg:inline">Add agent</span>
-              </button>
+              {archivedCount > 0 && (
+                <button
+                  type="button"
+                  className="zk-btn"
+                  onClick={() => setShowArchived(!showArchived)}
+                  style={{ fontSize: 11 }}
+                >
+                  {showArchived ? 'Active' : `Archived (${archivedCount})`}
+                </button>
+              )}
+              {!isGuest && (
+                <>
+                  <button
+                    type="button"
+                    className="zk-btn"
+                    onClick={() => setShowMachineSetup(true)}
+                    title="Machine setup & API keys"
+                    aria-label="Machine setup & API keys"
+                  >
+                    <Settings size={12} />
+                    <span className="hidden lg:inline">Machine setup</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="zk-btn zk-btn--primary"
+                    onClick={() => setShowCreate(true)}
+                    title="Add agent"
+                    aria-label="Add agent"
+                  >
+                    <Plus size={12} />
+                    <span className="hidden lg:inline">Add agent</span>
+                  </button>
+                </>
+              )}
             </>
-          )}
-        </header>
+          }
+        />
 
         <div
           style={{
