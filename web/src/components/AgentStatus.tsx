@@ -186,8 +186,10 @@ export default function AgentStatus() {
                 onClick={() => setFilter(f)}
                 className="zk-btn"
                 style={{
-                  padding: '3px 8px',
+                  height: 35,
+                  padding: '0 12px',
                   fontSize: 11,
+                  boxSizing: 'border-box',
                   background: active ? 'var(--zk-bg-3)' : 'transparent',
                   borderColor: active ? 'var(--zk-line-bright)' : 'var(--zk-line)',
                   color: active ? 'var(--zk-ink)' : 'var(--zk-ink-mute)',

@@ -504,20 +504,25 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
         style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
       >
         <div className="flex-1" />
-        {TAB_CONFIG.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold font-mono border-b-2 -mb-[1px] transition-colors tracking-wider ${
-              tab === key
-                ? 'border-nc-cyan text-nc-cyan'
-                : 'border-transparent text-nc-muted hover:text-nc-text-bright'
-            }`}
-          >
-            <Icon size={12} />
-            {label}
-          </button>
-        ))}
+        {TAB_CONFIG.map(({ key, label, icon: Icon }) => {
+          const active = tab === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold font-mono border-b-2 -mb-[1px] transition-colors tracking-wider ${
+                active
+                  ? 'text-nc-cyan'
+                  : 'border-transparent text-nc-muted hover:text-nc-text-bright'
+              }`}
+              style={active ? { borderBottomColor: 'var(--zk-line-bright)' } : undefined}
+            >
+              <Icon size={12} />
+              {label}
+            </button>
+          );
+        })}
         <button
           onClick={closeAgentProfileRail}
           className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-red transition-colors shrink-0"
