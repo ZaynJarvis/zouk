@@ -251,6 +251,16 @@ export interface Workspace {
   createdAt?: string | null;
 }
 
+export type WorkspaceRole = 'root' | 'owner' | 'admin' | 'member';
+
+export interface WorkspaceMember {
+  workspaceId: string;
+  email: string;
+  role: WorkspaceRole;
+  name?: string | null;
+  joinedAt?: string | null;
+}
+
 export interface InitPayload {
   channels: ServerChannel[];
   agents: ServerAgent[];

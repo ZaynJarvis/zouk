@@ -1,4 +1,4 @@
-import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole } from '../types';
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
@@ -419,6 +419,54 @@ export async function createWorkspace(input: { name: string; icon?: string }): P
     throw new Error(body?.error || `Failed to create workspace: ${res.status}`);
   }
   return res.json();
+}
+
+export async function fetchWorkspaceMembers(workspaceId: string): Promise<{ workspaceId: string; members: WorkspaceMember[] }> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+    headers: getAuthHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Failed to load members: ${res.status}`);
+  return res.json();
+}
+
+export async function inviteWorkspaceMember(workspaceId: string, input: { email: string; role: 'admin' | 'member'; name?: string }): Promise<WorkspaceMember> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to invite member: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.member;
+}
+
+export async function updateWorkspaceMemberRole(workspaceId: string, email: string, role: WorkspaceRole): Promise<WorkspaceMember> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(email)}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ role }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to update member role: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.member;
+}
+
+export async function removeWorkspaceMember(workspaceId: string, email: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to remove member: ${res.status}`);
+  }
 }
 
 export async function getAllowlist(): Promise<AllowlistResponse> {

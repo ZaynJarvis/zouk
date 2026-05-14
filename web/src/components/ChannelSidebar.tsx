@@ -3,21 +3,23 @@
 
    - Header: WORKSPACE eyebrow + Zouk display + N humans · N agents.
    - Search button (placeholder; ⌘K palette is a follow-up).
-   - Sections: WORKSPACE (Home/Inbox/Tasks/Agents) / CHANNELS / DIRECT MESSAGES.
+   - Sections: WORKSPACE (Home/Inbox/Tasks/Agents) / CHANNELS / PEOPLE.
    - Channel rows show inline live-agent dots + ember unread pill.
+   - PEOPLE lists workspace_members (admins flagged) + online guests; admins
+     can invite by email or change/remove roles inline.
    - Bottom: user card (avatar + name + online + settings). */
 
 import { useMemo, useState } from 'react';
 import {
   Plus, Hash, ChevronDown, ChevronRight,
   Settings, Trash2, RotateCcw, SlidersHorizontal,
-  Home, Cpu, KanbanSquare, Brain,
+  Home, Cpu, KanbanSquare, Brain, UserPlus, MoreHorizontal,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { AgentAvatar, HumanAvatar } from './zk/primitives';
 import ViewHeader from './ViewHeader';
-import type { ServerAgent, ServerChannel, ServerHuman } from '../types';
+import type { ServerAgent, ServerChannel, ServerHuman, WorkspaceRole } from '../types';
 import {
   contextUsageTextTone,
   formatContextUsageCompact,
@@ -339,29 +341,90 @@ function AgentRow({
   );
 }
 
-/* ───── Human (DM) row ───── */
+/* ───── Person row ─────
+   Backs the PEOPLE section. Renders both workspace_members (with a role)
+   and online presences that aren't members yet (guests on the default
+   workspace, freshly-connected accounts). Admins see a tiny action menu
+   on hover; root members are protected from accidental removal. */
+
+type PersonRow = {
+  key: string;
+  email: string | null;
+  name: string;
+  role: WorkspaceRole | null;
+  online: boolean;
+  guest: boolean;
+  picture?: string;
+  gravatarUrl?: string;
+};
+
+const ELEVATED_ROLES: WorkspaceRole[] = ['root', 'owner', 'admin'];
+function roleBadgeLabel(role: WorkspaceRole | null): string | null {
+  if (!role) return null;
+  if (!ELEVATED_ROLES.includes(role)) return null;
+  if (role === 'admin') return 'ADMIN';
+  if (role === 'owner') return 'OWNER';
+  return 'ROOT';
+}
 
 function HumanRow({
-  human, active, unread, isSelf, onClick,
+  person, active, unread, isSelf, canAdmin, forceShowActions,
+  onClick, onChangeRole, onRemove,
 }: {
-  human: ServerHuman;
+  person: PersonRow;
   active: boolean;
   unread: number;
   isSelf: boolean;
+  canAdmin: boolean;
+  forceShowActions: boolean;
   onClick?: () => void;
+  onChangeRole?: (role: WorkspaceRole) => void;
+  onRemove?: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const Tag = isSelf ? 'div' : 'button';
+  const badge = roleBadgeLabel(person.role);
+  // Adapt the row into the ServerHuman shape HumanAvatar already understands.
+  const avatarHuman: ServerHuman = {
+    id: person.key,
+    name: person.name,
+    picture: person.picture,
+    gravatarUrl: person.gravatarUrl,
+    guest: person.guest,
+    online: person.online,
+  };
+  // Only admins can manage *other* members. Root is protected: visible but
+  // shown without a destructive action so the workspace can't be left rootless
+  // from this surface. Removing root goes through Workspace Settings (future).
+  const showActions = canAdmin && !isSelf && person.role !== 'root' && person.email;
+
   return (
     <Tag
       type={isSelf ? undefined : 'button'}
       onClick={isSelf ? undefined : onClick}
       style={{ ...rowStyle(active), cursor: isSelf ? 'default' : 'pointer' }}
+      className="group"
       onMouseEnter={(e) => { if (!active && !isSelf) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
       onMouseLeave={(e) => { if (!active && !isSelf) e.currentTarget.style.background = 'transparent'; }}
     >
       {active && <ActiveStripe />}
-      <HumanAvatar human={human} size="sm" />
-      <span className="zk-truncate" style={{ flex: 1 }}>{human.name}</span>
+      <HumanAvatar human={avatarHuman} size="sm" />
+      <span className="zk-truncate" style={{ flex: 1 }}>{person.name}</span>
+
+      {badge && (
+        <span
+          title={person.role || ''}
+          style={{
+            fontSize: 9, fontFamily: 'var(--zk-font-mono)',
+            letterSpacing: '0.08em', color: 'var(--zk-ink-mute)',
+            border: '1px solid var(--zk-line)', borderRadius: 4,
+            padding: '0 4px', lineHeight: '14px', flexShrink: 0,
+          }}
+        >
+          {badge}
+        </span>
+      )}
+
       {isSelf && (
         <span style={{ fontSize: 10, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}>
           (you)
@@ -378,6 +441,69 @@ function HumanRow({
           {unread > 9 ? '9+' : unread}
         </span>
       )}
+
+      {showActions && (
+        <span
+          className={`zk-row ${forceShowActions || menuOpen ? '' : 'opacity-0 group-hover:opacity-100'}`}
+          style={{ gap: 2, transition: 'opacity 140ms var(--zk-ease-out)', position: 'relative' }}
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            title="Manage member"
+            style={{ padding: 2 }}
+          >
+            <MoreHorizontal size={11} />
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute', right: 0, top: 22, zIndex: 5,
+                background: 'var(--zk-bg-1)', border: '1px solid var(--zk-line)',
+                borderRadius: 6, padding: 4, minWidth: 140,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+                display: 'flex', flexDirection: 'column', gap: 2,
+              }}
+            >
+              {(['admin', 'member'] as WorkspaceRole[]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => { setMenuOpen(false); onChangeRole?.(r); }}
+                  disabled={person.role === r}
+                  style={{
+                    textAlign: 'left', padding: '4px 8px', borderRadius: 4,
+                    border: 0, background: 'transparent', cursor: person.role === r ? 'default' : 'pointer',
+                    color: person.role === r ? 'var(--zk-ink-low)' : 'var(--zk-ink)',
+                    fontSize: 12, fontFamily: 'var(--zk-font-mono)',
+                  }}
+                  onMouseEnter={(e) => { if (person.role !== r) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  {person.role === r ? '✓ ' : '  '}set as {r}
+                </button>
+              ))}
+              <div style={{ height: 1, background: 'var(--zk-line)', margin: '2px 0' }} />
+              <button
+                type="button"
+                onClick={() => { setMenuOpen(false); onRemove?.(); }}
+                style={{
+                  textAlign: 'left', padding: '4px 8px', borderRadius: 4,
+                  border: 0, background: 'transparent', cursor: 'pointer',
+                  color: 'var(--zk-ember)', fontSize: 12, fontFamily: 'var(--zk-font-mono)',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                Remove from workspace
+              </button>
+            </div>
+          )}
+        </span>
+      )}
     </Tag>
   );
 }
@@ -391,6 +517,8 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     authUser, setSidebarOpen, agentLastChannel,
     openAgentProfile, openAgentSettings, resetAgentContext,
     openChannelSettings, navigateToView, setSettingsOpen,
+    workspaceMembers, canAdminWorkspace,
+    inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
   } = useApp();
 
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
@@ -398,30 +526,79 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member');
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
 
   const pick = (name: string, isDm?: boolean) => {
     selectChannel(name, isDm);
     if (isMobileViewport()) setSidebarOpen(false);
   };
 
-  const peopleList = useMemo(() => {
-    const list = humans.slice();
-    if (currentUser && !list.some((h) => h.name === currentUser)) {
-      list.push({
-        id: `self:${currentUser}`,
-        name: currentUser,
-        picture: authUser?.picture ?? undefined,
-        gravatarUrl: authUser?.gravatarUrl ?? undefined,
-        guest: isGuest,
+  // PEOPLE list: workspace_members ∪ online presences not yet captured as
+  // members (guests on default; freshly-connected accounts). Members give us
+  // role + email (canonical identity); humans give us live picture / online
+  // signal keyed by display name.
+  const peopleList = useMemo<PersonRow[]>(() => {
+    const byName = new Map<string, PersonRow>();
+
+    for (const m of workspaceMembers) {
+      const displayName = (m.name && m.name.trim()) || m.email.split('@')[0];
+      const presence = humans.find((h) => h.name === displayName);
+      byName.set(displayName, {
+        key: `member:${m.email}`,
+        email: m.email,
+        name: displayName,
+        role: m.role,
+        online: !!presence?.online,
+        guest: false,
+        picture: presence?.picture,
+        gravatarUrl: presence?.gravatarUrl,
       });
     }
+
+    for (const h of humans) {
+      if (byName.has(h.name)) continue;
+      // Skip currentUser; we re-add below with authUser context.
+      if (h.name === currentUser) continue;
+      byName.set(h.name, {
+        key: `human:${h.id}`,
+        email: null,
+        name: h.name,
+        role: null,
+        online: !!h.online,
+        guest: !!h.guest,
+        picture: h.picture,
+        gravatarUrl: h.gravatarUrl,
+      });
+    }
+
+    if (currentUser && !byName.has(currentUser)) {
+      byName.set(currentUser, {
+        key: 'self',
+        email: authUser?.email ?? null,
+        name: currentUser,
+        role: null,
+        online: true,
+        guest: isGuest,
+        picture: authUser?.picture ?? undefined,
+        gravatarUrl: authUser?.gravatarUrl ?? undefined,
+      });
+    }
+
+    const list = [...byName.values()];
     list.sort((a, b) => {
       if (a.name === currentUser) return -1;
       if (b.name === currentUser) return 1;
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      const rankA = a.role && ELEVATED_ROLES.includes(a.role) ? 0 : 1;
+      const rankB = b.role && ELEVATED_ROLES.includes(b.role) ? 0 : 1;
+      if (rankA !== rankB) return rankA - rankB;
       return a.name.localeCompare(b.name);
     });
     return list;
-  }, [humans, currentUser, authUser, isGuest]);
+  }, [workspaceMembers, humans, currentUser, authUser, isGuest]);
 
   const handleCreateChannel = () => {
     const name = newChannelName.trim().replace(/[^a-z0-9-_]/gi, '-').toLowerCase();
@@ -429,6 +606,21 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     createChannel(name);
     setNewChannelName('');
     setShowCreateChannel(false);
+  };
+
+  const handleInviteSubmit = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email || inviteSubmitting) return;
+    setInviteSubmitting(true);
+    try {
+      await inviteWorkspaceMember({ email, role: inviteRole });
+      setInviteEmail('');
+      setShowInvite(false);
+    } catch {
+      // Toast already surfaced by store; keep form open so user can adjust.
+    } finally {
+      setInviteSubmitting(false);
+    }
   };
 
   const forceShowActions = isMobileViewport() || isStandalonePWA();
@@ -645,23 +837,107 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
           ))}
         </div>
 
-        {/* PEOPLE / DMs */}
+        {/* PEOPLE */}
         <div style={{ marginTop: 10 }}>
           <SectionHeader
-            title="DIRECT MESSAGES"
+            title="PEOPLE"
             collapsed={dmsCollapsed}
             onToggle={() => setDmsCollapsed(!dmsCollapsed)}
+            action={
+              canAdminWorkspace ? (
+                <button
+                  type="button"
+                  onClick={() => setShowInvite((v) => !v)}
+                  className="zk-btn zk-btn--ghost zk-btn--icon"
+                  style={{ padding: 2 }}
+                  title="Invite member by email"
+                >
+                  <UserPlus size={11} />
+                </button>
+              ) : null
+            }
           />
-          {!dmsCollapsed && peopleList.map((h) => {
-            const isSelf = h.name === currentUser;
+
+          {showInvite && canAdminWorkspace && (
+            <div style={{ padding: '4px 14px 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div
+                className="zk-row"
+                style={{
+                  background: 'var(--zk-bg-2)',
+                  border: '1px solid var(--zk-ember-line)',
+                  borderRadius: 6,
+                  padding: '4px 8px', gap: 6,
+                }}
+              >
+                <UserPlus size={12} style={{ color: 'var(--zk-ember)' }} />
+                <input
+                  type="email"
+                  autoFocus
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleInviteSubmit();
+                    if (e.key === 'Escape') { setShowInvite(false); setInviteEmail(''); }
+                  }}
+                  placeholder="user@example.com"
+                  disabled={inviteSubmitting}
+                  style={{
+                    flex: 1, background: 'transparent', border: 0, outline: 'none',
+                    color: 'var(--zk-ink)', fontSize: 12,
+                    fontFamily: 'var(--zk-font-mono)',
+                  }}
+                />
+              </div>
+              <div className="zk-row" style={{ gap: 4, padding: '0 2px' }}>
+                {(['member', 'admin'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setInviteRole(r)}
+                    disabled={inviteSubmitting}
+                    style={{
+                      flex: 1, padding: '3px 6px', border: '1px solid var(--zk-line)',
+                      borderRadius: 4,
+                      background: inviteRole === r ? 'var(--zk-bg-3)' : 'transparent',
+                      color: inviteRole === r ? 'var(--zk-ink)' : 'var(--zk-ink-mute)',
+                      fontSize: 10, fontFamily: 'var(--zk-font-mono)',
+                      letterSpacing: '0.08em', cursor: 'pointer',
+                    }}
+                  >
+                    {r.toUpperCase()}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleInviteSubmit}
+                  disabled={inviteSubmitting || !inviteEmail.trim()}
+                  className="zk-btn zk-btn--primary"
+                  style={{ padding: '3px 10px', fontSize: 10, fontFamily: 'var(--zk-font-mono)', letterSpacing: '0.08em' }}
+                >
+                  {inviteSubmitting ? '...' : 'INVITE'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!dmsCollapsed && peopleList.map((p) => {
+            const isSelf = p.name === currentUser;
             return (
               <HumanRow
-                key={h.id}
-                human={h}
-                active={!isSelf && activeChannelName === h.name && viewMode === 'dm'}
-                unread={unreadCounts[h.name] || 0}
+                key={p.key}
+                person={p}
+                active={!isSelf && activeChannelName === p.name && viewMode === 'dm'}
+                unread={unreadCounts[p.name] || 0}
                 isSelf={isSelf}
-                onClick={() => pick(h.name, true)}
+                canAdmin={!!canAdminWorkspace}
+                forceShowActions={forceShowActions}
+                onClick={() => pick(p.name, true)}
+                onChangeRole={p.email ? (role) => updateWorkspaceMemberRole(p.email!, role) : undefined}
+                onRemove={p.email ? () => {
+                  if (window.confirm(`Remove ${p.email} from this workspace?`)) {
+                    removeWorkspaceMember(p.email!);
+                  }
+                } : undefined}
               />
             );
           })}
@@ -673,7 +949,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
                 fontStyle: 'italic',
               }}
             >
-              No people online
+              No people yet
             </div>
           )}
         </div>
