@@ -641,7 +641,7 @@ export async function revokeMachineKey(keyId: string): Promise<void> {
 
 // ─── Agent profile presets ───────────────────────────────────────
 
-export async function listProfilePresets(): Promise<{ presets: AgentProfilePreset[]; max: number }> {
+export async function listProfilePresets(): Promise<{ presets: AgentProfilePreset[]; count?: number; max: number }> {
   const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to list profile presets: ${res.status}`);
   return res.json();

@@ -115,7 +115,8 @@ export default function SettingsModal() {
     const images = Array.from(fileList).filter(f => f.type.startsWith('image/'));
     if (images.length === 0) return;
 
-    const remaining = PROFILE_PRESET_MAX - profilePresets.length;
+    const localPresetCount = profilePresets.filter(p => !p.shared).length;
+    const remaining = PROFILE_PRESET_MAX - localPresetCount;
     if (remaining <= 0) {
       setPresetError(`Preset pool is full (${PROFILE_PRESET_MAX} max)`);
       return;
@@ -138,7 +139,7 @@ export default function SettingsModal() {
     if (failures) parts.push(`${failures} failed`);
     if (dropped) parts.push(`${dropped} skipped — pool limit`);
     if (parts.length) setPresetError(parts.join('; '));
-  }, [addProfilePreset, profilePresets.length]);
+  }, [addProfilePreset, profilePresets]);
 
   const handlePresetUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -174,7 +175,11 @@ export default function SettingsModal() {
     : currentNavItem.label.charAt(0) + currentNavItem.label.slice(1).toLowerCase();
 
   const presetCount = profilePresets.length;
-  const atPresetLimit = presetCount >= PROFILE_PRESET_MAX;
+  const localPresetCount = profilePresets.filter(p => !p.shared).length;
+  const atPresetLimit = localPresetCount >= PROFILE_PRESET_MAX;
+  const presetCountLabel = activeWorkspaceId === 'default'
+    ? `${localPresetCount}${atPresetLimit ? ` / ${PROFILE_PRESET_MAX}` : ''}`
+    : `${presetCount} total · ${localPresetCount}${atPresetLimit ? ` / ${PROFILE_PRESET_MAX}` : ''} local`;
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0] || null;
 
   // Thick border variant only for brutalist
@@ -435,7 +440,7 @@ export default function SettingsModal() {
                       </p>
                     </div>
                     <span className="text-xs font-mono text-nc-muted">
-                      {presetCount}{atPresetLimit ? ` / ${PROFILE_PRESET_MAX}` : ''}
+                      {presetCountLabel}
                     </span>
                   </div>
 
@@ -450,16 +455,26 @@ export default function SettingsModal() {
                     className={`relative grid grid-cols-6 gap-2 p-1 transition-colors ${presetDragOver ? 'bg-nc-cyan/5 outline outline-2 outline-dashed outline-nc-cyan/50' : ''}`}
                   >
                     {profilePresets.map(p => (
-                      <div key={p.id} className="relative group aspect-square border border-nc-border bg-nc-panel overflow-hidden">
+                      <div
+                        key={p.id}
+                        className="relative group aspect-square border border-nc-border bg-nc-panel overflow-hidden"
+                        title={p.shared ? 'Shared from default server' : undefined}
+                      >
                         <img src={p.image} alt="" className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removeProfilePreset(p.id)}
-                          className="absolute right-1 top-1 w-6 h-6 bg-nc-deep/85 border border-nc-red/50 flex items-center justify-center text-nc-red opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-nc-red/15 transition-all"
-                          title="Remove preset"
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                        {p.shared ? (
+                          <span className="absolute left-1 top-1 w-5 h-5 bg-nc-deep/85 border border-nc-cyan/40 flex items-center justify-center text-nc-cyan">
+                            <Link2 size={11} />
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeProfilePreset(p.id)}
+                            className="absolute right-1 top-1 w-6 h-6 bg-nc-deep/85 border border-nc-red/50 flex items-center justify-center text-nc-red opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-nc-red/15 transition-all"
+                            title="Remove preset"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
                       </div>
                     ))}
                     {!atPresetLimit && (
