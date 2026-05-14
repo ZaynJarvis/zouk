@@ -296,6 +296,21 @@ export async function fetchAgentActivities(
   return Array.isArray(data.entries) ? data.entries : [];
 }
 
+export interface AgentOvStatus {
+  enabled: boolean;
+  reason?: string;
+  user: string | null;
+  url: string | null;
+  local: boolean;
+}
+
+export async function fetchAgentOvStatus(agentId: string): Promise<AgentOvStatus> {
+  const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/ov/status`;
+  const res = await fetch(url, { headers: getAuthHeaders(), cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load OV status: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchAgentChannels(agentId: string): Promise<string[]> {
   const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/channels`;
   const res = await fetch(url, { headers: getAuthHeaders() });

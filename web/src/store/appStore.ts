@@ -171,6 +171,7 @@ export function useAppStore() {
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
   // Memory trees per agent: agentId -> uri -> entries (for recursive tree rendering)
   const [memoryTreeCache, setMemoryTreeCache] = useState<Record<string, Record<string, MemoryEntry[]>>>({});
+  const [memoryTreeErrors, setMemoryTreeErrors] = useState<Record<string, Record<string, string | null>>>({});
   // Per-(agentId, uri, level) content cache. L0=abstract, L1=overview, L2=full read.
   // For legacy single-level (no `level` requested) reads, content is stashed under
   // `__legacy__` so callers that don't care about levels still see it.
@@ -638,11 +639,18 @@ export function useAppStore() {
         break;
       }
       case 'memory:list_result': {
-        const e = event as { agentId: string; uri: string; entries: MemoryEntry[] };
+        const e = event as { agentId: string; uri: string; entries: MemoryEntry[]; error?: string };
+        const uri = e.uri || 'viking://';
         setMemoryTreeCache(prev => ({
           ...prev,
-          [e.agentId]: { ...(prev[e.agentId] || {}), [e.uri || 'viking://']: e.entries },
+          [e.agentId]: { ...(prev[e.agentId] || {}), [uri]: e.entries },
         }));
+        setMemoryTreeErrors(prev => {
+          const agentBucket = { ...(prev[e.agentId] || {}) };
+          if (e.error) agentBucket[uri] = e.error;
+          else delete agentBucket[uri];
+          return { ...prev, [e.agentId]: agentBucket };
+        });
         break;
       }
       case 'memory:content': {
@@ -689,6 +697,7 @@ export function useAppStore() {
     setWsTreeCache({});
     setWorkspaceFileContent(null);
     setMemoryTreeCache({});
+    setMemoryTreeErrors({});
     setMemoryContentCache({});
     setSkillsCache({});
     setActiveThreadMessage(null);
@@ -1326,7 +1335,8 @@ export function useAppStore() {
   }, []);
 
   const requestMemoryList = useCallback((agentId: string, uri?: string) => {
-    wsRef.current?.send({ type: 'memory:list', agentId, uri: uri || 'viking://' });
+    const key = uri || 'viking://';
+    wsRef.current?.send({ type: 'memory:list', agentId, uri: key });
   }, []);
 
   const requestMemoryContent = useCallback((agentId: string, uri: string, level?: 'l0' | 'l1' | 'l2') => {
@@ -1391,7 +1401,7 @@ export function useAppStore() {
     wsSend,
     workspaceFiles, wsTreeCache, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
-    memoryTreeCache, memoryContentCache,
+    memoryTreeCache, memoryTreeErrors, memoryContentCache,
     requestMemoryList, requestMemoryContent,
     skillsCache, requestSkills,
     profilePresets,
