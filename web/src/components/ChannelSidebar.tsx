@@ -16,6 +16,7 @@ import {
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { AgentAvatar, HumanAvatar } from './zk/primitives';
+import ViewHeader from './ViewHeader';
 import type { ServerAgent, ServerChannel, ServerHuman } from '../types';
 import {
   contextUsageTextTone,
@@ -517,25 +518,19 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
 
       {/* Header */}
       {!phoneModal && (
-        <div style={{ padding: '16px 16px 12px' }}>
-          <div className="zk-eyebrow" style={{ fontSize: 9 }}>WORKSPACE</div>
-          <div
-            className="zk-display"
-            style={{ fontWeight: 600, fontSize: 17, marginTop: 2, color: 'var(--zk-ink)' }}
-          >
-            Zouk
-          </div>
-          <div
-            className="zk-row"
-            style={{ gap: 6, marginTop: 4, fontSize: 10, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-mono)' }}
-          >
-            <span
-              className={`zk-dot ${liveCount > 0 ? 'zk-dot--working' : 'zk-dot--offline'}`}
-              style={{ width: 5, height: 5 }}
-            />
-            <span>{totalHumans} humans · {agents.length} agents</span>
-          </div>
-        </div>
+        <ViewHeader
+          variant="sidebar"
+          title="Zouk"
+          meta={
+            <span className="zk-row" style={{ gap: 6, alignItems: 'center' }}>
+              <span
+                className={`zk-dot ${liveCount > 0 ? 'zk-dot--working' : 'zk-dot--offline'}`}
+                style={{ width: 5, height: 5 }}
+              />
+              <span>{totalHumans} humans · {agents.length} agents</span>
+            </span>
+          }
+        />
       )}
 
       {/* Body */}

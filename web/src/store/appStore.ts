@@ -138,6 +138,7 @@ export function useAppStore() {
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [threadMessages, setThreadMessages] = useState<MessageRecord[]>([]);
@@ -1237,6 +1238,7 @@ export function useAppStore() {
     channelSettingsId, openChannelSettings,
     activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,
+    workspaceMenuOpen, setWorkspaceMenuOpen,
     sidebarOpen, setSidebarOpen,
     messages, threadMessages, threadedMessageIds,
     agentLastChannel,

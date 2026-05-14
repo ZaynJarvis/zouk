@@ -2,7 +2,6 @@
    Direct port of Rail() in tmp/.../zouk-rethink/merged-app.jsx, wired to our
    real viewMode + rightPanel state and the actual user / live agent counts. */
 
-import { useState } from 'react';
 import { Check, Cpu, Home, KanbanSquare, Brain, Plus, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { Avatar } from './zk/primitives';
@@ -29,8 +28,8 @@ export default function WorkspaceRail() {
     viewMode, navigateToView, setSettingsOpen,
     agents, currentUser, authUser, isGuest,
     workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace,
+    workspaceMenuOpen, setWorkspaceMenuOpen,
   } = useApp();
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0] || { id: 'default', name: 'Default', icon: 'z' };
 
   const isActive = (id: RailItem['id']): boolean => {

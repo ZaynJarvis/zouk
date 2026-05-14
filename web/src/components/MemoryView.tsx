@@ -23,7 +23,7 @@ import {
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
 import { isMobileViewport } from '../lib/layout';
-import { Avatar, Eyebrow } from './zk/primitives';
+import { Avatar } from './zk/primitives';
 import { renderMarkdown as atlasMarkdown } from './memory/AtlasRenderers';
 import { LEVEL_META } from './memory/atlas-helpers';
 import {
@@ -35,7 +35,7 @@ import {
   isMarkdownFile,
   renderPreviewContent,
 } from './memory/renderPreviewContent';
-import MobileMenuButton from './MobileMenuButton';
+import ViewHeader from './ViewHeader';
 import '../styles/atlas-renderers.css';
 
 type Source = 'memory' | 'files';
@@ -951,58 +951,47 @@ export default function MemoryView() {
         minHeight: 0,
       }}
     >
-      <header
-        style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)',
-          paddingRight: 16,
-          paddingBottom: 10,
-          paddingLeft: 16,
-          borderBottom: '1px solid var(--zk-line)',
-          flexShrink: 0,
-          overflowX: 'auto',
-        }}
-      >
-        <MobileMenuButton />
-        <Eyebrow className="hidden lg:block">WORKSPACE</Eyebrow>
-
-        {/* Source toggle — Memory (OpenViking) / Files (workspace) */}
-        <div className="zk-seg" role="tablist" aria-label="Source">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={source === 'memory'}
-            aria-disabled={!ovEnabledForAgent}
-            disabled={!ovEnabledForAgent}
-            title={ovEnabledForAgent ? undefined : 'OpenViking is not enabled for this agent — toggle it on in agent config'}
-            className={source === 'memory' ? 'is-active' : ''}
-            onClick={() => { if (ovEnabledForAgent) setSource('memory'); }}
-          >
-            Memory
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={source === 'files'}
-            className={source === 'files' ? 'is-active' : ''}
-            onClick={() => setSource('files')}
-          >
-            Files
-          </button>
-        </div>
-
-        <ViewSwitch value={paradigm} onChange={setParadigm} />
-        <span className="zk-grow" />
-        <button
-          type="button"
-          className="zk-btn zk-btn--ghost zk-btn--icon"
-          onClick={refreshActive}
-          title="Refresh"
-          aria-label="Refresh"
-        >
-          <RefreshCw size={13} />
-        </button>
-      </header>
+      <ViewHeader
+        title="Memory"
+        actions={
+          <>
+            {/* Source toggle — Memory (OpenViking) / Files (workspace) */}
+            <div className="zk-seg" role="tablist" aria-label="Source">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={source === 'memory'}
+                aria-disabled={!ovEnabledForAgent}
+                disabled={!ovEnabledForAgent}
+                title={ovEnabledForAgent ? undefined : 'OpenViking is not enabled for this agent — toggle it on in agent config'}
+                className={source === 'memory' ? 'is-active' : ''}
+                onClick={() => { if (ovEnabledForAgent) setSource('memory'); }}
+              >
+                Memory
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={source === 'files'}
+                className={source === 'files' ? 'is-active' : ''}
+                onClick={() => setSource('files')}
+              >
+                Files
+              </button>
+            </div>
+            <ViewSwitch value={paradigm} onChange={setParadigm} />
+            <button
+              type="button"
+              className="zk-btn zk-btn--ghost zk-btn--icon"
+              onClick={refreshActive}
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              <RefreshCw size={13} />
+            </button>
+          </>
+        }
+      />
 
       {/* Agent chip strip — horizontal, always visible (high-frequency switch). */}
       <AgentChipStrip
