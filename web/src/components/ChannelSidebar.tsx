@@ -402,30 +402,17 @@ function HumanRow({
     <Tag
       type={isSelf ? undefined : 'button'}
       onClick={isSelf ? undefined : onClick}
+      // Native tooltip carries the email so admins can verify identity on
+      // hover without crowding the row visually.
       title={person.email || person.name}
-      style={{ ...rowStyle(active), cursor: isSelf ? 'default' : 'pointer', alignItems: person.email ? 'flex-start' : 'center' }}
+      style={{ ...rowStyle(active), cursor: isSelf ? 'default' : 'pointer' }}
       className="group"
       onMouseEnter={(e) => { if (!active && !isSelf) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
       onMouseLeave={(e) => { if (!active && !isSelf) e.currentTarget.style.background = 'transparent'; }}
     >
       {active && <ActiveStripe />}
-      <span style={{ flexShrink: 0, marginTop: person.email ? 2 : 0 }}>
-        <HumanAvatar human={avatarHuman} size="sm" />
-      </span>
-      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <span className="zk-truncate">{person.name}</span>
-        {person.email && (
-          <span
-            className="zk-truncate"
-            style={{
-              fontSize: 10, fontFamily: 'var(--zk-font-mono)',
-              color: 'var(--zk-ink-low)', letterSpacing: '0.02em',
-            }}
-          >
-            {person.email}
-          </span>
-        )}
-      </span>
+      <HumanAvatar human={avatarHuman} size="sm" />
+      <span className="zk-truncate" style={{ flex: 1 }}>{person.name}</span>
 
       {badge && (
         <span
