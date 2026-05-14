@@ -1010,14 +1010,17 @@ function seedMembershipOnChannelCreate(channel) {
   }
 }
 
-function agentIdByName(name) {
+function agentIdByName(name, workspaceId = null) {
   if (!name) return null;
   const lowered = String(name).toLowerCase();
+  const ws = workspaceId ? normalizeWorkspaceId(workspaceId) : null;
   for (const cfg of agentConfigs) {
+    if (ws && (cfg.workspaceId || DEFAULT_WORKSPACE_ID) !== ws) continue;
     if ((cfg.name || "").toLowerCase() === lowered) return cfg.id;
     if ((cfg.displayName || "").toLowerCase() === lowered) return cfg.id;
   }
   for (const [id, a] of Object.entries(store.agents)) {
+    if (ws && workspaceIdFromAgent(id) !== ws) continue;
     if ((a.name || "").toLowerCase() === lowered) return id;
     if ((a.displayName || "").toLowerCase() === lowered) return id;
   }
@@ -1919,7 +1922,7 @@ function deliverToAllAgents(message, excludeAgent = null) {
   if (ch && (ch.type || "channel") === "dm") {
     const parties = dmChannelParties(ch.name) || [];
     subscribedIds = parties
-      .map((p) => agentIdByName(p))
+      .map((p) => agentIdByName(p, workspaceId))
       .filter(Boolean);
   } else {
     subscribedIds = ch ? subscribedAgentIdsFor(ch.id) : [];
