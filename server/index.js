@@ -1666,7 +1666,6 @@ function shouldDeliverEventToWebViewer(event, ws) {
 const profilePresets = createProfilePresetsStore({
   filePath: AGENT_PROFILE_PRESETS_FILE,
   db,
-  broadcast: broadcastToWeb,
 });
 
 function humanId(name) {
@@ -3439,23 +3438,20 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
 // ─── Profile preset pool ────────────────────────────────────────
 
 app.get("/api/agent-profile-presets", requireWorkspaceRead, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  res.json({ presets: profilePresets.list(workspaceId), max: PROFILE_PRESET_MAX });
+  res.json({ presets: profilePresets.list(), max: PROFILE_PRESET_MAX });
 });
 
 app.post("/api/agent-profile-presets", requireAuth, async (req, res) => {
   const { image } = req.body || {};
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const result = await profilePresets.add(image, workspaceId);
+  const result = await profilePresets.add(image);
   if (result.error) return res.status(400).json({ error: result.error });
-  res.json({ preset: result.preset, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
+  res.json({ preset: result.preset, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
 });
 
 app.delete("/api/agent-profile-presets/:id", requireAuth, async (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const result = await profilePresets.remove(req.params.id, workspaceId);
+  const result = await profilePresets.remove(req.params.id);
   if (result.error) return res.status(404).json({ error: result.error });
-  res.json({ success: true, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
+  res.json({ success: true, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
 });
 
 // ─── Machine API key management ─────────────────────────────────
@@ -3727,7 +3723,7 @@ async function startAgentOnDaemon(id, config) {
       persisted.openvikingApiKey = ovApiKey;
     }
     const usedImages = new Set(agentConfigs.filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId).map((c) => c.picture).filter(Boolean));
-    const shardedPicture = profilePresets.pickForAgent(id, usedImages, workspaceId);
+    const shardedPicture = profilePresets.pickForAgent(id, usedImages);
     if (shardedPicture) persisted.picture = shardedPicture;
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);
@@ -4397,7 +4393,6 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
         humans: currentHumans(),
         configs: canReadWorkspace ? sanitizedAgentConfigs().filter((config) => (config.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
         machines: canReadWorkspace ? Array.from(machines.values()).filter((machine) => (machine.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
-        profilePresets: canReadWorkspace ? profilePresets.list(ws._workspaceId) : [],
       }));
     } catch (e) {
       console.warn("[web] init send failed:", e.message);

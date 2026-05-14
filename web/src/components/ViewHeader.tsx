@@ -60,7 +60,7 @@ export default function ViewHeader({
   showMobileMenu,
   metaPlacement,
   mergeWorkspaceTitle = false,
-  showWorkspaceSwitcher = true,
+  showWorkspaceSwitcher = false,
 }: Props) {
   const { workspaces, activeWorkspaceId, workspaceMenuOpen, setWorkspaceMenuOpen } = useApp();
   const activeWorkspace =
@@ -73,13 +73,14 @@ export default function ViewHeader({
   const headerStyle = variant === 'canvas' ? CANVAS_HEADER_STYLE : SIDEBAR_HEADER_STYLE;
   const titleSize = variant === 'canvas' ? 19 : 17;
   const workspaceLabel = (activeWorkspace.name || 'Default').toUpperCase();
-  const titleText = mergeWorkspaceTitle ? `${title}/${activeWorkspace.name || 'Default'}` : title;
+  const inlineWorkspaceSelector = showWorkspaceSwitcher && mergeWorkspaceTitle;
+  const titleText = title;
 
   return (
     <header style={headerStyle}>
       {shouldShowMobile && <MobileMenuButton />}
       <div className="zk-col" style={{ minWidth: 0, gap: 2, flex: 1 }}>
-        {showWorkspaceSwitcher && (
+        {showWorkspaceSwitcher && !inlineWorkspaceSelector && (
           <WorkspaceSwitcher
             label={workspaceLabel}
             onOpen={() => setWorkspaceMenuOpen(true)}
@@ -107,9 +108,20 @@ export default function ViewHeader({
           </div>
         ) : (
           <>
-            <h1 className="zk-display" style={{ ...TITLE_BASE, fontSize: titleSize }}>
-              {titleText}
-            </h1>
+            <div className="zk-row" style={{ gap: 6, minWidth: 0, alignItems: 'baseline' }}>
+              <h1 className="zk-display" style={{ ...TITLE_BASE, fontSize: titleSize, flex: '0 1 auto' }}>
+                {titleText}
+              </h1>
+              {inlineWorkspaceSelector && (
+                <WorkspaceSwitcher
+                  label={workspaceLabel}
+                  onOpen={() => setWorkspaceMenuOpen(true)}
+                  ariaLabel={`Switch server (current: ${activeWorkspace.name})`}
+                  variant={variant}
+                  menuOpen={workspaceMenuOpen}
+                />
+              )}
+            </div>
             {meta != null && (
               <div
                 style={{
