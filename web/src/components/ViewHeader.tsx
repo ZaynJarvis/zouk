@@ -25,6 +25,10 @@ const CANVAS_HEADER_STYLE: CSSProperties = {
   paddingLeft: 18,
   borderBottom: '1px solid var(--zk-line)',
   flexShrink: 0,
+  // Let dense action groups (e.g. MemoryView's Memory/Files + Columns/Tree +
+  // Refresh) scroll horizontally on narrow viewports instead of overflowing
+  // the app shell. Matches the old MemoryView header's explicit overflow:auto.
+  overflowX: 'auto',
 };
 
 const SIDEBAR_HEADER_STYLE: CSSProperties = {
@@ -50,7 +54,7 @@ export default function ViewHeader({
   showMobileMenu,
   metaPlacement,
 }: Props) {
-  const { workspaces, activeWorkspaceId, setWorkspaceMenuOpen } = useApp();
+  const { workspaces, activeWorkspaceId, workspaceMenuOpen, setWorkspaceMenuOpen } = useApp();
   const activeWorkspace =
     workspaces.find((w) => w.id === activeWorkspaceId)
     || workspaces[0]
@@ -71,6 +75,7 @@ export default function ViewHeader({
           onOpen={() => setWorkspaceMenuOpen(true)}
           ariaLabel={`Switch workspace (current: ${activeWorkspace.name})`}
           variant={variant}
+          menuOpen={workspaceMenuOpen}
         />
         {placement === 'inline' ? (
           <div className="zk-row" style={{ gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -126,46 +131,68 @@ function WorkspaceSwitcher({
   onOpen,
   ariaLabel,
   variant,
+  menuOpen,
 }: {
   label: string;
   onOpen: () => void;
   ariaLabel: string;
   variant: Variant;
+  menuOpen: boolean;
 }) {
   const [hover, setHover] = useState(false);
+  const eyebrowFontSize = variant === 'sidebar' ? 9 : 10;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={ariaLabel}
-      className="zk-row"
-      style={{
-        alignSelf: 'flex-start',
-        gap: 4,
-        padding: '2px 6px',
-        marginLeft: -6,
-        background: hover ? 'var(--zk-bg-2)' : 'transparent',
-        border: `1px solid ${hover ? 'var(--zk-line)' : 'transparent'}`,
-        borderRadius: 6,
-        cursor: 'pointer',
-        color: hover ? 'var(--zk-ink-dim)' : 'var(--zk-ink-mute)',
-        transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-    >
+    <>
+      {/* Mobile (<lg): WorkspaceRail isn't mounted, so the switcher would
+          do nothing. Render a static eyebrow instead — keeps the workspace
+          identity visible without a dead interaction. */}
       <span
-        className="zk-eyebrow"
+        className="zk-eyebrow lg:hidden"
         style={{
-          fontSize: variant === 'sidebar' ? 9 : 10,
-          color: 'inherit',
+          alignSelf: 'flex-start',
+          fontSize: eyebrowFontSize,
+          color: 'var(--zk-ink-mute)',
+          padding: '2px 0',
         }}
       >
         {label}
       </span>
-      <ChevronDown size={11} style={{ color: 'var(--zk-ink-low)' }} />
-    </button>
+      {/* Desktop (lg+): interactive switcher that opens the WorkspaceRail menu. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        className="hidden lg:inline-flex zk-row"
+        style={{
+          alignSelf: 'flex-start',
+          gap: 4,
+          padding: '2px 6px',
+          marginLeft: -6,
+          background: hover ? 'var(--zk-bg-2)' : 'transparent',
+          border: `1px solid ${hover ? 'var(--zk-line)' : 'transparent'}`,
+          borderRadius: 6,
+          cursor: 'pointer',
+          color: hover ? 'var(--zk-ink-dim)' : 'var(--zk-ink-mute)',
+          transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
+        }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onFocus={() => setHover(true)}
+        onBlur={() => setHover(false)}
+      >
+        <span
+          className="zk-eyebrow"
+          style={{
+            fontSize: eyebrowFontSize,
+            color: 'inherit',
+          }}
+        >
+          {label}
+        </span>
+        <ChevronDown size={11} style={{ color: 'var(--zk-ink-low)' }} />
+      </button>
+    </>
   );
 }
