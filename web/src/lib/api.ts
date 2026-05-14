@@ -421,6 +421,22 @@ export async function createWorkspace(input: { name: string; icon?: string }): P
   return res.json();
 }
 
+export async function updateWorkspace(
+  id: string,
+  input: { name?: string; icon?: string },
+): Promise<{ workspace: Workspace; workspaces: Workspace[] }> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to update workspace: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchWorkspaceMembers(workspaceId: string): Promise<{ workspaceId: string; members: WorkspaceMember[] }> {
   const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
     headers: getAuthHeaders(),

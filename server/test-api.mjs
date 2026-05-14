@@ -120,6 +120,29 @@ test('guest session: rejects missing name', async () => {
   assert.equal(res.status, 400);
 });
 
+test('PATCH /api/workspaces/default: member can update server avatar icon', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-workspace-avatar' }),
+  });
+  const { token } = await authRes.json();
+  const icon = 'data:image/png;base64,iVBORw0KGgo=';
+  const { status, body } = await json(await fetch(`${BASE}/api/workspaces/default`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ icon }),
+  }));
+  assert.equal(status, 200);
+  assert.equal(body.workspace.icon, icon);
+
+  const workspacesRes = await fetch(`${BASE}/api/workspaces`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const workspacesBody = await workspacesRes.json();
+  assert.equal(workspacesBody.workspaces.find(w => w.id === 'default')?.icon, icon);
+});
+
 // ─── Channels ─────────────────────────────────────────────────────────────────
 
 test('GET /api/channels: returns default "all" channel', async () => {

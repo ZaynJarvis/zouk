@@ -12,6 +12,7 @@ export type WsEventType =
   | 'agent_activity'
   | 'daemon_connected' | 'daemon_disconnected'
   | 'channel_created'
+  | 'workspace_updated'
   | 'agent_started'
   | 'config_updated'
   | 'humans_updated'
@@ -66,6 +67,11 @@ export interface WsDaemonEvent {
 export interface WsChannelCreatedEvent {
   type: 'channel_created';
   channel: ServerChannel;
+}
+
+export interface WsWorkspaceUpdatedEvent {
+  type: 'workspace_updated';
+  workspace: Workspace;
 }
 
 export interface WsAgentStartedEvent {
@@ -147,6 +153,7 @@ export type WsEvent =
   | WsAgentActivityEvent
   | WsDaemonEvent
   | WsChannelCreatedEvent
+  | WsWorkspaceUpdatedEvent
   | WsAgentStartedEvent
   | WsConfigUpdatedEvent
   | WsHumansUpdatedEvent

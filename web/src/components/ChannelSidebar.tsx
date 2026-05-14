@@ -1,7 +1,7 @@
 /* ChannelSidebar — direct port of V1Sidebar from
    tmp/.../zouk-rethink/v1-conservative.jsx, wired to real workspace data.
 
-   - Header: WORKSPACE eyebrow + Zouk display + N humans · N agents.
+   - Header: WORKSPACE eyebrow + Zouk/server display + N humans · N agents.
    - Search button (placeholder; ⌘K palette is a follow-up).
    - Sections: WORKSPACE (Home/Inbox/Tasks/Agents) / CHANNELS / PEOPLE.
    - Channel rows show inline live-agent dots + ember unread pill.
@@ -731,6 +731,8 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
         <ViewHeader
           variant="sidebar"
           title="Zouk"
+          mergeWorkspaceTitle
+          showWorkspaceSwitcher={false}
           meta={
             <span className="zk-row" style={{ gap: 6, alignItems: 'center' }}>
               <span
