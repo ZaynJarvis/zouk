@@ -141,6 +141,7 @@ export function useAppStore() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
   const [agentProfileId, setAgentProfileId] = useState<string | null>(null);
+  const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'config'>('profile');
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -941,6 +942,7 @@ export function useAppStore() {
       setRightPanel(null);
       setAgentSettingsId(null);
       setAgentProfileId(null);
+      setAgentProfileTab('profile');
       setChannelSettingsId(null);
     } else if (rightPanel === 'thread') {
       setRightPanel(null);
@@ -956,6 +958,7 @@ export function useAppStore() {
       setThreadMessages([]);
       setAgentSettingsId(null);
       setAgentProfileId(null);
+      setAgentProfileTab('profile');
       setChannelSettingsId(null);
     }
   }, []);
@@ -1007,6 +1010,7 @@ export function useAppStore() {
 
   const closeAgentProfileRail = useCallback(() => {
     setAgentProfileId(null);
+    setAgentProfileTab('profile');
     // Mobile route uses `rightPanel='agent_profile'`. Clear it so the modal
     // unmounts. No-op on desktop where rightPanel was already null.
     setRightPanel((current) => current === 'agent_profile' ? null : current);
@@ -1014,6 +1018,7 @@ export function useAppStore() {
 
   const openAgentProfile = useCallback((agentId: string) => {
     setAgentProfileId(agentId);
+    setAgentProfileTab('profile');
     // On desktop the right rail morphs into the AGENT view by reacting to
     // `agentProfileId`; close any other right panel so the rail can claim
     // the space, and expand the rail if it was collapsed to the peek strip
@@ -1033,10 +1038,20 @@ export function useAppStore() {
   }, [closeSidebarOnMobile, setNowRailHidden]);
 
   const openAgentSettings = useCallback((agentId: string) => {
-    setAgentSettingsId(agentId);
-    setRightPanel('agent_settings');
+    setAgentProfileId(agentId);
+    setAgentProfileTab('config');
+    setAgentSettingsId(null);
+    if (isMobileViewport()) {
+      setRightPanel('agent_profile');
+    } else {
+      setRightPanel(null);
+      setActiveThreadMessage(null);
+      setThreadMessages([]);
+      setChannelSettingsId(null);
+      setNowRailHidden(false);
+    }
     closeSidebarOnMobile();
-  }, [closeSidebarOnMobile]);
+  }, [closeSidebarOnMobile, setNowRailHidden]);
 
   const openChannelSettings = useCallback((channelId: string) => {
     setChannelSettingsId(channelId);
@@ -1340,7 +1355,7 @@ export function useAppStore() {
     agentDetailTab, setAgentDetailTab,
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
-    agentProfileId, setAgentProfileId, openAgentProfile, openAgentSettings,
+    agentProfileId, setAgentProfileId, agentProfileTab, setAgentProfileTab, openAgentProfile, openAgentSettings,
     channelSettingsId, openChannelSettings,
     activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,

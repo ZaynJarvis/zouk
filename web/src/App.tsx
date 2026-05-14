@@ -7,6 +7,7 @@ import TopBar from './components/TopBar';
 import MessageList from './components/MessageList';
 import MessageComposer from './components/MessageComposer';
 import RightPanel from './components/RightPanel';
+import ThreadPanel from './components/ThreadPanel';
 import AgentStatus, { AgentStatusPeek } from './components/AgentStatus';
 import AgentProfilePanel from './components/AgentProfilePanel';
 import PinnedRail from './components/PinnedRail';
@@ -49,11 +50,16 @@ function OvWhitelistSync({ whitelist }: { whitelist: string[] }) {
 
 function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId } = useApp();
-  const rightPanelRef = useRef<HTMLDivElement | null>(null);
+  const threadRailRef = useRef<HTMLDivElement | null>(null);
+  const [mobileSurface, setMobileSurface] = useState(() => isMobileViewport());
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
 
   useEffect(() => {
-    const onResize = () => { if (isMobileViewport()) setSidebarOpen(false); };
+    const onResize = () => {
+      const nextMobile = isMobileViewport();
+      setMobileSurface(nextMobile);
+      if (nextMobile) setSidebarOpen(false);
+    };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [setSidebarOpen]);
@@ -71,17 +77,16 @@ function AppShell() {
     }, 180);
   };
 
-  // Thread panel: click outside the panel closes it (same as the × button).
+  // Desktop thread rail: click outside the panel closes it (same as the × button).
   // Attached in the capture phase so it runs before React's bubble-phase onClick.
   // That ordering lets `openThread` on a different message re-open the panel
-  // cleanly after this listener closes the current one. On mobile the panel is
-  // full-width so "outside" clicks naturally don't happen; touch scrolls never
-  // fire `click`, so they don't misfire a close.
-  // Only wired for 'thread'; other right panels keep their explicit-close UX.
+  // cleanly after this listener closes the current one. On mobile the thread
+  // panel remains full-screen, so "outside" clicks naturally don't happen.
   useEffect(() => {
     if (rightPanel !== 'thread') return;
+    if (mobileSurface) return;
     const onClickOutside = (e: MouseEvent) => {
-      const panel = rightPanelRef.current;
+      const panel = threadRailRef.current;
       if (!panel) return;
       const target = e.target as Node | null;
       if (target && panel.contains(target)) return;
@@ -89,7 +94,7 @@ function AppShell() {
     };
     document.addEventListener('click', onClickOutside, true);
     return () => document.removeEventListener('click', onClickOutside, true);
-  }, [rightPanel, closeRightPanel]);
+  }, [rightPanel, closeRightPanel, mobileSurface]);
 
   if (!isLoggedIn) {
     return <LoginScreen />;
@@ -103,10 +108,11 @@ function AppShell() {
   // hosts the workspace nav row), so they are no longer gated on
   // showChannelSidebar.
   const showChannelSidebarDesktop = showMessageView;
-  // AgentStatus panel shows by default on the right when in a conversation, no other
-  // panel is open, and we have desktop width. Mobile keeps the right column
-  // free for the message stream.
-  const showNowRail = showMessageView && !rightPanel;
+  // AgentStatus panel shows by default on the right when in a conversation.
+  // Desktop threads reuse the same right rail; other modal panels still own
+  // the overlay path. Mobile keeps the right column free for the message stream.
+  const showRightRail = showMessageView && (!rightPanel || rightPanel === 'thread');
+  const showOverlayPanel = !!rightPanel && (rightPanel !== 'thread' || mobileSurface);
 
   return (
     <div
@@ -189,39 +195,46 @@ function AppShell() {
               {viewMode === 'tasks' && <TasksView />}
               {viewMode === 'memory' && <MemoryView />}
             </div>
-            {/* Contextual right panels (thread / details / etc.). On phone
+            {/* Contextual right panels (details / settings / mobile thread). On phone
                 we position fixed inset-0 so the panel covers TopBar (z-30)
                 without the layout-shift cost of unmounting the bar. Desktop
-                keeps the in-column absolute placement so the 30vw panel
-                shares width with the message list. */}
-            <div
-              className={
-                rightPanel
-                  ? 'fixed inset-0 z-30 flex pointer-events-none lg:absolute lg:inset-y-0 lg:left-auto lg:right-0 lg:z-20'
-                  : 'absolute inset-y-0 right-0 z-20 flex pointer-events-none'
-              }
-            >
-              <div ref={rightPanelRef} className="pointer-events-auto h-full shadow-2xl">
-                <RightPanel />
+                keeps the in-column absolute placement for non-rail panels.
+                Threads are hidden here on desktop and rendered in the unified
+                right rail below. */}
+            {showOverlayPanel && (
+              <div
+                className={
+                  rightPanel === 'thread'
+                    ? 'fixed inset-0 z-40 flex pointer-events-none lg:hidden'
+                    : 'fixed inset-0 z-40 flex pointer-events-none lg:absolute lg:inset-y-0 lg:left-auto lg:right-0 lg:z-20'
+                }
+              >
+                <div className="pointer-events-auto h-full shadow-2xl">
+                  <RightPanel />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Right rail — default right column on lg+ when no other panel is
-              up. Three states share the same animated container so width
+          {/* Right rail — default right column on lg+. Conversation-adjacent
+              content (LIVE, AGENT tabs, desktop THREAD) shares the same
+              animated container so width
               transitions smoothly:
                 - LIVE: 320px, renders AgentStatus
                 - AGENT: clamp(340px, 30vw, 520px), renders AgentProfilePanel inline
+                - THREAD: min(760px, 46vw), renders ThreadPanel inline
                 - Collapsed: 24px AgentStatusPeek strip (user-toggled)
-              Width transitions to 0 (instead of unmounting) when a thread /
-              workspace / settings panel opens, preventing the abrupt layout
-              shift on toggle. Mobile uses the legacy rightPanel='agent_profile'
-              full-screen modal — the rail is desktop-only. */}
+              Width transitions to 0 (instead of unmounting) when workspace /
+              channel settings panels open, preventing abrupt layout shifts on
+              toggle. Mobile uses the rightPanel full-screen modal path — the
+              rail is desktop-only. */}
           <div
             className="hidden lg:block overflow-hidden"
             style={{
-              width: !showNowRail
+              width: !showRightRail
                 ? 0
+                : rightPanel === 'thread'
+                  ? 'min(760px, 46vw)'
                 : nowRailHidden
                   ? 24
                   : agentProfileId
@@ -231,10 +244,16 @@ function AppShell() {
               transition: 'width 200ms var(--zk-ease-out)',
             }}
           >
-            {nowRailHidden
+            {rightPanel === 'thread'
+              ? (
+                <div ref={threadRailRef} className="h-full shadow-2xl">
+                  <ThreadPanel />
+                </div>
+              )
+              : nowRailHidden
               ? <AgentStatusPeek />
               : agentProfileId
-                ? <AgentProfilePanel inline />
+                ? <AgentProfilePanel key={agentProfileId} inline />
                 : <AgentStatus />}
           </div>
         </div>
