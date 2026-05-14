@@ -13,7 +13,10 @@ const fs = require('fs');
 const path = require('path');
 
 const DATABASE_URL = process.env.DATABASE_URL || '';
-const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '800', 10);
+// Boot-from-DB only seeds the in-memory threading index and delivery routing
+// windows; it is NOT a read cache. History fetches always go to DB now, so 500
+// is enough to cover recent active threads / agents without slowing startup.
+const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '500', 10);
 const DEFAULT_WORKSPACE_ID = 'default';
 
 // pg 8.x's connection-string parser leaks the surrounding `[...]` brackets
@@ -163,6 +166,9 @@ async function saveMessage(msg) {
   }
 }
 
+// Bootstrap-only: returns the last N messages globally (seq ASC) to seed the
+// in-memory threading index, per-channel cache tails, and delivery routing.
+// Read paths do NOT use this — use the cursor-based helpers below instead.
 async function loadMessages(limit = MESSAGE_BOOTSTRAP_LIMIT) {
   if (!pool) return [];
   try {
@@ -173,6 +179,233 @@ async function loadMessages(limit = MESSAGE_BOOTSTRAP_LIMIT) {
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] loadMessages error:', e.message);
+    return [];
+  }
+}
+
+// Resolve a message by full id. Used to translate the `before`/`after` message
+// ID params on /api/messages into a seq cursor before paginating, and for task
+// claim's by-id lookup.
+async function getMessageById(id) {
+  if (!pool || !id) return null;
+  try {
+    const { rows } = await pool.query('SELECT * FROM messages WHERE id = $1 LIMIT 1', [id]);
+    return rows[0] ? rowToMessage(rows[0]) : null;
+  } catch (e) {
+    console.error('[db] getMessageById error:', e.message);
+    return null;
+  }
+}
+
+// Prefix lookup over `messages.id` — backs the agent's 8-char-shortid claim
+// path. The PK btree supports LIKE 'prefix%' efficiently. Caller checks
+// ambiguity (rows.length > 1) and visibility.
+async function findMessagesByIdPrefix({ prefix, workspaceId = null, limit = 2 }) {
+  if (!pool || !prefix) return [];
+  try {
+    const pattern = `${prefix}%`;
+    const { rows } = workspaceId
+      ? await pool.query(
+          `SELECT * FROM messages WHERE workspace_id = $1 AND id LIKE $2 ORDER BY seq DESC LIMIT $3`,
+          [workspaceId, pattern, limit]
+        )
+      : await pool.query(
+          `SELECT * FROM messages WHERE id LIKE $1 ORDER BY seq DESC LIMIT $2`,
+          [pattern, limit]
+        );
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] findMessagesByIdPrefix error:', e.message);
+    return [];
+  }
+}
+
+// Primary history-fetch helper. Returns messages in seq ASC order so callers
+// can append as a contiguous page. `beforeSeq` / `afterSeq` are exclusive
+// bounds; pass null/undefined to skip the bound. Uses the composite
+// (workspace_id, channel_id, seq) index.
+async function queryMessages({ workspaceId, channelId, threadId = null, threadIdFilter = 'auto', beforeSeq = null, afterSeq = null, limit = 100 }) {
+  if (!pool) return [];
+  try {
+    const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
+    // threadIdFilter semantics:
+    //   'auto' (default): if threadId provided → filter to that thread; else
+    //     filter to main-channel messages only (thread_id IS NULL). Matches
+    //     parseTarget+matchesTarget behavior — main view excludes replies.
+    //   'any': no thread filter (return both main + reply messages). Used by
+    //     paths that don't care, like agent /search.
+    let threadClause = '';
+    const params = [wsId, channelId];
+    if (threadIdFilter === 'auto') {
+      if (threadId) {
+        params.push(threadId);
+        threadClause = `AND thread_id = $${params.length}`;
+      } else {
+        threadClause = 'AND thread_id IS NULL';
+      }
+    }
+    params.push(beforeSeq);
+    const beforeIdx = params.length;
+    params.push(afterSeq);
+    const afterIdx = params.length;
+    params.push(limit);
+    const limitIdx = params.length;
+    // Inner ORDER BY DESC + outer ORDER BY ASC gives us "last N before cursor"
+    // returned oldest-first, matching what frontend expects to prepend/append.
+    const { rows } = await pool.query(
+      `SELECT * FROM (
+         SELECT * FROM messages
+          WHERE workspace_id = $1 AND channel_id = $2
+            ${threadClause}
+            AND ($${beforeIdx}::bigint IS NULL OR seq < $${beforeIdx})
+            AND ($${afterIdx}::bigint IS NULL OR seq > $${afterIdx})
+          ORDER BY seq DESC LIMIT $${limitIdx}
+       ) sub ORDER BY seq ASC`,
+      params
+    );
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] queryMessages error:', e.message);
+    return [];
+  }
+}
+
+// Window-around-a-message variant for the agent /history `around` mode. Returns
+// up to `limit` messages centered on `centerSeq` (half before, half after,
+// inclusive of the center message itself).
+async function queryMessagesAround({ workspaceId, channelId, centerSeq, limit = 50 }) {
+  if (!pool) return [];
+  try {
+    const half = Math.floor(limit / 2);
+    const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
+    const { rows } = await pool.query(
+      `(SELECT * FROM messages
+         WHERE workspace_id = $1 AND channel_id = $2 AND seq < $3
+         ORDER BY seq DESC LIMIT $4)
+       UNION ALL
+       (SELECT * FROM messages
+         WHERE workspace_id = $1 AND channel_id = $2 AND seq >= $3
+         ORDER BY seq ASC LIMIT $5)
+       ORDER BY seq ASC`,
+      [wsId, channelId, centerSeq, half, half + 1]
+    );
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] queryMessagesAround error:', e.message);
+    return [];
+  }
+}
+
+// Agent receive (check_messages) helper. Returns messages newer than `sinceSeq`
+// across the agent's subscribed channels, in seq ASC order. Visibility filtering
+// (DM membership, self-exclusion) still happens in-process after fetch.
+async function queryMessagesForAgent({ workspaceId, channelIds, sinceSeq = 0, limit = 200 }) {
+  if (!pool || !Array.isArray(channelIds) || channelIds.length === 0) return [];
+  try {
+    const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
+    const { rows } = await pool.query(
+      `SELECT * FROM messages
+        WHERE workspace_id = $1 AND channel_id = ANY($2::text[]) AND seq > $3
+        ORDER BY seq ASC LIMIT $4`,
+      [wsId, channelIds, sinceSeq, limit]
+    );
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] queryMessagesForAgent error:', e.message);
+    return [];
+  }
+}
+
+// Keyword search across an agent's visible channels. ILIKE on a 1M-row table
+// without a trigram/FTS index runs ~100ms at our scale — acceptable for the
+// low-QPS agent search path. Add a GIN trgm index later if it gets hot.
+async function searchMessages({ workspaceId, channelIds, keyword, limit = 50 }) {
+  if (!pool || !keyword) return [];
+  try {
+    const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
+    const hasChannelFilter = Array.isArray(channelIds) && channelIds.length > 0;
+    const sql = hasChannelFilter
+      ? `SELECT * FROM messages
+           WHERE workspace_id = $1 AND channel_id = ANY($2::text[]) AND content ILIKE $3
+           ORDER BY seq DESC LIMIT $4`
+      : `SELECT * FROM messages
+           WHERE workspace_id = $1 AND content ILIKE $2
+           ORDER BY seq DESC LIMIT $3`;
+    const params = hasChannelFilter
+      ? [wsId, channelIds, `%${keyword}%`, limit]
+      : [wsId, `%${keyword}%`, limit];
+    const { rows } = await pool.query(sql, params);
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] searchMessages error:', e.message);
+    return [];
+  }
+}
+
+// Thread reply lookup for the cache-miss path in formatMessageForClient /
+// agentDeliveryRouter (when the parent is older than the bootstrap window).
+async function queryThreadReplies({ threadId, channelId, limit = 50 }) {
+  if (!pool || !threadId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM messages
+        WHERE thread_id = $1 AND channel_id = $2
+        ORDER BY seq ASC LIMIT $3`,
+      [threadId, channelId, limit]
+    );
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] queryThreadReplies error:', e.message);
+    return [];
+  }
+}
+
+// Targeted UPDATE for task-related message columns. Replaces the previous
+// read-mutate-save pattern that depended on the message being in store.messages.
+async function updateMessageTaskFields({ id, taskNumber, taskStatus, taskAssigneeId, taskAssigneeType }) {
+  if (!pool || !id) return;
+  try {
+    await pool.query(
+      `UPDATE messages
+          SET task_number = $1,
+              task_status = $2,
+              task_assignee_id = $3,
+              task_assignee_type = $4
+        WHERE id = $5`,
+      [taskNumber || null, taskStatus || null, taskAssigneeId || null, taskAssigneeType || null, id]
+    );
+  } catch (e) {
+    console.error('[db] updateMessageTaskFields error:', e.message);
+  }
+}
+
+// One-shot aggregate for /api/tasks createdAt/updatedAt derivation. Bootstrap
+// only — incremental updates happen in-process in appendMessage.
+async function loadTaskMessageTimes(workspaceId = null) {
+  if (!pool) return [];
+  try {
+    const { rows } = workspaceId
+      ? await pool.query(
+          `SELECT task_number, MIN(created_at) AS created_at, MAX(created_at) AS updated_at
+             FROM messages
+            WHERE task_number IS NOT NULL AND workspace_id = $1
+            GROUP BY task_number`,
+          [workspaceId]
+        )
+      : await pool.query(
+          `SELECT workspace_id, task_number, MIN(created_at) AS created_at, MAX(created_at) AS updated_at
+             FROM messages
+            WHERE task_number IS NOT NULL
+            GROUP BY workspace_id, task_number`
+        );
+    return rows.map((row) => ({
+      workspaceId: row.workspace_id || workspaceId || DEFAULT_WORKSPACE_ID,
+      taskNumber: row.task_number,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (e) {
+    console.error('[db] loadTaskMessageTimes error:', e.message);
     return [];
   }
 }
@@ -909,6 +1142,15 @@ module.exports = {
   splitSqlStatements,
   saveMessage,
   loadMessages,
+  getMessageById,
+  findMessagesByIdPrefix,
+  queryMessages,
+  queryMessagesAround,
+  queryMessagesForAgent,
+  searchMessages,
+  queryThreadReplies,
+  updateMessageTaskFields,
+  loadTaskMessageTimes,
   saveChannel,
   deleteChannel,
   loadChannels,

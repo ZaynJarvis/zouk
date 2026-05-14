@@ -53,6 +53,10 @@ export default function MessageList() {
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingInitialScrollRef = useRef(true);
   const preservedScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  // Set by the restore-scroll useLayoutEffect when it puts the user back at
+  // their pre-loadOlder reading position; consumed by the auto-scroll useEffect
+  // below so it skips the otherwise-blind scrollToBottom on a length increase.
+  const justRestoredScrollRef = useRef(false);
   const channelMessages = messages.filter((m) => m.channel_type !== 'thread');
 
   useEffect(() => {
@@ -86,12 +90,23 @@ export default function MessageList() {
     const container = containerRef.current;
     if (container) {
       const delta = container.scrollHeight - snap.scrollHeight;
-      if (delta > 0) container.scrollTop = snap.scrollTop + delta;
+      if (delta > 0) {
+        container.scrollTop = snap.scrollTop + delta;
+        // Only suppress the next auto-scroll when we actually moved the
+        // viewport — if loadOlder returned 0 rows (delta=0), no scroll
+        // happened and the flag would otherwise leak forward and swallow
+        // the next legitimate scroll-to-bottom on a new incoming message.
+        justRestoredScrollRef.current = true;
+      }
     }
     preservedScrollRef.current = null;
   }, [channelMessages.length, loadingOlderMessages]);
 
   useEffect(() => {
+    if (justRestoredScrollRef.current) {
+      justRestoredScrollRef.current = false;
+      return;
+    }
     if (preservedScrollRef.current) return;
     if (channelMessages.length === 0) return;
     if (pendingInitialScrollRef.current) {
