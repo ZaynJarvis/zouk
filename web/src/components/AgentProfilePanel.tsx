@@ -10,14 +10,16 @@ import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { agentAvatarStatus, agentLifecycle, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
+import AgentConfigForm from './agent/AgentConfigForm';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
 
-type Tab = 'profile' | 'workspace';
+type Tab = 'profile' | 'workspace' | 'config';
 
 const TAB_CONFIG: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: 'profile', label: 'PROFILE', icon: UserIcon },
   { key: 'workspace', label: 'MEM', icon: Brain },
+  { key: 'config', label: 'CONFIG', icon: SettingsIcon },
 ];
 
 function ProfileTab({ agent }: { agent: ServerAgent }) {
@@ -355,8 +357,30 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
   );
 }
 
+function ConfigTab({ agent }: { agent: ServerAgent }) {
+  const { machines, stopAgent, deleteAgent, closeAgentProfileRail, setAgentProfileId } = useApp();
+
+  const handleDelete = async () => {
+    const label = agent.displayName || agent.name;
+    if (!window.confirm(`Delete agent ${label}? This removes the saved config and disconnects the running agent.`)) return;
+    await deleteAgent(agent.id);
+    setAgentProfileId(null);
+    closeAgentProfileRail();
+  };
+
+  return (
+    <AgentConfigForm
+      agent={agent}
+      machines={machines}
+      onStop={() => stopAgent(agent.id)}
+      onDelete={handleDelete}
+      compact
+    />
+  );
+}
+
 /**
- * Renders the agent profile (PROFILE / MEM tabs) for the right rail or the
+ * Renders the agent profile (PROFILE / MEM / CONFIG tabs) for the right rail or the
  * mobile full-screen right panel.
  *
  * - `inline` (default false): used inside `RightRail` on desktop. The rail
@@ -371,8 +395,9 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
  * also clears `rightPanel='agent_profile'` so the modal unmounts.
  */
 export default function AgentProfilePanel({ inline = false }: { inline?: boolean }) {
-  const { agents, configs, closeAgentProfileRail, agentProfileId, openAgentSettings } = useApp();
-  const [tab, setTab] = useState<Tab>('profile');
+  const { agents, configs, closeAgentProfileRail, agentProfileId, agentProfileTab, setAgentProfileTab } = useApp();
+  const tab = agentProfileTab as Tab;
+  const setTab = (next: Tab) => setAgentProfileTab(next);
 
   const liveAgent = agents.find((a) => a.id === agentProfileId);
   const config = configs.find((c) => c.id === agentProfileId);
@@ -390,7 +415,15 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
     autoStart: config.autoStart,
     instructions: config.instructions,
     skills: config.skills,
+    lifecycle: config.lifecycle,
+    envVars: config.envVars,
     workDir: config.workDir,
+    ovEnabled: config.ovEnabled,
+    ovEnabledIsDefault: config.ovEnabledIsDefault,
+    ovDefault: config.ovDefault,
+    openvikingProvisioned: config.openvikingProvisioned,
+    openvikingMode: config.openvikingMode,
+    openvikingCustomConfigured: config.openvikingCustomConfigured,
     status: 'inactive',
     activity: 'offline',
   } : null);
@@ -421,7 +454,7 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
       className={outerClass}
       style={{ background: 'var(--zk-bg-0)' }}
     >
-      {/* Single header row: PROFILE / FILES tabs + close button share the
+      {/* Single header row: PROFILE / MEM / CONFIG tabs + close button share the
           row to save vertical space; tab height drives the close-button
           height so they align. safe-area-inset-top padding keeps the row
           below the iOS notch on phone PWA where this panel covers the full
@@ -446,13 +479,6 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
           </button>
         ))}
         <button
-          onClick={() => openAgentSettings(agent.id)}
-          className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-cyan transition-colors shrink-0"
-          title="Config"
-        >
-          <SettingsIcon size={14} />
-        </button>
-        <button
           onClick={closeAgentProfileRail}
           className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-red transition-colors shrink-0"
           title="Close"
@@ -464,6 +490,7 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
       <div className="flex-1 min-h-0 flex flex-col">
         {tab === 'profile' && <ProfileTab agent={agent} />}
         {tab === 'workspace' && <WorkspaceTab agent={agent} />}
+        {tab === 'config' && <ConfigTab key={agent.id} agent={agent} />}
       </div>
     </div>
   );
