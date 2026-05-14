@@ -12,6 +12,7 @@ import {
 } from '../lib/mentions';
 import { agentStatus, humanStatus } from '../lib/avatarStatus';
 import FailableImage from './FailableImage';
+import type { ServerHuman } from '../types';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // mirrors server multer limit
 
@@ -37,7 +38,10 @@ function findAnchorAt(text: string, cursorPos: number): number {
 }
 
 export default function MessageComposer({ threadTarget, placeholder }: { threadTarget?: string; placeholder?: string }) {
-  const { sendMessage, activeChannelName, viewMode, agents, humans, isGuest, addToast, closeRightPanel } = useApp();
+  const {
+    sendMessage, activeChannelName, viewMode, agents, humans, isGuest, addToast, closeRightPanel,
+    workspaceMembers, activeWorkspaceId, currentUser, authUser,
+  } = useApp();
   const draftKey = threadTarget ?? `${viewMode}:${activeChannelName}`;
   const draftsRef = useRef<Map<string, string>>(new Map());
   const [text, setText] = useState(() => draftsRef.current.get(draftKey) ?? '');
@@ -92,11 +96,45 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
         status: agentStatus(a),
       });
     }
+    // Restrict humans to the active workspace's roster. The global `humans`
+    // stream is workspace-agnostic (every account that ever logged in
+    // anywhere), so in private workspaces falling back to it would surface
+    // accounts that are not members. Default workspace is the public lobby
+    // and unions in online presences.
+    const isDefaultWorkspace = activeWorkspaceId === 'default';
+    const byName = new Map<string, ServerHuman>();
+    for (const m of workspaceMembers) {
+      const displayName = (m.name && m.name.trim()) || m.email.split('@')[0];
+      if (!byName.has(displayName)) {
+        byName.set(displayName, {
+          id: `member:${m.email}`,
+          name: displayName,
+          online: false,
+        });
+      }
+    }
+    for (const h of humans) {
+      if (byName.has(h.name)) {
+        byName.set(h.name, { ...byName.get(h.name)!, ...h });
+      } else if (isDefaultWorkspace) {
+        byName.set(h.name, h);
+      }
+    }
+    if (currentUser && !byName.has(currentUser)) {
+      byName.set(currentUser, {
+        id: `self:${currentUser}`,
+        name: currentUser,
+        picture: authUser?.picture ?? undefined,
+        gravatarUrl: authUser?.gravatarUrl ?? undefined,
+        online: true,
+      });
+    }
+    const allHumans = [...byName.values()];
     // Online humans first so the most useful targets surface at the top of the
     // dropdown; offline (logged-in-before but not currently connected) humans
     // are still selectable.
-    const onlineH = humans.filter((h) => h.online !== false);
-    const offlineH = humans.filter((h) => h.online === false);
+    const onlineH = allHumans.filter((h) => h.online !== false);
+    const offlineH = allHumans.filter((h) => h.online === false);
     for (const h of [...onlineH, ...offlineH]) {
       targets.push({
         label: h.name,
@@ -109,7 +147,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       });
     }
     return targets;
-  }, [agents, humans]);
+  }, [agents, humans, workspaceMembers, activeWorkspaceId, currentUser, authUser]);
 
   const mentionMatches = useMemo(() => {
     if (mentionQuery === null) return [];

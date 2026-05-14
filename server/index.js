@@ -1726,7 +1726,13 @@ function upsertAllTimeHuman(human) {
 
 function broadcastHumans() {
   store.humans = currentHumans();
-  broadcastToWeb({ type: "humans_updated", humans: store.humans });
+  // Strip base64 `picture` from mid-session humans_updated frames — they fan
+  // out to every viewer and balloon the broadcast. Clients keep their cached
+  // picture for known humans and pick up changes on next `init` (reconnect /
+  // reload). The machine that actually changed the avatar updates locally via
+  // the optimistic patch in `updateCurrentUser`.
+  const slim = store.humans.map(({ picture: _picture, ...rest }) => rest);
+  broadcastToWeb({ type: "humans_updated", humans: slim });
 }
 
 function broadcastWorkspaceMembers(workspaceId) {
