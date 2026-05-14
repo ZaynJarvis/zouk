@@ -55,8 +55,6 @@ CREATE TABLE IF NOT EXISTS channels (
   description TEXT NOT NULL DEFAULT '',
   type        TEXT NOT NULL DEFAULT 'channel'
 );
-ALTER TABLE channels ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-ALTER TABLE channels DROP CONSTRAINT IF EXISTS channels_name_key;
 CREATE UNIQUE INDEX IF NOT EXISTS channels_workspace_type_name_unique_idx
   ON channels (workspace_id, type, name);
 
@@ -149,8 +147,6 @@ CREATE TABLE IF NOT EXISTS email_allowlist (
   added_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   added_by   TEXT
 );
-ALTER TABLE email_allowlist ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-ALTER TABLE email_allowlist DROP CONSTRAINT IF EXISTS email_allowlist_pkey;
 CREATE UNIQUE INDEX IF NOT EXISTS email_allowlist_workspace_email_unique_idx
   ON email_allowlist (workspace_id, email);
 
@@ -185,48 +181,3 @@ CREATE INDEX IF NOT EXISTS channel_agents_agent_idx
   ON channel_agents (agent_id);
 CREATE INDEX IF NOT EXISTS channel_agents_workspace_agent_idx
   ON channel_agents (workspace_id, agent_id);
-
--- First-version multi-server bootstrap. This intentionally keeps old rows in
--- the default server so deploy one can migrate data, and deploy two can remove
--- the one-shot backfill once all rows are explicitly scoped.
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-ALTER TABLE messages ADD COLUMN IF NOT EXISTS channel_id TEXT;
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-ALTER TABLE machine_keys ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-ALTER TABLE agent_profile_presets ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-ALTER TABLE channel_agents ADD COLUMN IF NOT EXISTS workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE;
-UPDATE channels SET workspace_id = 'default' WHERE workspace_id IS NULL;
-UPDATE messages SET workspace_id = 'default' WHERE workspace_id IS NULL;
-UPDATE tasks SET workspace_id = 'default' WHERE workspace_id IS NULL;
-UPDATE machine_keys SET workspace_id = 'default' WHERE workspace_id IS NULL;
-UPDATE agent_configs SET workspace_id = 'default' WHERE workspace_id IS NULL;
-UPDATE agent_profile_presets SET workspace_id = 'default' WHERE workspace_id IS NULL;
-UPDATE email_allowlist SET workspace_id = 'default' WHERE workspace_id IS NULL;
-UPDATE channel_agents SET workspace_id = 'default' WHERE workspace_id IS NULL;
-INSERT INTO channels (id, workspace_id, name, description, type)
-SELECT
-  'ch-' || md5(m.workspace_id || ':' || m.channel_type || ':' || m.channel_name),
-  m.workspace_id,
-  m.channel_name,
-  CASE WHEN m.channel_type = 'dm' THEN 'Direct message' ELSE '' END,
-  m.channel_type
-FROM (
-  SELECT DISTINCT workspace_id, channel_name, channel_type
-  FROM messages
-  WHERE channel_id IS NULL
-) m
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM channels c
-  WHERE c.workspace_id = m.workspace_id
-    AND c.name = m.channel_name
-    AND c.type = m.channel_type
-);
-UPDATE messages m
-SET channel_id = c.id
-FROM channels c
-WHERE m.channel_id IS NULL
-  AND c.workspace_id = m.workspace_id
-  AND c.name = m.channel_name
-  AND c.type = m.channel_type;
