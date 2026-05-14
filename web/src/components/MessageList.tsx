@@ -90,10 +90,16 @@ export default function MessageList() {
     const container = containerRef.current;
     if (container) {
       const delta = container.scrollHeight - snap.scrollHeight;
-      if (delta > 0) container.scrollTop = snap.scrollTop + delta;
+      if (delta > 0) {
+        container.scrollTop = snap.scrollTop + delta;
+        // Only suppress the next auto-scroll when we actually moved the
+        // viewport — if loadOlder returned 0 rows (delta=0), no scroll
+        // happened and the flag would otherwise leak forward and swallow
+        // the next legitimate scroll-to-bottom on a new incoming message.
+        justRestoredScrollRef.current = true;
+      }
     }
     preservedScrollRef.current = null;
-    justRestoredScrollRef.current = true;
   }, [channelMessages.length, loadingOlderMessages]);
 
   useEffect(() => {
