@@ -230,6 +230,7 @@ export async function startAgent(config: {
   workDir?: string;
   channels?: string[];
   lifecycle?: 'persistent' | 'ephemeral';
+  openvikingEnabled?: boolean;
 }): Promise<{ agent: { id: string; name: string } }> {
   const url = `${getBaseUrl()}/api/agents/start`;
   const res = await fetch(url, {
@@ -333,6 +334,7 @@ export async function getAuthConfig(): Promise<{
   allowlistActive?: boolean;
   supabaseUrl?: string | null;
   supabaseAnonKey?: string | null;
+  ovRuntimeWhitelist?: string[];
 }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/config`, { headers: getWorkspaceHeaders() });
   if (!res.ok) throw new Error('Failed to fetch auth config');

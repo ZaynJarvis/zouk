@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Plus, ChevronDown, Server, AlertTriangle, Loader as Loader2 } from 'lucide-react';
+import { X, Plus, ChevronDown, Server, AlertTriangle, Loader as Loader2, Copy, Check, Star } from 'lucide-react';
 import type { ServerMachine } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 import { fetchRuntimeModels, type RuntimeModel } from '../lib/api';
+import { useApp } from '../store/AppContext';
 
 export interface CreateAgentConfig {
   name: string;
@@ -13,6 +14,9 @@ export interface CreateAgentConfig {
   model: string;
   machineId?: string;
   lifecycle: 'persistent' | 'ephemeral';
+  // Omitted = follow server-side runtime default (OV_RUNTIME_WHITELIST).
+  // Explicit boolean = user-set override that persists on the agent.
+  openvikingEnabled?: boolean;
 }
 
 export default function CreateAgentDialog({
@@ -38,6 +42,18 @@ export default function CreateAgentDialog({
   // When true, the user opted into typing a custom model even though the
   // daemon offered a list. Default picks the first suggested model.
   const [customModel, setCustomModel] = useState(false);
+  const [ovInstallCopied, setOvInstallCopied] = useState(false);
+  // `null` = user hasn't touched it; follows the runtime-derived default and
+  // we omit it from the submit payload. Once the user clicks one of the two
+  // buttons, it locks to that boolean and we include it explicitly.
+  const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
+
+  // Server is the source of truth for the OV-recommended runtime list. We use
+  // it to surface a "★ OV" badge + one-liner installer below the runtime row
+  // when one of these is picked.
+  const { ovRuntimeWhitelist } = useApp();
+  const OV_INSTALL_COMMAND =
+    'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/claude-code-memory-plugin/setup-helper/install.sh)';
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId);
   const machineRuntimes = useMemo(() => selectedMachine?.runtimes || [], [selectedMachine]);
@@ -79,6 +95,11 @@ export default function CreateAgentDialog({
   }, [runtime, selectedMachine]);
 
   const canSubmit = name.trim().length > 0 && runtime.length > 0;
+  // Resolved on-screen value: the user's explicit override wins, otherwise
+  // mirror the server-side runtime default. Recomputed when runtime changes
+  // so the visible state matches what would happen on submit.
+  const ovDefaultForRuntime = !!runtime && ovRuntimeWhitelist.includes(runtime);
+  const effectiveOvEnabled = ovEnabledOverride === null ? ovDefaultForRuntime : ovEnabledOverride;
   const handleSubmit = () => {
     if (!canSubmit) return;
     const agentName = name.trim().toLowerCase();
@@ -89,6 +110,10 @@ export default function CreateAgentDialog({
       model: model.trim(),
       machineId: selectedMachine?.id,
       lifecycle,
+      // Only forward when the user touched it. Server applies runtime default
+      // when this field is absent, so the new agent stays untouched DB-wise
+      // for users who don't care about OV.
+      ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
     });
   };
 
@@ -212,27 +237,68 @@ export default function CreateAgentDialog({
             <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">RUNTIME</label>
             {machineRuntimes.length > 0 ? (
               <div className="flex gap-2 flex-wrap">
-                {machineRuntimes.map((rt) => (
-                  <ScanlineTear key={rt} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                    <button
-                      type="button"
-                      onClick={() => setRuntime(rt)}
-                      className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
-                        runtime === rt
-                          ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
-                          : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                      }`}
-                    >
-                      {formatRuntime(rt)}
-                    </button>
-                  </ScanlineTear>
-                ))}
+                {machineRuntimes.map((rt) => {
+                  const isOvRecommended = ovRuntimeWhitelist.includes(rt);
+                  return (
+                    <ScanlineTear key={rt} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setRuntime(rt)}
+                        className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono inline-flex items-center gap-1.5 ${
+                          runtime === rt
+                            ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
+                            : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                        }`}
+                      >
+                        {formatRuntime(rt)}
+                        {isOvRecommended && (
+                          <span
+                            title="Recommended for OpenViking memory integration"
+                            className="inline-flex items-center gap-0.5 text-2xs text-nc-yellow"
+                          >
+                            <Star size={10} className="fill-current" /> OV
+                          </span>
+                        )}
+                      </button>
+                    </ScanlineTear>
+                  );
+                })}
               </div>
             ) : (
               <div className="px-3 py-2 border border-nc-border bg-nc-panel text-xs font-mono text-nc-muted">
                 {selectedMachine
                   ? 'This machine has no runtimes available. Install a supported CLI on the daemon host.'
                   : 'Connect a daemon to see available runtimes.'}
+              </div>
+            )}
+
+            {ovRuntimeWhitelist.includes(runtime) && (
+              <div className="mt-2 border border-nc-yellow/30 bg-nc-yellow/5 p-2.5 text-2xs font-mono space-y-1.5">
+                <div className="flex items-center gap-1.5 text-nc-yellow">
+                  <Star size={10} className="fill-current" />
+                  <span>{formatRuntime(runtime)} is recommended for OpenViking memory integration.</span>
+                </div>
+                <div className="text-nc-muted">Install the memory plugin on the daemon host (one-liner):</div>
+                <div className="flex gap-2">
+                  <code
+                    className="flex-1 px-2 py-1.5 border border-nc-border bg-nc-black text-2xs font-mono text-nc-green break-all select-all"
+                    style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
+                  >
+                    {OV_INSTALL_COMMAND}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(OV_INSTALL_COMMAND);
+                      setOvInstallCopied(true);
+                      setTimeout(() => setOvInstallCopied(false), 2000);
+                    }}
+                    className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-border bg-nc-panel hover:bg-nc-elevated hover:border-nc-cyan shrink-0 text-nc-muted hover:text-nc-cyan"
+                    title="Copy install command"
+                  >
+                    {ovInstallCopied ? <Check size={12} className="text-nc-green" /> : <Copy size={12} />}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -328,6 +394,46 @@ export default function CreateAgentDialog({
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {runtime && (
+            <div>
+              <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
+                <span>OPENVIKING</span>
+                {ovEnabledOverride === null && (
+                  <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">(default for {formatRuntime(runtime)})</span>
+                )}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOvEnabledOverride(true)}
+                  className={`cyber-btn px-2.5 py-2 border font-bold text-xs font-mono ${
+                    effectiveOvEnabled
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                  }`}
+                >
+                  ENABLED
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOvEnabledOverride(false)}
+                  className={`cyber-btn px-2.5 py-2 border font-bold text-xs font-mono ${
+                    !effectiveOvEnabled
+                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                  }`}
+                >
+                  DISABLED
+                </button>
+              </div>
+              <p className="text-2xs text-nc-muted mt-1.5 font-mono">
+                {effectiveOvEnabled
+                  ? 'OV creds will be delivered to the daemon. Configure PROVISIONED / CUSTOM in agent settings after creation.'
+                  : 'OV creds will not be delivered. You can enable later in agent settings.'}
+              </p>
             </div>
           )}
 

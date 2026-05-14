@@ -178,6 +178,7 @@ export function useAppStore() {
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
+  const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
   // Bumps whenever we see a task-bearing system message arrive. TasksView
   // watches this as a "something changed, refetch" signal so the kanban stays
   // live without dedicated polling.
@@ -980,6 +981,7 @@ export function useAppStore() {
     id?: string; name: string; displayName?: string; description?: string;
     runtime: string; model?: string; machineId?: string; channels?: string[];
     lifecycle?: 'persistent' | 'ephemeral';
+    openvikingEnabled?: boolean;
   }) => {
     try {
       await api.startAgent(config);
@@ -1267,6 +1269,7 @@ export function useAppStore() {
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
     allowlistActive, setAllowlistActive,
     supabaseConfig, setSupabaseConfig, hasMagicLinkAuth: !!supabaseConfig,
+    ovRuntimeWhitelist, setOvRuntimeWhitelist,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
     tasksVersion,

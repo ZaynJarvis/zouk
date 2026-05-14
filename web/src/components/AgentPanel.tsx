@@ -194,6 +194,7 @@ export default function AgentsView() {
     model: string;
     machineId?: string;
     lifecycle?: 'persistent' | 'ephemeral';
+    openvikingEnabled?: boolean;
   }) => {
     await startAgent({
       name: config.name,
@@ -202,6 +203,7 @@ export default function AgentsView() {
       model: config.model,
       machineId: config.machineId,
       lifecycle: config.lifecycle,
+      openvikingEnabled: config.openvikingEnabled,
     });
     setShowCreate(false);
   };

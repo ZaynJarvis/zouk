@@ -62,6 +62,17 @@ export interface ServerAgent {
   lifecycle?: 'persistent' | 'ephemeral';
   envVars?: Record<string, string>;
   contextUsage?: AgentContextUsageSnapshot;
+  // OV integration resolved server-side. `ovEnabled` is the effective on/off
+  // (honoring the per-agent `openvikingEnabled` override + runtime default);
+  // `ovEnabledIsDefault` is true when the user hasn't explicitly set the
+  // toggle so UIs can show a "(default)" hint; `ovDefault` is what the
+  // default would resolve to if reset, useful for the same hint.
+  ovEnabled?: boolean;
+  ovEnabledIsDefault?: boolean;
+  ovDefault?: boolean;
+  openvikingProvisioned?: boolean;
+  openvikingMode?: 'provisioned' | 'custom';
+  openvikingCustomConfigured?: boolean;
 }
 
 export interface AgentSkill {
@@ -201,11 +212,19 @@ export interface AgentConfig {
   openvikingUserId?: string | null;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
+  // Per-agent on/off override. `undefined` = follow the runtime default
+  // (server's OV_RUNTIME_WHITELIST). `true`/`false` = user-set explicit value.
+  openvikingEnabled?: boolean | null;
   openvikingCustomUrl?: string | null;
   // Sent by the client when saving (write-only). The server responds with
   // openvikingCustomConfigured instead of echoing the key back.
   openvikingCustomApiKey?: string | null;
   openvikingCustomConfigured?: boolean;
+  // Server-resolved view of openvikingEnabled (honors the runtime default
+  // when openvikingEnabled is unset). Read-only mirror used by UI gates.
+  ovEnabled?: boolean;
+  ovEnabledIsDefault?: boolean;
+  ovDefault?: boolean;
 }
 
 export interface ServerMachine {
