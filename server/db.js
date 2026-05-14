@@ -951,6 +951,20 @@ async function saveWorkspaceMember(member) {
   }
 }
 
+async function deleteWorkspaceMember(workspaceId, email) {
+  if (!pool) return false;
+  try {
+    await pool.query(
+      'DELETE FROM workspace_members WHERE workspace_id=$1 AND email=$2',
+      [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]
+    );
+    return true;
+  } catch (e) {
+    console.error('[db] deleteWorkspaceMember error:', e.message);
+    return false;
+  }
+}
+
 async function loadWorkspaceMembers() {
   if (!pool) return null;
   try {
@@ -1136,6 +1150,7 @@ module.exports = {
   saveWorkspace,
   loadWorkspaces,
   saveWorkspaceMember,
+  deleteWorkspaceMember,
   loadWorkspaceMembers,
   saveTask,
   loadTasks,

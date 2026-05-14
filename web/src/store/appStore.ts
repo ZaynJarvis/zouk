@@ -3,7 +3,7 @@ import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, ColorMode, Toast,
   WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
-  Workspace,
+  Workspace, WorkspaceMember, WorkspaceRole,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -123,6 +123,12 @@ export function useAppStore() {
     { id: 'default', name: 'Default', icon: 'z' },
   ]);
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getStoredActiveWorkspaceId);
+  // Members of the current workspace + caller's role + superuser flag. Driven
+  // by WS init and `workspace:members` broadcasts; mutations go through API
+  // helpers which trigger a server-side broadcast.
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [viewerRole, setViewerRole] = useState<WorkspaceRole | null>(null);
+  const [isSuperuser, setIsSuperuser] = useState<boolean>(false);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
   const [agents, setAgents] = useState<ServerAgent[]>([]);
   const [humans, setHumans] = useState<ServerHuman[]>([]);
@@ -289,11 +295,14 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { workspaceId?: string; workspaces?: Workspace[]; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
+        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
         const nextChannels = e.channels || [];
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
         if (e.workspaces && e.workspaces.length > 0) setWorkspaces(e.workspaces);
+        setWorkspaceMembers(e.workspaceMembers || []);
+        setViewerRole(e.viewerRole ?? null);
+        setIsSuperuser(!!e.isSuperuser);
         const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceId);
         if (workspaceChanged && e.workspaceId) {
           activeWorkspaceRef.current = e.workspaceId;
@@ -557,6 +566,15 @@ export function useAppStore() {
         setHumans(e.humans || []);
         break;
       }
+      case 'workspace:members': {
+        const e = event as { workspaceId?: string; members?: WorkspaceMember[] };
+        // Ignore broadcasts for workspaces we aren't viewing — the server scopes
+        // these per workspace, but a stale event from a workspace switch could
+        // race in just before init re-fires.
+        if (e.workspaceId && e.workspaceId !== activeWorkspaceRef.current) break;
+        setWorkspaceMembers(e.members || []);
+        break;
+      }
       case 'agent_profile_presets_updated': {
         const e = event as { presets: AgentProfilePreset[] };
         setProfilePresets(e.presets || []);
@@ -648,6 +666,8 @@ export function useAppStore() {
     setConfigs([]);
     setMachines([]);
     setProfilePresets([]);
+    setWorkspaceMembers([]);
+    setViewerRole(null);
     setMessages([]);
     setThreadMessages([]);
     setUnreadCounts({});
@@ -672,6 +692,46 @@ export function useAppStore() {
     addToast(`Server ${res.workspace.name} created`, 'success');
     return res.workspace;
   }, [addToast, setActiveWorkspaceId]);
+
+  const inviteWorkspaceMember = useCallback(async (input: { email: string; role: 'admin' | 'member'; name?: string }) => {
+    try {
+      const member = await api.inviteWorkspaceMember(activeWorkspaceRef.current, input);
+      // Optimistic — the server also broadcasts `workspace:members` which
+      // re-syncs the list authoritatively.
+      setWorkspaceMembers(prev => {
+        if (prev.some(m => m.email === member.email)) return prev;
+        return [...prev, member];
+      });
+      addToast(`${member.email} invited`, 'success');
+      return member;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to invite member';
+      addToast(msg, 'error');
+      throw e;
+    }
+  }, [addToast]);
+
+  const updateWorkspaceMemberRole = useCallback(async (email: string, role: WorkspaceRole) => {
+    try {
+      const member = await api.updateWorkspaceMemberRole(activeWorkspaceRef.current, email, role);
+      setWorkspaceMembers(prev => prev.map(m => m.email === email ? { ...m, role: member.role } : m));
+      addToast(`${email} → ${role}`, 'info');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to update role';
+      addToast(msg, 'error');
+    }
+  }, [addToast]);
+
+  const removeWorkspaceMember = useCallback(async (email: string) => {
+    try {
+      await api.removeWorkspaceMember(activeWorkspaceRef.current, email);
+      setWorkspaceMembers(prev => prev.filter(m => m.email !== email));
+      addToast(`${email} removed`, 'info');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to remove member';
+      addToast(msg, 'error');
+    }
+  }, [addToast]);
 
   useEffect(() => {
     const ws = new SlockWebSocket(serverUrl);
@@ -1227,6 +1287,9 @@ export function useAppStore() {
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
     workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace,
+    workspaceMembers, viewerRole, isSuperuser,
+    canAdminWorkspace: viewerRole === 'root' || viewerRole === 'owner' || viewerRole === 'admin' || isSuperuser,
+    inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
     channels, agents, humans, configs, machines,
     activeChannelName, selectChannel,
     viewMode, setViewMode, navigateToView,
