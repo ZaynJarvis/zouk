@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Save, Square, Play, Globe, Lock, Trash2, Camera, Server,
+  Save, Square, Play, Trash2, Camera, Server,
   Copy, Check, Plus, Minus, Loader2,
 } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../../types';
@@ -29,9 +29,6 @@ export default function AgentConfigForm({
   const savedConfig = configs.find((c) => c.id === agent.id);
   const persistedDisplayName = savedConfig?.displayName ?? agent.displayName ?? agent.name;
   const persistedDescription = savedConfig?.description ?? agent.description ?? '';
-  const persistedVisibility: 'workspace' | 'private' =
-    savedConfig?.visibility ?? agent.visibility ?? 'workspace';
-  const persistedMaxConcurrent = savedConfig?.maxConcurrentTasks ?? agent.maxConcurrentTasks ?? 6;
   const persistedLifecycle: 'persistent' | 'ephemeral' =
     savedConfig?.lifecycle === 'ephemeral'
       ? 'ephemeral'
@@ -52,11 +49,11 @@ export default function AgentConfigForm({
   const persistedOvEnabledResolved = typeof agent.ovEnabled === 'boolean' ? agent.ovEnabled : false;
   const persistedOvIsDefault = agent.ovEnabledIsDefault !== false;
   const persistedOvDefault = !!agent.ovDefault;
+  const machine = agent.machineId ? machines?.find((m) => m.id === agent.machineId) : undefined;
+  const machineLabel = machine?.alias || machine?.hostname || agent.machineId;
 
   const [displayName, setDisplayName] = useState(persistedDisplayName);
   const [description, setDescription] = useState(persistedDescription);
-  const [visibility, setVisibility] = useState<'workspace' | 'private'>(persistedVisibility);
-  const [maxConcurrent, setMaxConcurrent] = useState(persistedMaxConcurrent);
   const [lifecycle, setLifecycle] = useState<'persistent' | 'ephemeral'>(persistedLifecycle);
   const [model, setModel] = useState<string>(persistedModel);
   const [idCopied, setIdCopied] = useState(false);
@@ -148,8 +145,6 @@ export default function AgentConfigForm({
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
-    visibility !== persistedVisibility ||
-    maxConcurrent !== persistedMaxConcurrent ||
     lifecycle !== persistedLifecycle ||
     model !== persistedModel ||
     envVarsDirty ||
@@ -160,8 +155,7 @@ export default function AgentConfigForm({
     const payload: Record<string, unknown> = {
       displayName,
       description,
-      visibility,
-      maxConcurrentTasks: maxConcurrent,
+      visibility: 'workspace',
       lifecycle,
       model,
       autoStart: true,
@@ -255,20 +249,37 @@ export default function AgentConfigForm({
           )}
         </div>
 
-        {/* DISPLAY_NAME */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">DISPLAY_NAME</label>
-          <input
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-          />
-          {agent.status === 'active' && displayName !== persistedDisplayName && (
-            <p className="text-2xs text-nc-yellow mt-1 font-mono">
-              Renaming a running agent updates the UI immediately, but the agent
-              process keeps its old self-name until you stop and restart it.
-            </p>
-          )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* DISPLAY_NAME */}
+          <div className="min-w-0">
+            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">DISPLAY_NAME</label>
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
+            />
+            {agent.status === 'active' && displayName !== persistedDisplayName && (
+              <p className="text-2xs text-nc-yellow mt-1 font-mono">
+                Renaming a running agent updates the UI immediately, but the agent
+                process keeps its old self-name until you stop and restart it.
+              </p>
+            )}
+          </div>
+
+          {/* AGENT_ID */}
+          <div className="min-w-0">
+            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">AGENT_ID</label>
+            <button
+              type="button"
+              onClick={handleCopyId}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 border border-nc-border bg-nc-elevated hover:bg-nc-panel transition-colors group"
+            >
+              <span className="text-xs font-mono text-nc-muted truncate">{agent.id}</span>
+              <span className="shrink-0 text-nc-muted group-hover:text-nc-cyan transition-colors">
+                {idCopied ? <Check size={12} className="text-nc-green" /> : <Copy size={12} />}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* DESCRIPTION */}
@@ -281,58 +292,6 @@ export default function AgentConfigForm({
             rows={2}
             placeholder="What does this agent do?"
           />
-        </div>
-
-        {/* AGENT_ID */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">AGENT_ID</label>
-          <button
-            type="button"
-            onClick={handleCopyId}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2 border border-nc-border bg-nc-elevated hover:bg-nc-panel transition-colors group"
-          >
-            <span className="text-xs font-mono text-nc-muted truncate">{agent.id}</span>
-            <span className="shrink-0 text-nc-muted group-hover:text-nc-cyan transition-colors">
-              {idCopied ? <Check size={12} className="text-nc-green" /> : <Copy size={12} />}
-            </span>
-          </button>
-        </div>
-
-        {/* VISIBILITY */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">VISIBILITY</label>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setVisibility('workspace')}
-              className={`flex items-center gap-2 border px-2.5 py-2 text-left ${
-                visibility === 'workspace'
-                  ? 'border-nc-cyan bg-nc-cyan/10'
-                  : 'border-nc-border hover:bg-nc-elevated'
-              }`}
-            >
-              <Globe size={14} className="shrink-0 text-nc-cyan" />
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-xs text-nc-text-bright">Workspace</div>
-                <div className="text-2xs text-nc-muted font-mono">All members</div>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setVisibility('private')}
-              className={`flex items-center gap-2 border px-2.5 py-2 text-left ${
-                visibility === 'private'
-                  ? 'border-nc-cyan bg-nc-cyan/10'
-                  : 'border-nc-border hover:bg-nc-elevated'
-              }`}
-            >
-              <Lock size={14} className="shrink-0 text-nc-red" />
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-xs text-nc-text-bright">Private</div>
-                <div className="text-2xs text-nc-muted font-mono">Only you</div>
-              </div>
-            </button>
-          </div>
         </div>
 
         {/* LIFECYCLE */}
@@ -377,34 +336,36 @@ export default function AgentConfigForm({
           </div>
         </div>
 
-        {/* MAX_CONCURRENT_TASKS */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
-            MAX_CONCURRENT_TASKS: <span className="text-nc-cyan">{maxConcurrent}</span>
-          </label>
-          <input
-            type="range"
-            min={1}
-            max={20}
-            value={maxConcurrent}
-            onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-            className="w-full accent-nc-cyan"
-          />
-          <div className="flex justify-between text-xs text-nc-muted mt-1 font-mono">
-            <span>1</span>
-            <span>20</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* RUNTIME */}
+          <div className="min-w-0">
+            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">RUNTIME</label>
+            <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated min-h-[42px]">
+              <span className="font-bold text-sm text-nc-text-bright font-mono truncate">
+                {formatRuntime(agent.runtime) || 'Unknown'}
+              </span>
+            </div>
           </div>
-        </div>
 
-        {/* RUNTIME */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">RUNTIME</label>
-          <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
-            <span className="font-bold text-sm text-nc-text-bright font-mono">
-              {formatRuntime(agent.runtime) || 'Unknown'}
-            </span>
-            <span className="text-2xs text-nc-muted font-mono ml-auto">Fixed</span>
-          </div>
+          {/* MACHINE */}
+          {agent.machineId && (
+            <div className="min-w-0">
+              <label className="flex items-center gap-1.5 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
+                <Server size={12} className="text-nc-green" /> MACHINE
+              </label>
+              <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated min-h-[42px]">
+                <span className="w-2 h-2 bg-nc-green shrink-0" />
+                <span className="font-bold text-sm text-nc-text-bright font-mono truncate">
+                  {machineLabel}
+                </span>
+                {machine?.hostname && machine.alias && (
+                  <span className="text-xs text-nc-muted font-mono truncate">
+                    {machine.hostname}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* MODEL */}
@@ -466,29 +427,6 @@ export default function AgentConfigForm({
             </p>
           )}
         </div>
-
-        {/* MACHINE */}
-        {agent.machineId && (
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
-              <Server size={12} className="text-nc-green" /> MACHINE
-            </label>
-            <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
-              <span className="w-2 h-2 bg-nc-green shrink-0" />
-              <span className="font-bold text-sm text-nc-text-bright font-mono">
-                {machines?.find((m) => m.id === agent.machineId)?.alias ||
-                  machines?.find((m) => m.id === agent.machineId)?.hostname ||
-                  agent.machineId}
-              </span>
-              {machines?.find((m) => m.id === agent.machineId)?.hostname &&
-                machines?.find((m) => m.id === agent.machineId)?.alias && (
-                  <span className="text-xs text-nc-muted font-mono">
-                    {machines.find((m) => m.id === agent.machineId)?.hostname}
-                  </span>
-                )}
-            </div>
-          </div>
-        )}
 
         {/* OPENVIKING */}
         <div>

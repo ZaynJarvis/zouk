@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileText, FolderOpen, Activity, Settings, Save, Zap, ArrowLeft, RefreshCw, X } from 'lucide-react';
+import { FolderOpen, Activity, Settings, Zap, ArrowLeft, RefreshCw, X } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../types';
 import { useApp } from '../store/AppContext';
 import { activityLabels } from '../lib/activityStatus';
@@ -12,31 +12,28 @@ import { useWorkspaceTree } from './workspace/useWorkspaceTree';
 import AgentConfigForm from './agent/AgentConfigForm';
 import { AgentAvatar } from './zk/primitives';
 
-type Tab = 'instructions' | 'workspace' | 'activity' | 'settings';
+type Tab = 'settings' | 'skills' | 'workspace' | 'activity';
 
-const TAB_CONFIG: { key: Tab; label: string; icon: typeof FileText }[] = [
-  { key: 'instructions', label: 'Instructions', icon: FileText },
+const TAB_CONFIG: { key: Tab; label: string; icon: typeof Settings }[] = [
+  { key: 'settings',     label: 'Config',       icon: Settings },
+  { key: 'skills',       label: 'Skills',       icon: Zap },
   { key: 'workspace',    label: 'Files',        icon: FolderOpen },
   { key: 'activity',     label: 'Activity',     icon: Activity },
-  { key: 'settings',     label: 'Config',       icon: Settings },
 ];
 
-function InstructionsTab({
+function SkillsTab({
   agent,
   onUpdate,
 }: {
   agent: ServerAgent;
   onUpdate: (updates: Partial<ServerAgent>) => void;
 }) {
-  // Instructions and skills only round-trip through the saved config — the
-  // live ServerAgent payload doesn't carry them. Reading from `agent.X` would
-  // wipe the user's saved value every time this tab remounts.
+  // Skills only round-trip through the saved config — the live ServerAgent
+  // payload doesn't carry them. Reading from `agent.skills` alone would wipe
+  // the user's saved value every time this tab remounts.
   const { configs, skillsCache, requestSkills } = useApp();
   const savedConfig = configs.find((c) => c.id === agent.id);
-  const persistedInstructions = savedConfig?.instructions ?? agent.instructions ?? '';
   const persistedSkills = savedConfig?.skills ?? agent.skills ?? [];
-  const [instructions, setInstructions] = useState(persistedInstructions);
-  const isDirty = instructions !== persistedInstructions;
 
   // The daemon scans SKILL.md + command markdown from the agent's runtime
   // home dir + workspace and answers skills:list. Request lazily on mount;
@@ -67,45 +64,9 @@ function InstructionsTab({
     <div className="flex-1 flex flex-col p-5 overflow-y-auto scrollbar-thin safe-bottom-fill">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="zk-display" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>System prompt</h3>
-          <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
-            Instructions that define how this agent behaves.
-          </p>
-        </div>
-        {isDirty && (
-          <button
-            type="button"
-            onClick={() => onUpdate({ instructions })}
-            className="zk-btn zk-btn--primary"
-          >
-            <Save size={12} /> Save
-          </button>
-        )}
-      </div>
-      <textarea
-        value={instructions}
-        onChange={(e) => setInstructions(e.target.value)}
-        placeholder="Enter agent instructions..."
-        className="resize-none w-full transition-colors"
-        style={{
-          minHeight: 200,
-          padding: '10px 12px',
-          background: 'var(--zk-bg-1)',
-          border: '1px solid var(--zk-line-2)',
-          borderRadius: 8,
-          color: 'var(--zk-ink)',
-          fontFamily: 'var(--zk-font-mono)',
-          fontSize: 12.5,
-          lineHeight: 1.6,
-          outline: 'none',
-        }}
-      />
-
-      <div className="flex items-center justify-between mt-6 mb-3">
-        <div>
           <h3 className="zk-display" style={{ fontSize: 14, fontWeight: 600, color: 'var(--zk-ink)' }}>Skills</h3>
           <p style={{ fontSize: 12, color: 'var(--zk-ink-mute)', marginTop: 4 }}>
-            Reusable instructions and tooling for this agent.
+            Reusable skills and tooling for this agent.
           </p>
         </div>
         <button
@@ -209,6 +170,14 @@ function InstructionsTab({
               </button>
             </div>
           ))}
+        </div>
+      )}
+      {assignedSkills.length === 0 && !showPicker && (
+        <div
+          className="zk-panel"
+          style={{ padding: 12, fontSize: 12, color: 'var(--zk-ink-mute)' }}
+        >
+          No skills assigned.
         </div>
       )}
     </div>
@@ -415,7 +384,7 @@ export default function AgentDetail({
   onDelete: () => void;
   onBack?: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>(initialTab || 'instructions');
+  const [tab, setTab] = useState<Tab>(initialTab || 'settings');
   const activity = agent.activity || 'offline';
   const isActive = agent.status === 'active';
 
@@ -516,7 +485,7 @@ export default function AgentDetail({
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-        {tab === 'instructions' && <InstructionsTab agent={agent} onUpdate={onUpdate} />}
+        {tab === 'skills' && <SkillsTab agent={agent} onUpdate={onUpdate} />}
         {tab === 'workspace' && <WorkspaceTab agent={agent} />}
         {tab === 'activity' && <ActivityTab agent={agent} />}
         {tab === 'settings' && <AgentConfigForm agent={agent} machines={machines} onStop={onStop} onDelete={onDelete} />}
