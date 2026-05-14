@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   X, User as UserIcon, Activity, Settings as SettingsIcon,
   Brain, ChevronRight, File, Folder, FolderOpen as FolderOpenIcon,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
@@ -9,6 +10,7 @@ import { activityLabels } from '../lib/activityStatus';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime } from '../lib/runtimeLabels';
 import { agentAvatarStatus, agentLifecycle, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
+import { fetchAgentOvStatus } from '../lib/api';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import AgentConfigForm from './agent/AgentConfigForm';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
@@ -206,27 +208,45 @@ function OvTreeNode({
 }
 
 function OvSection({ agent, onViewFile }: { agent: ServerAgent; onViewFile: (uri: string) => void }) {
-  const { memoryTreeCache, requestMemoryList } = useApp();
+  const { activeWorkspaceId, memoryTreeCache, memoryTreeErrors, requestMemoryList } = useApp();
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [ovUser, setOvUser] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/agents/${agent.id}/ov/status`)
-      .then(r => r.json())
-      .then(data => { setOvUser(data.enabled ? (data.user || agent.name) : null); setChecked(true); })
-      .catch(() => setChecked(true));
-  }, [agent.id, agent.name]);
+    let cancelled = false;
+    setChecked(false);
+    setOvUser(null);
+    setStatusError(null);
+    fetchAgentOvStatus(agent.id)
+      .then(data => {
+        if (cancelled) return;
+        setOvUser(data.enabled ? (data.user || agent.name) : null);
+        setChecked(true);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setStatusError(e instanceof Error ? e.message : 'Failed to load OV status');
+        setChecked(true);
+      });
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, agent.id, agent.name]);
 
   const rootUri = ovUser ? `viking://user/${ovUser}/` : null;
   const agentCache = useMemo(() => memoryTreeCache[agent.id] || {}, [memoryTreeCache, agent.id]);
+  const agentErrors = useMemo(() => memoryTreeErrors[agent.id] || {}, [memoryTreeErrors, agent.id]);
+  const rootLoaded = !!rootUri && Object.prototype.hasOwnProperty.call(agentCache, rootUri);
+  const rootError = rootUri ? (agentErrors[rootUri] || null) : null;
+  const rootErrorText = rootError && rootError.length > 160 ? `${rootError.slice(0, 157)}...` : rootError;
+  const statusErrorText = statusError && statusError.length > 160 ? `${statusError.slice(0, 157)}...` : statusError;
   const rootEntries = useMemo(() => (rootUri ? agentCache[rootUri] || [] : []), [agentCache, rootUri]);
 
   useEffect(() => {
-    if (rootUri && rootEntries.length === 0) {
+    if (rootUri && !rootLoaded && !rootError) {
       requestMemoryList(agent.id, rootUri);
     }
-  }, [agent.id, rootUri, rootEntries.length, requestMemoryList]);
+  }, [agent.id, rootUri, rootLoaded, rootError, requestMemoryList]);
 
   const handleToggleDir = useCallback((uri: string) => {
     setExpandedDirs(prev => {
@@ -239,7 +259,20 @@ function OvSection({ agent, onViewFile }: { agent: ServerAgent; onViewFile: (uri
     });
   }, [agent.id, agentCache, requestMemoryList]);
 
-  if (!checked || !ovUser) return null;
+  if (!checked) return null;
+
+  if (!ovUser) {
+    if (!statusErrorText) return null;
+    return (
+      <div className="border-t border-nc-border">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/30">
+          <Brain size={11} className="text-nc-cyan flex-shrink-0" />
+          <span className="text-2xs font-bold text-nc-cyan font-mono tracking-wider">OV MEMORY</span>
+        </div>
+        <div className="text-2xs text-nc-red font-mono py-2 px-3 break-words">{statusErrorText}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="border-t border-nc-border">
@@ -249,10 +282,24 @@ function OvSection({ agent, onViewFile }: { agent: ServerAgent; onViewFile: (uri
         <span className="text-2xs text-nc-muted font-mono">· {ovUser}</span>
       </div>
       <div className="py-0.5">
-        {rootEntries.length > 0 ? rootEntries.map((entry) => (
+        {rootErrorText ? (
+          <div className="flex items-start gap-2 py-2 px-3">
+            <div className="min-w-0 flex-1 text-2xs text-nc-red font-mono break-words">{rootErrorText}</div>
+            <button
+              type="button"
+              onClick={() => { if (rootUri) requestMemoryList(agent.id, rootUri); }}
+              className="shrink-0 w-5 h-5 flex items-center justify-center border border-nc-border text-nc-muted hover:text-nc-cyan hover:border-nc-cyan"
+              title="Retry OV memory list"
+            >
+              <RefreshCw size={11} />
+            </button>
+          </div>
+        ) : !rootLoaded ? (
+          <div className="text-2xs text-nc-muted font-mono py-2 px-3 animate-pulse">Loading OV data...</div>
+        ) : rootEntries.length > 0 ? rootEntries.map((entry) => (
           <OvTreeNode key={entry.uri} entry={entry} level={0} expandedDirs={expandedDirs} treeCache={agentCache} onToggleDir={handleToggleDir} onViewFile={onViewFile} />
         )) : (
-          <div className="text-2xs text-nc-muted font-mono py-2 px-3 animate-pulse">Loading OV data...</div>
+          <div className="text-2xs text-nc-muted font-mono py-2 px-3">No OV memories</div>
         )}
       </div>
     </div>
