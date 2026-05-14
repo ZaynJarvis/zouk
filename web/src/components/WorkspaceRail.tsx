@@ -2,9 +2,12 @@
    Direct port of Rail() in tmp/.../zouk-rethink/merged-app.jsx, wired to our
    real viewMode + rightPanel state and the actual user / live agent counts. */
 
-import { Check, Cpu, Home, KanbanSquare, Brain, Plus, Settings } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Cpu, Home, KanbanSquare, Brain, ImagePlus, Plus, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { Avatar } from './zk/primitives';
+import { resizeAndEncode } from '../lib/imageEncode';
+import type { Workspace } from '../types';
 
 interface RailItem {
   id: 'home' | 'agents' | 'tasks' | 'memory';
@@ -23,13 +26,33 @@ const ITEMS: RailItem[] = [
   { id: 'memory',  icon: <Brain size={16} />,        label: 'Memory',  sub: 'OV · Files' },
 ];
 
+function isImageIcon(icon?: string | null): icon is string {
+  return !!icon && icon.startsWith('data:image/');
+}
+
+function WorkspaceIcon({
+  workspace, size,
+}: {
+  workspace: Pick<Workspace, 'name' | 'icon'>;
+  size: number;
+}) {
+  const icon = workspace.icon || workspace.name.slice(0, 1).toUpperCase();
+  if (isImageIcon(icon)) {
+    return <img src={icon} alt="" style={{ width: size, height: size, objectFit: 'cover', display: 'block' }} />;
+  }
+  return <>{icon || workspace.name.slice(0, 1).toUpperCase()}</>;
+}
+
 export default function WorkspaceRail() {
   const {
-    viewMode, navigateToView, setSettingsOpen,
+    viewMode, navigateToView, setSettingsOpen, addToast,
     agents, currentUser, authUser, isGuest,
-    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace,
     workspaceMenuOpen, setWorkspaceMenuOpen,
   } = useApp();
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0] || { id: 'default', name: 'Default', icon: 'z' };
 
   const isActive = (id: RailItem['id']): boolean => {
@@ -66,6 +89,37 @@ export default function WorkspaceRail() {
     }
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      addToast('Choose an image file', 'error');
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      const icon = await resizeAndEncode(file, 64, 9000);
+      await updateWorkspace(activeWorkspace.id, { icon });
+      addToast('Server avatar updated', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to update server avatar', 'error');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!workspaceMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && workspaceMenuRef.current?.contains(target)) return;
+      setWorkspaceMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [setWorkspaceMenuOpen, workspaceMenuOpen]);
+
   return (
     <nav
       aria-label="Workspace"
@@ -84,7 +138,7 @@ export default function WorkspaceRail() {
         flexShrink: 0,
       }}
     >
-      <div style={{ position: 'relative', marginBottom: 14 }}>
+      <div ref={workspaceMenuRef} style={{ position: 'relative', marginBottom: 14 }}>
         <button
           type="button"
           onClick={() => setWorkspaceMenuOpen(v => !v)}
@@ -105,9 +159,10 @@ export default function WorkspaceRail() {
             fontSize: 15,
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 2px rgba(0,0,0,0.3)',
             cursor: 'pointer',
+            overflow: 'hidden',
           }}
         >
-          {activeWorkspace.icon || activeWorkspace.name.slice(0, 1).toUpperCase()}
+          <WorkspaceIcon workspace={activeWorkspace} size={32} />
         </button>
         {workspaceMenuOpen && (
           <div
@@ -124,6 +179,62 @@ export default function WorkspaceRail() {
               zIndex: 40,
             }}
           >
+            <div
+              style={{
+                padding: '2px 2px 6px',
+                marginBottom: 4,
+                borderBottom: '1px solid var(--zk-line)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarBusy}
+                title="Upload server avatar"
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '4px 6px',
+                  border: 0,
+                  borderRadius: 6,
+                  background: 'transparent',
+                  color: 'var(--zk-ink)',
+                  cursor: avatarBusy ? 'wait' : 'pointer',
+                  font: 'inherit',
+                  textAlign: 'left',
+                }}
+              >
+                <span
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: 'var(--zk-bg-0)',
+                    border: '1px solid var(--zk-line)',
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  <WorkspaceIcon workspace={activeWorkspace} size={34} />
+                </span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeWorkspace.name}
+                </span>
+                <ImagePlus size={14} />
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarUpload}
+              />
+            </div>
             {workspaces.map((workspace) => (
               <button
                 key={workspace.id}
@@ -152,13 +263,14 @@ export default function WorkspaceRail() {
                   width: 22,
                   height: 22,
                   borderRadius: 6,
+                  overflow: 'hidden',
                   display: 'grid',
                   placeItems: 'center',
                   background: 'var(--zk-bg-0)',
                   border: '1px solid var(--zk-line)',
                   fontSize: 12,
                   fontWeight: 600,
-                }}>{workspace.icon || workspace.name.slice(0, 1).toUpperCase()}</span>
+                }}><WorkspaceIcon workspace={workspace} size={22} /></span>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workspace.name}</span>
                 {workspace.id === activeWorkspaceId && <Check size={14} />}
               </button>

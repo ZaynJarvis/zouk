@@ -366,6 +366,13 @@ export function useAppStore() {
         }
         break;
       }
+      case 'workspace_updated': {
+        const e = event as { workspace?: Workspace };
+        if (e.workspace?.id) {
+          setWorkspaces(prev => prev.map(w => (w.id === e.workspace!.id ? e.workspace! : w)));
+        }
+        break;
+      }
       case 'message':
       case 'new_message': {
         const e = event as { message: MessageRecord };
@@ -692,6 +699,12 @@ export function useAppStore() {
     addToast(`Server ${res.workspace.name} created`, 'success');
     return res.workspace;
   }, [addToast, setActiveWorkspaceId]);
+
+  const updateWorkspace = useCallback(async (workspaceId: string, input: { name?: string; icon?: string }) => {
+    const res = await api.updateWorkspace(workspaceId, input);
+    setWorkspaces(res.workspaces);
+    return res.workspace;
+  }, []);
 
   const inviteWorkspaceMember = useCallback(async (input: { email: string; role: 'admin' | 'member'; name?: string }) => {
     try {
@@ -1100,6 +1113,7 @@ export function useAppStore() {
       await api.deleteProfilePreset(id);
       if (activeWorkspaceRef.current !== workspaceId) return;
       setProfilePresets(prev => prev.filter(p => p.id !== id));
+      addToast('Avatar preset removed', 'info');
     } catch {
       addToast('Failed to remove preset', 'error');
     }
@@ -1304,7 +1318,7 @@ export function useAppStore() {
     colorMode, setColorMode,
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
-    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace,
     workspaceMembers, viewerRole, isSuperuser,
     canAdminWorkspace: viewerRole === 'root' || viewerRole === 'owner' || viewerRole === 'admin' || isSuperuser,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,

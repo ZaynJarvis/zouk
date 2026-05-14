@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  X, User as UserIcon, Activity, FolderOpen, Settings as SettingsIcon, MessageCircle,
+  X, User as UserIcon, Activity, Settings as SettingsIcon,
   Brain, ChevronRight, File, Folder, FolderOpen as FolderOpenIcon,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
@@ -17,11 +17,11 @@ type Tab = 'profile' | 'workspace';
 
 const TAB_CONFIG: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: 'profile', label: 'PROFILE', icon: UserIcon },
-  { key: 'workspace', label: 'FILES', icon: FolderOpen },
+  { key: 'workspace', label: 'MEM', icon: Brain },
 ];
 
 function ProfileTab({ agent }: { agent: ServerAgent }) {
-  const { machines, openAgentSettings, selectChannel, loadAgentActivities, theme } = useApp();
+  const { machines, selectChannel, loadAgentActivities, theme } = useApp();
   const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
   const activity = agent.activity || 'offline';
   const avatarStatus = agentAvatarStatus(agent);
@@ -40,7 +40,12 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
     <div className="flex-1 flex flex-col min-h-0">
       <div className="shrink-0 overflow-y-auto scrollbar-thin px-4 pt-3 pb-2 space-y-3 max-h-[55%]">
         <div className="flex items-start gap-3">
-          <div className="relative w-12 h-12 shrink-0">
+          <button
+            type="button"
+            onClick={() => selectChannel(agent.name, true)}
+            title={`Message @${agent.displayName || agent.name}`}
+            className="relative w-12 h-12 shrink-0 p-0 border-0 bg-transparent cursor-pointer text-inherit"
+          >
             <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-base ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)}`}>
               {agent.picture ? (
                 <img src={agent.picture} alt="" className="w-full h-full object-cover" />
@@ -58,7 +63,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
               }}
               className={`zk-dot zk-dot--${avatarStatus}`}
             />
-          </div>
+          </button>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 min-w-0">
               <div className="font-display font-black text-base text-nc-text-bright truncate tracking-wider">
@@ -72,23 +77,6 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
               {isActive ? activityLabels[activity] : 'INACTIVE'}
               {agent.activityDetail && isActive ? ` · ${agent.activityDetail}` : ''}
             </div>
-          </div>
-          <div className="flex gap-1 shrink-0">
-            <button
-              onClick={() => selectChannel(agent.name, true)}
-              title="Message"
-              className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-cyan bg-nc-cyan/10 text-nc-cyan hover:bg-nc-cyan/20"
-              style={{ borderRadius: '8px 8px 8px 0' }}
-            >
-              <MessageCircle size={13} />
-            </button>
-            <button
-              onClick={() => openAgentSettings(agent.id)}
-              title="Config"
-              className="cyber-btn w-7 h-7 flex items-center justify-center border border-nc-border bg-nc-panel text-nc-muted hover:text-nc-cyan hover:border-nc-cyan"
-            >
-              <SettingsIcon size={13} />
-            </button>
           </div>
         </div>
 
@@ -333,7 +321,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
             </div>
           ) : agent.status === 'active' ? (
             <div className="flex flex-col items-center justify-center text-center py-6">
-              <FolderOpen size={20} className="text-nc-muted mb-2" />
+              <FolderOpenIcon size={20} className="text-nc-muted mb-2" />
               <p className="text-xs text-nc-muted font-mono">No workspace files</p>
             </div>
           ) : null}
@@ -368,7 +356,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
 }
 
 /**
- * Renders the agent profile (PROFILE / FILES tabs) for the right rail or the
+ * Renders the agent profile (PROFILE / MEM tabs) for the right rail or the
  * mobile full-screen right panel.
  *
  * - `inline` (default false): used inside `RightRail` on desktop. The rail
@@ -383,7 +371,7 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
  * also clears `rightPanel='agent_profile'` so the modal unmounts.
  */
 export default function AgentProfilePanel({ inline = false }: { inline?: boolean }) {
-  const { agents, configs, closeAgentProfileRail, agentProfileId } = useApp();
+  const { agents, configs, closeAgentProfileRail, agentProfileId, openAgentSettings } = useApp();
   const [tab, setTab] = useState<Tab>('profile');
 
   const liveAgent = agents.find((a) => a.id === agentProfileId);
@@ -457,6 +445,13 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
             {label}
           </button>
         ))}
+        <button
+          onClick={() => openAgentSettings(agent.id)}
+          className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-cyan transition-colors shrink-0"
+          title="Config"
+        >
+          <SettingsIcon size={14} />
+        </button>
         <button
           onClick={closeAgentProfileRail}
           className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-red transition-colors shrink-0"

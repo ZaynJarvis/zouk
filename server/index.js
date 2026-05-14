@@ -29,6 +29,7 @@ const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const DEFAULT_WORKSPACE_ID = "default";
 const DEFAULT_WORKSPACE_NAME = process.env.ZOUK_DEFAULT_WORKSPACE_NAME || "Default";
 const DEFAULT_WORKSPACE_ICON = process.env.ZOUK_DEFAULT_WORKSPACE_ICON || "z";
+const MAX_WORKSPACE_ICON_BYTES = 12 * 1024;
 
 function normalizeWorkspaceId(raw) {
   if (typeof raw !== "string") return DEFAULT_WORKSPACE_ID;
@@ -44,6 +45,36 @@ function workspaceIdFromReq(req) {
       || req.body?.workspaceId
       || DEFAULT_WORKSPACE_ID
   );
+}
+
+function workspaceIconFallback(name, id) {
+  const source = String(name || id || DEFAULT_WORKSPACE_ICON);
+  return source.trim().slice(0, 1).toUpperCase() || DEFAULT_WORKSPACE_ICON;
+}
+
+function normalizeWorkspaceIconInput(raw, fallback = DEFAULT_WORKSPACE_ICON) {
+  if (raw === undefined || raw === null) return fallback;
+  if (typeof raw !== "string") {
+    const err = new Error("icon must be a string");
+    err.statusCode = 400;
+    throw err;
+  }
+  const icon = raw.trim();
+  if (!icon) return fallback;
+  if (icon.startsWith("data:image/")) {
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(icon)) {
+      const err = new Error("icon must be an image data URL");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (Buffer.byteLength(icon, "utf8") > MAX_WORKSPACE_ICON_BYTES) {
+      const err = new Error("icon too large");
+      err.statusCode = 400;
+      throw err;
+    }
+    return icon;
+  }
+  return icon.slice(0, 4) || fallback;
 }
 
 // OpenViking server-issued per-agent keys.
@@ -4855,8 +4886,12 @@ app.post("/api/workspaces", requireSessionAuth, async (req, res) => {
   while (findWorkspace(id)) {
     id = `${baseId}-${suffix++}`;
   }
-  const iconRaw = typeof req.body?.icon === "string" ? req.body.icon.trim() : "";
-  const icon = iconRaw.slice(0, 4) || name.slice(0, 1).toUpperCase() || "S";
+  let icon;
+  try {
+    icon = normalizeWorkspaceIconInput(req.body?.icon, workspaceIconFallback(name, id));
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({ error: err.message || "invalid icon" });
+  }
   const ownerEmail = req.user?.email || null;
   const workspace = ensureWorkspace({ id, name, icon, ownerEmail, createdAt: now() });
   await db.saveWorkspace(workspace);
@@ -4886,6 +4921,43 @@ app.post("/api/workspaces", requireSessionAuth, async (req, res) => {
   if (ownerEmail) broadcastWorkspaceMembers(id);
   res.json({
     workspace: workspacePayload(workspace),
+    workspaces: visibleWorkspacesForUser(req.user),
+  });
+});
+
+app.patch("/api/workspaces/:id", requireSessionAuth, async (req, res) => {
+  const id = normalizeWorkspaceId(req.params.id);
+  const workspace = findWorkspace(id);
+  if (!workspace) {
+    return res.status(404).json({ error: "Workspace not found." });
+  }
+  if (!userCanAccessWorkspace(req.user, id)) {
+    return res.status(403).json({ error: "Not a member of this workspace." });
+  }
+
+  const next = { ...workspace };
+  if (req.body?.name !== undefined) {
+    if (!userCanAdminWorkspace(req.user, id)) {
+      return res.status(403).json({ error: "Workspace root/admin required." });
+    }
+    const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+    if (!name) return res.status(400).json({ error: "name required" });
+    next.name = name;
+  }
+  if (req.body?.icon !== undefined) {
+    try {
+      next.icon = normalizeWorkspaceIconInput(req.body.icon, workspaceIconFallback(next.name, id));
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message || "invalid icon" });
+    }
+  }
+
+  const updated = ensureWorkspace(next);
+  await db.saveWorkspace(updated);
+  const payload = workspacePayload(updated);
+  broadcastToWeb({ type: "workspace_updated", workspaceId: id, workspace: payload });
+  res.json({
+    workspace: payload,
     workspaces: visibleWorkspacesForUser(req.user),
   });
 });
