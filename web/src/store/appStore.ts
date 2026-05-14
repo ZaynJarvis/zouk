@@ -994,6 +994,7 @@ export function useAppStore() {
 
     const previousUser = currentUserRef.current;
     const previousAuthUser = authUser;
+    let previousHumans: ServerHuman[] | null = null;
 
     setStoredCurrentUser(trimmed);
     setCurrentUser(trimmed);
@@ -1014,6 +1015,22 @@ export function useAppStore() {
       setAuthUser(optimisticUser);
     }
 
+    // Optimistically patch the self entry in `humans[]` so MessageItem /
+    // ChannelSidebar / PinnedRail flip to the new avatar instantly instead of
+    // waiting for the HTTP PUT + `humans_updated` WS round-trip.
+    setHumans(prev => {
+      previousHumans = prev;
+      const nextPicture = picture !== undefined
+        ? (picture || undefined)
+        : optimisticUser?.picture ?? undefined;
+      const idx = prev.findIndex(h => h.name === previousUser);
+      if (idx === -1) return prev;
+      const updated = { ...prev[idx], name: trimmed, picture: nextPicture };
+      const next = prev.slice();
+      next[idx] = updated;
+      return next;
+    });
+
     api.updateUserProfile(trimmed, picture).then(({ user }) => {
       setStoredAuthUser(user);
       setStoredCurrentUser(user.name);
@@ -1029,6 +1046,7 @@ export function useAppStore() {
         clearStoredAuthUser();
         setAuthUser(null);
       }
+      if (previousHumans) setHumans(previousHumans);
       addToast('Failed to update profile', 'error');
     });
   }, [authUser, addToast]);
