@@ -240,7 +240,9 @@ export interface ServerMachine {
 
 export interface AgentProfilePreset {
   id: string;
+  workspaceId?: string;
   image: string;
+  shared?: boolean;
 }
 
 export interface Workspace {

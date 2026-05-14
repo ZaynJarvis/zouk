@@ -3438,20 +3438,23 @@ app.delete("/api/agents/:id", requireAuth, (req, res) => {
 // ─── Profile preset pool ────────────────────────────────────────
 
 app.get("/api/agent-profile-presets", requireWorkspaceRead, (req, res) => {
-  res.json({ presets: profilePresets.list(), max: PROFILE_PRESET_MAX });
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  res.json({ presets: profilePresets.list(workspaceId), count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 app.post("/api/agent-profile-presets", requireAuth, async (req, res) => {
   const { image } = req.body || {};
-  const result = await profilePresets.add(image);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const result = await profilePresets.add(image, workspaceId);
   if (result.error) return res.status(400).json({ error: result.error });
-  res.json({ preset: result.preset, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+  res.json({ preset: result.preset, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 app.delete("/api/agent-profile-presets/:id", requireAuth, async (req, res) => {
-  const result = await profilePresets.remove(req.params.id);
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const result = await profilePresets.remove(req.params.id, workspaceId);
   if (result.error) return res.status(404).json({ error: result.error });
-  res.json({ success: true, count: profilePresets.count(), max: PROFILE_PRESET_MAX });
+  res.json({ success: true, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
 });
 
 // ─── Machine API key management ─────────────────────────────────
@@ -3723,7 +3726,7 @@ async function startAgentOnDaemon(id, config) {
       persisted.openvikingApiKey = ovApiKey;
     }
     const usedImages = new Set(agentConfigs.filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId).map((c) => c.picture).filter(Boolean));
-    const shardedPicture = profilePresets.pickForAgent(id, usedImages);
+    const shardedPicture = profilePresets.pickForAgent(id, usedImages, workspaceId);
     if (shardedPicture) persisted.picture = shardedPicture;
     agentConfigs.push(persisted);
     saveAgentConfigs(agentConfigs);

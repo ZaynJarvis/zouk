@@ -778,13 +778,14 @@ export function useAppStore() {
       return;
     }
     let cancelled = false;
+    const workspaceId = activeWorkspaceRef.current;
     api.listProfilePresets()
       .then((res) => {
-        if (!cancelled) setProfilePresets(res.presets || []);
+        if (!cancelled && activeWorkspaceRef.current === workspaceId) setProfilePresets(res.presets || []);
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isLoggedIn, authToken]);
+  }, [isLoggedIn, authToken, activeWorkspaceId]);
 
   useEffect(() => {
     if (!wsConnected) return;
@@ -1153,6 +1154,10 @@ export function useAppStore() {
   const removeProfilePresetAction = useCallback(async (id: string) => {
     const workspaceId = activeWorkspaceRef.current;
     try {
+      if (profilePresets.find(p => p.id === id)?.shared) {
+        addToast('Default server presets cannot be removed here', 'error');
+        return;
+      }
       await api.deleteProfilePreset(id);
       if (activeWorkspaceRef.current !== workspaceId) return;
       setProfilePresets(prev => prev.filter(p => p.id !== id));
@@ -1160,7 +1165,7 @@ export function useAppStore() {
     } catch {
       addToast('Failed to remove preset', 'error');
     }
-  }, [addToast]);
+  }, [addToast, profilePresets]);
 
   const saveAgentConfigAction = useCallback(async (config: AgentConfig) => {
     try {
