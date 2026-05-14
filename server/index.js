@@ -5478,6 +5478,27 @@ function reconcileAgentsWithConfigs() {
       gravatarUrl: user.gravatarUrl || (user.email ? gravatarUrl(user.email) : undefined),
     });
   }
+  // Backfill default-workspace membership. The default workspace is the
+  // public lobby — every authenticated email implicitly has 'member' access,
+  // but pre-#300 sessions may not have a workspace_members row yet. Without
+  // a row, admins can't manage them (change role, remove) and they don't
+  // show up with the expected ADMIN/MEMBER badge in the sidebar. Materialise
+  // a 'member' row for every known email that doesn't already have one.
+  let defaultBackfill = 0;
+  for (const user of authSessions.values()) {
+    if (!user?.email || user.guest) continue;
+    if (getWorkspaceMember(DEFAULT_WORKSPACE_ID, user.email)) continue;
+    setWorkspaceMember({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      email: user.email,
+      name: user.name || null,
+      role: "member",
+    });
+    defaultBackfill += 1;
+  }
+  if (defaultBackfill > 0) {
+    console.log(`[auth] Backfilled ${defaultBackfill} default-workspace member row(s) from auth sessions`);
+  }
   await loadEmailAllowlistFromDb();
   reconcileAgentsWithConfigs();
 
