@@ -402,6 +402,9 @@ function HumanRow({
     <Tag
       type={isSelf ? undefined : 'button'}
       onClick={isSelf ? undefined : onClick}
+      // Native tooltip carries the email so admins can verify identity on
+      // hover without crowding the row visually.
+      title={person.email || person.name}
       style={{ ...rowStyle(active), cursor: isSelf ? 'default' : 'pointer' }}
       className="group"
       onMouseEnter={(e) => { if (!active && !isSelf) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
@@ -444,15 +447,15 @@ function HumanRow({
 
       {showActions && (
         <span
-          className={`zk-row ${forceShowActions || menuOpen ? '' : 'opacity-0 group-hover:opacity-100'}`}
-          style={{ gap: 2, transition: 'opacity 140ms var(--zk-ease-out)', position: 'relative' }}
+          className="zk-row"
+          style={{ gap: 2, position: 'relative', alignSelf: 'center' }}
         >
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
             className="zk-btn zk-btn--ghost zk-btn--icon"
             title="Manage member"
-            style={{ padding: 2 }}
+            style={{ padding: 2, opacity: menuOpen || forceShowActions ? 1 : 0.55 }}
           >
             <MoreHorizontal size={11} />
           </button>
@@ -517,7 +520,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     authUser, setSidebarOpen, agentLastChannel,
     openAgentProfile, openAgentSettings, resetAgentContext,
     openChannelSettings, navigateToView, setSettingsOpen,
-    workspaceMembers, canAdminWorkspace,
+    workspaceMembers, canAdminWorkspace, activeWorkspaceId,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
   } = useApp();
 
@@ -536,12 +539,15 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     if (isMobileViewport()) setSidebarOpen(false);
   };
 
-  // PEOPLE list: workspace_members ∪ online presences not yet captured as
-  // members (guests on default; freshly-connected accounts). Members give us
-  // role + email (canonical identity); humans give us live picture / online
-  // signal keyed by display name.
+  // PEOPLE list: always derived from workspace_members of the active
+  // workspace. The global `humans` stream is workspace-agnostic (it carries
+  // every account that ever logged in anywhere), so falling back to it for a
+  // private workspace would leak unrelated users' identities into the new
+  // sidebar. Default workspace is the one exception — it's the public lobby
+  // and explicitly lets guests show up without an invite.
   const peopleList = useMemo<PersonRow[]>(() => {
     const byName = new Map<string, PersonRow>();
+    const isDefaultWorkspace = activeWorkspaceId === 'default';
 
     for (const m of workspaceMembers) {
       const displayName = (m.name && m.name.trim()) || m.email.split('@')[0];
@@ -558,33 +564,45 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
       });
     }
 
-    for (const h of humans) {
-      if (byName.has(h.name)) continue;
-      // Skip currentUser; we re-add below with authUser context.
-      if (h.name === currentUser) continue;
-      byName.set(h.name, {
-        key: `human:${h.id}`,
-        email: null,
-        name: h.name,
-        role: null,
-        online: !!h.online,
-        guest: !!h.guest,
-        picture: h.picture,
-        gravatarUrl: h.gravatarUrl,
-      });
+    if (isDefaultWorkspace) {
+      for (const h of humans) {
+        if (byName.has(h.name)) continue;
+        if (h.name === currentUser) continue;
+        byName.set(h.name, {
+          key: `human:${h.id}`,
+          email: null,
+          name: h.name,
+          role: null,
+          online: !!h.online,
+          guest: !!h.guest,
+          picture: h.picture,
+          gravatarUrl: h.gravatarUrl,
+        });
+      }
     }
 
-    if (currentUser && !byName.has(currentUser)) {
-      byName.set(currentUser, {
-        key: 'self',
-        email: authUser?.email ?? null,
-        name: currentUser,
-        role: null,
-        online: true,
-        guest: isGuest,
-        picture: authUser?.picture ?? undefined,
-        gravatarUrl: authUser?.gravatarUrl ?? undefined,
-      });
+    if (currentUser) {
+      const existing = byName.get(currentUser);
+      if (existing) {
+        // Always show self as online — we're literally rendering for them.
+        // The global `humans` stream lags during a WS reconnect (workspace
+        // switch tears down the socket), so trusting it here flashes a gray
+        // dot on self until the next presence broadcast lands.
+        existing.online = true;
+        if (!existing.picture && authUser?.picture) existing.picture = authUser.picture;
+        if (!existing.gravatarUrl && authUser?.gravatarUrl) existing.gravatarUrl = authUser.gravatarUrl;
+      } else {
+        byName.set(currentUser, {
+          key: 'self',
+          email: authUser?.email ?? null,
+          name: currentUser,
+          role: null,
+          online: true,
+          guest: isGuest,
+          picture: authUser?.picture ?? undefined,
+          gravatarUrl: authUser?.gravatarUrl ?? undefined,
+        });
+      }
     }
 
     const list = [...byName.values()];
@@ -598,7 +616,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
       return a.name.localeCompare(b.name);
     });
     return list;
-  }, [workspaceMembers, humans, currentUser, authUser, isGuest]);
+  }, [workspaceMembers, humans, currentUser, authUser, isGuest, activeWorkspaceId]);
 
   const handleCreateChannel = () => {
     const name = newChannelName.trim().replace(/[^a-z0-9-_]/gi, '-').toLowerCase();
