@@ -576,6 +576,7 @@ export default function SettingsModal() {
 }
 
 function AccessSection({ authEmail }: { authEmail: string | null }) {
+  const { activeWorkspaceId } = useApp();
   const [loaded, setLoaded] = useState(false);
   const [envEntries, setEnvEntries] = useState<AllowlistEntry[]>([]);
   const [dbEntries, setDbEntries] = useState<AllowlistEntry[]>([]);
@@ -588,19 +589,28 @@ function AccessSection({ authEmail }: { authEmail: string | null }) {
   const refresh = useCallback(async () => {
     try {
       const data = await api.getAllowlist();
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setEnvEntries(data.env);
       setDbEntries(data.db);
       setActive(data.allowlistActive);
       setDbWritable(data.dbWritable);
       setError(null);
     } catch (e) {
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setError(e instanceof Error ? e.message : 'Failed to load allowlist');
     } finally {
-      setLoaded(true);
+      if (api.getActiveWorkspaceId() === activeWorkspaceId) setLoaded(true);
     }
-  }, []);
+  }, [activeWorkspaceId]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    setLoaded(false);
+    setBusy(false);
+    setError(null);
+    setEnvEntries([]);
+    setDbEntries([]);
+    refresh();
+  }, [refresh]);
 
   const add = useCallback(async () => {
     const email = input.trim().toLowerCase();
@@ -609,27 +619,31 @@ function AccessSection({ authEmail }: { authEmail: string | null }) {
     setError(null);
     try {
       await api.addAllowlistEntry(email);
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setInput('');
       await refresh();
     } catch (e) {
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setError(e instanceof Error ? e.message : 'Failed to add entry');
     } finally {
-      setBusy(false);
+      if (api.getActiveWorkspaceId() === activeWorkspaceId) setBusy(false);
     }
-  }, [input, refresh]);
+  }, [activeWorkspaceId, input, refresh]);
 
   const remove = useCallback(async (email: string) => {
     setBusy(true);
     setError(null);
     try {
       await api.removeAllowlistEntry(email);
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       await refresh();
     } catch (e) {
+      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
       setError(e instanceof Error ? e.message : 'Failed to remove entry');
     } finally {
-      setBusy(false);
+      if (api.getActiveWorkspaceId() === activeWorkspaceId) setBusy(false);
     }
-  }, [refresh]);
+  }, [activeWorkspaceId, refresh]);
 
   const currentEmailAllowed = !authEmail
     || envEntries.some(e => e.email === authEmail.toLowerCase())

@@ -2,7 +2,8 @@
    Direct port of Rail() in tmp/.../zouk-rethink/merged-app.jsx, wired to our
    real viewMode + rightPanel state and the actual user / live agent counts. */
 
-import { Home, Cpu, KanbanSquare, Brain, Settings } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Cpu, Home, KanbanSquare, Brain, Plus, Settings } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { Avatar } from './zk/primitives';
 
@@ -27,7 +28,10 @@ export default function WorkspaceRail() {
   const {
     viewMode, navigateToView, setSettingsOpen,
     agents, currentUser, authUser, isGuest,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace,
   } = useApp();
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0] || { id: 'default', name: 'Default', icon: 'z' };
 
   const isActive = (id: RailItem['id']): boolean => {
     switch (id) {
@@ -51,6 +55,18 @@ export default function WorkspaceRail() {
     (a) => a.activity === 'working' || a.activity === 'thinking',
   ).length;
 
+  const handleCreateWorkspace = async () => {
+    const name = window.prompt('Server name');
+    if (!name?.trim()) return;
+    const icon = window.prompt('Icon', name.trim().slice(0, 1).toUpperCase()) || undefined;
+    try {
+      await createWorkspace({ name: name.trim(), icon: icon?.trim() || undefined });
+      setWorkspaceMenuOpen(false);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <nav
       aria-label="Workspace"
@@ -69,26 +85,109 @@ export default function WorkspaceRail() {
         flexShrink: 0,
       }}
     >
-      {/* Logo — ember gradient square */}
-      <div
-        aria-hidden="true"
-        style={{
-          width: 32,
-          height: 32,
-          background: 'linear-gradient(135deg, var(--zk-ember) 0%, #c4623d 100%)',
-          borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'var(--zk-font-display)',
-          fontWeight: 600,
-          color: '#fff',
-          fontSize: 15,
-          marginBottom: 14,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 2px rgba(0,0,0,0.3)',
-        }}
-      >
-        z
+      <div style={{ position: 'relative', marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => setWorkspaceMenuOpen(v => !v)}
+          aria-label="Switch server"
+          title={activeWorkspace.name}
+          style={{
+            width: 32,
+            height: 32,
+            background: 'linear-gradient(135deg, var(--zk-ember) 0%, #c4623d 100%)',
+            borderRadius: 8,
+            border: '1px solid rgba(255,255,255,0.14)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--zk-font-display)',
+            fontWeight: 600,
+            color: '#fff',
+            fontSize: 15,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 2px rgba(0,0,0,0.3)',
+            cursor: 'pointer',
+          }}
+        >
+          {activeWorkspace.icon || activeWorkspace.name.slice(0, 1).toUpperCase()}
+        </button>
+        {workspaceMenuOpen && (
+          <div
+            style={{
+              position: 'absolute',
+              left: 42,
+              top: 0,
+              width: 224,
+              background: 'var(--zk-bg-1)',
+              border: '1px solid var(--zk-line)',
+              boxShadow: '0 16px 36px rgba(0,0,0,0.26)',
+              borderRadius: 8,
+              padding: 6,
+              zIndex: 40,
+            }}
+          >
+            {workspaces.map((workspace) => (
+              <button
+                key={workspace.id}
+                type="button"
+                onClick={() => {
+                  setActiveWorkspaceId(workspace.id);
+                  setWorkspaceMenuOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  height: 34,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '0 8px',
+                  border: 0,
+                  borderRadius: 6,
+                  background: workspace.id === activeWorkspaceId ? 'var(--zk-bg-2)' : 'transparent',
+                  color: 'var(--zk-ink)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  font: 'inherit',
+                }}
+              >
+                <span style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 6,
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: 'var(--zk-bg-0)',
+                  border: '1px solid var(--zk-line)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}>{workspace.icon || workspace.name.slice(0, 1).toUpperCase()}</span>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workspace.name}</span>
+                {workspace.id === activeWorkspaceId && <Check size={14} />}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={handleCreateWorkspace}
+              style={{
+                width: '100%',
+                height: 34,
+                marginTop: 4,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '0 8px',
+                border: 0,
+                borderTop: '1px solid var(--zk-line)',
+                background: 'transparent',
+                color: 'var(--zk-ink)',
+                cursor: 'pointer',
+                font: 'inherit',
+              }}
+            >
+              <Plus size={14} />
+              <span>New server</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {ITEMS.map((it) => {

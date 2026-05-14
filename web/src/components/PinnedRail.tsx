@@ -11,7 +11,7 @@ import * as api from '../lib/api';
 import type { TaskRecord } from '../types';
 
 export default function PinnedRail() {
-  const { agents, activeChannelName, channels, tasksVersion, viewMode, agentLastChannel } = useApp();
+  const { agents, activeChannelName, activeWorkspaceId, channels, tasksVersion, viewMode, agentLastChannel } = useApp();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
 
@@ -32,7 +32,7 @@ export default function PinnedRail() {
       .then((rows) => { if (!cancelled) setTasks(rows); })
       .catch(() => { if (!cancelled) setTasks([]); });
     return () => { cancelled = true; };
-  }, [tasksVersion]);
+  }, [activeWorkspaceId, tasksVersion]);
 
   const channel = useMemo(
     () => channels.find((c) => c.name === activeChannelName) ?? null,

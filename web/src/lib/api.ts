@@ -1,13 +1,21 @@
-import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace } from '../types';
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
 }
 
+export function getActiveWorkspaceId(): string {
+  return localStorage.getItem('zouk_active_workspace_id') || 'default';
+}
+
+function getWorkspaceHeaders(): Record<string, string> {
+  return { 'X-Workspace-Id': getActiveWorkspaceId() };
+}
+
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('zouk_auth_token');
-  if (token) return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
-  return { 'Content-Type': 'application/json' };
+  if (token) return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...getWorkspaceHeaders() };
+  return { 'Content-Type': 'application/json', ...getWorkspaceHeaders() };
 }
 
 // Server returns camelCase, frontend uses snake_case — normalize here.
@@ -30,6 +38,8 @@ export function normalizeMessage(m: any): MessageRecord {
 
   return {
     id: m.id,
+    workspaceId: m.workspaceId || m.workspace_id,
+    channelId: m.channelId || m.channel_id || null,
     channel_type: inferredThread ? 'thread' : rawChannelType,
     channel_name: inferredThread
       ? (rawThreadId || rawChannelName)
@@ -71,6 +81,7 @@ export async function fetchMessages(
   // rewrites both query strings and path segments during its 307 redirect
   // chain but leaves headers untouched.
   const headers: Record<string, string> = {
+    ...getAuthHeaders(),
     'X-Channel': target,
     'X-Limit': String(limit),
   };
@@ -96,7 +107,7 @@ export async function fetchThreadMessages(
   const shortId = messageId.slice(0, 8);
   const parentTarget = isDm ? `dm:@${channelName}` : `#${channelName}`;
   const threadTarget = `${parentTarget}:${shortId}`;
-  const headers: Record<string, string> = { 'X-Channel': threadTarget, 'X-Limit': String(limit) };
+  const headers: Record<string, string> = { ...getAuthHeaders(), 'X-Channel': threadTarget, 'X-Limit': String(limit) };
   // Without X-Sender the server can't canonicalize dm:<peer> to dm:<a>,<b>
   // and falls into a name-overlap match that can leak cross-DM rows.
   if (isDm && senderName) headers['X-Sender'] = senderName;
@@ -141,6 +152,7 @@ export async function uploadAttachment(file: File): Promise<UploadedAttachment> 
   const token = localStorage.getItem('zouk_auth_token');
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  Object.assign(headers, getWorkspaceHeaders());
   const res = await fetch(url, { method: 'POST', headers, body: form });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -261,7 +273,7 @@ export async function fetchRuntimeModels(
   runtime: string
 ): Promise<{ models: RuntimeModel[]; default: string | null; error: string | null }> {
   const url = `${getBaseUrl()}/api/machines/${encodeURIComponent(machineId)}/runtimes/${encodeURIComponent(runtime)}/models`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) {
     return { models: [], default: null, error: `http_${res.status}` };
   }
@@ -278,7 +290,7 @@ export async function fetchAgentActivities(
   limit = 100
 ): Promise<import('../types').AgentEntry[]> {
   const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/activities?limit=${limit}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: getAuthHeaders() });
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data.entries) ? data.entries : [];
@@ -324,7 +336,7 @@ export async function getAuthConfig(): Promise<{
   supabaseAnonKey?: string | null;
   ovRuntimeWhitelist?: string[];
 }> {
-  const res = await fetch(`${getBaseUrl()}/api/auth/config`);
+  const res = await fetch(`${getBaseUrl()}/api/auth/config`, { headers: getWorkspaceHeaders() });
   if (!res.ok) throw new Error('Failed to fetch auth config');
   return res.json();
 }
@@ -332,7 +344,7 @@ export async function getAuthConfig(): Promise<{
 export async function supabaseLogin(accessToken: string): Promise<{ token: string; user: AuthUser }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/supabase`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
     body: JSON.stringify({ accessToken }),
   });
   if (!res.ok) {
@@ -345,7 +357,7 @@ export async function supabaseLogin(accessToken: string): Promise<{ token: strin
 export async function googleLogin(credential: string): Promise<{ token: string; user: AuthUser }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/google`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
     body: JSON.stringify({ credential }),
   });
   if (!res.ok) {
@@ -358,14 +370,14 @@ export async function googleLogin(credential: string): Promise<{ token: string; 
 export async function logout(token: string): Promise<void> {
   await fetch(`${getBaseUrl()}/api/auth/logout`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, ...getWorkspaceHeaders() },
   });
 }
 
 export async function registerGuestSession(name: string): Promise<{ token?: string; user?: AuthUser }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/guest-session`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
     body: JSON.stringify({ name }),
   });
   if (!res.ok) return {};
@@ -380,10 +392,33 @@ export interface AllowlistEntry {
 }
 
 export interface AllowlistResponse {
+  workspaceId?: string;
   env: AllowlistEntry[];
   db: AllowlistEntry[];
   allowlistActive: boolean;
   dbWritable: boolean;
+}
+
+export async function fetchWorkspaces(): Promise<{ workspaces: Workspace[]; activeWorkspaceId: string }> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces`, {
+    headers: getAuthHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Failed to load workspaces: ${res.status}`);
+  return res.json();
+}
+
+export async function createWorkspace(input: { name: string; icon?: string }): Promise<{ workspace: Workspace; workspaces: Workspace[] }> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to create workspace: ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function getAllowlist(): Promise<AllowlistResponse> {
@@ -528,7 +563,7 @@ export async function revokeMachineKey(keyId: string): Promise<void> {
 // ─── Agent profile presets ───────────────────────────────────────
 
 export async function listProfilePresets(): Promise<{ presets: AgentProfilePreset[]; max: number }> {
-  const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`);
+  const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to list profile presets: ${res.status}`);
   return res.json();
 }
@@ -557,7 +592,7 @@ export async function deleteProfilePreset(id: string): Promise<void> {
 // ─── Tasks ───────────────────────────────────────────────────────
 
 export async function fetchTasks(): Promise<TaskRecord[]> {
-  const res = await fetch(`${getBaseUrl()}/api/tasks`, { cache: 'no-store' });
+  const res = await fetch(`${getBaseUrl()}/api/tasks`, { cache: 'no-store', headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.status}`);
   const data = await res.json();
   return Array.isArray(data.tasks) ? data.tasks : [];

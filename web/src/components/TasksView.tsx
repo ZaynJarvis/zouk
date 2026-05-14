@@ -160,25 +160,33 @@ function KanbanColumn({
 }
 
 export default function TasksView() {
-  const { tasksVersion } = useApp();
+  const { activeWorkspaceId, tasksVersion } = useApp();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'board' | 'list'>('board');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (cancelled: () => boolean) => {
     setError(null);
     try {
       const fetched = await api.fetchTasks();
+      if (cancelled()) return;
       setTasks(fetched);
     } catch (e) {
+      if (cancelled()) return;
       setError(e instanceof Error ? e.message : 'Failed to load tasks');
     } finally {
-      setLoading(false);
+      if (!cancelled()) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load, tasksVersion]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setTasks([]);
+    load(() => cancelled);
+    return () => { cancelled = true; };
+  }, [activeWorkspaceId, load, tasksVersion]);
 
   const buckets = useMemo(() => {
     const cutoff = Date.now() - SEVEN_DAYS_MS;
