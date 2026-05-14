@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../store/AppContext';
 import type { TaskRecord, TaskStatus } from '../types';
 import * as api from '../lib/api';
-import { Avatar, Eyebrow } from './zk/primitives';
-import MobileMenuButton from './MobileMenuButton';
+import { Avatar } from './zk/primitives';
+import ViewHeader from './ViewHeader';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -221,51 +221,28 @@ export default function TasksView() {
         minHeight: 0,
       }}
     >
-      <header
-        className="px-4 lg:px-7"
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)',
-          paddingRight: 16,
-          paddingBottom: 10,
-          paddingLeft: 16,
-          borderBottom: '1px solid var(--zk-line)',
-          flexShrink: 0,
-        }}
-      >
-        <MobileMenuButton />
-        <div className="zk-col">
-          <Eyebrow className="hidden lg:block">WORKSPACE</Eyebrow>
-          <h1
-            className="zk-display"
-            style={{ margin: '2px 0 0', fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em' }}
-          >
-            Tasks
-          </h1>
-        </div>
-        <span className="hidden lg:inline" style={{ color: 'var(--zk-ink-mute)', fontSize: 12, fontFamily: 'var(--zk-font-mono)' }}>
-          {total} total · {inFlight} in flight
-        </span>
-
-        <span className="zk-grow" />
-
-        <div className="zk-seg">
-          <button
-            type="button"
-            className={view === 'board' ? 'is-active' : ''}
-            onClick={() => setView('board')}
-          >
-            Board
-          </button>
-          <button
-            type="button"
-            className={view === 'list' ? 'is-active' : ''}
-            onClick={() => setView('list')}
-          >
-            List
-          </button>
-        </div>
-      </header>
+      <ViewHeader
+        title="Tasks"
+        meta={`${total} total · ${inFlight} in flight`}
+        actions={
+          <div className="zk-seg">
+            <button
+              type="button"
+              className={view === 'board' ? 'is-active' : ''}
+              onClick={() => setView('board')}
+            >
+              Board
+            </button>
+            <button
+              type="button"
+              className={view === 'list' ? 'is-active' : ''}
+              onClick={() => setView('list')}
+            >
+              List
+            </button>
+          </div>
+        }
+      />
 
       {error ? (
         <div className="zk-grow" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
