@@ -137,7 +137,7 @@ export function useAppStore() {
   const [activeChannelName, setActiveChannelName] = useState<string>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('channel');
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
-  const [agentDetailTab, setAgentDetailTab] = useState<'instructions' | 'workspace' | 'activity' | 'settings'>('instructions');
+  const [agentDetailTab, setAgentDetailTab] = useState<'settings' | 'skills' | 'workspace' | 'activity'>('settings');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
   const [agentProfileId, setAgentProfileId] = useState<string | null>(null);

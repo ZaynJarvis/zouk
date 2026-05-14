@@ -449,51 +449,44 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
   const liveAgent = agents.find((a) => a.id === agentProfileId);
   const config = configs.find((c) => c.id === agentProfileId);
 
-  const agent: ServerAgent | null = liveAgent || (config?.id ? {
-    id: config.id,
-    name: config.name,
-    displayName: config.displayName,
-    description: config.description,
-    runtime: config.runtime ?? 'claude',
-    model: config.model,
-    picture: config.picture,
-    visibility: config.visibility,
-    maxConcurrentTasks: config.maxConcurrentTasks,
-    autoStart: config.autoStart,
-    instructions: config.instructions,
-    skills: config.skills,
-    lifecycle: config.lifecycle,
-    envVars: config.envVars,
-    workDir: config.workDir,
-    ovEnabled: config.ovEnabled,
-    ovEnabledIsDefault: config.ovEnabledIsDefault,
-    ovDefault: config.ovDefault,
-    openvikingProvisioned: config.openvikingProvisioned,
-    openvikingMode: config.openvikingMode,
-    openvikingCustomConfigured: config.openvikingCustomConfigured,
-    status: 'inactive',
-    activity: 'offline',
-  } : null);
+  const agent: ServerAgent | null = useMemo(() => (
+    liveAgent || (config?.id ? {
+      id: config.id,
+      name: config.name,
+      displayName: config.displayName,
+      description: config.description,
+      runtime: config.runtime ?? 'claude',
+      model: config.model,
+      picture: config.picture,
+      visibility: config.visibility,
+      maxConcurrentTasks: config.maxConcurrentTasks,
+      autoStart: config.autoStart,
+      instructions: config.instructions,
+      skills: config.skills,
+      lifecycle: config.lifecycle,
+      envVars: config.envVars,
+      workDir: config.workDir,
+      ovEnabled: config.ovEnabled,
+      ovEnabledIsDefault: config.ovEnabledIsDefault,
+      ovDefault: config.ovDefault,
+      openvikingProvisioned: config.openvikingProvisioned,
+      openvikingMode: config.openvikingMode,
+      openvikingCustomConfigured: config.openvikingCustomConfigured,
+      status: 'inactive',
+      activity: 'offline',
+    } : null)
+  ), [liveAgent, config]);
+
+  useEffect(() => {
+    if (agentProfileId && !agent) closeAgentProfileRail();
+  }, [agentProfileId, agent, closeAgentProfileRail]);
 
   const outerClass = inline
     ? 'w-full h-full border-l border-nc-border flex flex-col'
     : 'w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border flex flex-col animate-slide-in-right';
 
   if (!agent) {
-    return (
-      <div
-        className={`${outerClass} items-center justify-center`}
-        style={{ background: 'var(--zk-bg-0)' }}
-      >
-        <p className="text-sm text-nc-muted font-mono mb-3">AGENT_NOT_FOUND</p>
-        <button
-          onClick={closeAgentProfileRail}
-          className="px-3 py-1.5 border border-nc-border text-xs text-nc-muted hover:text-nc-text-bright font-mono"
-        >
-          CLOSE
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (
