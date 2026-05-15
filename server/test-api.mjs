@@ -339,6 +339,71 @@ test('attachments persist across server restart', async () => {
   }
 });
 
+// ─── Auth: allowlist union semantics ──────────────────────────────────────────
+
+test('GET /api/auth/config: allowlistActive=false when no allowlist source is configured', async () => {
+  // Baseline. Default server boot in this test file has no ALLOW env and no
+  // DB-backed allowlist rows, so guest button must remain enabled.
+  const defaultCfg = await json(await fetch(`${BASE}/api/auth/config`));
+  assert.equal(defaultCfg.status, 200);
+  assert.equal(defaultCfg.body.allowlistActive, false);
+  // Same answer when the request lands on a non-default workspace — the gate
+  // is now system-wide, not per-workspace.
+  const nonDefaultCfg = await json(await fetch(`${BASE}/api/auth/config`, {
+    headers: { 'X-Workspace-Id': 'somewhere-else' },
+  }));
+  assert.equal(nonDefaultCfg.status, 200);
+  assert.equal(nonDefaultCfg.body.allowlistActive, false);
+});
+
+test('GET /api/auth/config: allowlistActive=true when ANY workspace gates on an allowlist', async () => {
+  // Spec (zhiheng.liu 2026-05-15): the login safeguard must be the UNION across
+  // every workspace allowlist + env defaults. The frontend reads
+  // /api/auth/config.allowlistActive to decide whether to hide the guest
+  // button. Before the fix this was scoped to a single workspace, so adding an
+  // allowlist on workspace X failed to gate default-workspace visitors.
+  const port = TEST_PORT + 2;
+  const altBase = `http://localhost:${port}`;
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ALLOW: 'ci-allow@example.com',
+      ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+  try {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(`${altBase}/api/channels`);
+        if (r.ok) break;
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    const defaultCfg = await json(await fetch(`${altBase}/api/auth/config`));
+    assert.equal(defaultCfg.status, 200);
+    assert.equal(defaultCfg.body.allowlistActive, true);
+    // The bug: previously this came back false because the request was scoped
+    // to a workspace whose own allowlist was empty. The fix returns true
+    // because some workspace (default, via ENV) gates on an allowlist.
+    const nonDefaultCfg = await json(await fetch(`${altBase}/api/auth/config`, {
+      headers: { 'X-Workspace-Id': 'private-workspace' },
+    }));
+    assert.equal(nonDefaultCfg.status, 200);
+    assert.equal(nonDefaultCfg.body.allowlistActive, true);
+  } finally {
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+  }
+});
+
 // ─── Auth enforcement ─────────────────────────────────────────────────────────
 
 test('POST /api/messages without auth: returns 403', async () => {
