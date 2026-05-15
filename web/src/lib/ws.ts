@@ -181,6 +181,17 @@ const FAST_PROBE_MS = 500;
 // app can prompt re-login on the auth:expired event.
 const VALIDATE_TOKEN_AFTER_FAILURES = 3;
 
+function shouldForceReconnectOnVisible(): boolean {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const maxTouchPoints = navigator.maxTouchPoints || 0;
+  const isiOS = /iP(ad|hone|od)/.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1);
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|Edg/i.test(ua);
+  const displayStandalone = window.matchMedia?.('(display-mode: standalone)').matches || false;
+  const navigatorStandalone = !!(navigator as Navigator & { standalone?: boolean }).standalone;
+  return isiOS || (isSafari && (displayStandalone || navigatorStandalone));
+}
+
 // iOS (Safari / PWA) silently kills WebSocket TCP connections when the app is
 // backgrounded or the screen locks. Unlike a normal close, the OS never sends a
 // FIN/RST, so `onclose` never fires and `readyState` stays OPEN — the socket is
@@ -445,6 +456,13 @@ export class SlockWebSocket {
   private handleVisibilityChange(): void {
     if (document.visibilityState !== 'visible') return;
     if (!this.reconnectEnabled) return;
+    const state = this.ws?.readyState;
+    if (!shouldForceReconnectOnVisible()) {
+      if (state !== WebSocket.OPEN && state !== WebSocket.CONNECTING) {
+        this.connect();
+      }
+      return;
+    }
     // Detach all callbacks before closing so no stale handlers fire.
     if (this.ws) {
       this.ws.onopen = null;
