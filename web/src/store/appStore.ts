@@ -40,12 +40,11 @@ import {
   getInitialActiveWorkspaceId,
   getWorkspaceIdFromPath,
   normalizeWorkspaceId,
-  pushWorkspaceRoute,
   replaceWorkspaceRoute,
   setActiveWorkspaceId as setScopedActiveWorkspaceId,
 } from '../lib/workspaceRoute';
 
-type WorkspaceRouteMode = 'none' | 'push' | 'replace';
+type WorkspaceRouteMode = 'none' | 'replace';
 
 function isKnownChannel(channels: ServerChannel[], name: string) {
   return channels.some(channel => channel.name === name);
@@ -265,8 +264,7 @@ export function useAppStore() {
     const next = normalizeWorkspaceId(workspaceId);
     setScopedActiveWorkspaceId(next);
     setStoredActiveWorkspaceId(next);
-    if (routeMode === 'push') pushWorkspaceRoute(next);
-    else if (routeMode === 'replace') replaceWorkspaceRoute(next);
+    if (routeMode === 'replace') replaceWorkspaceRoute(next);
 
     if (next === activeWorkspaceRef.current) return;
 
@@ -788,7 +786,7 @@ export function useAppStore() {
   }, [addToast, commitWorkspaceSelection, recordAgentLastChannel]);
 
   const setActiveWorkspaceId = useCallback((workspaceId: string) => {
-    commitWorkspaceSelection(workspaceId, 'push');
+    commitWorkspaceSelection(workspaceId, 'replace');
   }, [commitWorkspaceSelection]);
 
   const createWorkspace = useCallback(async (input: { name: string; icon?: string }) => {
