@@ -1,12 +1,21 @@
 import { GoogleLogin } from '@react-oauth/google';
 import { Loader2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
 import { initSupabase } from '../lib/supabase';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
+const MAGIC_LINK_POLL_INTERVAL_MS = 2000;
+const MAGIC_LINK_EXPIRES_MS = 5 * 60 * 1000;
+
+function formatTimeLeft(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
 
 function ScrambleTitle({ nc }: { nc: boolean }) {
   const [text, setText] = useState('ZOUK');
@@ -53,13 +62,25 @@ function ScrambleTitle({ nc }: { nc: boolean }) {
 }
 
 export default function LoginScreen() {
-  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, hasMagicLinkAuth, supabaseConfig, allowlistActive } = useApp();
+  const {
+    loginWithGoogle,
+    loginWithSupabaseAccessToken,
+    loginWithStoredAuth,
+    loginAsGuest,
+    hasGoogleAuth,
+    hasMagicLinkAuth,
+    supabaseConfig,
+    allowlistActive,
+  } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [glitchActive, setGlitchActive] = useState(false);
   const [pendingAction, setPendingAction] = useState<'guest' | 'google' | 'magic' | null>(null);
   const [magicEmail, setMagicEmail] = useState('');
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [magicLinkState, setMagicLinkState] = useState<'idle' | 'pending' | 'expired'>('idle');
+  const [magicLinkExpiresAt, setMagicLinkExpiresAt] = useState<number | null>(null);
+  const [magicLinkNow, setMagicLinkNow] = useState(() => Date.now());
+  const magicLoginInFlightRef = useRef(false);
 
   const handleGuestLogin = useCallback(() => {
     setLoading(true);
@@ -86,6 +107,8 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
     setPendingAction('magic');
+    setMagicLinkState('idle');
+    setMagicLinkExpiresAt(null);
     try {
       const supabase = initSupabase(supabaseConfig.url, supabaseConfig.anonKey);
       const { error: otpError } = await supabase.auth.signInWithOtp({
@@ -93,7 +116,10 @@ export default function LoginScreen() {
         options: { emailRedirectTo: window.location.origin },
       });
       if (otpError) throw otpError;
-      setMagicLinkSent(true);
+      const expiresAt = Date.now() + MAGIC_LINK_EXPIRES_MS;
+      setMagicLinkNow(Date.now());
+      setMagicLinkExpiresAt(expiresAt);
+      setMagicLinkState('pending');
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : 'Failed to send magic link.';
       setError(message);
@@ -102,6 +128,89 @@ export default function LoginScreen() {
       setPendingAction(null);
     }
   }, [magicEmail, supabaseConfig]);
+
+  const resetMagicLink = useCallback(() => {
+    setMagicLinkState('idle');
+    setMagicLinkExpiresAt(null);
+    setError(null);
+    setPendingAction(null);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (magicLinkState !== 'pending' || !magicLinkExpiresAt) return;
+    setMagicLinkNow(Date.now());
+    const timer = window.setInterval(() => setMagicLinkNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [magicLinkState, magicLinkExpiresAt]);
+
+  useEffect(() => {
+    if (magicLinkState !== 'pending' || !magicLinkExpiresAt || !supabaseConfig) return;
+    let cancelled = false;
+    let pollTimer: number | null = null;
+    let expiryTimer: number | null = null;
+
+    const supabase = initSupabase(supabaseConfig.url, supabaseConfig.anonKey);
+
+    const expire = () => {
+      if (cancelled) return;
+      setMagicLinkState('expired');
+      setMagicLinkNow(Date.now());
+      setPendingAction(null);
+      setLoading(false);
+    };
+
+    const completeWithAccessToken = async (accessToken: string) => {
+      if (magicLoginInFlightRef.current) return;
+      magicLoginInFlightRef.current = true;
+      setPendingAction('magic');
+      setLoading(true);
+      try {
+        await loginWithSupabaseAccessToken(accessToken);
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error && err.message ? err.message : 'Magic link login failed.';
+          setError(message);
+          setMagicLinkState('idle');
+          setMagicLinkExpiresAt(null);
+          setPendingAction(null);
+          setLoading(false);
+        }
+      } finally {
+        magicLoginInFlightRef.current = false;
+      }
+    };
+
+    const poll = async () => {
+      if (cancelled || magicLoginInFlightRef.current) return;
+      if (Date.now() >= magicLinkExpiresAt) {
+        expire();
+        return;
+      }
+      if (loginWithStoredAuth()) return;
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (sessionError) return;
+      const accessToken = data.session?.access_token;
+      if (accessToken) void completeWithAccessToken(accessToken);
+    };
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) void completeWithAccessToken(session.access_token);
+    });
+
+    void poll();
+    pollTimer = window.setInterval(() => { void poll(); }, MAGIC_LINK_POLL_INTERVAL_MS);
+    expiryTimer = window.setTimeout(expire, Math.max(0, magicLinkExpiresAt - Date.now()));
+
+    return () => {
+      cancelled = true;
+      if (pollTimer !== null) window.clearInterval(pollTimer);
+      if (expiryTimer !== null) window.clearTimeout(expiryTimer);
+      authListener.subscription.unsubscribe();
+    };
+  }, [loginWithStoredAuth, loginWithSupabaseAccessToken, magicLinkExpiresAt, magicLinkState, supabaseConfig]);
 
   const handleGlitchComplete = useCallback(() => {
     setGlitchActive(false);
@@ -119,6 +228,7 @@ export default function LoginScreen() {
 
   const hasSeparator = hasGoogleAuth || hasMagicLinkAuth;
   const showGuestDivider = hasSeparator && !allowlistActive;
+  const magicLinkTimeLeft = magicLinkExpiresAt ? Math.max(0, magicLinkExpiresAt - magicLinkNow) : 0;
 
   return (
     <div className="login-shell flex sm:items-center items-start justify-center bg-nc-black font-body cyber-scanlines">
@@ -183,14 +293,34 @@ export default function LoginScreen() {
 
           {hasMagicLinkAuth && (
             <div className="mb-4">
-              {magicLinkSent ? (
+              {magicLinkState === 'pending' || magicLinkState === 'expired' ? (
                 <div className={`p-3 border text-xs font-mono text-center ${
-                  nc
+                  magicLinkState === 'expired'
+                    ? 'border-nc-red/50 bg-nc-red/10 text-nc-red'
+                    : nc
                     ? 'border-nc-cyan/40 bg-nc-cyan/5 text-nc-cyan'
                     : 'border-nc-border-bright bg-nc-panel text-nc-text-bright'
                 }`}>
-                  {nc ? '✓ LINK TRANSMITTED' : 'Check your email'}<br />
-                  <span className="text-nc-muted mt-1 block">Magic link sent to {magicEmail}</span>
+                  {magicLinkState === 'expired'
+                    ? (nc ? 'LINK EXPIRED' : 'Magic link expired')
+                    : (nc ? '✓ LINK TRANSMITTED' : 'Check your email')}<br />
+                  <span className="text-nc-muted mt-1 block">
+                    Magic link sent to {magicEmail}
+                  </span>
+                  {magicLinkState === 'pending' ? (
+                    <span className="text-nc-muted mt-2 flex items-center justify-center gap-2">
+                      <Loader2 size={12} className="animate-spin opacity-80" aria-hidden="true" />
+                      Waiting for sign-in · {formatTimeLeft(magicLinkTimeLeft)}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={resetMagicLink}
+                      className="mt-3 px-3 py-1.5 border border-nc-border-bright text-nc-text-bright hover:bg-nc-yellow"
+                    >
+                      Send a new link
+                    </button>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={handleMagicLink} className="space-y-2">
