@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_seq_idx     ON messages (seq);
 CREATE INDEX IF NOT EXISTS messages_channel_idx ON messages (channel_name, channel_type);
 CREATE INDEX IF NOT EXISTS messages_thread_idx  ON messages (thread_id) WHERE thread_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS messages_thread_channel_seq_idx
+  ON messages (thread_id, channel_id, seq) WHERE thread_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS messages_workspace_seq_idx ON messages (workspace_id, seq);
 CREATE INDEX IF NOT EXISTS messages_workspace_channel_seq_idx ON messages (workspace_id, channel_id, seq);
 

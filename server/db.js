@@ -45,6 +45,25 @@ function buildPoolConfig(databaseUrl) {
 
 const enabled = Boolean(DATABASE_URL);
 const pool = enabled ? new Pool(buildPoolConfig(DATABASE_URL)) : null;
+const PERF_LOG_MODE = String(process.env.ZOUK_DB_PERF_LOG || process.env.ZOUK_PERF_LOG || "slow").trim().toLowerCase();
+const PERF_LOG_ENABLED = ["1", "true", "yes", "slow", "verbose", "all"].includes(PERF_LOG_MODE);
+const PERF_LOG_VERBOSE = ["verbose", "all"].includes(PERF_LOG_MODE);
+const PERF_SLOW_MS = Math.max(1, parseInt(process.env.ZOUK_DB_PERF_SLOW_MS || process.env.ZOUK_PERF_SLOW_MS || "1000", 10) || 1000);
+
+function perfNowMs() {
+  return Number(process.hrtime.bigint()) / 1e6;
+}
+
+function logDbPerf(label, durationMs, fields = {}, { force = false } = {}) {
+  if (!PERF_LOG_ENABLED) return;
+  if (!force && !PERF_LOG_VERBOSE && durationMs < PERF_SLOW_MS) return;
+  const parts = [`[db:perf] ${label}`, `duration_ms=${durationMs.toFixed(1)}`];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null || value === "") continue;
+    parts.push(`${key}=${JSON.stringify(value)}`);
+  }
+  console.warn(parts.join(" "));
+}
 
 if (enabled) {
   console.log('[db] PostgreSQL persistence enabled');
@@ -98,6 +117,7 @@ async function migrate() {
 
 async function saveMessage(msg) {
   if (!pool) return;
+  const started = perfNowMs();
   try {
     await pool.query(
       `INSERT INTO messages (id, seq, workspace_id, channel_id, channel_name, channel_type, thread_id, sender_name, sender_type, content, created_at, attachments, task_number, task_status, task_assignee_id, task_assignee_type)
@@ -137,6 +157,12 @@ async function saveMessage(msg) {
         msg.taskAssigneeType || null,
       ]
     );
+    logDbPerf('saveMessage', perfNowMs() - started, {
+      workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID,
+      channelId: msg.channelId,
+      channelType: msg.channelType,
+      thread: !!msg.threadId,
+    });
   } catch (e) {
     console.error('[db] saveMessage error:', e.message);
   }
@@ -202,6 +228,7 @@ async function findMessagesByIdPrefix({ prefix, workspaceId = null, limit = 2 })
 // (workspace_id, channel_id, seq) index.
 async function queryMessages({ workspaceId, channelId, threadId = null, threadIdFilter = 'auto', beforeSeq = null, afterSeq = null, limit = 100 }) {
   if (!pool) return [];
+  const started = perfNowMs();
   try {
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
     // threadIdFilter semantics:
@@ -239,6 +266,15 @@ async function queryMessages({ workspaceId, channelId, threadId = null, threadId
        ) sub ORDER BY seq ASC`,
       params
     );
+    logDbPerf('queryMessages', perfNowMs() - started, {
+      workspaceId: wsId,
+      channelId,
+      thread: !!threadId,
+      before: beforeSeq != null,
+      after: afterSeq != null,
+      limit,
+      rows: rows.length,
+    });
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryMessages error:', e.message);
@@ -251,6 +287,7 @@ async function queryMessages({ workspaceId, channelId, threadId = null, threadId
 // inclusive of the center message itself).
 async function queryMessagesAround({ workspaceId, channelId, centerSeq, limit = 50 }) {
   if (!pool) return [];
+  const started = perfNowMs();
   try {
     const half = Math.floor(limit / 2);
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
@@ -265,6 +302,13 @@ async function queryMessagesAround({ workspaceId, channelId, centerSeq, limit = 
        ORDER BY seq ASC`,
       [wsId, channelId, centerSeq, half, half + 1]
     );
+    logDbPerf('queryMessagesAround', perfNowMs() - started, {
+      workspaceId: wsId,
+      channelId,
+      centerSeq,
+      limit,
+      rows: rows.length,
+    });
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryMessagesAround error:', e.message);
@@ -277,6 +321,7 @@ async function queryMessagesAround({ workspaceId, channelId, centerSeq, limit = 
 // (DM membership, self-exclusion) still happens in-process after fetch.
 async function queryMessagesForAgent({ workspaceId, channelIds, sinceSeq = 0, limit = 200 }) {
   if (!pool || !Array.isArray(channelIds) || channelIds.length === 0) return [];
+  const started = perfNowMs();
   try {
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
     const { rows } = await pool.query(
@@ -285,6 +330,13 @@ async function queryMessagesForAgent({ workspaceId, channelIds, sinceSeq = 0, li
         ORDER BY seq ASC LIMIT $4`,
       [wsId, channelIds, sinceSeq, limit]
     );
+    logDbPerf('queryMessagesForAgent', perfNowMs() - started, {
+      workspaceId: wsId,
+      channels: channelIds.length,
+      sinceSeq,
+      limit,
+      rows: rows.length,
+    });
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryMessagesForAgent error:', e.message);
@@ -332,6 +384,55 @@ async function queryThreadReplies({ threadId, channelId, limit = 50 }) {
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryThreadReplies error:', e.message);
+    return [];
+  }
+}
+
+async function queryThreadRepliesBatch({ pairs, limit = 50 }) {
+  if (!pool || !Array.isArray(pairs) || pairs.length === 0) return [];
+  const started = perfNowMs();
+  const unique = [];
+  const seen = new Set();
+  for (const pair of pairs) {
+    if (!pair?.threadId || !pair?.channelId) continue;
+    const key = `${pair.threadId}:${pair.channelId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({ threadId: pair.threadId, channelId: pair.channelId });
+  }
+  if (unique.length === 0) return [];
+  try {
+    const threadIds = unique.map((pair) => pair.threadId);
+    const channelIds = unique.map((pair) => pair.channelId);
+    const { rows } = await pool.query(
+      `WITH pairs AS (
+         SELECT * FROM unnest($1::text[], $2::text[]) AS p(thread_id, channel_id)
+       ),
+       ranked AS (
+         SELECT m.*,
+                row_number() OVER (
+                  PARTITION BY m.thread_id, m.channel_id
+                  ORDER BY m.seq ASC
+                ) AS reply_rank
+           FROM messages m
+           JOIN pairs p ON p.thread_id = m.thread_id AND p.channel_id = m.channel_id
+       )
+       SELECT *
+         FROM ranked
+        WHERE reply_rank <= $3
+        ORDER BY seq ASC`,
+      [threadIds, channelIds, limit]
+    );
+    logDbPerf('queryThreadRepliesBatch', perfNowMs() - started, {
+      pairs: unique.length,
+      limit,
+      rows: rows.length,
+    }, {
+      force: PERF_LOG_MODE !== "slow" && unique.length >= 10,
+    });
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] queryThreadRepliesBatch error:', e.message);
     return [];
   }
 }
@@ -1139,6 +1240,7 @@ module.exports = {
   queryMessagesForAgent,
   searchMessages,
   queryThreadReplies,
+  queryThreadRepliesBatch,
   updateMessageTaskFields,
   loadTaskMessageTimes,
   saveChannel,
