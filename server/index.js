@@ -15,6 +15,7 @@ const { createStorage } = require("./storage");
 const mockData = require("./mockData");
 const { provisionAgentKey } = require("./openviking-admin");
 const { AgentDeliveryRouter } = require("./notifications/agentDeliveryRouter");
+const { DEFAULT_WORKSPACE_ID, allocateWorkspaceId, normalizeWorkspaceId } = require("./workspaceIds");
 
 function gravatarUrl(email) {
   if (!email) return null;
@@ -26,7 +27,6 @@ const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
-const DEFAULT_WORKSPACE_ID = "default";
 const DEFAULT_WORKSPACE_NAME = process.env.ZOUK_DEFAULT_WORKSPACE_NAME || "Default";
 const DEFAULT_WORKSPACE_ICON = process.env.ZOUK_DEFAULT_WORKSPACE_ICON || "z";
 const MAX_WORKSPACE_ICON_BYTES = 12 * 1024;
@@ -49,13 +49,6 @@ function logPerf(label, durationMs, fields = {}, { force = false } = {}) {
     parts.push(`${key}=${JSON.stringify(value)}`);
   }
   console.warn(parts.join(" "));
-}
-
-function normalizeWorkspaceId(raw) {
-  if (typeof raw !== "string") return DEFAULT_WORKSPACE_ID;
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return DEFAULT_WORKSPACE_ID;
-  return trimmed.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || DEFAULT_WORKSPACE_ID;
 }
 
 function workspaceIdFromReq(req) {
@@ -768,6 +761,10 @@ function userCanAccessWorkspace(user, workspaceId = DEFAULT_WORKSPACE_ID) {
 function userCanAdminWorkspace(user, workspaceId = DEFAULT_WORKSPACE_ID) {
   const role = userWorkspaceRole(user, workspaceId);
   return role === "root" || role === "owner" || role === "admin";
+}
+
+function userCanRootWorkspace(user, workspaceId = DEFAULT_WORKSPACE_ID) {
+  return userWorkspaceRole(user, workspaceId) === "root" || isSuperuser(user?.email);
 }
 
 function visibleWorkspacesForUser(user) {
@@ -1742,6 +1739,94 @@ const profilePresets = createProfilePresetsStore({
   filePath: AGENT_PROFILE_PRESETS_FILE,
   db,
 });
+
+function removeWorkspaceFromMemory(workspaceId) {
+  const id = normalizeWorkspaceId(workspaceId);
+  if (id === DEFAULT_WORKSPACE_ID) return false;
+  const existing = findWorkspace(id);
+  if (!existing) return false;
+
+  const removedChannelIds = new Set(
+    store.channels
+      .filter((channel) => normalizeWorkspaceId(channel.workspaceId || DEFAULT_WORKSPACE_ID) === id)
+      .map((channel) => channel.id)
+  );
+  const removedAgentIds = new Set(
+    agentConfigs
+      .filter((config) => normalizeWorkspaceId(config.workspaceId || DEFAULT_WORKSPACE_ID) === id)
+      .map((config) => config.id)
+  );
+  for (const [agentId, agent] of Object.entries(store.agents)) {
+    if (normalizeWorkspaceId(agent?.workspaceId || workspaceIdFromAgent(agentId)) === id) {
+      removedAgentIds.add(agentId);
+    }
+  }
+
+  store.workspaces = store.workspaces.filter((workspace) => workspace.id !== id);
+  store.workspaceMembers.delete(id);
+  store.channels = store.channels.filter((channel) => normalizeWorkspaceId(channel.workspaceId || DEFAULT_WORKSPACE_ID) !== id);
+  store.tasks = store.tasks.filter((task) => normalizeWorkspaceId(task.workspaceId || DEFAULT_WORKSPACE_ID) !== id);
+
+  for (const channelId of removedChannelIds) {
+    store.channelAgents.delete(channelId);
+    store.channelMessages.delete(channelId);
+  }
+
+  for (const [messageId, message] of messagesById.entries()) {
+    if (normalizeWorkspaceId(message.workspaceId || DEFAULT_WORKSPACE_ID) === id) messagesById.delete(messageId);
+  }
+  for (const [shortId, message] of messagesByShortId.entries()) {
+    if (normalizeWorkspaceId(message.workspaceId || DEFAULT_WORKSPACE_ID) === id) messagesByShortId.delete(shortId);
+  }
+  for (const [threadId, replies] of repliesByThreadId.entries()) {
+    const kept = replies.filter((message) => normalizeWorkspaceId(message.workspaceId || DEFAULT_WORKSPACE_ID) !== id);
+    if (kept.length === 0) repliesByThreadId.delete(threadId);
+    else if (kept.length !== replies.length) repliesByThreadId.set(threadId, kept);
+  }
+  for (const [channelId, messages] of store.channelMessages.entries()) {
+    const kept = messages.filter((message) => normalizeWorkspaceId(message.workspaceId || DEFAULT_WORKSPACE_ID) !== id);
+    if (kept.length === 0) store.channelMessages.delete(channelId);
+    else if (kept.length !== messages.length) store.channelMessages.set(channelId, kept);
+  }
+  for (const key of [...taskTimes.keys()]) {
+    if (key.startsWith(`${id}:`)) taskTimes.delete(key);
+  }
+
+  for (const agentId of removedAgentIds) {
+    sendAgentStop(agentId);
+    purgeAgentMemberships(agentId);
+    purgeUnknownAgentState(agentId);
+  }
+  if (removedAgentIds.size > 0) {
+    for (let i = agentConfigs.length - 1; i >= 0; i--) {
+      if (removedAgentIds.has(agentConfigs[i].id)) agentConfigs.splice(i, 1);
+    }
+    saveAgentConfigs(agentConfigs);
+  }
+
+  let machineKeysChanged = false;
+  for (let i = machineKeys.length - 1; i >= 0; i--) {
+    if (normalizeWorkspaceId(machineKeys[i].workspaceId || DEFAULT_WORKSPACE_ID) === id) {
+      machineKeys.splice(i, 1);
+      machineKeysChanged = true;
+    }
+  }
+  if (machineKeysChanged) saveMachineKeys(machineKeys);
+
+  for (const [machineId, machine] of machines.entries()) {
+    if (normalizeWorkspaceId(machine.workspaceId || DEFAULT_WORKSPACE_ID) === id) machines.delete(machineId);
+  }
+  for (const ws of daemonConnections) {
+    if (normalizeWorkspaceId(ws._workspaceId || DEFAULT_WORKSPACE_ID) === id) {
+      try { ws.close(1008, "workspace deleted"); } catch { void 0; }
+    }
+  }
+  for (const key of [...dbAllowEmails.keys()]) {
+    if (key.startsWith(`${id}:`)) dbAllowEmails.delete(key);
+  }
+  profilePresets.removeWorkspace?.(id);
+  return true;
+}
 
 function humanId(name) {
   return `human:${String(name || "").trim().toLowerCase()}`;
@@ -4393,9 +4478,11 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         break;
       }
       const workDirChanged = updateAgentWorkDir(msg.agentId, msg.workDir);
+      const workspaceId = workspaceIdFromAgent(msg.agentId);
       // Forward to web UI
       broadcastToWeb({
         type: "workspace:file_tree",
+        workspaceId,
         agentId: msg.agentId,
         dirPath: msg.dirPath || "",
         workDir: msg.workDir,
@@ -4403,7 +4490,6 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       });
       if (workDirChanged) {
         broadcastToWeb({ type: "agent_started", agent: agentPayload(msg.agentId) });
-        const workspaceId = workspaceIdFromAgent(msg.agentId);
         broadcastToWeb({
           type: "config_updated",
           workspaceId,
@@ -4418,15 +4504,15 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         console.log(`[agent:${msg.agentId}] Ignoring workspace file content from stale daemon connection on machine ${ws._machineId}`);
         break;
       }
-      broadcastToWeb({ type: "workspace:file_content", agentId: msg.agentId, requestId: msg.requestId, content: msg.content });
+      broadcastToWeb({ type: "workspace:file_content", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, requestId: msg.requestId, content: msg.content });
       break;
     }
     case "agent:memory:list_result": {
-      broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri: msg.uri, entries: msg.entries, error: msg.error });
+      broadcastToWeb({ type: "memory:list_result", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, uri: msg.uri, entries: msg.entries, error: msg.error });
       break;
     }
     case "agent:memory:content": {
-      broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId: msg.requestId, uri: msg.uri, level: msg.level || null, content: msg.content, error: msg.error });
+      broadcastToWeb({ type: "memory:content", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, requestId: msg.requestId, uri: msg.uri, level: msg.level || null, content: msg.content, error: msg.error });
       break;
     }
     case "agent:skills:list_result": {
@@ -4435,15 +4521,15 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         console.log(`[agent:${msg.agentId}] Ignoring skills result from stale daemon connection on machine ${ws._machineId}`);
         break;
       }
-      broadcastToWeb({ type: "skills:list_result", agentId: msg.agentId, global: msg.global, workspace: msg.workspace });
+      broadcastToWeb({ type: "skills:list_result", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, global: msg.global, workspace: msg.workspace });
       break;
     }
     case "machine:workspace:scan_result": {
-      broadcastToWeb({ type: "machine:workspace:scan_result", machineId: ws._machineId, directories: msg.directories });
+      broadcastToWeb({ type: "machine:workspace:scan_result", workspaceId: ws._workspaceId || DEFAULT_WORKSPACE_ID, machineId: ws._machineId, directories: msg.directories });
       break;
     }
     case "machine:workspace:delete_result": {
-      broadcastToWeb({ type: "machine:workspace:delete_result", machineId: ws._machineId, directoryName: msg.directoryName, success: msg.success });
+      broadcastToWeb({ type: "machine:workspace:delete_result", workspaceId: ws._workspaceId || DEFAULT_WORKSPACE_ID, machineId: ws._machineId, directoryName: msg.directoryName, success: msg.success });
       break;
     }
     case "machine:runtime_models:result": {
@@ -4550,6 +4636,49 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
   ws.on("close", () => clearInterval(pingInterval));
 }
 
+function sendWebError(ws, message, extra = {}) {
+  if (ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: "error", message, ...extra }));
+}
+
+function webRequestWorkspaceId(ws, msg) {
+  const socketWorkspaceId = normalizeWorkspaceId(ws._workspaceId || DEFAULT_WORKSPACE_ID);
+  const requestedWorkspaceId = normalizeWorkspaceId(msg.workspaceId || socketWorkspaceId);
+  if (requestedWorkspaceId !== socketWorkspaceId) {
+    sendWebError(ws, "Workspace mismatch. Reconnect the socket for the selected workspace.", {
+      code: "workspace_mismatch",
+      workspaceId: socketWorkspaceId,
+      requestedWorkspaceId,
+    });
+    return null;
+  }
+  const user = ws._authToken ? authSessions.get(ws._authToken) : null;
+  const defaultOpenRead = requestedWorkspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(requestedWorkspaceId);
+  if (!findWorkspace(requestedWorkspaceId) || (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, requestedWorkspaceId)))) {
+    sendWebError(ws, "Not a member of this workspace.", {
+      code: "workspace_forbidden",
+      workspaceId: requestedWorkspaceId,
+    });
+    return null;
+  }
+  return requestedWorkspaceId;
+}
+
+function webAgentRequest(ws, msg) {
+  const workspaceId = webRequestWorkspaceId(ws, msg);
+  if (!workspaceId) return null;
+  const agentId = typeof msg.agentId === "string" ? msg.agentId : "";
+  if (!agentId || workspaceIdFromAgent(agentId) !== workspaceId) {
+    sendWebError(ws, "Agent not found in this workspace.", {
+      code: "agent_not_found",
+      workspaceId,
+      agentId,
+    });
+    return null;
+  }
+  return { workspaceId, agentId, agentWs: daemonSockets.get(agentId) };
+}
+
 function handleWebMessage(ws, msg) {
   // Block write-type messages from unauthenticated (guest) connections
   if (WS_AUTH_REQUIRED_TYPES.has(msg.type) && !ws._authenticated) {
@@ -4568,9 +4697,11 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "workspace:list": {
-      const agentWs = daemonSockets.get(msg.agentId);
+      const request = webAgentRequest(ws, msg);
+      if (!request) break;
+      const agentWs = request.agentWs;
       if (agentWs && agentWs.readyState === 1) {
-        const payload = { agentId: msg.agentId, dirPath: msg.dirPath || null };
+        const payload = { agentId: request.agentId, dirPath: msg.dirPath || null };
         if (hasWorkspaceFsCapability(agentWs)) {
           agentWs.send(JSON.stringify({ type: "workspace:list", ...payload }));
         } else {
@@ -4580,9 +4711,11 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "workspace:read": {
-      const agentWs = daemonSockets.get(msg.agentId);
+      const request = webAgentRequest(ws, msg);
+      if (!request) break;
+      const agentWs = request.agentWs;
       if (agentWs && agentWs.readyState === 1) {
-        const payload = { agentId: msg.agentId, requestId: msg.requestId || uuidv4(), path: msg.path };
+        const payload = { agentId: request.agentId, requestId: msg.requestId || uuidv4(), path: msg.path };
         if (hasWorkspaceFsCapability(agentWs)) {
           agentWs.send(JSON.stringify({ type: "workspace:read", ...payload }));
         } else {
@@ -4592,27 +4725,31 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "memory:list": {
-      const ovCreds = resolveOvCredentials(msg.agentId);
+      const request = webAgentRequest(ws, msg);
+      if (!request) break;
+      const ovCreds = resolveOvCredentials(request.agentId);
       if (ovCreds && !isLocalUrl(ovCreds.url)) {
         const uri = msg.uri || "viking://";
         ovMcpCall(ovCreds, "list", { uri })
           .then((raw) => {
-            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: parseOvListResult(raw, uri) });
+            broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries: parseOvListResult(raw, uri) });
           })
           .catch((e) => {
             ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
-            broadcastToWeb({ type: "memory:list_result", agentId: msg.agentId, uri, entries: [], error: e.message });
+            broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries: [], error: e.message });
           });
       } else {
-        const agentWs = daemonSockets.get(msg.agentId);
+        const agentWs = request.agentWs;
         if (agentWs && agentWs.readyState === 1) {
-          agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: msg.agentId, uri: msg.uri || "viking://" }));
+          agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: request.agentId, uri: msg.uri || "viking://" }));
         }
       }
       break;
     }
     case "memory:read": {
-      const ovCreds = resolveOvCredentials(msg.agentId);
+      const request = webAgentRequest(ws, msg);
+      if (!request) break;
+      const ovCreds = resolveOvCredentials(request.agentId);
       const level = msg.level === "l0" || msg.level === "l1" || msg.level === "l2" ? msg.level : null;
       if (ovCreds && !isLocalUrl(ovCreds.url)) {
         let uri = msg.uri;
@@ -4627,16 +4764,16 @@ function handleWebMessage(ws, msg) {
           : ovMcpCall(ovCreds, "read", { uris: uri });
         op
           .then((content) => {
-            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri: msg.uri, level, content, error: null });
+            broadcastToWeb({ type: "memory:content", workspaceId: request.workspaceId, agentId: request.agentId, requestId, uri: msg.uri, level, content, error: null });
           })
           .catch((e) => {
             if (!level) ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
-            broadcastToWeb({ type: "memory:content", agentId: msg.agentId, requestId, uri: msg.uri, level, content: null, error: e.message });
+            broadcastToWeb({ type: "memory:content", workspaceId: request.workspaceId, agentId: request.agentId, requestId, uri: msg.uri, level, content: null, error: e.message });
           });
       } else {
-        const agentWs = daemonSockets.get(msg.agentId);
+        const agentWs = request.agentWs;
         if (agentWs && agentWs.readyState === 1) {
-          agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: msg.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri, level }));
+          agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: request.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri, level }));
         }
       }
       break;
@@ -4702,17 +4839,25 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "skills:list": {
-      const agentWs = daemonSockets.get(msg.agentId);
+      const request = webAgentRequest(ws, msg);
+      if (!request) break;
+      const agentWs = request.agentWs;
       if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:skills:list", agentId: msg.agentId, runtime: msg.runtime || null }));
+        agentWs.send(JSON.stringify({ type: "agent:skills:list", agentId: request.agentId, runtime: msg.runtime || null }));
       }
       break;
     }
     case "machine:workspace:scan": {
+      const workspaceId = webRequestWorkspaceId(ws, msg);
+      if (!workspaceId) break;
       // Target a specific machine by machineId, or broadcast to all daemons
       let sent = false;
       for (const dws of daemonConnections) {
-        if (dws.readyState === 1 && (!msg.machineId || dws._machineId === msg.machineId)) {
+        if (
+          dws.readyState === 1
+          && normalizeWorkspaceId(dws._workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+          && (!msg.machineId || dws._machineId === msg.machineId)
+        ) {
           dws.send(JSON.stringify({ type: "machine:workspace:scan" }));
           sent = true;
           if (msg.machineId) break;
@@ -4721,8 +4866,14 @@ function handleWebMessage(ws, msg) {
       break;
     }
     case "machine:workspace:delete": {
+      const workspaceId = webRequestWorkspaceId(ws, msg);
+      if (!workspaceId) break;
       for (const dws of daemonConnections) {
-        if (dws.readyState === 1 && (!msg.machineId || dws._machineId === msg.machineId)) {
+        if (
+          dws.readyState === 1
+          && normalizeWorkspaceId(dws._workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+          && (!msg.machineId || dws._machineId === msg.machineId)
+        ) {
           dws.send(JSON.stringify({ type: "machine:workspace:delete", directoryName: msg.directoryName }));
           if (msg.machineId) break;
         }
@@ -5012,12 +5163,7 @@ app.post("/api/workspaces", requireSessionAuth, async (req, res) => {
   }
   const rawName = typeof req.body?.name === "string" ? req.body.name.trim() : "";
   const name = rawName || "New Server";
-  const baseId = normalizeWorkspaceId(req.body?.id || name);
-  let id = baseId;
-  let suffix = 2;
-  while (findWorkspace(id)) {
-    id = `${baseId}-${suffix++}`;
-  }
+  const id = allocateWorkspaceId(req.body?.id || name, findWorkspace);
   let icon;
   try {
     icon = normalizeWorkspaceIconInput(req.body?.icon, workspaceIconFallback(name, id));
@@ -5089,6 +5235,36 @@ app.patch("/api/workspaces/:id", requireSessionAuth, async (req, res) => {
   const payload = workspacePayload(updated);
   broadcastToWeb({ type: "workspace_updated", workspaceId: id, workspace: payload });
   res.json({
+    workspace: payload,
+    workspaces: visibleWorkspacesForUser(req.user),
+  });
+});
+
+app.delete("/api/workspaces/:id", requireAuth, async (req, res) => {
+  const id = normalizeWorkspaceId(req.params.id);
+  if (id === DEFAULT_WORKSPACE_ID) {
+    return res.status(400).json({ error: "Default workspace cannot be deleted." });
+  }
+  if (req.workspaceId !== id) {
+    return res.status(400).json({ error: "Workspace id mismatch — pass X-Workspace-Id matching the path." });
+  }
+  const workspace = findWorkspace(id);
+  if (!workspace) {
+    return res.status(404).json({ error: "Workspace not found." });
+  }
+  if (!userCanRootWorkspace(req.user, id)) {
+    return res.status(403).json({ error: "Workspace root required." });
+  }
+
+  const payload = workspacePayload(workspace);
+  const deletedInDb = await db.deleteWorkspace(id);
+  if (db.enabled && !deletedInDb) {
+    return res.status(500).json({ error: "Failed to delete workspace." });
+  }
+  removeWorkspaceFromMemory(id);
+  broadcastToWeb({ type: "workspace_deleted", workspaceId: id, workspace: payload });
+  res.json({
+    ok: true,
     workspace: payload,
     workspaces: visibleWorkspacesForUser(req.user),
   });

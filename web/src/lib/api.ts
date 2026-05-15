@@ -10,7 +10,7 @@ export function getActiveWorkspaceId(): string {
 }
 
 function getWorkspaceHeaders(): Record<string, string> {
-  return { 'X-Workspace-Id': getActiveWorkspaceId() };
+  return { 'X-Workspace-Id': encodeURIComponent(getActiveWorkspaceId()) };
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -449,6 +449,18 @@ export async function updateWorkspace(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || `Failed to update workspace: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteWorkspace(id: string): Promise<{ workspace: Workspace; workspaces: Workspace[] }> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to delete workspace: ${res.status}`);
   }
   return res.json();
 }

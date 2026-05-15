@@ -9,9 +9,9 @@ function hasBrowserLocation() {
 
 export function normalizeWorkspaceId(raw: string | null | undefined): string {
   if (typeof raw !== 'string') return DEFAULT_WORKSPACE_ID;
-  const trimmed = raw.trim().toLowerCase();
+  const trimmed = raw.normalize('NFKC').trim().toLowerCase();
   if (!trimmed) return DEFAULT_WORKSPACE_ID;
-  return trimmed.replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || DEFAULT_WORKSPACE_ID;
+  return trimmed.replace(/[^\p{L}\p{M}\p{N}_-]+/gu, '-').replace(/^-+|-+$/g, '') || DEFAULT_WORKSPACE_ID;
 }
 
 export function getWorkspaceIdFromPath(pathname = hasBrowserLocation() ? window.location.pathname : ''): string | null {

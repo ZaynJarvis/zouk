@@ -157,6 +157,16 @@ function createStore({ filePath, db, onChange }) {
     return { success: true };
   }
 
+  function removeWorkspace(workspaceId = DEFAULT_WORKSPACE_ID) {
+    const normalized = normalizeWorkspaceId(workspaceId);
+    if (normalized === DEFAULT_WORKSPACE_ID) return 0;
+    const before = presets.length;
+    presets = presets.filter(p => presetWorkspaceId(p) !== normalized);
+    const removed = before - presets.length;
+    if (removed > 0) saveToFile();
+    return removed;
+  }
+
   function notifyChange(workspaceId = DEFAULT_WORKSPACE_ID) {
     const payload = list(workspaceId);
     if (onChange) onChange(payload, workspaceId);
@@ -174,6 +184,7 @@ function createStore({ filePath, db, onChange }) {
     count,
     add,
     remove,
+    removeWorkspace,
     pickForAgent,
   };
 }

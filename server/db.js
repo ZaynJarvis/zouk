@@ -1030,6 +1030,17 @@ async function loadWorkspaces() {
   }
 }
 
+async function deleteWorkspace(id) {
+  if (!pool) return false;
+  try {
+    const { rowCount } = await pool.query('DELETE FROM workspaces WHERE id = $1', [id || DEFAULT_WORKSPACE_ID]);
+    return rowCount > 0;
+  } catch (e) {
+    console.error('[db] deleteWorkspace error:', e.message);
+    return false;
+  }
+}
+
 async function saveWorkspaceMember(member) {
   if (!pool) return;
   try {
@@ -1251,6 +1262,7 @@ module.exports = {
   loadChannelAgents,
   saveWorkspace,
   loadWorkspaces,
+  deleteWorkspace,
   saveWorkspaceMember,
   deleteWorkspaceMember,
   loadWorkspaceMembers,
