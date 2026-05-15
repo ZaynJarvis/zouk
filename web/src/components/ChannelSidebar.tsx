@@ -9,7 +9,7 @@
      can invite by email or change/remove roles inline.
    - Bottom: user card (avatar + name + online + settings). */
 
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Hash, ChevronDown, ChevronRight,
   Settings, Trash2, RotateCcw, SlidersHorizontal,
@@ -382,6 +382,18 @@ function HumanRow({
   onRemove?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Flip the menu above the trigger when there isn't room below — keeps it
+  // visible for rows near the viewport bottom (e.g. PEOPLE near the dock).
+  useLayoutEffect(() => {
+    if (!menuOpen || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const estimatedHeight = 132; // 2 role buttons + divider + remove + padding
+    setFlipUp(rect.bottom + estimatedHeight > window.innerHeight);
+  }, [menuOpen]);
+
   const Tag = isSelf ? 'div' : 'button';
   const badge = roleBadgeLabel(person.role);
   // Adapt the row into the ServerHuman shape HumanAvatar already understands.
@@ -451,6 +463,7 @@ function HumanRow({
           style={{ gap: 2, position: 'relative', alignSelf: 'center' }}
         >
           <button
+            ref={triggerRef}
             type="button"
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
             className="zk-btn zk-btn--ghost zk-btn--icon"
@@ -464,7 +477,9 @@ function HumanRow({
               role="menu"
               onClick={(e) => e.stopPropagation()}
               style={{
-                position: 'absolute', right: 0, top: 22, zIndex: 5,
+                position: 'absolute', right: 0,
+                ...(flipUp ? { bottom: 22 } : { top: 22 }),
+                zIndex: 5,
                 background: 'var(--zk-bg-1)', border: '1px solid var(--zk-line)',
                 borderRadius: 6, padding: 4, minWidth: 140,
                 boxShadow: '0 4px 16px rgba(0,0,0,0.25)',

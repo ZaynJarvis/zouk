@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
-import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Shield, Link2, Activity, Ban, RefreshCw } from 'lucide-react';
+import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Link2, Activity, Ban, RefreshCw } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -7,7 +7,7 @@ import { themes, themeSupportsColorMode, type ThemeId } from '../themes';
 import type { ColorMode } from '../types';
 import { resizeAndEncode } from '../lib/imageEncode';
 import * as api from '../lib/api';
-import type { AllowlistEntry, WsClientStats } from '../lib/api';
+import type { WsClientStats } from '../lib/api';
 import {
   getStoredLinkTransforms,
   setStoredLinkTransforms,
@@ -15,7 +15,7 @@ import {
   type LinkTransformRule,
 } from '../store/storage';
 
-type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'access' | 'connections' | 'links' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'connections' | 'links' | 'about';
 
 const PROFILE_PRESET_MAX = 30;
 
@@ -164,7 +164,6 @@ export default function SettingsModal() {
     { key: 'appearance', label: 'DISPLAY', icon: Palette },
     { key: 'avatars', label: 'AVATARS', icon: Smile },
     { key: 'providers', label: 'PROVIDERS', icon: Server },
-    { key: 'access', label: 'ACCESS', icon: Shield },
     { key: 'connections', label: 'CONNECTIONS', icon: Activity },
     { key: 'links', label: 'LINKS', icon: Link2 },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
@@ -562,7 +561,6 @@ export default function SettingsModal() {
               </div>
             )}
 
-            {section === 'access' && <AccessSection authEmail={authUser?.email || null} />}
 
             {section === 'connections' && <ConnectionsSection />}
 
@@ -605,195 +603,6 @@ export default function SettingsModal() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function AccessSection({ authEmail }: { authEmail: string | null }) {
-  const { activeWorkspaceId } = useApp();
-  const [loaded, setLoaded] = useState(false);
-  const [envEntries, setEnvEntries] = useState<AllowlistEntry[]>([]);
-  const [dbEntries, setDbEntries] = useState<AllowlistEntry[]>([]);
-  const [active, setActive] = useState(false);
-  const [dbWritable, setDbWritable] = useState(true);
-  const [input, setInput] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const refresh = useCallback(async () => {
-    try {
-      const data = await api.getAllowlist();
-      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
-      setEnvEntries(data.env);
-      setDbEntries(data.db);
-      setActive(data.allowlistActive);
-      setDbWritable(data.dbWritable);
-      setError(null);
-    } catch (e) {
-      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
-      setError(e instanceof Error ? e.message : 'Failed to load allowlist');
-    } finally {
-      if (api.getActiveWorkspaceId() === activeWorkspaceId) setLoaded(true);
-    }
-  }, [activeWorkspaceId]);
-
-  useEffect(() => {
-    setLoaded(false);
-    setBusy(false);
-    setError(null);
-    setEnvEntries([]);
-    setDbEntries([]);
-    refresh();
-  }, [refresh]);
-
-  const add = useCallback(async () => {
-    const email = input.trim().toLowerCase();
-    if (!email) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.addAllowlistEntry(email);
-      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
-      setInput('');
-      await refresh();
-    } catch (e) {
-      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
-      setError(e instanceof Error ? e.message : 'Failed to add entry');
-    } finally {
-      if (api.getActiveWorkspaceId() === activeWorkspaceId) setBusy(false);
-    }
-  }, [activeWorkspaceId, input, refresh]);
-
-  const remove = useCallback(async (email: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.removeAllowlistEntry(email);
-      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
-      await refresh();
-    } catch (e) {
-      if (api.getActiveWorkspaceId() !== activeWorkspaceId) return;
-      setError(e instanceof Error ? e.message : 'Failed to remove entry');
-    } finally {
-      if (api.getActiveWorkspaceId() === activeWorkspaceId) setBusy(false);
-    }
-  }, [activeWorkspaceId, refresh]);
-
-  const currentEmailAllowed = !authEmail
-    || envEntries.some(e => e.email === authEmail.toLowerCase())
-    || dbEntries.some(e => e.email === authEmail.toLowerCase());
-  const showLockoutWarning = active && !currentEmailAllowed;
-
-  return (
-    <div className="max-w-xl space-y-5">
-      <div>
-        <p className="text-sm font-bold text-nc-text-bright tracking-wider">EMAIL_ALLOWLIST</p>
-        <p className="text-xs text-nc-muted font-mono mt-0.5">
-          When the allowlist has at least one entry, only those emails can sign in and Guest access is disabled.
-        </p>
-      </div>
-
-      {!loaded ? (
-        <p className="text-xs font-mono text-nc-muted">Loading…</p>
-      ) : (
-        <>
-          <div className="cyber-panel-elevated p-3 flex items-center justify-between">
-            <span className="text-xs font-mono text-nc-muted">STATUS</span>
-            <span className={`text-xs font-mono font-bold ${active ? 'text-nc-green' : 'text-nc-muted'}`}>
-              {active ? `ACTIVE · ${envEntries.length + dbEntries.length} entry(ies)` : 'INACTIVE · open access'}
-            </span>
-          </div>
-
-          {showLockoutWarning && (
-            <div className="p-3 border border-nc-red/50 bg-nc-red/10 text-xs font-mono text-nc-red">
-              Your email ({authEmail}) is not in the allowlist. Removing the last entry for your account here or via ALLOW env would lock you out on next request.
-            </div>
-          )}
-
-          {error && (
-            <div className="p-3 border border-nc-red/50 bg-nc-red/10 text-xs font-mono text-nc-red">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Add email</label>
-            <div className="flex gap-2">
-              <input
-                type="email"
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !busy) add(); }}
-                placeholder="user@example.com"
-                disabled={busy || !dbWritable}
-                className="cyber-input flex-1 px-3 py-2 text-sm font-mono"
-              />
-              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  onClick={add}
-                  disabled={busy || !input.trim() || !dbWritable}
-                  className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider disabled:opacity-40"
-                >
-                  Add
-                </button>
-              </ScanlineTear>
-            </div>
-            {!dbWritable && (
-              <p className="text-2xs font-mono text-nc-yellow mt-1.5">
-                Database not configured — only ALLOW env is read. Adding entries requires Supabase.
-              </p>
-            )}
-          </div>
-
-          {dbEntries.length > 0 && (
-            <div>
-              <p className="text-xs font-bold text-nc-muted mb-2 uppercase tracking-wider">Database entries ({dbEntries.length})</p>
-              <div className="space-y-1">
-                {dbEntries.map(entry => (
-                  <div key={entry.email} className="cyber-panel-elevated p-2.5 flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-mono text-nc-text-bright truncate">{entry.email}</p>
-                      {(entry.addedBy || entry.addedAt) && (
-                        <p className="text-2xs font-mono text-nc-muted mt-0.5 truncate">
-                          {entry.addedBy ? `by ${entry.addedBy}` : 'by system'}
-                          {entry.addedAt ? ` · ${new Date(entry.addedAt).toLocaleDateString()}` : ''}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => remove(entry.email)}
-                      disabled={busy}
-                      className="ml-3 shrink-0 p-1.5 text-nc-muted hover:text-nc-red disabled:opacity-40"
-                      title="Remove entry"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {envEntries.length > 0 && (
-            <div>
-              <p className="text-xs font-bold text-nc-muted mb-2 uppercase tracking-wider">ALLOW env entries ({envEntries.length})</p>
-              <p className="text-2xs font-mono text-nc-muted mb-2">Read-only — edit the ALLOW env var and restart the server.</p>
-              <div className="space-y-1">
-                {envEntries.map(entry => (
-                  <div key={entry.email} className="cyber-panel-elevated p-2.5 flex items-center justify-between opacity-80">
-                    <p className="text-sm font-mono text-nc-text-bright truncate">{entry.email}</p>
-                    <span className="ml-3 shrink-0 text-2xs font-mono text-nc-muted px-1.5 py-0.5 border border-nc-border">ENV</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {envEntries.length === 0 && dbEntries.length === 0 && (
-            <p className="text-xs font-mono text-nc-muted italic">No entries. Allowlist is inactive — anyone can sign in.</p>
-          )}
-        </>
-      )}
     </div>
   );
 }

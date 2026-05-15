@@ -175,14 +175,18 @@ function allowlistKey(workspaceId, email) {
   return `${normalizeWorkspaceId(workspaceId)}:${String(email || "").trim().toLowerCase()}`;
 }
 
-// ENV_ALLOW_EMAILS and ENV_ALLOW_DOMAINS only seed the default workspace; other
-// workspaces gate purely on workspace-scoped DB rows.
+// Default workspace gates *only* on ENV (ALLOW env var). Non-default
+// workspaces gate purely on their own workspace-scoped DB rows. So an
+// empty ALLOW env means the default workspace is fully open even when
+// other workspaces have allowlist rows in the DB.
 function allowlistActive(workspaceId = null) {
   if (!workspaceId) {
     return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0 || dbAllowEmails.size > 0;
   }
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
-  if (normalizedWorkspaceId === DEFAULT_WORKSPACE_ID && (ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0)) return true;
+  if (normalizedWorkspaceId === DEFAULT_WORKSPACE_ID) {
+    return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0;
+  }
   for (const meta of dbAllowEmails.values()) {
     if ((meta.workspaceId || DEFAULT_WORKSPACE_ID) === normalizedWorkspaceId) return true;
   }
@@ -198,20 +202,20 @@ function isEmailAllowed(email, workspaceId = DEFAULT_WORKSPACE_ID) {
     if (ENV_ALLOW_EMAILS.has(norm)) return true;
     const at = norm.lastIndexOf("@");
     if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
+    return false;
   }
   return dbAllowEmails.has(allowlistKey(normalizedWorkspaceId, norm));
 }
 
-// True if the email is allowed in ANY workspace (env defaults OR any DB row).
-// Used at login time: a user should be able to mint a session as long as they
-// can access at least one workspace, even when the request lands on a default
-// workspace whose allowlist doesn't include them.
+// True if the email can mint a session — i.e. it's allowed in at least one
+// workspace, or the default workspace is open (no ENV allowlist). When the
+// default is open every authenticated user gets `member` in default by default,
+// so we should accept their login even if no subserver allowlist matches.
 function isEmailAllowedAnyWorkspace(email) {
   if (!email || typeof email !== "string") return false;
-  // If no allowlist source is configured anywhere, the system is unrestricted.
-  if (ENV_ALLOW_EMAILS.size === 0 && ENV_ALLOW_DOMAINS.size === 0 && dbAllowEmails.size === 0) {
-    return true;
-  }
+  // Default workspace is open → anyone with a valid auth can log in (and they
+  // will land in default as a member; subserver access still gated separately).
+  if (!allowlistActive(DEFAULT_WORKSPACE_ID)) return true;
   const norm = email.trim().toLowerCase();
   if (ENV_ALLOW_EMAILS.has(norm)) return true;
   const at = norm.lastIndexOf("@");
