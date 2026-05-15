@@ -1,4 +1,5 @@
 import { GoogleLogin } from '@react-oauth/google';
+import { Loader2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { useState, useEffect, useCallback } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
@@ -215,7 +216,7 @@ export default function LoginScreen() {
                   >
                     {loading && pendingAction === 'magic' ? (
                       <span className="flex items-center justify-center gap-2">
-                        <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
+                        <Loader2 size={14} className="animate-spin opacity-80" aria-hidden="true" />
                         {nc ? 'Transmitting...' : 'Sending...'}
                       </span>
                     ) : (
@@ -257,7 +258,7 @@ export default function LoginScreen() {
               >
                 {loading && pendingAction === 'guest' ? (
                   <span className="flex items-center justify-center gap-2">
-                    <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
+                    <Loader2 size={14} className="animate-spin opacity-80" aria-hidden="true" />
                     {nc ? 'Connecting...' : 'Connecting...'}
                   </span>
                 ) : (
