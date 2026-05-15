@@ -3,6 +3,7 @@ import { useApp } from '../store/AppContext';
 import { useState, useEffect, useCallback } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
+import { themes } from '../themes';
 import { initSupabase } from '../lib/supabase';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
@@ -52,7 +53,7 @@ function ScrambleTitle({ nc }: { nc: boolean }) {
 }
 
 export default function LoginScreen() {
-  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, hasMagicLinkAuth, supabaseConfig, allowlistActive } = useApp();
+  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, hasMagicLinkAuth, supabaseConfig, allowlistActive, theme, setTheme } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [glitchActive, setGlitchActive] = useState(false);
@@ -267,6 +268,30 @@ export default function LoginScreen() {
             </ScanlineTear>
           )}
 
+
+          <div className="mt-4 hidden sm:flex items-center gap-3">
+            <div className="h-px flex-1 bg-nc-border" />
+            <span className="text-2xs text-nc-muted/60 font-mono">THEME</span>
+            <div className="h-px flex-1 bg-nc-border" />
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-1 gap-3">
+            {themes.map((t) => {
+              const Btn = t.ThemeSelectButton;
+              return (
+                <Btn
+                  key={t.id}
+                  selected={theme === t.id}
+                  onClick={() => {
+                    if (theme !== t.id) {
+                      setPendingAction(null);
+                      setTheme(t.id);
+                    }
+                  }}
+                />
+              );
+            })}
+          </div>
 
           {nc && <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-nc-red/20 to-transparent" />}
         </div>

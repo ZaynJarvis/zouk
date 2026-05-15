@@ -22,8 +22,7 @@ import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
 import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
 import { initSupabase } from './lib/supabase';
-import { setStoredAuth, setStoredCurrentUser, setStoredActiveWorkspaceId, getStoredActiveWorkspaceIdOrNull } from './store/storage';
-import { normalizeWorkspaceId } from './lib/workspaceRoute';
+import { setStoredAuth, setStoredCurrentUser } from './store/storage';
 
 function GoogleAuthSync() {
   const { setHasGoogleAuth } = useApp();
@@ -314,19 +313,6 @@ function AppWithAuth() {
               const result = await api.supabaseLogin(accessToken);
               setStoredAuth(result.token, result.user);
               setStoredCurrentUser(result.user.name);
-              const accessible = result.accessibleWorkspaces || [];
-              if (accessible.length > 0) {
-                const stored = getStoredActiveWorkspaceIdOrNull();
-                const accessibleIds = new Set(accessible.map(w => w.id));
-                if (stored && accessibleIds.has(normalizeWorkspaceId(stored))) {
-                  setStoredActiveWorkspaceId(stored);
-                } else {
-                  const sortedByName = [...accessible].sort((a, b) =>
-                    (a.name || a.id || '').localeCompare(b.name || b.id || '')
-                  );
-                  setStoredActiveWorkspaceId(sortedByName[0].id);
-                }
-              }
             }
           } catch (e) {
             console.error('[auth] Magic link exchange failed:', e);

@@ -202,37 +202,6 @@ function isEmailAllowed(email, workspaceId = DEFAULT_WORKSPACE_ID) {
   return dbAllowEmails.has(allowlistKey(normalizedWorkspaceId, norm));
 }
 
-// True if the email is allowed in ANY workspace (env defaults OR any DB row).
-// Used at login time: a user should be able to mint a session as long as they
-// can access at least one workspace, even when the request lands on a default
-// workspace whose allowlist doesn't include them.
-function isEmailAllowedAnyWorkspace(email) {
-  if (!email || typeof email !== "string") return false;
-  // If no allowlist source is configured anywhere, the system is unrestricted.
-  if (ENV_ALLOW_EMAILS.size === 0 && ENV_ALLOW_DOMAINS.size === 0 && dbAllowEmails.size === 0) {
-    return true;
-  }
-  const norm = email.trim().toLowerCase();
-  if (ENV_ALLOW_EMAILS.has(norm)) return true;
-  const at = norm.lastIndexOf("@");
-  if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
-  for (const meta of dbAllowEmails.values()) {
-    if ((meta.email || "").trim().toLowerCase() === norm) return true;
-  }
-  return false;
-}
-
-// True if any workspace has an active allowlist. Used by /api/auth/config to
-// decide whether the frontend should hide the guest button — if any server in
-// the deployment gates on an allowlist, we shouldn't advertise guest access.
-function allowlistActiveAnywhere() {
-  return (
-    ENV_ALLOW_EMAILS.size > 0 ||
-    ENV_ALLOW_DOMAINS.size > 0 ||
-    dbAllowEmails.size > 0
-  );
-}
-
 function normalizeEmailInput(raw) {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim().toLowerCase();
@@ -4987,7 +4956,7 @@ async function removeSession(token) {
 
 app.post("/api/auth/google", async (req, res) => {
   const { credential } = req.body;
-  const requestedWorkspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
+  const workspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
   if (!credential) return res.status(400).json({ error: "Missing credential" });
   if (!googleClient) return res.status(501).json({ error: "Google OAuth not configured (set GOOGLE_CLIENT_ID)" });
 
@@ -4997,11 +4966,8 @@ app.post("/api/auth/google", async (req, res) => {
       audience: GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    // Allowlist gate at login time is the UNION across every workspace + env
-    // defaults. Per-workspace membership is still enforced separately when the
-    // user actually navigates into a non-default workspace (see requireAuth).
-    if (!isEmailAllowedAnyWorkspace(payload.email)) {
-      console.log(`[auth] Rejected login: ${payload.email} not in any workspace allowlist`);
+    if (!isEmailAllowed(payload.email, workspaceId)) {
+      console.log(`[auth] Rejected login: ${payload.email} not in allowlist`);
       return res.status(403).json({ error: "Email not authorized to access this server." });
     }
     const sessionToken = crypto.randomBytes(32).toString("hex");
@@ -5018,12 +4984,11 @@ app.post("/api/auth/google", async (req, res) => {
       picture: payload.picture || null,
       gravatarUrl: grav,
     };
-    authSessions.set(sessionToken, user);
-    // Seed default-workspace membership if the user has access there; otherwise
-    // they'll only show up in the workspaces they actually belong to.
-    if (userCanAccessWorkspace(user, DEFAULT_WORKSPACE_ID)) {
-      ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
+    if (workspaceId !== DEFAULT_WORKSPACE_ID && !getWorkspaceMember(workspaceId, user.email)) {
+      return res.status(403).json({ error: "Not a member of this workspace." });
     }
+    authSessions.set(sessionToken, user);
+    ensureWorkspaceMemberForUser(user, workspaceId);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
 
     // Surface this user in the people list immediately, even before any WS
@@ -5036,13 +5001,7 @@ app.post("/api/auth/google", async (req, res) => {
     });
     if (changed) broadcastHumans();
 
-    const accessibleWorkspaces = visibleWorkspacesForUser(user);
-    res.json({
-      token: sessionToken,
-      user,
-      requestedWorkspaceId,
-      accessibleWorkspaces,
-    });
+    res.json({ token: sessionToken, user });
   } catch (err) {
     console.error("[auth] Google token verification failed:", err.message);
     res.status(401).json({ error: "Invalid Google credential" });
@@ -5052,7 +5011,7 @@ app.post("/api/auth/google", async (req, res) => {
 // Verify a Supabase access_token (from magic link or OAuth) and mint a zouk session.
 app.post("/api/auth/supabase", async (req, res) => {
   const { accessToken } = req.body;
-  const requestedWorkspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
+  const workspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
   if (!accessToken) return res.status(400).json({ error: "Missing accessToken" });
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return res.status(501).json({ error: "Supabase auth not configured (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)" });
@@ -5075,9 +5034,8 @@ app.post("/api/auth/supabase", async (req, res) => {
     if (!email) {
       return res.status(401).json({ error: "No email in Supabase session" });
     }
-    // Union allowlist check at login (see /api/auth/google for rationale).
-    if (!isEmailAllowedAnyWorkspace(email)) {
-      console.log(`[auth] Rejected Supabase login: ${email} not in any workspace allowlist`);
+    if (!isEmailAllowed(email, workspaceId)) {
+      console.log(`[auth] Rejected Supabase login: ${email} not in allowlist`);
       return res.status(403).json({ error: "Email not authorized to access this server." });
     }
     const emailPrefix = email.split("@")[0];
@@ -5086,11 +5044,12 @@ app.post("/api/auth/supabase", async (req, res) => {
     }
     const grav = gravatarUrl(email);
     const user = { name: emailPrefix, email, picture: null, gravatarUrl: grav };
+    if (workspaceId !== DEFAULT_WORKSPACE_ID && !getWorkspaceMember(workspaceId, user.email)) {
+      return res.status(403).json({ error: "Not a member of this workspace." });
+    }
     const sessionToken = crypto.randomBytes(32).toString("hex");
     authSessions.set(sessionToken, user);
-    if (userCanAccessWorkspace(user, DEFAULT_WORKSPACE_ID)) {
-      ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
-    }
+    ensureWorkspaceMemberForUser(user, workspaceId);
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
     const changed = upsertAllTimeHuman({
       id: humanId(user.name),
@@ -5098,13 +5057,7 @@ app.post("/api/auth/supabase", async (req, res) => {
       gravatarUrl: user.gravatarUrl || undefined,
     });
     if (changed) broadcastHumans();
-    const accessibleWorkspaces = visibleWorkspacesForUser(user);
-    res.json({
-      token: sessionToken,
-      user,
-      requestedWorkspaceId,
-      accessibleWorkspaces,
-    });
+    res.json({ token: sessionToken, user });
   } catch (err) {
     console.error("[auth] Supabase token verification failed:", err.message);
     res.status(500).json({ error: "Supabase verification failed" });
@@ -5201,12 +5154,10 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
 });
 
 app.get("/api/auth/config", (req, res) => {
+  const workspaceId = workspaceIdFromReq(req);
   res.json({
     googleClientId: GOOGLE_CLIENT_ID || null,
-    // Any workspace gating on an allowlist disables the guest button across
-    // the whole deployment — otherwise default-workspace visitors could click
-    // through to a per-workspace guard that immediately rejects them.
-    allowlistActive: allowlistActiveAnywhere(),
+    allowlistActive: allowlistActive(workspaceId),
     supabaseUrl: SUPABASE_URL || null,
     supabaseAnonKey: SUPABASE_ANON_KEY || null,
     ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,

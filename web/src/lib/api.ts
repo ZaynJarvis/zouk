@@ -357,14 +357,7 @@ export async function getAuthConfig(): Promise<{
   return res.json();
 }
 
-export type LoginResponse = {
-  token: string;
-  user: AuthUser;
-  requestedWorkspaceId?: string;
-  accessibleWorkspaces?: Workspace[];
-};
-
-export async function supabaseLogin(accessToken: string): Promise<LoginResponse> {
+export async function supabaseLogin(accessToken: string): Promise<{ token: string; user: AuthUser }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/supabase`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
@@ -377,7 +370,7 @@ export async function supabaseLogin(accessToken: string): Promise<LoginResponse>
   return res.json();
 }
 
-export async function googleLogin(credential: string): Promise<LoginResponse> {
+export async function googleLogin(credential: string): Promise<{ token: string; user: AuthUser }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },

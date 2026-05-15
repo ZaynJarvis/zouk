@@ -77,26 +77,6 @@ function chooseWorkspaceId(workspaces: Workspace[], candidates: Array<string | n
   return workspaces[0]?.id || 'default';
 }
 
-// Route post-login: prefer the locally-stored last active workspace if the
-// user can still access it; otherwise fall back to the accessible workspace
-// whose name sorts first. Per @zhiheng.liu 2026-05-15 spec.
-function routePostLoginWorkspace(
-  accessible: Workspace[] | undefined,
-  commit: (workspaceId: string, routeMode?: WorkspaceRouteMode) => void,
-) {
-  if (!accessible || accessible.length === 0) return;
-  const stored = getStoredActiveWorkspaceIdOrNull();
-  const accessibleIds = new Set(accessible.map(w => w.id));
-  if (stored && accessibleIds.has(normalizeWorkspaceId(stored))) {
-    commit(stored, 'replace');
-    return;
-  }
-  const sortedByName = [...accessible].sort((a, b) =>
-    (a.name || a.id || '').localeCompare(b.name || b.id || '')
-  );
-  commit(sortedByName[0].id, 'replace');
-}
-
 function getValidStoredLastView(
   channels: ServerChannel[],
   agents: ServerAgent[],
@@ -1374,8 +1354,7 @@ export function useAppStore() {
   }, [authUser, addToast]);
 
   const loginWithGoogle = useCallback(async (credential: string) => {
-    const result = await api.googleLogin(credential);
-    const { token, user, accessibleWorkspaces } = result;
+    const { token, user } = await api.googleLogin(credential);
     // Server already uses email prefix as name; use it as display name
     setStoredAuth(token, user);
     setStoredCurrentUser(user.name);
@@ -1383,8 +1362,7 @@ export function useAppStore() {
     setAuthUser(user);
     setIsLoggedIn(true);
     setCurrentUser(user.name);
-    routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection);
-  }, [commitWorkspaceSelection]);
+  }, []);
 
   const loginAsGuest = useCallback(() => {
     // Clear any existing auth and use the random name
