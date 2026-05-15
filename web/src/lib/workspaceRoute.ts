@@ -29,20 +29,15 @@ export function buildWorkspacePath(workspaceId: string): string {
   return `${WORKSPACE_ROUTE_PREFIX}/${encodeURIComponent(normalizeWorkspaceId(workspaceId))}`;
 }
 
-function setWorkspaceHistory(workspaceId: string, mode: 'push' | 'replace') {
+function setWorkspaceHistory(workspaceId: string) {
   if (!hasBrowserLocation()) return;
   const path = buildWorkspacePath(workspaceId);
   if (window.location.pathname === path) return;
-  if (mode === 'push') window.history.pushState({}, '', path);
-  else window.history.replaceState({}, '', path);
-}
-
-export function pushWorkspaceRoute(workspaceId: string) {
-  setWorkspaceHistory(workspaceId, 'push');
+  window.history.replaceState({}, '', path);
 }
 
 export function replaceWorkspaceRoute(workspaceId: string) {
-  setWorkspaceHistory(workspaceId, 'replace');
+  setWorkspaceHistory(workspaceId);
 }
 
 function getInitialWorkspaceId(): string {
