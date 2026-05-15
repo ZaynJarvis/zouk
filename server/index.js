@@ -1577,17 +1577,17 @@ function formatMessageForAgent(msg, recipientAgentId) {
 //   1. Rate-limit /ws upgrades per token (or per IP for guests). Auto-block
 //      sources that exceed WS_RATE_BLOCK_THRESHOLD opens within
 //      WS_RATE_WINDOW_MS for WS_BLOCK_DURATION_MS only when they look like
-//      churn (few live sockets). Multiple legitimate browser windows share one
-//      token and should not be killed merely for all connecting around the same
-//      time.
+//      true churn (nearly no live sockets). Multiple legitimate browser
+//      windows share one token and should not be killed merely for all
+//      reconnecting around the same time after a deploy or visibility event.
 //   2. Defer the init send via setImmediate so a burst is interleaved with
 //      other event-loop work instead of monopolizing one tick.
 //
 // Tracker entries are surfaced via /api/_internal/ws-clients so the operator
 // can see who's misbehaving and revoke the offending session from Settings.
 const WS_RATE_WINDOW_MS = 60_000;
-const WS_RATE_BLOCK_THRESHOLD = Number(process.env.WS_RATE_BLOCK_THRESHOLD || 12);
-const WS_RATE_BLOCK_MAX_OPEN = Number(process.env.WS_RATE_BLOCK_MAX_OPEN || 3);
+const WS_RATE_BLOCK_THRESHOLD = Number(process.env.WS_RATE_BLOCK_THRESHOLD || 24);
+const WS_RATE_BLOCK_MAX_OPEN = Number(process.env.WS_RATE_BLOCK_MAX_OPEN || 1);
 const WS_RATE_HARD_BLOCK_THRESHOLD = Number(process.env.WS_RATE_HARD_BLOCK_THRESHOLD || 120);
 const WS_BLOCK_DURATION_MS = 5 * 60_000;
 const WS_TRACKER_TTL_MS = 24 * 60 * 60 * 1000;

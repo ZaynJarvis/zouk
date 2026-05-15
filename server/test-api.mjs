@@ -971,6 +971,18 @@ async function openAuthedWs(token) {
   return ws;
 }
 
+async function closeWs(ws) {
+  if (!ws || ws.readyState === WebSocket.CLOSED) return;
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 50);
+    ws.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.close();
+  });
+}
+
 function waitForMessageOrTimeout(ws, predicate, timeoutMs = 600) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -1094,7 +1106,27 @@ test('WS rate limit allows many concurrent browser windows for one token', async
     sockets.push(...opened);
     assert.equal(sockets.length, 13);
   } finally {
-    for (const ws of sockets) ws.close();
+    await Promise.all(sockets.map(closeWs));
+  }
+});
+
+test('WS rate limit does not block moderate reconnect churn while browser tabs are open', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `ws-pc-tabs-${Date.now()}` }),
+  });
+  const { token } = await authRes.json();
+  const persistent = [];
+  try {
+    const opened = await Promise.all(Array.from({ length: 3 }, () => openAuthedWs(token)));
+    persistent.push(...opened);
+    for (let i = 0; i < 25; i += 1) {
+      const ws = await openAuthedWs(token);
+      await closeWs(ws);
+    }
+  } finally {
+    await Promise.all(persistent.map(closeWs));
   }
 });
 
@@ -1132,9 +1164,7 @@ test('WS broadcast: DM messages reach only the two parties', async () => {
 
   const [aliceGot, bobGot, carolGot] = await Promise.all([alicePromise, bobPromise, carolPromise]);
 
-  aliceWs.close();
-  bobWs.close();
-  carolWs.close();
+  await Promise.all([aliceWs, bobWs, carolWs].map(closeWs));
 
   assert.ok(aliceGot, 'sender (alice) must receive her own DM echo');
   assert.ok(bobGot, 'recipient (bob) must receive the DM');
