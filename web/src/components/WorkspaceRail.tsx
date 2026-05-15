@@ -3,7 +3,7 @@
    real viewMode + rightPanel state and the actual user / live agent counts. */
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Cpu, Home, KanbanSquare, Brain, ImagePlus, Plus, Settings } from 'lucide-react';
+import { Check, Cpu, Home, KanbanSquare, Brain, ImagePlus, Plus, Settings, Trash2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { Avatar } from './zk/primitives';
 import { resizeAndEncode } from '../lib/imageEncode';
@@ -47,7 +47,8 @@ export default function WorkspaceRail() {
   const {
     viewMode, navigateToView, setSettingsOpen, addToast,
     agents, currentUser, authUser, isGuest,
-    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace,
+    canRootWorkspace,
     workspaceMenuOpen, setWorkspaceMenuOpen,
   } = useApp();
   const [avatarBusy, setAvatarBusy] = useState(false);
@@ -107,6 +108,18 @@ export default function WorkspaceRail() {
       addToast(err instanceof Error ? err.message : 'Failed to update server avatar', 'error');
     } finally {
       setAvatarBusy(false);
+    }
+  };
+
+  const handleDeleteWorkspace = async () => {
+    if (activeWorkspace.id === 'default') return;
+    const confirmed = window.confirm(`Delete server "${activeWorkspace.name}"? This removes its channels, tasks, agents, machines, and access list.`);
+    if (!confirmed) return;
+    try {
+      await deleteWorkspace(activeWorkspace.id);
+      setWorkspaceMenuOpen(false);
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Failed to delete server', 'error');
     }
   };
 
@@ -298,6 +311,29 @@ export default function WorkspaceRail() {
               <Plus size={14} />
               <span>New server</span>
             </button>
+            {canRootWorkspace && activeWorkspace.id !== 'default' && (
+              <button
+                type="button"
+                onClick={handleDeleteWorkspace}
+                title="Delete server"
+                style={{
+                  width: '100%',
+                  height: 34,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '0 8px',
+                  border: 0,
+                  background: 'transparent',
+                  color: 'rgb(var(--nc-red))',
+                  cursor: 'pointer',
+                  font: 'inherit',
+                }}
+              >
+                <Trash2 size={14} />
+                <span>Delete server</span>
+              </button>
+            )}
           </div>
         )}
       </div>

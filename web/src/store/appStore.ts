@@ -451,6 +451,19 @@ export function useAppStore() {
         }
         break;
       }
+      case 'workspace_deleted': {
+        const e = event as { workspaceId?: string; workspace?: Workspace };
+        if (!e.workspaceId && !e.workspace?.id) break;
+        const deletedId = normalizeWorkspaceId(e.workspaceId || e.workspace?.id);
+        const nextWorkspaces = workspacesRef.current.filter(w => w.id !== deletedId);
+        setWorkspaces(nextWorkspaces);
+        if (deletedId === activeWorkspaceRef.current) {
+          const fallback = chooseWorkspaceId(nextWorkspaces, [getStoredActiveWorkspaceIdOrNull(), 'default']);
+          commitWorkspaceSelection(fallback, 'replace');
+          addToast('Server deleted', 'info');
+        }
+        break;
+      }
       case 'message':
       case 'new_message': {
         const e = event as { message: MessageRecord };
@@ -750,7 +763,7 @@ export function useAppStore() {
         break;
       }
     }
-  }, [commitWorkspaceSelection, recordAgentLastChannel]);
+  }, [addToast, commitWorkspaceSelection, recordAgentLastChannel]);
 
   const setActiveWorkspaceId = useCallback((workspaceId: string) => {
     commitWorkspaceSelection(workspaceId, 'push');
@@ -769,6 +782,19 @@ export function useAppStore() {
     setWorkspaces(res.workspaces);
     return res.workspace;
   }, []);
+
+  const deleteWorkspace = useCallback(async (workspaceId: string) => {
+    const targetId = normalizeWorkspaceId(workspaceId);
+    const res = await api.deleteWorkspace(targetId);
+    const nextWorkspaces = res.workspaces || workspacesRef.current.filter(w => w.id !== targetId);
+    setWorkspaces(nextWorkspaces);
+    if (targetId === activeWorkspaceRef.current) {
+      const fallback = chooseWorkspaceId(nextWorkspaces, [getStoredActiveWorkspaceIdOrNull(), 'default']);
+      commitWorkspaceSelection(fallback, 'replace');
+    }
+    addToast(`Server ${res.workspace.name} deleted`, 'info');
+    return res.workspace;
+  }, [addToast, commitWorkspaceSelection]);
 
   const inviteWorkspaceMember = useCallback(async (input: { email: string; role: 'admin' | 'member'; name?: string }) => {
     try {
@@ -1387,16 +1413,16 @@ export function useAppStore() {
   }, []);
 
   const requestWorkspaceFiles = useCallback((agentId: string, dirPath?: string) => {
-    wsRef.current?.send({ type: 'workspace:list', agentId, dirPath: dirPath || null });
+    wsRef.current?.send({ type: 'workspace:list', workspaceId: activeWorkspaceRef.current, agentId, dirPath: dirPath || null });
   }, []);
 
   const requestFileContent = useCallback((agentId: string, filePath: string) => {
-    wsRef.current?.send({ type: 'workspace:read', agentId, requestId: filePath, path: filePath });
+    wsRef.current?.send({ type: 'workspace:read', workspaceId: activeWorkspaceRef.current, agentId, requestId: filePath, path: filePath });
   }, []);
 
   const requestMemoryList = useCallback((agentId: string, uri?: string) => {
     const key = uri || 'viking://';
-    wsRef.current?.send({ type: 'memory:list', agentId, uri: key });
+    wsRef.current?.send({ type: 'memory:list', workspaceId: activeWorkspaceRef.current, agentId, uri: key });
   }, []);
 
   const requestMemoryContent = useCallback((agentId: string, uri: string, level?: 'l0' | 'l1' | 'l2') => {
@@ -1410,11 +1436,11 @@ export function useAppStore() {
       agentBucket[uri] = rest;
       return { ...prev, [agentId]: agentBucket };
     });
-    wsRef.current?.send({ type: 'memory:read', agentId, requestId: uri, uri, level: level || null });
+    wsRef.current?.send({ type: 'memory:read', workspaceId: activeWorkspaceRef.current, agentId, requestId: uri, uri, level: level || null });
   }, []);
 
   const requestSkills = useCallback((agentId: string, runtime?: string | null) => {
-    wsRef.current?.send({ type: 'skills:list', agentId, runtime: runtime || null });
+    wsRef.current?.send({ type: 'skills:list', workspaceId: activeWorkspaceRef.current, agentId, runtime: runtime || null });
   }, []);
 
   return {
@@ -1422,8 +1448,9 @@ export function useAppStore() {
     colorMode, setColorMode,
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
-    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace,
     workspaceMembers, viewerRole, isSuperuser,
+    canRootWorkspace: viewerRole === 'root' || isSuperuser,
     canAdminWorkspace: viewerRole === 'root' || viewerRole === 'owner' || viewerRole === 'admin' || isSuperuser,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
     channels, agents, humans, configs, machines,

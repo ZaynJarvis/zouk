@@ -13,7 +13,7 @@ export type WsEventType =
   | 'agent_activity'
   | 'daemon_connected' | 'daemon_disconnected'
   | 'channel_created'
-  | 'workspace_updated'
+  | 'workspace_updated' | 'workspace_deleted'
   | 'agent_started'
   | 'config_updated'
   | 'humans_updated'

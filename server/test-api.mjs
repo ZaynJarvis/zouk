@@ -659,6 +659,96 @@ function waitForMessageOrTimeout(ws, predicate, timeoutMs = 600) {
   });
 }
 
+test('workspaces: unicode ids flow through route websocket and root delete', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-workspace-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-workspace-uploads-'));
+  const port = TEST_PORT + 20;
+  const base = `http://localhost:${port}`;
+  const token = 'workspace-root-token';
+  fs.mkdirSync(tmpConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [token, { name: 'workspace-root', email: 'workspace-root@example.com', picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${base}/api/channels`);
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'workspace test server must become ready');
+
+    const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const first = await json(await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: '中文 服务' }),
+    }));
+    assert.equal(first.status, 200);
+    assert.equal(first.body.workspace.id, '中文-服务');
+
+    const duplicate = await json(await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: '中文 服务' }),
+    }));
+    assert.equal(duplicate.status, 200);
+    assert.equal(duplicate.body.workspace.id, '中文-服务-2');
+
+    const workspaceId = first.body.workspace.id;
+    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${token}&workspaceId=${encodeURIComponent(workspaceId)}`);
+    const initPromise = waitForMessageOrTimeout(ws, ev => ev.type === 'init', 3000);
+    await new Promise((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    const init = await initPromise;
+    assert.equal(init?.workspaceId, workspaceId);
+
+    const deletedPromise = waitForMessageOrTimeout(ws, ev => ev.type === 'workspace_deleted' && ev.workspaceId === workspaceId, 3000);
+    const deleted = await json(await fetch(`${base}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders, 'X-Workspace-Id': encodeURIComponent(workspaceId) },
+    }));
+    assert.equal(deleted.status, 200);
+    assert.equal(deleted.body.workspace.id, workspaceId);
+    assert.ok(!deleted.body.workspaces.some(w => w.id === workspaceId));
+    assert.ok(await deletedPromise, 'deleted workspace tab must receive workspace_deleted over WS');
+    ws.close();
+
+    const defaultDelete = await json(await fetch(`${base}/api/workspaces/default`, {
+      method: 'DELETE',
+      headers: { ...authHeaders, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(defaultDelete.status, 400);
+  } finally {
+    proc.kill('SIGKILL');
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
 test('WS broadcast: DM messages reach only the two parties', async () => {
   const sessionFor = async (name) => {
     const res = await fetch(`${BASE}/api/auth/guest-session`, {
