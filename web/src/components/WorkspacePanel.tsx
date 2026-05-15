@@ -8,7 +8,7 @@ import type { ServerAgent } from '../types';
 import { isNightCity } from '../lib/themeUtils';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
-import { renderPreviewContent } from './memory/renderPreviewContent';
+import { SafePreviewContent } from './memory/renderPreviewContent';
 import '../styles/atlas-renderers.css';
 
 function AgentAvatarStrip({
@@ -160,7 +160,7 @@ function FilePreview({
         {content === null ? (
           <div className="p-3 text-xs font-mono text-nc-muted animate-pulse">Loading...</div>
         ) : (
-          renderPreviewContent(content, filePath, 'p-3')
+          <SafePreviewContent text={content} fileName={filePath} className="p-3" />
         )}
       </div>
     </div>

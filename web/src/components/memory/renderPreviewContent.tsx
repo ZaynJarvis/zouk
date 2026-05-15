@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { renderMarkdown, renderJson, renderJsonl, renderPlainCode } from './AtlasRenderers';
 import { highlightCode } from './atlas-helpers';
 
@@ -86,4 +86,57 @@ export function renderPreviewContent(text: string, fileName: string, className =
       {renderPlainCode(text, lang || undefined)}
     </div>
   );
+}
+
+interface PreviewContentProps {
+  text: string;
+  fileName: string;
+  className?: string;
+}
+
+function PreviewContentRenderer({ text, fileName, className = '' }: PreviewContentProps) {
+  return <>{renderPreviewContent(text, fileName, className)}</>;
+}
+
+export function RawPreviewContent({ text, fileName, className = '' }: PreviewContentProps) {
+  const lang = detectLang(fileName);
+  return (
+    <div className={`atlas-preview-code ${className}`}>
+      {renderPlainCode(text, lang || undefined)}
+    </div>
+  );
+}
+
+class PreviewRenderBoundary extends Component<PreviewContentProps, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.warn('Falling back to raw preview content after render failure', error, info.componentStack);
+  }
+
+  componentDidUpdate(prevProps: PreviewContentProps) {
+    if (
+      this.state.failed
+      && (prevProps.text !== this.props.text
+        || prevProps.fileName !== this.props.fileName
+        || prevProps.className !== this.props.className)
+    ) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    if (this.state.failed) {
+      return <RawPreviewContent {...this.props} />;
+    }
+    return <PreviewContentRenderer {...this.props} />;
+  }
+}
+
+export function SafePreviewContent(props: PreviewContentProps) {
+  return <PreviewRenderBoundary {...props} />;
 }

@@ -24,16 +24,13 @@ import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
 import { isMobileViewport } from '../lib/layout';
 import { Avatar } from './zk/primitives';
-import { renderMarkdown as atlasMarkdown } from './memory/AtlasRenderers';
 import { LEVEL_META } from './memory/atlas-helpers';
 import {
-  detectLang,
   fileKindLabel,
-  isHighlightableLang,
   isJsonFile,
   isJsonlFile,
   isMarkdownFile,
-  renderPreviewContent,
+  SafePreviewContent,
 } from './memory/renderPreviewContent';
 import ViewHeader from './ViewHeader';
 import '../styles/atlas-renderers.css';
@@ -318,7 +315,6 @@ function Preview({
   const isMd = !isDirectory && isMarkdownFile(previewUri);
   const isJson = !isDirectory && isJsonFile(previewUri);
   const isJsonl = !isDirectory && isJsonlFile(previewUri);
-  const lang = !isDirectory ? detectLang(previewUri) : '';
   const kind = isDirectory ? 'FOLDER'
     : isMd ? 'MARKDOWN'
     : isJson ? 'JSON'
@@ -340,24 +336,8 @@ function Preview({
   function renderContent(text: string, lv: LevelKey) {
     // L0/L1 are always markdown summaries from OpenViking, regardless of the
     // entry's own type. L2 follows the file's mime/extension.
-    if (lv !== 'l2' || isMd) {
-      return (
-        <div className="atlas-preview-md atlas-section-body" style={{ maxWidth: 760 }}>
-          {atlasMarkdown(text)}
-        </div>
-      );
-    }
-    if (isJsonl || isJson) {
-      return renderPreviewContent(text, activePreviewUri, 'atlas-section-body');
-    }
-    if (lang && isHighlightableLang(lang)) {
-      return (
-        <div className="atlas-preview-code atlas-section-body" style={{ padding: 0 }}>
-          {renderPreviewContent(text, activePreviewUri)}
-        </div>
-      );
-    }
-    return renderPreviewContent(text, activePreviewUri);
+    const renderName = (lv !== 'l2' || isMd) ? `${fileName}.${lv}.md` : activePreviewUri;
+    return <SafePreviewContent text={text} fileName={renderName} className="atlas-section-body" />;
   }
 
   return (
