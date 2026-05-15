@@ -231,7 +231,7 @@ export default function LoginScreen() {
   const magicLinkTimeLeft = magicLinkExpiresAt ? Math.max(0, magicLinkExpiresAt - magicLinkNow) : 0;
 
   return (
-    <div className="login-shell flex sm:items-center items-start justify-center bg-nc-black font-body cyber-scanlines">
+    <div className="login-shell flex items-center justify-center bg-nc-black font-body cyber-scanlines">
       <GlitchTransition
         active={glitchActive}
         duration={500}
