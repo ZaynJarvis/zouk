@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { Loader2 } from 'lucide-react';
 import { AppProvider, useApp } from './store/AppContext';
 import WorkspaceRail from './components/WorkspaceRail';
 import ChannelSidebar from './components/ChannelSidebar';
@@ -325,7 +326,13 @@ function AppWithAuth() {
     })();
   }, []);
 
-  if (!loaded) return null;
+  if (!loaded) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-nc-black">
+        <Loader2 size={28} className="animate-spin text-nc-muted" aria-label="Loading" />
+      </div>
+    );
+  }
 
   const syncComponents = (
     <>
