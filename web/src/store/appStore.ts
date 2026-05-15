@@ -1373,8 +1373,7 @@ export function useAppStore() {
     });
   }, [authUser, addToast]);
 
-  const loginWithGoogle = useCallback(async (credential: string) => {
-    const result = await api.googleLogin(credential);
+  const completeAuthenticatedLogin = useCallback((result: api.LoginResponse) => {
     const { token, user, accessibleWorkspaces } = result;
     // Server already uses email prefix as name; use it as display name
     setStoredAuth(token, user);
@@ -1385,6 +1384,25 @@ export function useAppStore() {
     setCurrentUser(user.name);
     routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection);
   }, [commitWorkspaceSelection]);
+
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    completeAuthenticatedLogin(await api.googleLogin(credential));
+  }, [completeAuthenticatedLogin]);
+
+  const loginWithSupabaseAccessToken = useCallback(async (accessToken: string) => {
+    completeAuthenticatedLogin(await api.supabaseLogin(accessToken));
+  }, [completeAuthenticatedLogin]);
+
+  const loginWithStoredAuth = useCallback(() => {
+    const stored = getStoredAuth();
+    if (!stored) return false;
+    setAuthToken(stored.token);
+    setAuthUser(stored.user);
+    setIsLoggedIn(true);
+    setCurrentUser(stored.user.name);
+    setStoredCurrentUser(stored.user.name);
+    return true;
+  }, []);
 
   const loginAsGuest = useCallback(() => {
     // Clear any existing auth and use the random name
@@ -1522,6 +1540,7 @@ export function useAppStore() {
     ovRuntimeWhitelist, setOvRuntimeWhitelist,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
+    loginWithSupabaseAccessToken, loginWithStoredAuth,
     tasksVersion,
   };
 }
