@@ -1542,6 +1542,7 @@ export function useAppStore() {
     ovRuntimeWhitelist, setOvRuntimeWhitelist,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
+    loginWithAuthResponse: completeAuthenticatedLogin,
     loginWithSupabaseAccessToken, loginWithStoredAuth,
     tasksVersion,
   };

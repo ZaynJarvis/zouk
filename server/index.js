@@ -5055,6 +5055,8 @@ function handleWebMessage(ws, msg) {
 // Session store: token -> { name, email, picture }
 // Persisted to data/sessions.json so sessions survive server restarts.
 const authSessions = new Map();
+const MAGIC_LOGIN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const magicLoginChallenges = new Map();
 
 // Load sessions from PostgreSQL (when available) or local file fallback.
 // Called at startup — must be awaited before server accepts requests.
@@ -5107,6 +5109,101 @@ async function removeSession(token) {
   }
 }
 
+function pruneMagicLoginChallenges() {
+  const nowMs = Date.now();
+  for (const [id, challenge] of magicLoginChallenges.entries()) {
+    if (!challenge || challenge.expiresAt <= nowMs) {
+      magicLoginChallenges.delete(id);
+    }
+  }
+}
+
+function createMagicLoginChallenge(email) {
+  pruneMagicLoginChallenges();
+  const challenge = {
+    id: crypto.randomBytes(24).toString("hex"),
+    pollToken: crypto.randomBytes(24).toString("hex"),
+    email: normalizeEmailInput(email),
+    status: "pending",
+    createdAt: Date.now(),
+    expiresAt: Date.now() + MAGIC_LOGIN_CHALLENGE_TTL_MS,
+    result: null,
+  };
+  magicLoginChallenges.set(challenge.id, challenge);
+  return challenge;
+}
+
+function getMagicLoginChallenge(id) {
+  if (!id || typeof id !== "string") return null;
+  const challenge = magicLoginChallenges.get(id);
+  if (!challenge) return null;
+  if (challenge.expiresAt <= Date.now()) {
+    magicLoginChallenges.delete(id);
+    return { ...challenge, status: "expired" };
+  }
+  return challenge;
+}
+
+function completeMagicLoginChallenge(id, result) {
+  const challenge = getMagicLoginChallenge(id);
+  if (!challenge || challenge.status === "expired") return false;
+  const resultEmail = normalizeEmailInput(result?.user?.email);
+  if (challenge.email && challenge.email !== resultEmail) {
+    console.warn(`[auth] Magic login challenge email mismatch for ${challenge.email}: got ${resultEmail || "none"}`);
+    return false;
+  }
+  challenge.status = "completed";
+  challenge.completedAt = Date.now();
+  challenge.result = result;
+  return true;
+}
+
+async function mintSessionForEmail(email, opts = {}) {
+  const normalizedEmail = normalizeEmailInput(email);
+  if (!normalizedEmail) {
+    const err = new Error("No email in Supabase session");
+    err.statusCode = 401;
+    throw err;
+  }
+  if (!isEmailAllowedAnyWorkspace(normalizedEmail)) {
+    const err = new Error("Email not authorized to access this server.");
+    err.statusCode = 403;
+    throw err;
+  }
+  const emailPrefix = normalizedEmail.split("@")[0];
+  if (isReservedName(emailPrefix)) {
+    const err = new Error("Reserved username — please contact an admin.");
+    err.statusCode = 403;
+    throw err;
+  }
+  const grav = gravatarUrl(normalizedEmail);
+  const user = {
+    name: emailPrefix,
+    email: normalizedEmail,
+    picture: opts.picture || null,
+    gravatarUrl: grav,
+  };
+  const sessionToken = crypto.randomBytes(32).toString("hex");
+  authSessions.set(sessionToken, user);
+  if (userCanAccessWorkspace(user, DEFAULT_WORKSPACE_ID)) {
+    ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
+  }
+  persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
+  const changed = upsertAllTimeHuman({
+    id: humanId(user.name),
+    name: user.name,
+    picture: user.picture || undefined,
+    gravatarUrl: user.gravatarUrl || undefined,
+  });
+  if (changed) broadcastHumans();
+  return {
+    token: sessionToken,
+    user,
+    requestedWorkspaceId: opts.requestedWorkspaceId || DEFAULT_WORKSPACE_ID,
+    accessibleWorkspaces: visibleWorkspacesForUser(user),
+  };
+}
+
 app.post("/api/auth/google", async (req, res) => {
   const { credential } = req.body;
   const requestedWorkspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
@@ -5119,61 +5216,58 @@ app.post("/api/auth/google", async (req, res) => {
       audience: GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    // Allowlist gate at login time is the UNION across every workspace + env
-    // defaults. Per-workspace membership is still enforced separately when the
-    // user actually navigates into a non-default workspace (see requireAuth).
-    if (!isEmailAllowedAnyWorkspace(payload.email)) {
-      console.log(`[auth] Rejected login: ${payload.email} not in any workspace allowlist`);
-      return res.status(403).json({ error: "Email not authorized to access this server." });
-    }
-    const sessionToken = crypto.randomBytes(32).toString("hex");
-    // Use email prefix as default display name (e.g. "zaynjarvis" from "zaynjarvis@gmail.com")
-    const emailPrefix = payload.email.split("@")[0];
-    if (isReservedName(emailPrefix)) {
-      console.log(`[auth] Rejected login: email prefix "${emailPrefix}" is reserved`);
-      return res.status(403).json({ error: "Reserved username — please contact an admin." });
-    }
-    const grav = gravatarUrl(payload.email);
-    const user = {
-      name: emailPrefix,
-      email: payload.email,
+    res.json(await mintSessionForEmail(payload.email, {
       picture: payload.picture || null,
-      gravatarUrl: grav,
-    };
-    authSessions.set(sessionToken, user);
-    // Seed default-workspace membership if the user has access there; otherwise
-    // they'll only show up in the workspaces they actually belong to.
-    if (userCanAccessWorkspace(user, DEFAULT_WORKSPACE_ID)) {
-      ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
-    }
-    persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
-
-    // Surface this user in the people list immediately, even before any WS
-    // connection. Lets others @-mention them while still offline.
-    const changed = upsertAllTimeHuman({
-      id: humanId(user.name),
-      name: user.name,
-      picture: user.picture || undefined,
-      gravatarUrl: user.gravatarUrl || undefined,
-    });
-    if (changed) broadcastHumans();
-
-    const accessibleWorkspaces = visibleWorkspacesForUser(user);
-    res.json({
-      token: sessionToken,
-      user,
       requestedWorkspaceId,
-      accessibleWorkspaces,
-    });
+    }));
   } catch (err) {
+    if (err.statusCode) {
+      if (err.statusCode === 403) console.log(`[auth] Rejected login: ${err.message}`);
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     console.error("[auth] Google token verification failed:", err.message);
     res.status(401).json({ error: "Invalid Google credential" });
   }
 });
 
+app.post("/api/auth/magic-link-challenge", (req, res) => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return res.status(501).json({ error: "Magic link auth not configured" });
+  }
+  const email = normalizeEmailInput(req.body?.email);
+  if (!email) return res.status(400).json({ error: "Invalid email address" });
+  const challenge = createMagicLoginChallenge(email);
+  res.json({
+    challengeId: challenge.id,
+    pollToken: challenge.pollToken,
+    expiresAt: new Date(challenge.expiresAt).toISOString(),
+    expiresInSeconds: Math.round(MAGIC_LOGIN_CHALLENGE_TTL_MS / 1000),
+  });
+});
+
+app.get("/api/auth/magic-link-challenge/:id", (req, res) => {
+  const challenge = getMagicLoginChallenge(req.params.id);
+  if (!challenge || challenge.pollToken !== req.query.pollToken) {
+    return res.status(404).json({ error: "Magic login challenge not found" });
+  }
+  if (challenge.status === "expired") {
+    return res.status(410).json({ status: "expired" });
+  }
+  if (challenge.status === "completed" && challenge.result) {
+    return res.json({
+      status: "completed",
+      ...challenge.result,
+    });
+  }
+  res.json({
+    status: "pending",
+    expiresAt: new Date(challenge.expiresAt).toISOString(),
+  });
+});
+
 // Verify a Supabase access_token (from magic link or OAuth) and mint a zouk session.
 app.post("/api/auth/supabase", async (req, res) => {
-  const { accessToken } = req.body;
+  const { accessToken, magicLoginChallengeId } = req.body;
   const requestedWorkspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
   if (!accessToken) return res.status(400).json({ error: "Missing accessToken" });
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -5193,41 +5287,13 @@ app.post("/api/auth/supabase", async (req, res) => {
       return res.status(401).json({ error: "Invalid or expired Supabase token" });
     }
     const supaUser = await supaRes.json();
-    const email = supaUser.email;
-    if (!email) {
-      return res.status(401).json({ error: "No email in Supabase session" });
-    }
-    // Union allowlist check at login (see /api/auth/google for rationale).
-    if (!isEmailAllowedAnyWorkspace(email)) {
-      console.log(`[auth] Rejected Supabase login: ${email} not in any workspace allowlist`);
-      return res.status(403).json({ error: "Email not authorized to access this server." });
-    }
-    const emailPrefix = email.split("@")[0];
-    if (isReservedName(emailPrefix)) {
-      return res.status(403).json({ error: "Reserved username — please contact an admin." });
-    }
-    const grav = gravatarUrl(email);
-    const user = { name: emailPrefix, email, picture: null, gravatarUrl: grav };
-    const sessionToken = crypto.randomBytes(32).toString("hex");
-    authSessions.set(sessionToken, user);
-    if (userCanAccessWorkspace(user, DEFAULT_WORKSPACE_ID)) {
-      ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
-    }
-    persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
-    const changed = upsertAllTimeHuman({
-      id: humanId(user.name),
-      name: user.name,
-      gravatarUrl: user.gravatarUrl || undefined,
-    });
-    if (changed) broadcastHumans();
-    const accessibleWorkspaces = visibleWorkspacesForUser(user);
-    res.json({
-      token: sessionToken,
-      user,
+    const result = await mintSessionForEmail(supaUser.email, {
       requestedWorkspaceId,
-      accessibleWorkspaces,
     });
+    if (magicLoginChallengeId) completeMagicLoginChallenge(magicLoginChallengeId, result);
+    res.json(result);
   } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
     console.error("[auth] Supabase token verification failed:", err.message);
     res.status(500).json({ error: "Supabase verification failed" });
   }

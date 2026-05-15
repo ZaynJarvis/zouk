@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
 import { initSupabase } from '../lib/supabase';
+import { createMagicLoginChallenge, pollMagicLoginChallenge, type MagicLoginChallenge } from '../lib/api';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
 const MAGIC_LINK_POLL_INTERVAL_MS = 2000;
@@ -64,6 +65,7 @@ function ScrambleTitle({ nc }: { nc: boolean }) {
 export default function LoginScreen() {
   const {
     loginWithGoogle,
+    loginWithAuthResponse,
     loginWithSupabaseAccessToken,
     loginWithStoredAuth,
     loginAsGuest,
@@ -80,6 +82,7 @@ export default function LoginScreen() {
   const [magicLinkState, setMagicLinkState] = useState<'idle' | 'pending' | 'expired'>('idle');
   const [magicLinkExpiresAt, setMagicLinkExpiresAt] = useState<number | null>(null);
   const [magicLinkNow, setMagicLinkNow] = useState(() => Date.now());
+  const [magicChallenge, setMagicChallenge] = useState<MagicLoginChallenge | null>(null);
   const magicLoginInFlightRef = useRef(false);
 
   const handleGuestLogin = useCallback(() => {
@@ -109,16 +112,23 @@ export default function LoginScreen() {
     setPendingAction('magic');
     setMagicLinkState('idle');
     setMagicLinkExpiresAt(null);
+    setMagicChallenge(null);
     try {
+      const challenge = await createMagicLoginChallenge(magicEmail.trim());
+      const redirectUrl = new URL(window.location.origin);
+      redirectUrl.searchParams.set('magic_challenge', challenge.challengeId);
       const supabase = initSupabase(supabaseConfig.url, supabaseConfig.anonKey);
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: magicEmail.trim(),
-        options: { emailRedirectTo: window.location.origin },
+        options: { emailRedirectTo: redirectUrl.toString() },
       });
       if (otpError) throw otpError;
-      const expiresAt = Date.now() + MAGIC_LINK_EXPIRES_MS;
+      const expiresAt = Number.isNaN(Date.parse(challenge.expiresAt))
+        ? Date.now() + MAGIC_LINK_EXPIRES_MS
+        : Date.parse(challenge.expiresAt);
       setMagicLinkNow(Date.now());
       setMagicLinkExpiresAt(expiresAt);
+      setMagicChallenge(challenge);
       setMagicLinkState('pending');
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : 'Failed to send magic link.';
@@ -132,6 +142,7 @@ export default function LoginScreen() {
   const resetMagicLink = useCallback(() => {
     setMagicLinkState('idle');
     setMagicLinkExpiresAt(null);
+    setMagicChallenge(null);
     setError(null);
     setPendingAction(null);
     setLoading(false);
@@ -187,6 +198,22 @@ export default function LoginScreen() {
         expire();
         return;
       }
+      if (magicChallenge) {
+        try {
+          const handoff = await pollMagicLoginChallenge(magicChallenge.challengeId, magicChallenge.pollToken);
+          if (cancelled) return;
+          if (handoff.status === 'expired') {
+            expire();
+            return;
+          }
+          if (handoff.status === 'completed') {
+            loginWithAuthResponse(handoff);
+            return;
+          }
+        } catch {
+          // Keep polling; transient network errors should not cancel the wait.
+        }
+      }
       if (loginWithStoredAuth()) return;
 
       const { data, error: sessionError } = await supabase.auth.getSession();
@@ -210,7 +237,7 @@ export default function LoginScreen() {
       if (expiryTimer !== null) window.clearTimeout(expiryTimer);
       authListener.subscription.unsubscribe();
     };
-  }, [loginWithStoredAuth, loginWithSupabaseAccessToken, magicLinkExpiresAt, magicLinkState, supabaseConfig]);
+  }, [loginWithAuthResponse, loginWithStoredAuth, loginWithSupabaseAccessToken, magicChallenge, magicLinkExpiresAt, magicLinkState, supabaseConfig]);
 
   const handleGlitchComplete = useCallback(() => {
     setGlitchActive(false);
