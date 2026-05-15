@@ -4,7 +4,7 @@ import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { getStoredLinkTransforms, subscribeLinkTransforms } from '../store/storage';
-import { parseMarkdown } from '../lib/markdown';
+import { parseMarkdown, renderInline } from '../lib/markdown';
 import ImageLightbox from './ImageLightbox';
 import FailableImage from './FailableImage';
 import { Avatar, AgentAvatar } from './zk/primitives';
@@ -181,17 +181,19 @@ export default function MessageItem({
   // System messages — compact, muted, centred
   if (isSystem) {
     return (
-      <div className="zk-row" style={{ gap: 12, padding: '4px 22px' }}>
-        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)' }} />
+      <div className="zk-row" style={{ gap: 12, padding: '4px 22px', minWidth: 0, overflow: 'hidden' }}>
+        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)', minWidth: 0 }} />
         <span
           style={{
             fontSize: 10, color: 'var(--zk-ink-low)',
             fontFamily: 'var(--zk-font-mono)', textAlign: 'center', padding: '0 8px',
+            display: 'block', flex: '0 1 auto', minWidth: 0, maxWidth: '100%',
+            lineHeight: 1.55, overflowWrap: 'anywhere', wordBreak: 'break-word',
           }}
         >
-          {message.content}
+          {message.content ? renderInline(message.content, `sys-${message.id}`, linkRules, { compactLinks: true }) : null}
         </span>
-        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)' }} />
+        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)', minWidth: 0 }} />
       </div>
     );
   }
