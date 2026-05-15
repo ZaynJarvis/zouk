@@ -701,7 +701,7 @@ export function useAppStore() {
     setMemoryContentCache({});
     setSkillsCache({});
     setActiveThreadMessage(null);
-    setRightPanel(prev => (prev === 'thread' || prev === 'channel_settings' ? null : prev));
+    setRightPanel(prev => (prev === 'thread' ? null : prev));
     setViewMode('channel');
     setActiveChannelName('all');
     setTasksVersion(v => v + 1);
@@ -1073,9 +1073,12 @@ export function useAppStore() {
 
   const openChannelSettings = useCallback((channelId: string) => {
     setChannelSettingsId(channelId);
-    setRightPanel('channel_settings');
     closeSidebarOnMobile();
   }, [closeSidebarOnMobile]);
+
+  const closeChannelSettings = useCallback(() => {
+    setChannelSettingsId(null);
+  }, []);
 
   const createChannelAction = useCallback(async (name: string) => {
     try {
@@ -1379,7 +1382,7 @@ export function useAppStore() {
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
     agentProfileId, setAgentProfileId, agentProfileTab, setAgentProfileTab, openAgentProfile, openAgentSettings,
-    channelSettingsId, openChannelSettings,
+    channelSettingsId, openChannelSettings, closeChannelSettings,
     activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,
     workspaceMenuOpen, setWorkspaceMenuOpen,
