@@ -57,6 +57,10 @@ CREATE INDEX IF NOT EXISTS messages_thread_channel_seq_idx
   ON messages (thread_id, channel_id, seq) WHERE thread_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS messages_workspace_seq_idx ON messages (workspace_id, seq);
 CREATE INDEX IF NOT EXISTS messages_workspace_channel_seq_idx ON messages (workspace_id, channel_id, seq);
+-- DM reads are party-scoped (queryMessagesForAgent filters DM rows by
+-- channel_id only, ignoring workspace_id) — keep a channel-only index so
+-- cross-workspace DM check_messages stays index-backed.
+CREATE INDEX IF NOT EXISTS messages_channel_seq_idx ON messages (channel_id, seq);
 
 CREATE TABLE IF NOT EXISTS channels (
   id          TEXT PRIMARY KEY,
