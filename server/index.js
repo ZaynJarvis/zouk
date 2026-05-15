@@ -1040,7 +1040,6 @@ function agentCanRead(channelId, agentId) {
 function messageVisibleToAgent(msg, agentId) {
   const agentWorkspaceId = workspaceIdFromAgent(agentId);
   const msgWorkspaceId = normalizeWorkspaceId(msg.workspaceId || DEFAULT_WORKSPACE_ID);
-  if (msgWorkspaceId !== agentWorkspaceId) return false;
   const ch = msg.channelId
     ? store.channels.find((c) => c.id === msg.channelId)
     : store.channels.find((c) => (
@@ -1050,12 +1049,15 @@ function messageVisibleToAgent(msg, agentId) {
     ));
   if (!ch) return false;
   if ((ch.type || "channel") === "dm") {
+    // DMs are party-scoped — workspace filter doesn't apply so agents in
+    // different workspace slots still receive their DMs.
     const parties = dmChannelParties(ch.name) || [];
     const agentName = agentPayload(agentId)?.name
       || agentConfigs.find((c) => c.id === agentId)?.name;
     if (!agentName) return false;
     return parties.some((p) => String(p).toLowerCase() === String(agentName).toLowerCase());
   }
+  if (msgWorkspaceId !== agentWorkspaceId) return false;
   return agentCanRead(ch.id, agentId);
 }
 
@@ -2147,9 +2149,12 @@ function deliverToAllAgents(message, excludeAgent = null) {
     subscribedIds = ch ? subscribedAgentIdsFor(ch.id) : [];
   }
 
+  const isDmChannel = ch && (ch.type || "channel") === "dm";
   const activeSubscribedIds = subscribedIds.filter((agentId) => {
     const agent = store.agents[agentId];
-    return agent && agent.status === "active" && workspaceIdFromAgent(agentId) === workspaceId;
+    // DMs are party-scoped, not workspace-scoped — skip workspace filter so
+    // agents in different workspace slots still receive their DMs.
+    return agent && agent.status === "active" && (isDmChannel || workspaceIdFromAgent(agentId) === workspaceId);
   });
 
   const agentsById = deliveryAgentsById();
