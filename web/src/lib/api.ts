@@ -578,6 +578,8 @@ export interface WsClientStats {
 export interface WsClientsResponse {
   rateWindowSeconds: number;
   autoBlockThreshold: number;
+  autoBlockMaxOpen?: number;
+  autoBlockHardThreshold?: number;
   blockDurationSeconds: number;
   revokeBlockSeconds: number;
   callerId: string | null;

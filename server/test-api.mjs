@@ -696,8 +696,24 @@ test('search_messages: DM content does not leak via search to non-parties', asyn
 async function openAuthedWs(token) {
   const ws = new WebSocket(`ws://localhost:${TEST_PORT}/ws?token=${token}`);
   await new Promise((resolve, reject) => {
-    ws.once('open', resolve);
-    ws.once('error', reject);
+    const onOpen = () => {
+      ws.off('error', onError);
+      ws.off('unexpected-response', onUnexpectedResponse);
+      resolve();
+    };
+    const onError = (err) => {
+      ws.off('open', onOpen);
+      ws.off('unexpected-response', onUnexpectedResponse);
+      reject(err);
+    };
+    const onUnexpectedResponse = (_req, res) => {
+      ws.off('open', onOpen);
+      ws.off('error', onError);
+      reject(new Error(`unexpected websocket response ${res.statusCode}`));
+    };
+    ws.once('open', onOpen);
+    ws.once('error', onError);
+    ws.once('unexpected-response', onUnexpectedResponse);
   });
   // Drain the init frame so .once('message') below catches real traffic.
   await new Promise((resolve) => ws.once('message', resolve));
@@ -811,6 +827,23 @@ test('workspaces: unicode ids flow through route websocket and root delete', asy
     proc.kill('SIGKILL');
     fs.rmSync(tmpConfigDir, { recursive: true, force: true });
     fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
+test('WS rate limit allows many concurrent browser windows for one token', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `ws-tabs-${Date.now()}` }),
+  });
+  const { token } = await authRes.json();
+  const sockets = [];
+  try {
+    const opened = await Promise.all(Array.from({ length: 13 }, () => openAuthedWs(token)));
+    sockets.push(...opened);
+    assert.equal(sockets.length, 13);
+  } finally {
+    for (const ws of sockets) ws.close();
   }
 });
 

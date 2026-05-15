@@ -691,6 +691,7 @@ function ConnectionsSection() {
   const resp = data.resp;
   const clients = resp?.clients ?? [];
   const threshold = resp?.autoBlockThreshold ?? 12;
+  const maxOpen = resp?.autoBlockMaxOpen ?? 3;
   void tick;
 
   return (
@@ -698,7 +699,7 @@ function ConnectionsSection() {
       <div>
         <p className="text-sm font-bold text-nc-text-bright tracking-wider">WS_CLIENTS</p>
         <p className="text-xs text-nc-muted font-mono mt-0.5">
-          Per-token /ws connect rate. Storm threshold: {threshold} connects / {resp?.rateWindowSeconds ?? 60}s. Auto-block lasts {Math.round((resp?.blockDurationSeconds ?? 300) / 60)}m. Revoking deletes the auth session and force-closes open sockets.
+          Per-token /ws connect rate. Churn threshold: {threshold} connects / {resp?.rateWindowSeconds ?? 60}s when {maxOpen} or fewer sockets stay open. Auto-block lasts {Math.round((resp?.blockDurationSeconds ?? 300) / 60)}m. Revoking deletes the auth session and force-closes open sockets.
         </p>
       </div>
 

@@ -1503,8 +1503,11 @@ function formatMessageForAgent(msg, recipientAgentId) {
 //
 // Defence is two-pronged:
 //   1. Rate-limit /ws upgrades per token (or per IP for guests). Auto-block
-//      any source that exceeds WS_RATE_BLOCK_THRESHOLD opens within
-//      WS_RATE_WINDOW_MS for WS_BLOCK_DURATION_MS.
+//      sources that exceed WS_RATE_BLOCK_THRESHOLD opens within
+//      WS_RATE_WINDOW_MS for WS_BLOCK_DURATION_MS only when they look like
+//      churn (few live sockets). Multiple legitimate browser windows share one
+//      token and should not be killed merely for all connecting around the same
+//      time.
 //   2. Defer the init send via setImmediate so a burst is interleaved with
 //      other event-loop work instead of monopolizing one tick.
 //
@@ -1512,6 +1515,8 @@ function formatMessageForAgent(msg, recipientAgentId) {
 // can see who's misbehaving and revoke the offending session from Settings.
 const WS_RATE_WINDOW_MS = 60_000;
 const WS_RATE_BLOCK_THRESHOLD = Number(process.env.WS_RATE_BLOCK_THRESHOLD || 12);
+const WS_RATE_BLOCK_MAX_OPEN = Number(process.env.WS_RATE_BLOCK_MAX_OPEN || 3);
+const WS_RATE_HARD_BLOCK_THRESHOLD = Number(process.env.WS_RATE_HARD_BLOCK_THRESHOLD || 120);
 const WS_BLOCK_DURATION_MS = 5 * 60_000;
 const WS_TRACKER_TTL_MS = 24 * 60 * 60 * 1000;
 const WS_REVOKE_BLOCK_MS = 24 * 60 * 60 * 1000;
@@ -1574,9 +1579,14 @@ function recordWsConnectAttempt(token, ip) {
   entry.recentConnects.push(nowMs);
   entry.totalConnects += 1;
   entry.lastConnectAt = nowMs;
-  if (entry.recentConnects.length > WS_RATE_BLOCK_THRESHOLD) {
+  const recentCount = entry.recentConnects.length;
+  const hardStorm = recentCount > WS_RATE_HARD_BLOCK_THRESHOLD;
+  const churnStorm = recentCount > WS_RATE_BLOCK_THRESHOLD && entry.openCount <= WS_RATE_BLOCK_MAX_OPEN;
+  if (hardStorm || churnStorm) {
     entry.blockedUntil = nowMs + WS_BLOCK_DURATION_MS;
-    entry.blockReason = `auto: ${entry.recentConnects.length} connects in ${WS_RATE_WINDOW_MS / 1000}s (limit ${WS_RATE_BLOCK_THRESHOLD})`;
+    entry.blockReason = hardStorm
+      ? `auto: ${recentCount} connects in ${WS_RATE_WINDOW_MS / 1000}s (hard limit ${WS_RATE_HARD_BLOCK_THRESHOLD})`
+      : `auto: ${recentCount} connects in ${WS_RATE_WINDOW_MS / 1000}s with ${entry.openCount} open (limit ${WS_RATE_BLOCK_THRESHOLD}, max open ${WS_RATE_BLOCK_MAX_OPEN})`;
     console.warn(`[ws-tracker] auto-blocked ${entry.kind}=${entry.key} for ${WS_BLOCK_DURATION_MS / 1000}s — ${entry.blockReason}`);
     entry.totalRejections += 1;
     entry.lastRejectionAt = nowMs;
@@ -5567,6 +5577,8 @@ app.get("/api/_internal/ws-clients", requireAuth, (req, res) => {
   res.json({
     rateWindowSeconds: WS_RATE_WINDOW_MS / 1000,
     autoBlockThreshold: WS_RATE_BLOCK_THRESHOLD,
+    autoBlockMaxOpen: WS_RATE_BLOCK_MAX_OPEN,
+    autoBlockHardThreshold: WS_RATE_HARD_BLOCK_THRESHOLD,
     blockDurationSeconds: WS_BLOCK_DURATION_MS / 1000,
     revokeBlockSeconds: WS_REVOKE_BLOCK_MS / 1000,
     callerId,
