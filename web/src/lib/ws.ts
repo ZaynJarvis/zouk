@@ -206,6 +206,9 @@ export class SlockWebSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private visibilityBound: (() => void) | null = null;
+  // React cleanup calls disconnect(); late close events from that socket must
+  // not resurrect the old instance and create a second background connection.
+  private reconnectEnabled = false;
   private serverUrl: string;
   private _connected = false;
   private pendingSends: string[] = [];
@@ -245,6 +248,7 @@ export class SlockWebSocket {
   }
 
   connect(): void {
+    this.reconnectEnabled = true;
     if (!this.visibilityBound) {
       this.visibilityBound = () => this.handleVisibilityChange();
       document.addEventListener('visibilitychange', this.visibilityBound);
@@ -254,14 +258,17 @@ export class SlockWebSocket {
       return;
     }
 
+    let socket: WebSocket;
     try {
-      this.ws = new WebSocket(this.buildUrl());
+      socket = new WebSocket(this.buildUrl());
+      this.ws = socket;
     } catch {
       this.scheduleReconnect();
       return;
     }
 
-    this.ws.onopen = () => {
+    socket.onopen = () => {
+      if (!this.reconnectEnabled || this.ws !== socket) return;
       this._connected = true;
       this.wasConnected = true;
       this.failedAttempts = 0;
@@ -270,7 +277,8 @@ export class SlockWebSocket {
       this.emit({ type: 'ws:connected' });
     };
 
-    this.ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (!this.reconnectEnabled || this.ws !== socket) return;
       this.resetWatchdog();
       try {
         const data = JSON.parse(event.data) as WsEvent;
@@ -280,19 +288,22 @@ export class SlockWebSocket {
       }
     };
 
-    this.ws.onclose = () => {
+    socket.onclose = () => {
+      if (!this.reconnectEnabled || this.ws !== socket) return;
       this._connected = false;
       this.clearWatchdog();
       this.emit({ type: 'ws:disconnected' });
       this.scheduleReconnect();
     };
 
-    this.ws.onerror = () => {
+    socket.onerror = () => {
+      if (!this.reconnectEnabled || this.ws !== socket) return;
       this._connected = false;
     };
   }
 
   disconnect(): void {
+    this.reconnectEnabled = false;
     if (this.visibilityBound) {
       document.removeEventListener('visibilitychange', this.visibilityBound);
       this.visibilityBound = null;
@@ -303,7 +314,12 @@ export class SlockWebSocket {
     }
     this.clearWatchdog();
     if (this.ws) {
-      this.ws.close();
+      const socket = this.ws;
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
       this.ws = null;
     }
     this._connected = false;
@@ -350,6 +366,7 @@ export class SlockWebSocket {
   }
 
   private scheduleReconnect(): void {
+    if (!this.reconnectEnabled) return;
     if (this.reconnectTimer) return;
     this.failedAttempts += 1;
     // Fast path: if the *previous* connection actually opened (server
@@ -372,6 +389,7 @@ export class SlockWebSocket {
     }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
+      if (!this.reconnectEnabled) return;
       this.connect();
     }, delay);
   }
@@ -426,6 +444,7 @@ export class SlockWebSocket {
   // the primary defence; the watchdog above is the secondary belt-and-suspenders.
   private handleVisibilityChange(): void {
     if (document.visibilityState !== 'visible') return;
+    if (!this.reconnectEnabled) return;
     // Detach all callbacks before closing so no stale handlers fire.
     if (this.ws) {
       this.ws.onopen = null;
