@@ -29,6 +29,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import WebSocket from 'ws';
@@ -398,6 +399,87 @@ test('GET /api/auth/config: allowlistActive=true when ANY workspace gates on an 
     assert.equal(nonDefaultCfg.body.allowlistActive, true);
   } finally {
     proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+  }
+});
+
+test('magic link challenge: Safari callback can complete PWA poll', async () => {
+  const supabaseServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/auth/v1/user') {
+      assert.equal(req.headers.authorization, 'Bearer supabase-access-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ email: 'pwa-ci@example.com' }));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise((resolve) => supabaseServer.listen(0, '127.0.0.1', resolve));
+  const supabasePort = supabaseServer.address().port;
+  const port = TEST_PORT + 8;
+  const altBase = `http://localhost:${port}`;
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      NODE_ENV: 'test',
+      SUPABASE_URL: `http://127.0.0.1:${supabasePort}`,
+      SUPABASE_ANON_KEY: 'anon-key',
+      SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+      ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+  try {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(`${altBase}/api/channels`);
+        if (r.ok) break;
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    const challenge = await json(await fetch(`${altBase}/api/auth/magic-link-challenge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pwa-ci@example.com' }),
+    }));
+    assert.equal(challenge.status, 200);
+    assert.match(challenge.body.challengeId, /^[0-9a-f]{48}$/);
+    assert.match(challenge.body.pollToken, /^[0-9a-f]{48}$/);
+
+    const pending = await json(await fetch(`${altBase}/api/auth/magic-link-challenge/${challenge.body.challengeId}?pollToken=${challenge.body.pollToken}`));
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.status, 'pending');
+
+    const wrongPoll = await fetch(`${altBase}/api/auth/magic-link-challenge/${challenge.body.challengeId}?pollToken=wrong`);
+    assert.equal(wrongPoll.status, 404);
+
+    const completedLogin = await json(await fetch(`${altBase}/api/auth/supabase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accessToken: 'supabase-access-token',
+        magicLoginChallengeId: challenge.body.challengeId,
+      }),
+    }));
+    assert.equal(completedLogin.status, 200);
+    assert.equal(completedLogin.body.user.email, 'pwa-ci@example.com');
+    assert.ok(completedLogin.body.token);
+
+    const completedPoll = await json(await fetch(`${altBase}/api/auth/magic-link-challenge/${challenge.body.challengeId}?pollToken=${challenge.body.pollToken}`));
+    assert.equal(completedPoll.status, 200);
+    assert.equal(completedPoll.body.status, 'completed');
+    assert.equal(completedPoll.body.token, completedLogin.body.token);
+    assert.equal(completedPoll.body.user.email, 'pwa-ci@example.com');
+  } finally {
+    proc.kill('SIGTERM');
+    supabaseServer.close();
     if (proc.exitCode == null) {
       await new Promise((resolve) => proc.once('exit', resolve));
     }

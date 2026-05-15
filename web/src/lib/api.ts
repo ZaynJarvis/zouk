@@ -364,11 +364,48 @@ export type LoginResponse = {
   accessibleWorkspaces?: Workspace[];
 };
 
-export async function supabaseLogin(accessToken: string): Promise<LoginResponse> {
+export type MagicLoginChallenge = {
+  challengeId: string;
+  pollToken: string;
+  expiresAt: string;
+  expiresInSeconds?: number;
+};
+
+export type MagicLoginPollResponse =
+  | ({ status: 'pending'; expiresAt?: string })
+  | ({ status: 'expired' })
+  | ({ status: 'completed' } & LoginResponse);
+
+export async function createMagicLoginChallenge(email: string): Promise<MagicLoginChallenge> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/magic-link-challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Failed to start magic link login');
+  }
+  return res.json();
+}
+
+export async function pollMagicLoginChallenge(challengeId: string, pollToken: string): Promise<MagicLoginPollResponse> {
+  const url = new URL(`${getBaseUrl()}/api/auth/magic-link-challenge/${encodeURIComponent(challengeId)}`, window.location.origin);
+  url.searchParams.set('pollToken', pollToken);
+  const res = await fetch(url.toString(), { headers: getWorkspaceHeaders(), cache: 'no-store' });
+  if (res.status === 410) return { status: 'expired' };
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Failed to poll magic link login');
+  }
+  return res.json();
+}
+
+export async function supabaseLogin(accessToken: string, magicLoginChallengeId?: string): Promise<LoginResponse> {
   const res = await fetch(`${getBaseUrl()}/api/auth/supabase`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
-    body: JSON.stringify({ accessToken }),
+    body: JSON.stringify({ accessToken, magicLoginChallengeId }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

@@ -293,6 +293,7 @@ function AppWithAuth() {
           // Handle magic link callback — PKCE flow (?code=) or implicit flow (#access_token=)
           const urlParams = new URLSearchParams(window.location.search);
           const code = urlParams.get('code');
+          const magicLoginChallengeId = urlParams.get('magic_challenge') || undefined;
           const hash = new URLSearchParams(window.location.hash.slice(1));
           const hashToken = hash.get('access_token');
           const hashType = hash.get('type');
@@ -312,7 +313,7 @@ function AppWithAuth() {
 
             if (accessToken) {
               window.history.replaceState({}, '', window.location.pathname);
-              const result = await api.supabaseLogin(accessToken);
+              const result = await api.supabaseLogin(accessToken, magicLoginChallengeId);
               setStoredAuth(result.token, result.user);
               setStoredCurrentUser(result.user.name);
               const accessible = result.accessibleWorkspaces || [];
