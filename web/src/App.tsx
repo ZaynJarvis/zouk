@@ -12,6 +12,7 @@ import AgentStatus, { AgentStatusPeek } from './components/AgentStatus';
 import AgentProfilePanel from './components/AgentProfilePanel';
 import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
+import ChannelSettingsModal from './components/ChannelSettingsModal';
 import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
 import TasksView from './components/TasksView';
@@ -260,6 +261,7 @@ function AppShell() {
       </div>
 
       <SettingsModal />
+      <ChannelSettingsModal />
       <ToastContainer />
     </div>
   );
