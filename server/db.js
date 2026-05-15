@@ -1096,6 +1096,59 @@ async function loadWorkspaceMembers() {
   }
 }
 
+async function saveWorkspaceMemberRemoval(removal) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_member_removals (workspace_id, email, removed_at, removed_by)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (workspace_id, email) DO UPDATE SET
+         removed_at = EXCLUDED.removed_at,
+         removed_by = EXCLUDED.removed_by`,
+      [
+        removal.workspaceId || DEFAULT_WORKSPACE_ID,
+        String(removal.email || '').trim().toLowerCase(),
+        removal.removedAt || new Date().toISOString(),
+        removal.removedBy || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceMemberRemoval error:', e.message);
+  }
+}
+
+async function deleteWorkspaceMemberRemoval(workspaceId, email) {
+  if (!pool) return false;
+  try {
+    await pool.query(
+      'DELETE FROM workspace_member_removals WHERE workspace_id=$1 AND email=$2',
+      [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]
+    );
+    return true;
+  } catch (e) {
+    console.error('[db] deleteWorkspaceMemberRemoval error:', e.message);
+    return false;
+  }
+}
+
+async function loadWorkspaceMemberRemovals() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      'SELECT workspace_id, email, removed_at, removed_by FROM workspace_member_removals ORDER BY workspace_id ASC, email ASC'
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      email: row.email,
+      removedAt: row.removed_at,
+      removedBy: row.removed_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceMemberRemovals error:', e.message);
+    return null;
+  }
+}
+
 // ─── Agent activities ─────────────────────────────────────────────
 
 const ACTIVITY_KEEP_LIMIT = 100;
@@ -1266,6 +1319,9 @@ module.exports = {
   saveWorkspaceMember,
   deleteWorkspaceMember,
   loadWorkspaceMembers,
+  saveWorkspaceMemberRemoval,
+  deleteWorkspaceMemberRemoval,
+  loadWorkspaceMemberRemovals,
   saveTask,
   loadTasks,
   loadMaxSeq,

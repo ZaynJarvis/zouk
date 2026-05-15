@@ -415,6 +415,175 @@ test('POST /api/messages without auth: returns 403', async () => {
   assert.equal(res.status, 403, 'unauthenticated writes must be rejected with 403');
 });
 
+test('workspace members: public default workspace does not support removing people', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-remove-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-remove-uploads-'));
+  const port = TEST_PORT + 30;
+  const base = `http://localhost:${port}`;
+  const rootToken = 'member-remove-root-token';
+  const targetToken = 'member-remove-target-token';
+  const targetEmail = 'remove-target@example.com';
+  fs.mkdirSync(tmpConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [rootToken, { name: 'member-remove-root', email: 'member-remove-root@example.com', picture: null }],
+    [targetToken, { name: 'remove-target', email: targetEmail, picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ALLOW: '',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ZOUK_SUPERUSERS: 'member-remove-root@example.com',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${base}/api/auth/config`);
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'member removal test server must become ready');
+
+    const rootHeaders = { Authorization: `Bearer ${rootToken}`, 'X-Workspace-Id': 'default' };
+    const before = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(before.status, 200);
+    assert.ok(before.body.members.some(m => m.email === targetEmail), 'target session should be backfilled as a member before removal');
+
+    const removed = await json(await fetch(`${base}/api/workspaces/default/members/${encodeURIComponent(targetEmail)}`, {
+      method: 'DELETE',
+      headers: rootHeaders,
+    }));
+    assert.equal(removed.status, 400, 'open default workspace is public, so member removal is unsupported');
+
+    const after = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(after.status, 200);
+    assert.ok(after.body.members.some(m => m.email === targetEmail), 'public default member must remain listed after rejected removal');
+
+    const targetRead = await json(await fetch(`${base}/api/channels`, {
+      headers: { Authorization: `Bearer ${targetToken}`, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(targetRead.status, 200, 'public default member must keep access when removal is unsupported');
+  } finally {
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
+test('workspace members: restricted default removal blocks until re-invited', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-restrict-remove-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-restrict-remove-uploads-'));
+  const port = TEST_PORT + 31;
+  const base = `http://localhost:${port}`;
+  const rootToken = 'member-restrict-remove-root-token';
+  const targetToken = 'member-restrict-remove-target-token';
+  const rootEmail = 'member-restrict-remove-root@example.com';
+  const targetEmail = 'restrict-remove-target@example.com';
+  fs.mkdirSync(tmpConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [rootToken, { name: 'member-restrict-remove-root', email: rootEmail, picture: null }],
+    [targetToken, { name: 'restrict-remove-target', email: targetEmail, picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ALLOW: `${rootEmail},${targetEmail}`,
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ZOUK_SUPERUSERS: rootEmail,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${base}/api/auth/config`);
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'restricted member removal test server must become ready');
+
+    const rootHeaders = { Authorization: `Bearer ${rootToken}`, 'X-Workspace-Id': 'default', 'Content-Type': 'application/json' };
+    const before = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(before.status, 200);
+    assert.ok(before.body.members.some(m => m.email === targetEmail), 'allowed target session should be backfilled before removal');
+
+    const removed = await json(await fetch(`${base}/api/workspaces/default/members/${encodeURIComponent(targetEmail)}`, {
+      method: 'DELETE',
+      headers: rootHeaders,
+    }));
+    assert.equal(removed.status, 200);
+
+    const afterRemove = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(afterRemove.status, 200);
+    assert.ok(!afterRemove.body.members.some(m => m.email === targetEmail), 'removed target must stay out of PEOPLE');
+
+    const blockedRead = await json(await fetch(`${base}/api/channels`, {
+      headers: { Authorization: `Bearer ${targetToken}`, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(blockedRead.status, 403, 'restricted default removal must block access and not re-materialize');
+
+    const reinvited = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      method: 'POST',
+      headers: rootHeaders,
+      body: JSON.stringify({ email: targetEmail, role: 'member' }),
+    }));
+    assert.equal(reinvited.status, 200);
+
+    const restoredRead = await json(await fetch(`${base}/api/channels`, {
+      headers: { Authorization: `Bearer ${targetToken}`, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(restoredRead.status, 200, 're-inviting clears the removal tombstone');
+  } finally {
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
 // ─── Tasks ────────────────────────────────────────────────────────────────────
 
 test('claim_tasks: existing task can be claimed by its task message id', async () => {
