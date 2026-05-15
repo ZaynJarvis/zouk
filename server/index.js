@@ -237,6 +237,17 @@ if (ENV_SUPERUSERS.size > 0) {
   console.log(`[auth] ${ENV_SUPERUSERS.size} superuser(s) seeded from ZOUK_SUPERUSERS env`);
 }
 
+// Local-dev escape hatch: promote guest sessions (email-less users) to root on
+// the default workspace so they can create/admin workspaces without OAuth. Off
+// by default — never set this in production.
+const GUEST_ELEVATED = (() => {
+  const raw = (process.env.ZOUK_GUEST_ELEVATED || "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+})();
+if (GUEST_ELEVATED) {
+  console.warn("[auth] ZOUK_GUEST_ELEVATED=1 — guest sessions get root on default workspace (dev only)");
+}
+
 async function loadEmailAllowlistFromDb() {
   if (!db.enabled) return;
   try {
@@ -743,7 +754,10 @@ function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) 
 
 function userWorkspaceRole(user, workspaceId = DEFAULT_WORKSPACE_ID) {
   const id = normalizeWorkspaceId(workspaceId);
-  if (!user?.email) return id === DEFAULT_WORKSPACE_ID && !allowlistActive(id) ? "member" : null;
+  if (!user?.email) {
+    if (id !== DEFAULT_WORKSPACE_ID || allowlistActive(id)) return null;
+    return GUEST_ELEVATED ? "root" : "member";
+  }
   // Superusers override every other gate — they can read and admin any
   // workspace regardless of allowlist or membership rows.
   if (isSuperuser(user.email)) return "root";
