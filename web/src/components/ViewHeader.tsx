@@ -13,6 +13,8 @@ type Props = {
   variant?: Variant;
   showMobileMenu?: boolean;
   metaPlacement?: MetaPlacement;
+  mergeWorkspaceTitle?: boolean;
+  showWorkspaceSwitcher?: boolean;
 };
 
 const CANVAS_HEADER_STYLE: CSSProperties = {
@@ -44,6 +46,10 @@ const TITLE_BASE: CSSProperties = {
   fontWeight: 600,
   letterSpacing: '-0.012em',
   color: 'var(--zk-ink)',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 export default function ViewHeader({
@@ -53,6 +59,8 @@ export default function ViewHeader({
   variant = 'canvas',
   showMobileMenu,
   metaPlacement,
+  mergeWorkspaceTitle = false,
+  showWorkspaceSwitcher = false,
 }: Props) {
   const { workspaces, activeWorkspaceId, workspaceMenuOpen, setWorkspaceMenuOpen } = useApp();
   const activeWorkspace =
@@ -65,22 +73,26 @@ export default function ViewHeader({
   const headerStyle = variant === 'canvas' ? CANVAS_HEADER_STYLE : SIDEBAR_HEADER_STYLE;
   const titleSize = variant === 'canvas' ? 19 : 17;
   const workspaceLabel = (activeWorkspace.name || 'Default').toUpperCase();
+  const inlineWorkspaceSelector = showWorkspaceSwitcher && mergeWorkspaceTitle;
+  const titleText = title;
 
   return (
     <header style={headerStyle}>
       {shouldShowMobile && <MobileMenuButton />}
       <div className="zk-col" style={{ minWidth: 0, gap: 2, flex: 1 }}>
-        <WorkspaceSwitcher
-          label={workspaceLabel}
-          onOpen={() => setWorkspaceMenuOpen(true)}
-          ariaLabel={`Switch workspace (current: ${activeWorkspace.name})`}
-          variant={variant}
-          menuOpen={workspaceMenuOpen}
-        />
+        {showWorkspaceSwitcher && !inlineWorkspaceSelector && (
+          <WorkspaceSwitcher
+            label={workspaceLabel}
+            onOpen={() => setWorkspaceMenuOpen(true)}
+            ariaLabel={`Switch workspace (current: ${activeWorkspace.name})`}
+            variant={variant}
+            menuOpen={workspaceMenuOpen}
+          />
+        )}
         {placement === 'inline' ? (
           <div className="zk-row" style={{ gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
             <h1 className="zk-display" style={{ ...TITLE_BASE, fontSize: titleSize }}>
-              {title}
+              {titleText}
             </h1>
             {meta != null && (
               <span
@@ -96,9 +108,20 @@ export default function ViewHeader({
           </div>
         ) : (
           <>
-            <h1 className="zk-display" style={{ ...TITLE_BASE, fontSize: titleSize }}>
-              {title}
-            </h1>
+            <div className="zk-row" style={{ gap: 6, minWidth: 0, alignItems: 'baseline' }}>
+              <h1 className="zk-display" style={{ ...TITLE_BASE, fontSize: titleSize, flex: '0 1 auto' }}>
+                {titleText}
+              </h1>
+              {inlineWorkspaceSelector && (
+                <WorkspaceSwitcher
+                  label={workspaceLabel}
+                  onOpen={() => setWorkspaceMenuOpen(true)}
+                  ariaLabel={`Switch server (current: ${activeWorkspace.name})`}
+                  variant={variant}
+                  menuOpen={workspaceMenuOpen}
+                />
+              )}
+            </div>
             {meta != null && (
               <div
                 style={{

@@ -215,7 +215,7 @@ export default function AgentsView() {
 
   const handleSelectAgent = (id: string) => {
     setSelectedAgentId(id);
-    setAgentDetailTab('instructions');
+    setAgentDetailTab('settings');
     if (isMobileViewport()) setMobileShowDetail(true);
   };
 
@@ -236,10 +236,10 @@ export default function AgentsView() {
   };
 
   useEffect(() => {
-    if (agentDetailTab === 'settings' && isMobileViewport() && selected) {
+    if (agentDetailTab === 'settings' && isMobileViewport() && selectedAgentId) {
       setMobileShowDetail(true);
     }
-  }, [agentDetailTab, selected]);
+  }, [agentDetailTab, selectedAgentId]);
 
   return (
     <div

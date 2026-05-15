@@ -240,7 +240,9 @@ export interface ServerMachine {
 
 export interface AgentProfilePreset {
   id: string;
+  workspaceId?: string;
   image: string;
+  shared?: boolean;
 }
 
 export interface Workspace {
@@ -267,7 +269,6 @@ export interface InitPayload {
   humans: ServerHuman[];
   configs: AgentConfig[];
   machines: ServerMachine[];
-  profilePresets?: AgentProfilePreset[];
 }
 
 export interface WorkspaceFile {
@@ -309,7 +310,7 @@ export interface TaskRecord {
 }
 
 export type ViewMode = 'channel' | 'dm' | 'agents' | 'tasks' | 'memory';
-export type RightPanel = 'thread' | 'agents' | 'workspace' | 'agent_settings' | 'agent_profile' | 'channel_settings' | null;
+export type RightPanel = 'thread' | 'agents' | 'workspace' | 'agent_profile' | 'channel_settings' | null;
 export type Theme = 'atlas';
 export type ColorMode = 'light' | 'dark' | 'system';
 

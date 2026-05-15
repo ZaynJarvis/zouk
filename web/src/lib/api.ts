@@ -296,6 +296,21 @@ export async function fetchAgentActivities(
   return Array.isArray(data.entries) ? data.entries : [];
 }
 
+export interface AgentOvStatus {
+  enabled: boolean;
+  reason?: string;
+  user: string | null;
+  url: string | null;
+  local: boolean;
+}
+
+export async function fetchAgentOvStatus(agentId: string): Promise<AgentOvStatus> {
+  const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/ov/status`;
+  const res = await fetch(url, { headers: getAuthHeaders(), cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load OV status: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchAgentChannels(agentId: string): Promise<string[]> {
   const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/channels`;
   const res = await fetch(url, { headers: getAuthHeaders() });
@@ -427,6 +442,22 @@ export async function createWorkspace(input: { name: string; icon?: string }): P
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || `Failed to create workspace: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateWorkspace(
+  id: string,
+  input: { name?: string; icon?: string },
+): Promise<{ workspace: Workspace; workspaces: Workspace[] }> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to update workspace: ${res.status}`);
   }
   return res.json();
 }
@@ -620,7 +651,7 @@ export async function revokeMachineKey(keyId: string): Promise<void> {
 
 // ─── Agent profile presets ───────────────────────────────────────
 
-export async function listProfilePresets(): Promise<{ presets: AgentProfilePreset[]; max: number }> {
+export async function listProfilePresets(): Promise<{ presets: AgentProfilePreset[]; count?: number; max: number }> {
   const res = await fetch(`${getBaseUrl()}/api/agent-profile-presets`, { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Failed to list profile presets: ${res.status}`);
   return res.json();

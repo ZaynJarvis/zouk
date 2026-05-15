@@ -137,10 +137,11 @@ export function useAppStore() {
   const [activeChannelName, setActiveChannelName] = useState<string>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('channel');
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
-  const [agentDetailTab, setAgentDetailTab] = useState<'instructions' | 'workspace' | 'activity' | 'settings'>('instructions');
+  const [agentDetailTab, setAgentDetailTab] = useState<'settings' | 'skills' | 'workspace' | 'activity'>('settings');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
   const [agentProfileId, setAgentProfileId] = useState<string | null>(null);
+  const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'config'>('profile');
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -170,6 +171,7 @@ export function useAppStore() {
   const [workspaceFileContent, setWorkspaceFileContent] = useState<{ agentId: string; path: string; content: string } | null>(null);
   // Memory trees per agent: agentId -> uri -> entries (for recursive tree rendering)
   const [memoryTreeCache, setMemoryTreeCache] = useState<Record<string, Record<string, MemoryEntry[]>>>({});
+  const [memoryTreeErrors, setMemoryTreeErrors] = useState<Record<string, Record<string, string | null>>>({});
   // Per-(agentId, uri, level) content cache. L0=abstract, L1=overview, L2=full read.
   // For legacy single-level (no `level` requested) reads, content is stashed under
   // `__legacy__` so callers that don't care about levels still see it.
@@ -296,7 +298,7 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[]; profilePresets?: AgentProfilePreset[] };
+        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
         const nextChannels = e.channels || [];
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
@@ -340,7 +342,6 @@ export function useAppStore() {
         setHumans(nextHumans);
         setConfigs(e.configs || []);
         setMachines(e.machines || []);
-        setProfilePresets(e.profilePresets || []);
         if (!hasResolvedInitialViewRef.current) {
           hasResolvedInitialViewRef.current = true;
           const stored = getValidStoredLastView(nextChannels, nextAgents, nextHumans, currentUserRef.current);
@@ -364,6 +365,13 @@ export function useAppStore() {
         if (viewModeRef.current === 'dm' && !isKnownDmTarget(nextAgents, nextHumans, currentUserRef.current, activeChannelRef.current)) {
           setViewMode('channel');
           setActiveChannelName(resolveDefaultChannelName(nextChannels));
+        }
+        break;
+      }
+      case 'workspace_updated': {
+        const e = event as { workspace?: Workspace };
+        if (e.workspace?.id) {
+          setWorkspaces(prev => prev.map(w => (w.id === e.workspace!.id ? e.workspace! : w)));
         }
         break;
       }
@@ -564,7 +572,18 @@ export function useAppStore() {
       }
       case 'humans_updated': {
         const e = event as { humans: ServerHuman[] };
-        setHumans(e.humans || []);
+        // Server omits base64 `picture` from this broadcast to keep the WS
+        // frame small. Preserve any picture we already had for known humans;
+        // unknown humans will show initials until they reload (their `init`
+        // payload carries pictures).
+        setHumans(prev => {
+          const prevByName = new Map(prev.map(h => [h.name, h]));
+          return (e.humans || []).map(h => {
+            if (h.picture) return h;
+            const existing = prevByName.get(h.name);
+            return existing?.picture ? { ...h, picture: existing.picture } : h;
+          });
+        });
         break;
       }
       case 'workspace:members': {
@@ -574,11 +593,6 @@ export function useAppStore() {
         // race in just before init re-fires.
         if (e.workspaceId && e.workspaceId !== activeWorkspaceRef.current) break;
         setWorkspaceMembers(e.members || []);
-        break;
-      }
-      case 'agent_profile_presets_updated': {
-        const e = event as { presets: AgentProfilePreset[] };
-        setProfilePresets(e.presets || []);
         break;
       }
       case 'machine:connected': {
@@ -626,11 +640,18 @@ export function useAppStore() {
         break;
       }
       case 'memory:list_result': {
-        const e = event as { agentId: string; uri: string; entries: MemoryEntry[] };
+        const e = event as { agentId: string; uri: string; entries: MemoryEntry[]; error?: string };
+        const uri = e.uri || 'viking://';
         setMemoryTreeCache(prev => ({
           ...prev,
-          [e.agentId]: { ...(prev[e.agentId] || {}), [e.uri || 'viking://']: e.entries },
+          [e.agentId]: { ...(prev[e.agentId] || {}), [uri]: e.entries },
         }));
+        setMemoryTreeErrors(prev => {
+          const agentBucket = { ...(prev[e.agentId] || {}) };
+          if (e.error) agentBucket[uri] = e.error;
+          else delete agentBucket[uri];
+          return { ...prev, [e.agentId]: agentBucket };
+        });
         break;
       }
       case 'memory:content': {
@@ -677,6 +698,7 @@ export function useAppStore() {
     setWsTreeCache({});
     setWorkspaceFileContent(null);
     setMemoryTreeCache({});
+    setMemoryTreeErrors({});
     setMemoryContentCache({});
     setSkillsCache({});
     setActiveThreadMessage(null);
@@ -693,6 +715,12 @@ export function useAppStore() {
     addToast(`Server ${res.workspace.name} created`, 'success');
     return res.workspace;
   }, [addToast, setActiveWorkspaceId]);
+
+  const updateWorkspace = useCallback(async (workspaceId: string, input: { name?: string; icon?: string }) => {
+    const res = await api.updateWorkspace(workspaceId, input);
+    setWorkspaces(res.workspaces);
+    return res.workspace;
+  }, []);
 
   const inviteWorkspaceMember = useCallback(async (input: { email: string; role: 'admin' | 'member'; name?: string }) => {
     try {
@@ -744,6 +772,21 @@ export function useAppStore() {
       ws.disconnect();
     };
   }, [serverUrl, activeWorkspaceId, handleWsEvent]);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setProfilePresets([]);
+      return;
+    }
+    let cancelled = false;
+    const workspaceId = activeWorkspaceRef.current;
+    api.listProfilePresets()
+      .then((res) => {
+        if (!cancelled && activeWorkspaceRef.current === workspaceId) setProfilePresets(res.presets || []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isLoggedIn, authToken, activeWorkspaceId]);
 
   useEffect(() => {
     if (!wsConnected) return;
@@ -918,6 +961,7 @@ export function useAppStore() {
       setRightPanel(null);
       setAgentSettingsId(null);
       setAgentProfileId(null);
+      setAgentProfileTab('profile');
       setChannelSettingsId(null);
     } else if (rightPanel === 'thread') {
       setRightPanel(null);
@@ -933,6 +977,7 @@ export function useAppStore() {
       setThreadMessages([]);
       setAgentSettingsId(null);
       setAgentProfileId(null);
+      setAgentProfileTab('profile');
       setChannelSettingsId(null);
     }
   }, []);
@@ -984,6 +1029,7 @@ export function useAppStore() {
 
   const closeAgentProfileRail = useCallback(() => {
     setAgentProfileId(null);
+    setAgentProfileTab('profile');
     // Mobile route uses `rightPanel='agent_profile'`. Clear it so the modal
     // unmounts. No-op on desktop where rightPanel was already null.
     setRightPanel((current) => current === 'agent_profile' ? null : current);
@@ -991,6 +1037,7 @@ export function useAppStore() {
 
   const openAgentProfile = useCallback((agentId: string) => {
     setAgentProfileId(agentId);
+    setAgentProfileTab('profile');
     // On desktop the right rail morphs into the AGENT view by reacting to
     // `agentProfileId`; close any other right panel so the rail can claim
     // the space, and expand the rail if it was collapsed to the peek strip
@@ -1010,10 +1057,20 @@ export function useAppStore() {
   }, [closeSidebarOnMobile, setNowRailHidden]);
 
   const openAgentSettings = useCallback((agentId: string) => {
-    setAgentSettingsId(agentId);
-    setRightPanel('agent_settings');
+    setAgentProfileId(agentId);
+    setAgentProfileTab('config');
+    setAgentSettingsId(null);
+    if (isMobileViewport()) {
+      setRightPanel('agent_profile');
+    } else {
+      setRightPanel(null);
+      setActiveThreadMessage(null);
+      setThreadMessages([]);
+      setChannelSettingsId(null);
+      setNowRailHidden(false);
+    }
     closeSidebarOnMobile();
-  }, [closeSidebarOnMobile]);
+  }, [closeSidebarOnMobile, setNowRailHidden]);
 
   const openChannelSettings = useCallback((channelId: string) => {
     setChannelSettingsId(channelId);
@@ -1098,13 +1155,18 @@ export function useAppStore() {
   const removeProfilePresetAction = useCallback(async (id: string) => {
     const workspaceId = activeWorkspaceRef.current;
     try {
+      if (profilePresets.find(p => p.id === id)?.shared) {
+        addToast('Default server presets cannot be removed here', 'error');
+        return;
+      }
       await api.deleteProfilePreset(id);
       if (activeWorkspaceRef.current !== workspaceId) return;
       setProfilePresets(prev => prev.filter(p => p.id !== id));
+      addToast('Avatar preset removed', 'info');
     } catch {
       addToast('Failed to remove preset', 'error');
     }
-  }, [addToast]);
+  }, [addToast, profilePresets]);
 
   const saveAgentConfigAction = useCallback(async (config: AgentConfig) => {
     try {
@@ -1154,6 +1216,7 @@ export function useAppStore() {
 
     const previousUser = currentUserRef.current;
     const previousAuthUser = authUser;
+    let previousHumans: ServerHuman[] | null = null;
 
     setStoredCurrentUser(trimmed);
     setCurrentUser(trimmed);
@@ -1174,6 +1237,22 @@ export function useAppStore() {
       setAuthUser(optimisticUser);
     }
 
+    // Optimistically patch the self entry in `humans[]` so MessageItem /
+    // ChannelSidebar / PinnedRail flip to the new avatar instantly instead of
+    // waiting for the HTTP PUT + `humans_updated` WS round-trip.
+    setHumans(prev => {
+      previousHumans = prev;
+      const nextPicture = picture !== undefined
+        ? (picture || undefined)
+        : optimisticUser?.picture ?? undefined;
+      const idx = prev.findIndex(h => h.name === previousUser);
+      if (idx === -1) return prev;
+      const updated = { ...prev[idx], name: trimmed, picture: nextPicture };
+      const next = prev.slice();
+      next[idx] = updated;
+      return next;
+    });
+
     api.updateUserProfile(trimmed, picture).then(({ user }) => {
       setStoredAuthUser(user);
       setStoredCurrentUser(user.name);
@@ -1189,6 +1268,7 @@ export function useAppStore() {
         clearStoredAuthUser();
         setAuthUser(null);
       }
+      if (previousHumans) setHumans(previousHumans);
       addToast('Failed to update profile', 'error');
     });
   }, [authUser, addToast]);
@@ -1261,7 +1341,8 @@ export function useAppStore() {
   }, []);
 
   const requestMemoryList = useCallback((agentId: string, uri?: string) => {
-    wsRef.current?.send({ type: 'memory:list', agentId, uri: uri || 'viking://' });
+    const key = uri || 'viking://';
+    wsRef.current?.send({ type: 'memory:list', agentId, uri: key });
   }, []);
 
   const requestMemoryContent = useCallback((agentId: string, uri: string, level?: 'l0' | 'l1' | 'l2') => {
@@ -1287,7 +1368,7 @@ export function useAppStore() {
     colorMode, setColorMode,
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
-    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace,
     workspaceMembers, viewerRole, isSuperuser,
     canAdminWorkspace: viewerRole === 'root' || viewerRole === 'owner' || viewerRole === 'admin' || isSuperuser,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
@@ -1298,7 +1379,7 @@ export function useAppStore() {
     agentDetailTab, setAgentDetailTab,
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
-    agentProfileId, setAgentProfileId, openAgentProfile, openAgentSettings,
+    agentProfileId, setAgentProfileId, agentProfileTab, setAgentProfileTab, openAgentProfile, openAgentSettings,
     channelSettingsId, openChannelSettings,
     activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,
@@ -1326,7 +1407,7 @@ export function useAppStore() {
     wsSend,
     workspaceFiles, wsTreeCache, workspaceFileContent,
     requestWorkspaceFiles, requestFileContent,
-    memoryTreeCache, memoryContentCache,
+    memoryTreeCache, memoryTreeErrors, memoryContentCache,
     requestMemoryList, requestMemoryContent,
     skillsCache, requestSkills,
     profilePresets,
