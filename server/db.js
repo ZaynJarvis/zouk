@@ -324,9 +324,14 @@ async function queryMessagesForAgent({ workspaceId, channelIds, sinceSeq = 0, li
   const started = perfNowMs();
   try {
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
+    // DM messages are party-scoped — match them by channel_id regardless of
+    // the sender's workspace. Non-DM rows still gate on workspace_id so we
+    // don't leak cross-workspace channel history.
     const { rows } = await pool.query(
       `SELECT * FROM messages
-        WHERE workspace_id = $1 AND channel_id = ANY($2::text[]) AND seq > $3
+        WHERE channel_id = ANY($2::text[])
+          AND (workspace_id = $1 OR channel_type = 'dm')
+          AND seq > $3
         ORDER BY seq ASC LIMIT $4`,
       [wsId, channelIds, sinceSeq, limit]
     );
@@ -352,9 +357,12 @@ async function searchMessages({ workspaceId, channelIds, keyword, limit = 50 }) 
   try {
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
     const hasChannelFilter = Array.isArray(channelIds) && channelIds.length > 0;
+    // Mirror queryMessagesForAgent: DM rows match by channel_id only.
     const sql = hasChannelFilter
       ? `SELECT * FROM messages
-           WHERE workspace_id = $1 AND channel_id = ANY($2::text[]) AND content ILIKE $3
+           WHERE channel_id = ANY($2::text[])
+             AND (workspace_id = $1 OR channel_type = 'dm')
+             AND content ILIKE $3
            ORDER BY seq DESC LIMIT $4`
       : `SELECT * FROM messages
            WHERE workspace_id = $1 AND content ILIKE $2

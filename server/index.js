@@ -1276,6 +1276,9 @@ function resolveTargetChannel(target, requesterName, workspaceId = DEFAULT_WORKS
 
 // Channel ids the agent is allowed to read messages in: regular channels via
 // channel_agents (canRead = true) + DMs that include the agent by name.
+// DMs are party-scoped across workspaces (mirrors deliverToAllAgents /
+// messageVisibleToAgent in PR #299) — an agent in workspace B can still pull
+// DMs from a channel that lives in workspace A as long as it's a party.
 function visibleChannelIdsForAgent(agentId) {
   const wsId = workspaceIdFromAgent(agentId);
   const agentName = (agentPayload(agentId)?.name
@@ -1283,13 +1286,13 @@ function visibleChannelIdsForAgent(agentId) {
     || "").toLowerCase();
   const ids = [];
   for (const ch of store.channels) {
-    if ((ch.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
     if ((ch.type || "channel") === "dm") {
       const parties = dmChannelParties(ch.name) || [];
       if (agentName && parties.some((p) => String(p).toLowerCase() === agentName)) ids.push(ch.id);
-    } else {
-      if (agentCanRead(ch.id, agentId)) ids.push(ch.id);
+      continue;
     }
+    if ((ch.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+    if (agentCanRead(ch.id, agentId)) ids.push(ch.id);
   }
   return ids;
 }
@@ -1375,7 +1378,9 @@ async function readMessagesForAgent({ workspaceId, channelIds, sinceSeq, limit }
     for (const cid of set) {
       const arr = store.channelMessages.get(cid) || [];
       for (const m of arr) {
-        if ((m.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+        // DM messages are party-scoped — workspace filter doesn't apply, so a
+        // cross-workspace DM still reaches its recipient via check_messages.
+        if (m.channelType !== "dm" && (m.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
         if (m.seq > sinceSeq) out.push(m);
       }
     }
@@ -1394,7 +1399,8 @@ async function searchVisibleMessages({ workspaceId, channelIds, keyword, limit }
     for (const cid of set) {
       const arr = store.channelMessages.get(cid) || [];
       for (const m of arr) {
-        if ((m.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+        // DM messages bypass workspace filter (see readMessagesForAgent).
+        if (m.channelType !== "dm" && (m.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
         if (lowered && !String(m.content || '').toLowerCase().includes(lowered)) continue;
         out.push(m);
       }
