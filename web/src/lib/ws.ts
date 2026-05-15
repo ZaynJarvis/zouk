@@ -179,7 +179,7 @@ const FAST_PROBE_MS = 500;
 // the server says it's no longer good, drop it locally so subsequent
 // reconnects go as a guest (which lets the server accept them again) and the
 // app can prompt re-login on the auth:expired event.
-const VALIDATE_TOKEN_AFTER_FAILURES = 5;
+const VALIDATE_TOKEN_AFTER_FAILURES = 3;
 
 // iOS (Safari / PWA) silently kills WebSocket TCP connections when the app is
 // backgrounded or the screen locks. Unlike a normal close, the OS never sends a

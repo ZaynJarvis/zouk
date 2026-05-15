@@ -1481,8 +1481,8 @@ const WS_REVOKE_BLOCK_MS = 24 * 60 * 60 * 1000;
 // Invalid token = client sent ?token=… but it isn't in authSessions. Almost
 // always a stale tab after revoke/logout/deploy. The client's own retry
 // budget will keep firing it; harshly throttle to make it cheap.
-const WS_INVALID_TOKEN_THRESHOLD = Number(process.env.WS_INVALID_TOKEN_THRESHOLD || 3);
-const WS_INVALID_BLOCK_MS = 24 * 60 * 60 * 1000;
+const WS_INVALID_TOKEN_THRESHOLD = Number(process.env.WS_INVALID_TOKEN_THRESHOLD || 10);
+const WS_INVALID_BLOCK_MS = 5 * 60_000;
 
 const wsTrackers = new Map(); // fingerprint -> entry
 
