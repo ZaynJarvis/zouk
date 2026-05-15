@@ -167,6 +167,7 @@ export function useAppStore() {
   // by WS init and `workspace:members` broadcasts; mutations go through API
   // helpers which trigger a server-side broadcast.
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [workspaceAllowlistActive, setWorkspaceAllowlistActive] = useState(false);
   const [viewerRole, setViewerRole] = useState<WorkspaceRole | null>(null);
   const [isSuperuser, setIsSuperuser] = useState<boolean>(false);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
@@ -406,12 +407,13 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
+        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; workspaceAllowlistActive?: boolean; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
         const nextChannels = e.channels || [];
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
         if (e.workspaces && e.workspaces.length > 0) setWorkspaces(e.workspaces);
         setWorkspaceMembers(e.workspaceMembers || []);
+        setWorkspaceAllowlistActive(!!e.workspaceAllowlistActive);
         setViewerRole(e.viewerRole ?? null);
         setIsSuperuser(!!e.isSuperuser);
         const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceRef.current);
@@ -1489,7 +1491,7 @@ export function useAppStore() {
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
     workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace,
-    workspaceMembers, viewerRole, isSuperuser,
+    workspaceMembers, workspaceAllowlistActive, viewerRole, isSuperuser,
     canRootWorkspace: viewerRole === 'root' || isSuperuser,
     canAdminWorkspace: viewerRole === 'root' || viewerRole === 'owner' || viewerRole === 'admin' || isSuperuser,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,

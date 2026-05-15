@@ -213,15 +213,19 @@ function isEmailAllowed(email, workspaceId = DEFAULT_WORKSPACE_ID) {
 // so we should accept their login even if no subserver allowlist matches.
 function isEmailAllowedAnyWorkspace(email) {
   if (!email || typeof email !== "string") return false;
+  const norm = email.trim().toLowerCase();
   // Default workspace is open → anyone with a valid auth can log in (and they
   // will land in default as a member; subserver access still gated separately).
   if (!allowlistActive(DEFAULT_WORKSPACE_ID)) return true;
-  const norm = email.trim().toLowerCase();
-  if (ENV_ALLOW_EMAILS.has(norm)) return true;
-  const at = norm.lastIndexOf("@");
-  if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
+  if (!isWorkspaceMemberRemoved(DEFAULT_WORKSPACE_ID, norm)) {
+    if (ENV_ALLOW_EMAILS.has(norm)) return true;
+    const at = norm.lastIndexOf("@");
+    if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
+  }
   for (const meta of dbAllowEmails.values()) {
-    if ((meta.email || "").trim().toLowerCase() === norm) return true;
+    if ((meta.email || "").trim().toLowerCase() !== norm) continue;
+    if (isWorkspaceMemberRemoved(meta.workspaceId || DEFAULT_WORKSPACE_ID, norm)) continue;
+    return true;
   }
   return false;
 }
@@ -723,6 +727,63 @@ function workspaceMembersFor(workspaceId) {
   return members;
 }
 
+const removedWorkspaceMembers = new Map();
+
+function workspaceMemberRemovalKey(workspaceId, email) {
+  return allowlistKey(workspaceId, email);
+}
+
+function workspaceMemberRemovalPayload(removal) {
+  return {
+    workspaceId: removal.workspaceId,
+    email: removal.email,
+    removedAt: removal.removedAt || null,
+    removedBy: removal.removedBy || null,
+  };
+}
+
+function workspaceMemberRemovalApplies(workspaceId) {
+  const id = normalizeWorkspaceId(workspaceId);
+  // Non-default workspaces are already explicit membership sets: deleting
+  // workspace_members (and the matching allowlist row) is enough. Restricted
+  // default needs a durable override because ENV ALLOW would otherwise
+  // re-materialize the member on the next request.
+  return id === DEFAULT_WORKSPACE_ID && allowlistActive(id);
+}
+
+function isWorkspaceMemberRemoved(workspaceId, email) {
+  if (!email) return false;
+  if (!workspaceMemberRemovalApplies(workspaceId)) return false;
+  return removedWorkspaceMembers.has(workspaceMemberRemovalKey(workspaceId, email));
+}
+
+function markWorkspaceMemberRemoved(workspaceId, email, removedBy, { persist = true } = {}) {
+  if (!email) return null;
+  const id = normalizeWorkspaceId(workspaceId);
+  const normalized = String(email).trim().toLowerCase();
+  const removal = {
+    workspaceId: id,
+    email: normalized,
+    removedAt: now(),
+    removedBy: removedBy || null,
+  };
+  if (!workspaceMemberRemovalApplies(id)) return null;
+  removedWorkspaceMembers.set(workspaceMemberRemovalKey(id, normalized), removal);
+  if (persist) db.saveWorkspaceMemberRemoval(removal).catch(e => console.warn("[db] saveWorkspaceMemberRemoval error:", e.message));
+  return removal;
+}
+
+function clearWorkspaceMemberRemoval(workspaceId, email, { persist = true } = {}) {
+  if (!email) return false;
+  const id = normalizeWorkspaceId(workspaceId);
+  const normalized = String(email).trim().toLowerCase();
+  const removed = removedWorkspaceMembers.delete(workspaceMemberRemovalKey(id, normalized));
+  if (persist && removed) {
+    db.deleteWorkspaceMemberRemoval(id, normalized).catch(e => console.warn("[db] deleteWorkspaceMemberRemoval error:", e.message));
+  }
+  return removed;
+}
+
 function workspaceMemberCount(workspaceId) {
   return workspaceMembersFor(workspaceId).size;
 }
@@ -736,6 +797,7 @@ function setWorkspaceMember(member, { persist = true } = {}) {
   if (!member?.email) return null;
   const workspaceId = normalizeWorkspaceId(member.workspaceId || DEFAULT_WORKSPACE_ID);
   const email = member.email.trim().toLowerCase();
+  if (persist) clearWorkspaceMemberRemoval(workspaceId, email);
   const next = {
     workspaceId,
     email,
@@ -781,10 +843,13 @@ function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) 
   }
   const existing = getWorkspaceMember(id, user.email);
   if (existing) return existing;
+  if (isWorkspaceMemberRemoved(id, user.email)) return null;
   if (id !== DEFAULT_WORKSPACE_ID) return null;
   if (!isEmailAllowed(user.email, id)) return null;
   const role = workspaceMemberCount(id) === 0 ? "root" : "member";
-  return setWorkspaceMember({ workspaceId: id, email: user.email, name: user.name, role });
+  const member = setWorkspaceMember({ workspaceId: id, email: user.email, name: user.name, role });
+  broadcastWorkspaceMembers(id);
+  return member;
 }
 
 function userWorkspaceRole(user, workspaceId = DEFAULT_WORKSPACE_ID) {
@@ -796,6 +861,7 @@ function userWorkspaceRole(user, workspaceId = DEFAULT_WORKSPACE_ID) {
   // Superusers override every other gate — they can read and admin any
   // workspace regardless of allowlist or membership rows.
   if (isSuperuser(user.email)) return "root";
+  if (isWorkspaceMemberRemoved(id, user.email)) return null;
   if (allowlistActive(id) && !isEmailAllowed(user.email, id)) return null;
   const member = getWorkspaceMember(id, user.email);
   if (member) return member.role || "member";
@@ -1885,6 +1951,9 @@ function removeWorkspaceFromMemory(workspaceId) {
   for (const key of [...dbAllowEmails.keys()]) {
     if (key.startsWith(`${id}:`)) dbAllowEmails.delete(key);
   }
+  for (const key of [...removedWorkspaceMembers.keys()]) {
+    if (key.startsWith(`${id}:`)) removedWorkspaceMembers.delete(key);
+  }
   profilePresets.removeWorkspace?.(id);
   return true;
 }
@@ -1997,6 +2066,33 @@ function removeHumanPresence(name) {
   existing.count -= 1;
   if (existing.count <= 0) onlineHumans.delete(name);
   broadcastHumans();
+}
+
+function removeAllTimeHumanIfInaccessible(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return false;
+  let changed = false;
+  for (const user of authSessions.values()) {
+    if (String(user?.email || "").trim().toLowerCase() !== normalized) continue;
+    if (visibleWorkspacesForUser(user).length > 0) continue;
+    if (allTimeHumans.delete(user.name)) changed = true;
+  }
+  return changed;
+}
+
+function closeWorkspaceSocketsForEmail(workspaceId, email, reason = "workspace membership removed") {
+  const id = normalizeWorkspaceId(workspaceId);
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return 0;
+  let closed = 0;
+  for (const ws of webSockets) {
+    const user = ws._authToken ? authSessions.get(ws._authToken) : null;
+    if (String(user?.email || "").trim().toLowerCase() !== normalized) continue;
+    if (normalizeWorkspaceId(ws._workspaceId || DEFAULT_WORKSPACE_ID) !== id) continue;
+    try { ws.close(4003, reason); } catch { void 0; }
+    closed += 1;
+  }
+  return closed;
 }
 
 function resolveWsHuman(msg = {}, fallbackToken = null) {
@@ -2852,7 +2948,7 @@ function requireWorkspaceRead(req, res, next) {
   }
   const token = req.headers.authorization?.replace("Bearer ", "");
   const user = token ? authSessions.get(token) : null;
-  const defaultOpenRead = workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(workspaceId);
+  const defaultOpenRead = !user && workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(workspaceId);
   if (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, workspaceId))) {
     return res.status(403).json({ error: "Not a member of this workspace." });
   }
@@ -4659,6 +4755,7 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
         workspaceId: ws._workspaceId,
         workspaces: visibleWorkspacesForUser(user),
         workspaceMembers: canReadWorkspace ? listWorkspaceMembers(ws._workspaceId) : [],
+        workspaceAllowlistActive: allowlistActive(ws._workspaceId),
         viewerRole: user ? userWorkspaceRole(user, ws._workspaceId) : null,
         isSuperuser: !!(user && isSuperuser(user.email)),
         channels: canReadWorkspace ? store.channels.filter((ch) => (
@@ -4717,7 +4814,7 @@ function webRequestWorkspaceId(ws, msg) {
     return null;
   }
   const user = ws._authToken ? authSessions.get(ws._authToken) : null;
-  const defaultOpenRead = requestedWorkspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(requestedWorkspaceId);
+  const defaultOpenRead = !user && requestedWorkspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(requestedWorkspaceId);
   if (!findWorkspace(requestedWorkspaceId) || (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, requestedWorkspaceId)))) {
     sendWebError(ws, "Not a member of this workspace.", {
       code: "workspace_forbidden",
@@ -5463,6 +5560,9 @@ app.delete("/api/workspaces/:id/members/:email", requireAuth, requireWorkspaceAd
   }
   const email = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
   if (!email) return res.status(400).json({ error: "Invalid email address" });
+  if (workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(workspaceId)) {
+    return res.status(400).json({ error: "Default workspace is public; people cannot be removed unless ALLOW restricts access." });
+  }
   const target = getWorkspaceMember(workspaceId, email);
   if (!target) return res.status(404).json({ error: "Member not found" });
 
@@ -5482,9 +5582,11 @@ app.delete("/api/workspaces/:id/members/:email", requireAuth, requireWorkspaceAd
   }
 
   removeWorkspaceMember(workspaceId, email);
+  markWorkspaceMemberRemoved(workspaceId, email, req.user?.email || null);
 
   // Mirror the invite path: drop the per-workspace allowlist row so the
-  // removed user can't reauth their way back in.
+  // removed user can't reauth their way back in. A restricted default workspace
+  // gates via ALLOW env, so its durable removal gate is the tombstone above.
   if (db.enabled && workspaceId !== DEFAULT_WORKSPACE_ID) {
     const key = allowlistKey(workspaceId, email);
     if (dbAllowEmails.has(key)) {
@@ -5493,6 +5595,8 @@ app.delete("/api/workspaces/:id/members/:email", requireAuth, requireWorkspaceAd
     }
   }
 
+  closeWorkspaceSocketsForEmail(workspaceId, email);
+  if (removeAllTimeHumanIfInaccessible(email)) broadcastHumans();
   broadcastWorkspaceMembers(workspaceId);
   res.json({ ok: true });
 });
@@ -5765,6 +5869,7 @@ async function initFromDB() {
       maxTaskNum,
       workspaces,
       workspaceMembers,
+      workspaceMemberRemovals,
       msgs,
       channels,
       tasks,
@@ -5777,6 +5882,7 @@ async function initFromDB() {
       db.loadMaxTaskNum(),
       db.loadWorkspaces(),
       db.loadWorkspaceMembers(),
+      db.loadWorkspaceMemberRemovals(),
       db.loadMessages(),
       db.loadChannels(),
       db.loadTasks(),
@@ -5801,6 +5907,17 @@ async function initFromDB() {
       store.workspaceMembers.clear();
       for (const member of workspaceMembers) setWorkspaceMember(member, { persist: false });
       console.log(`[db] Loaded ${workspaceMembers.length} workspace memberships`);
+    }
+
+    if (workspaceMemberRemovals !== null && workspaceMemberRemovals.length > 0) {
+      removedWorkspaceMembers.clear();
+      for (const removal of workspaceMemberRemovals) {
+        removedWorkspaceMembers.set(
+          workspaceMemberRemovalKey(removal.workspaceId, removal.email),
+          workspaceMemberRemovalPayload(removal)
+        );
+      }
+      console.log(`[db] Loaded ${workspaceMemberRemovals.length} workspace member removal(s)`);
     }
 
     if (msgs.length > 0) {
@@ -5935,6 +6052,7 @@ function reconcileAgentsWithConfigs() {
   // sessions — they're CI/anonymous and shouldn't appear in the persistent list.
   for (const user of authSessions.values()) {
     if (!user?.name || user.guest) continue;
+    if (visibleWorkspacesForUser(user).length === 0) continue;
     upsertAllTimeHuman({
       id: humanId(user.name),
       name: user.name,
@@ -5951,6 +6069,7 @@ function reconcileAgentsWithConfigs() {
   let defaultBackfill = 0;
   for (const user of authSessions.values()) {
     if (!user?.email || user.guest) continue;
+    if (isWorkspaceMemberRemoved(DEFAULT_WORKSPACE_ID, user.email)) continue;
     if (getWorkspaceMember(DEFAULT_WORKSPACE_ID, user.email)) continue;
     setWorkspaceMember({
       workspaceId: DEFAULT_WORKSPACE_ID,

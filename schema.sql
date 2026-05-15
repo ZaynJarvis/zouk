@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS workspace_members (
   PRIMARY KEY (workspace_id, email)
 );
 
+CREATE TABLE IF NOT EXISTS workspace_member_removals (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  email        TEXT NOT NULL,
+  removed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  removed_by   TEXT,
+  PRIMARY KEY (workspace_id, email)
+);
+
 CREATE TABLE IF NOT EXISTS messages (
   id                 TEXT PRIMARY KEY,
   seq                INTEGER NOT NULL,
