@@ -54,6 +54,7 @@ export default function WorkspaceRail() {
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0] || { id: 'default', name: 'Default', icon: 'z' };
+  const activeWorkspaceIconIsImage = isImageIcon(activeWorkspace.icon);
 
   const isActive = (id: RailItem['id']): boolean => {
     switch (id) {
@@ -147,7 +148,7 @@ export default function WorkspaceRail() {
           style={{
             width: 32,
             height: 32,
-            background: 'linear-gradient(135deg, var(--zk-ember) 0%, #c4623d 100%)',
+            background: activeWorkspaceIconIsImage ? 'transparent' : 'linear-gradient(135deg, var(--zk-ember) 0%, #c4623d 100%)',
             borderRadius: 8,
             border: '1px solid rgba(255,255,255,0.14)',
             display: 'flex',

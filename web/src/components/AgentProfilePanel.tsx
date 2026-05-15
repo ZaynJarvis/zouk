@@ -13,8 +13,10 @@ import { agentAvatarStatus, agentLifecycle, avatarPaletteClass, avatarRadiusClas
 import { fetchAgentOvStatus } from '../lib/api';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import AgentConfigForm from './agent/AgentConfigForm';
+import { SafePreviewContent } from './memory/renderPreviewContent';
 import { WorkspaceTree } from './workspace/WorkspaceTree';
 import { useWorkspaceTree } from './workspace/useWorkspaceTree';
+import '../styles/atlas-renderers.css';
 
 type Tab = 'profile' | 'workspace' | 'config';
 
@@ -392,12 +394,16 @@ function WorkspaceTab({ agent }: { agent: ServerAgent }) {
               <X size={12} />
             </button>
           </div>
-          <pre
-            className="flex-1 overflow-auto p-3 text-xs font-mono text-nc-green whitespace-pre-wrap scrollbar-thin bg-nc-black/50 safe-bottom-fill"
+          <div
+            className="flex-1 overflow-auto scrollbar-thin bg-nc-black/50 safe-bottom-fill"
             style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
           >
-            {previewContent ?? 'Loading...'}
-          </pre>
+            {previewContent === null ? (
+              <div className="p-3 text-xs font-mono text-nc-muted animate-pulse">Loading...</div>
+            ) : (
+              <SafePreviewContent text={previewContent} fileName={previewTitle || previewName || 'memory'} className="p-3" />
+            )}
+          </div>
         </div>
       )}
     </div>
