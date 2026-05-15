@@ -1,11 +1,12 @@
 import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole } from '../types';
+import { getActiveWorkspaceId as getScopedActiveWorkspaceId } from './workspaceRoute';
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
 }
 
 export function getActiveWorkspaceId(): string {
-  return localStorage.getItem('zouk_active_workspace_id') || 'default';
+  return getScopedActiveWorkspaceId();
 }
 
 function getWorkspaceHeaders(): Record<string, string> {

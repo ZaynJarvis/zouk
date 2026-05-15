@@ -94,7 +94,13 @@ export function clearStoredLastView() {
 }
 
 export function getStoredActiveWorkspaceId(): string {
-  return localStorage.getItem(ACTIVE_WORKSPACE_KEY) || 'default';
+  return getStoredActiveWorkspaceIdOrNull() || 'default';
+}
+
+export function getStoredActiveWorkspaceIdOrNull(): string | null {
+  const stored = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+  const trimmed = stored?.trim();
+  return trimmed || null;
 }
 
 export function setStoredActiveWorkspaceId(workspaceId: string) {

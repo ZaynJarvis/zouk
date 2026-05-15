@@ -24,7 +24,7 @@ import {
   getStoredTheme,
   getStoredColorMode,
   getStoredNowRailHidden,
-  getStoredActiveWorkspaceId,
+  getStoredActiveWorkspaceIdOrNull,
   setStoredAuth,
   setStoredAuthUser,
   setStoredAuthToken,
@@ -36,6 +36,16 @@ import {
   setStoredActiveWorkspaceId,
 } from './storage';
 import { applyTheme } from '../themes';
+import {
+  getInitialActiveWorkspaceId,
+  getWorkspaceIdFromPath,
+  normalizeWorkspaceId,
+  pushWorkspaceRoute,
+  replaceWorkspaceRoute,
+  setActiveWorkspaceId as setScopedActiveWorkspaceId,
+} from '../lib/workspaceRoute';
+
+type WorkspaceRouteMode = 'none' | 'push' | 'replace';
 
 function isKnownChannel(channels: ServerChannel[], name: string) {
   return channels.some(channel => channel.name === name);
@@ -55,6 +65,16 @@ function isKnownDmTarget(
 function resolveDefaultChannelName(channels: ServerChannel[]) {
   if (isKnownChannel(channels, 'all')) return 'all';
   return channels[0]?.name || 'all';
+}
+
+function chooseWorkspaceId(workspaces: Workspace[], candidates: Array<string | null | undefined>) {
+  const ids = new Set(workspaces.map(w => w.id).filter(Boolean));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const normalized = normalizeWorkspaceId(candidate);
+    if (!ids.size || ids.has(normalized)) return normalized;
+  }
+  return workspaces[0]?.id || 'default';
 }
 
 function getValidStoredLastView(
@@ -122,7 +142,7 @@ export function useAppStore() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([
     { id: 'default', name: 'Default', icon: 'z' },
   ]);
-  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getStoredActiveWorkspaceId);
+  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getInitialActiveWorkspaceId);
   // Members of the current workspace + caller's role + superuser flag. Driven
   // by WS init and `workspace:members` broadcasts; mutations go through API
   // helpers which trigger a server-side broadcast.
@@ -194,6 +214,8 @@ export function useAppStore() {
   const [tasksVersion, setTasksVersion] = useState(0);
 
   const wsRef = useRef<SlockWebSocket | null>(null);
+  const workspacesRef = useRef(workspaces);
+  workspacesRef.current = workspaces;
   const activeWorkspaceRef = useRef(activeWorkspaceId);
   activeWorkspaceRef.current = activeWorkspaceId;
   const activeChannelRef = useRef(activeChannelName);
@@ -217,6 +239,73 @@ export function useAppStore() {
   const channelListReady = channels.length > 0;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
+
+  const commitWorkspaceSelection = useCallback((workspaceId: string, routeMode: WorkspaceRouteMode = 'none') => {
+    const next = normalizeWorkspaceId(workspaceId);
+    setScopedActiveWorkspaceId(next);
+    setStoredActiveWorkspaceId(next);
+    if (routeMode === 'push') pushWorkspaceRoute(next);
+    else if (routeMode === 'replace') replaceWorkspaceRoute(next);
+
+    if (next === activeWorkspaceRef.current) return;
+
+    activeWorkspaceRef.current = next;
+    setActiveWorkspaceIdState(next);
+    hasResolvedInitialViewRef.current = false;
+    setChannels([]);
+    setAgents([]);
+    setConfigs([]);
+    setMachines([]);
+    setProfilePresets([]);
+    setWorkspaceMembers([]);
+    setViewerRole(null);
+    setMessages([]);
+    setThreadMessages([]);
+    setUnreadCounts({});
+    setAgentLastChannel({});
+    setWorkspaceFiles({});
+    setWsTreeCache({});
+    setWorkspaceFileContent(null);
+    setMemoryTreeCache({});
+    setMemoryTreeErrors({});
+    setMemoryContentCache({});
+    setSkillsCache({});
+    setActiveThreadMessage(null);
+    setRightPanel(prev => (prev === 'thread' ? null : prev));
+    setViewMode('channel');
+    setActiveChannelName('all');
+    setTasksVersion(v => v + 1);
+  }, []);
+
+  useEffect(() => {
+    const routeWorkspaceId = getWorkspaceIdFromPath();
+    if (routeWorkspaceId) {
+      commitWorkspaceSelection(routeWorkspaceId, 'none');
+      return;
+    }
+
+    const storedWorkspaceId = getStoredActiveWorkspaceIdOrNull();
+    if (storedWorkspaceId) commitWorkspaceSelection(storedWorkspaceId, 'replace');
+  }, [commitWorkspaceSelection]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const routeWorkspaceId = getWorkspaceIdFromPath();
+      if (routeWorkspaceId) {
+        commitWorkspaceSelection(routeWorkspaceId, 'none');
+        return;
+      }
+
+      const fallback = chooseWorkspaceId(workspacesRef.current, [
+        getStoredActiveWorkspaceIdOrNull(),
+        activeWorkspaceRef.current,
+      ]);
+      commitWorkspaceSelection(fallback, 'replace');
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [commitWorkspaceSelection]);
 
   const recordAgentLastChannel = useCallback((msg: MessageRecord) => {
     if (msg.sender_type !== 'agent' || !msg.sender_name) return;
@@ -305,21 +394,9 @@ export function useAppStore() {
         setWorkspaceMembers(e.workspaceMembers || []);
         setViewerRole(e.viewerRole ?? null);
         setIsSuperuser(!!e.isSuperuser);
-        const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceId);
+        const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceRef.current);
         if (workspaceChanged && e.workspaceId) {
-          activeWorkspaceRef.current = e.workspaceId;
-          setActiveWorkspaceIdState(e.workspaceId);
-          setStoredActiveWorkspaceId(e.workspaceId);
-          setMessages([]);
-          setThreadMessages([]);
-          setUnreadCounts({});
-          setAgentLastChannel({});
-          setWorkspaceFiles({});
-          setWsTreeCache({});
-          setWorkspaceFileContent(null);
-          setMemoryTreeCache({});
-          setMemoryContentCache({});
-          setSkillsCache({});
+          commitWorkspaceSelection(e.workspaceId, 'replace');
         }
         setChannels(nextChannels);
         // `init` replays on every WS reconnect. The server payload doesn't carry
@@ -673,39 +750,11 @@ export function useAppStore() {
         break;
       }
     }
-  }, [activeWorkspaceId, recordAgentLastChannel]);
+  }, [commitWorkspaceSelection, recordAgentLastChannel]);
 
   const setActiveWorkspaceId = useCallback((workspaceId: string) => {
-    const next = workspaceId || 'default';
-    if (next === activeWorkspaceId) return;
-    setStoredActiveWorkspaceId(next);
-    activeWorkspaceRef.current = next;
-    setActiveWorkspaceIdState(next);
-    hasResolvedInitialViewRef.current = false;
-    setChannels([]);
-    setAgents([]);
-    setConfigs([]);
-    setMachines([]);
-    setProfilePresets([]);
-    setWorkspaceMembers([]);
-    setViewerRole(null);
-    setMessages([]);
-    setThreadMessages([]);
-    setUnreadCounts({});
-    setAgentLastChannel({});
-    setWorkspaceFiles({});
-    setWsTreeCache({});
-    setWorkspaceFileContent(null);
-    setMemoryTreeCache({});
-    setMemoryTreeErrors({});
-    setMemoryContentCache({});
-    setSkillsCache({});
-    setActiveThreadMessage(null);
-    setRightPanel(prev => (prev === 'thread' ? null : prev));
-    setViewMode('channel');
-    setActiveChannelName('all');
-    setTasksVersion(v => v + 1);
-  }, [activeWorkspaceId]);
+    commitWorkspaceSelection(workspaceId, 'push');
+  }, [commitWorkspaceSelection]);
 
   const createWorkspace = useCallback(async (input: { name: string; icon?: string }) => {
     const res = await api.createWorkspace(input);
@@ -809,16 +858,19 @@ export function useAppStore() {
     api.fetchWorkspaces()
       .then((res) => {
         if (cancelled || activeWorkspaceRef.current !== workspaceId) return;
-        if (res.workspaces?.length) setWorkspaces(res.workspaces);
-        if (res.activeWorkspaceId) {
-          activeWorkspaceRef.current = res.activeWorkspaceId;
-          setActiveWorkspaceIdState(res.activeWorkspaceId);
-          setStoredActiveWorkspaceId(res.activeWorkspaceId);
-        }
+        const nextWorkspaces = res.workspaces || [];
+        if (nextWorkspaces.length) setWorkspaces(nextWorkspaces);
+        const nextWorkspaceId = chooseWorkspaceId(nextWorkspaces, [
+          getWorkspaceIdFromPath(),
+          getStoredActiveWorkspaceIdOrNull(),
+          res.activeWorkspaceId,
+          activeWorkspaceRef.current,
+        ]);
+        commitWorkspaceSelection(nextWorkspaceId, 'replace');
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isLoggedIn, authToken, activeWorkspaceId]);
+  }, [isLoggedIn, authToken, activeWorkspaceId, commitWorkspaceSelection]);
 
   // Register guest users on the server so presence lists see them.
   // Authenticated users are pushed into store.humans by /api/auth/google; guests

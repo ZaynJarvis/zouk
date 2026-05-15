@@ -3,6 +3,7 @@ import type {
   AgentConfig, ServerMachine, AgentActivity, AgentEntry,
   Workspace,
 } from '../types';
+import { getActiveWorkspaceId } from './workspaceRoute';
 
 export type WsEventType =
   | 'init'
@@ -231,7 +232,7 @@ export class SlockWebSocket {
     // Re-read the token on every connect so reconnects after login/logout
     // use a fresh credential instead of the one captured at construction.
     const token = localStorage.getItem('zouk_auth_token');
-    const workspaceId = localStorage.getItem('zouk_active_workspace_id') || 'default';
+    const workspaceId = getActiveWorkspaceId();
     const params = new URLSearchParams();
     if (token) params.set('token', token);
     params.set('workspaceId', workspaceId);
