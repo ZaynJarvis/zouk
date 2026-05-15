@@ -1620,7 +1620,8 @@ function queuePendingDelivery(agentId, message) {
   }
   queue.push({ message, queuedAt: Date.now() });
   if (queue.length > PENDING_DELIVERY_CAP) {
-    queue.splice(0, queue.length - PENDING_DELIVERY_CAP);
+    const dropped = queue.splice(0, queue.length - PENDING_DELIVERY_CAP);
+    console.warn(`[delivery] pending queue overflow agent=${agentId} cap=${PENDING_DELIVERY_CAP} dropped=${dropped.length} (oldest message=${dropped[0]?.message?.id})`);
   }
 }
 
@@ -1629,9 +1630,16 @@ function replayPendingDeliveries(agentId) {
   if (!queue || queue.length === 0) return;
   pendingDeliveries.delete(agentId);
   const cutoff = Date.now() - PENDING_DELIVERY_TTL_MS;
+  let expired = 0;
   for (const item of queue) {
-    if (item.queuedAt < cutoff) continue;
+    if (item.queuedAt < cutoff) {
+      expired += 1;
+      continue;
+    }
     deliverToAgent(agentId, item.message);
+  }
+  if (expired > 0) {
+    console.warn(`[delivery] replay dropped ${expired} expired message(s) agent=${agentId} ttl_ms=${PENDING_DELIVERY_TTL_MS}`);
   }
 }
 
@@ -1856,12 +1864,25 @@ function deliverToAgent(agentId, message) {
   const ws = daemonSockets.get(agentId);
   if (ws && ws.readyState === 1) {
     const seq = nextSeq();
-    ws.send(JSON.stringify({
-      type: "agent:deliver",
-      agentId,
-      seq,
-      message: formatMessageForAgent(message, agentId),
-    }));
+    let payload;
+    try {
+      payload = JSON.stringify({
+        type: "agent:deliver",
+        agentId,
+        seq,
+        message: formatMessageForAgent(message, agentId),
+      });
+    } catch (e) {
+      console.error(`[delivery] serialize failed agent=${agentId} message=${message?.id} channel=${message?.channelName}:`, e.message);
+      return;
+    }
+    try {
+      ws.send(payload);
+    } catch (e) {
+      console.error(`[delivery] ws.send failed agent=${agentId} message=${message?.id} seq=${seq} readyState=${ws.readyState}:`, e.message);
+      queuePendingDelivery(agentId, message);
+      return;
+    }
     // Do NOT pre-mark as read here. Pre-marking was breaking mid-turn steering
     // for notification-mode drivers (Claude): the daemon would notify the agent
     // "N new messages waiting", the agent would call check_messages, and the
@@ -1869,6 +1890,8 @@ function deliverToAgent(agentId, message) {
     // The agent's own check_messages call now advances the cursor via /receive.
     return;
   }
+  const reason = ws ? `ws_state_${ws.readyState}` : "no_socket";
+  console.warn(`[delivery] daemon not ready agent=${agentId} message=${message?.id} channel=${message?.channelName} reason=${reason}; queueing`);
   queuePendingDelivery(agentId, message);
 }
 
