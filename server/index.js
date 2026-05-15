@@ -30,6 +30,26 @@ const DEFAULT_WORKSPACE_ID = "default";
 const DEFAULT_WORKSPACE_NAME = process.env.ZOUK_DEFAULT_WORKSPACE_NAME || "Default";
 const DEFAULT_WORKSPACE_ICON = process.env.ZOUK_DEFAULT_WORKSPACE_ICON || "z";
 const MAX_WORKSPACE_ICON_BYTES = 12 * 1024;
+const PERF_LOG_MODE = String(process.env.ZOUK_PERF_LOG || "slow").trim().toLowerCase();
+const PERF_LOG_ENABLED = ["1", "true", "yes", "slow", "verbose", "all"].includes(PERF_LOG_MODE);
+const PERF_LOG_VERBOSE = ["verbose", "all"].includes(PERF_LOG_MODE);
+const PERF_SLOW_MS = Math.max(1, parseInt(process.env.ZOUK_PERF_SLOW_MS || "1000", 10) || 1000);
+const PERF_THREAD_REPLY_PAIR_WARN = Math.max(1, parseInt(process.env.ZOUK_PERF_THREAD_REPLY_PAIR_WARN || "10", 10) || 10);
+
+function perfNowMs() {
+  return Number(process.hrtime.bigint()) / 1e6;
+}
+
+function logPerf(label, durationMs, fields = {}, { force = false } = {}) {
+  if (!PERF_LOG_ENABLED) return;
+  if (!force && !PERF_LOG_VERBOSE && durationMs < PERF_SLOW_MS) return;
+  const parts = [`[perf] ${label}`, `duration_ms=${durationMs.toFixed(1)}`];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null || value === "") continue;
+    parts.push(`${key}=${JSON.stringify(value)}`);
+  }
+  console.warn(parts.join(" "));
+}
 
 function normalizeWorkspaceId(raw) {
   if (typeof raw !== "string") return DEFAULT_WORKSPACE_ID;
@@ -1279,25 +1299,72 @@ async function readThreadReplies({ threadId, channelId, limit = 50 }) {
   return await db.queryThreadReplies({ threadId, channelId, limit });
 }
 
+async function readThreadRepliesBatch(pairs, limit = 50) {
+  if (!Array.isArray(pairs) || pairs.length === 0) return [];
+  if (!db.enabled || typeof db.queryThreadRepliesBatch !== "function") {
+    const results = await Promise.all(pairs.map(({ threadId, channelId }) => (
+      readThreadReplies({ threadId, channelId, limit })
+    )));
+    return results.flat();
+  }
+  return await db.queryThreadRepliesBatch({ pairs, limit });
+}
+
 // Pre-fetch thread replies for any thread root in `parents` whose replies
-// aren't already in the in-memory index. Used by /api/messages for historical
-// pages — older threads typically aren't in repliesByThreadId and would
-// otherwise show empty reply previews.
+// aren't already proven by the in-memory index. Recent parents live in
+// messagesByShortId; because replies always have later seqs, the bootstrap
+// window contains every possible recent reply for those parents. Treating a
+// recent parent with no repliesByThreadId entry as "zero replies" avoids a DB
+// point lookup per message on the hot latest-page read path. Historical pages
+// still fetch missing previews from DB, but in a single batched query.
 async function fetchThreadRepliesForPage(parents) {
-  const missing = []; // [{ threadId, channelId }]
+  const started = perfNowMs();
+  const missingByKey = new Map(); // `${threadId}:${channelId}` -> { threadId, channelId }
+  let indexedReplies = 0;
+  let indexedEmpty = 0;
   for (const m of parents) {
     if (m.threadId) continue;
     const shortid = m.id.slice(0, 8);
-    if (!repliesByThreadId.has(shortid)) missing.push({ threadId: shortid, channelId: m.channelId });
+    if (messagesByShortId.has(shortid)) {
+      if (repliesByThreadId.has(shortid)) {
+        indexedReplies += 1;
+      } else {
+        indexedEmpty += 1;
+      }
+      continue;
+    }
+    missingByKey.set(`${shortid}:${m.channelId}`, { threadId: shortid, channelId: m.channelId });
   }
-  if (missing.length === 0) return null;
+  if (missingByKey.size === 0) {
+    logPerf("messages.thread_replies", perfNowMs() - started, {
+      parents: parents.length,
+      indexedReplies,
+      indexedEmpty,
+      dbPairs: 0,
+    });
+    return null;
+  }
   const out = new Map();
-  // One query per (threadId, channelId) pair. Pages are limited (typically <=
-  // 100), and the (thread_id) index makes each query a cheap point-lookup.
-  await Promise.all(missing.map(async ({ threadId, channelId }) => {
-    const rows = await readThreadReplies({ threadId, channelId });
-    out.set(`${threadId}:${channelId}`, rows);
-  }));
+  const missing = Array.from(missingByKey.values());
+  const rows = await readThreadRepliesBatch(missing);
+  for (const row of rows) {
+    const key = `${row.threadId}:${row.channelId}`;
+    let arr = out.get(key);
+    if (!arr) {
+      arr = [];
+      out.set(key, arr);
+    }
+    arr.push(row);
+  }
+  logPerf("messages.thread_replies", perfNowMs() - started, {
+    parents: parents.length,
+    indexedReplies,
+    indexedEmpty,
+    dbPairs: missing.length,
+    dbRows: rows.length,
+  }, {
+    force: PERF_LOG_MODE !== "slow" && missing.length >= PERF_THREAD_REPLY_PAIR_WARN,
+  });
   return out;
 }
 
@@ -1974,6 +2041,41 @@ function deliverToAllAgents(message, excludeAgent = null) {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+
+const PERF_HTTP_PATHS = [
+  /^\/api\/messages$/,
+  /^\/internal\/agent\/[^/]+\/send$/,
+  /^\/internal\/agent\/[^/]+\/receive$/,
+  /^\/internal\/agent\/[^/]+\/history$/,
+];
+app.use((req, res, next) => {
+  if (!PERF_LOG_ENABLED || !PERF_HTTP_PATHS.some((re) => re.test(req.path))) {
+    return next();
+  }
+  const started = perfNowMs();
+  res.on("finish", () => {
+    const durationMs = perfNowMs() - started;
+    const agentPathMatch = req.path.match(/^\/internal\/agent\/([^/]+)\//);
+    const requestId = req.headers["x-request-id"]
+      || req.headers["x-railway-request-id"]
+      || req.headers["cf-ray"]
+      || req.headers["fly-request-id"];
+    logPerf("http", durationMs, {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      requestId,
+      agentId: agentPathMatch?.[1],
+      channel: req.headers["x-channel"] || req.query?.channel,
+      target: req.body?.target,
+      before: req.headers["x-before"] || req.query?.before,
+      after: req.headers["x-after"] || req.query?.after,
+      limit: req.headers["x-limit"] || req.query?.limit,
+      workspaceId: req.headers["x-workspace-id"] || req.query?.workspaceId || req.body?.workspaceId,
+    });
+  });
+  return next();
+});
 
 // k8s / docker readiness probe. Kept above auth so it stays callable when
 // upstream services (Postgres, OpenViking) are degraded — health here means
