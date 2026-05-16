@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
-import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Link2, Activity, Ban, RefreshCw } from 'lucide-react';
+import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Link2, Activity, Ban, RefreshCw, Globe2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -8,6 +8,7 @@ import type { ColorMode } from '../types';
 import { resizeAndEncode } from '../lib/imageEncode';
 import * as api from '../lib/api';
 import type { WsClientStats } from '../lib/api';
+import type { ServerChannel, WorkspaceEmbedSettings } from '../types';
 import {
   getStoredLinkTransforms,
   setStoredLinkTransforms,
@@ -15,7 +16,7 @@ import {
   type LinkTransformRule,
 } from '../store/storage';
 
-type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'connections' | 'links' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'connections' | 'links' | 'embed' | 'about';
 
 const PROFILE_PRESET_MAX = 30;
 
@@ -59,6 +60,7 @@ export default function SettingsModal() {
     wsConnected, agents, machines, configs, authUser,
     profilePresets, addProfilePreset, removeProfilePreset,
     workspaces, activeWorkspaceId, setActiveWorkspaceId,
+    channels, canAdminWorkspace,
   } = useApp();
   const [section, setSection] = useState<Section>('profile');
   const nc = false;
@@ -166,6 +168,7 @@ export default function SettingsModal() {
     { key: 'providers', label: 'PROVIDERS', icon: Server },
     { key: 'connections', label: 'CONNECTIONS', icon: Activity },
     { key: 'links', label: 'LINKS', icon: Link2 },
+    { key: 'embed', label: 'EMBED', icon: Globe2 },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
   const currentNavItem = navItems.find((item) => item.key === section) ?? navItems[0];
@@ -566,6 +569,14 @@ export default function SettingsModal() {
 
             {section === 'links' && <LinkTransformsSection />}
 
+            {section === 'embed' && (
+              <EmbedSection
+                channels={channels}
+                canAdminWorkspace={!!canAdminWorkspace}
+                activeWorkspaceId={activeWorkspaceId}
+              />
+            )}
+
             {section === 'about' && (
               <div className="max-w-md space-y-4">
                 <div className="cyber-panel-elevated p-4">
@@ -602,6 +613,218 @@ export default function SettingsModal() {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function EmbedSection({
+  channels,
+  canAdminWorkspace,
+  activeWorkspaceId,
+}: {
+  channels: ServerChannel[];
+  canAdminWorkspace: boolean;
+  activeWorkspaceId: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [originsText, setOriginsText] = useState('https://studio.zaynjarvis.com');
+  const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
+  const [ttl, setTtl] = useState(3600);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  const channelRows = channels.filter((ch) => (ch.type || 'channel') === 'channel');
+
+  const applySettings = useCallback((settings: WorkspaceEmbedSettings) => {
+    setEnabled(settings.enabled);
+    setOriginsText((settings.allowedOrigins || []).join('\n') || 'https://studio.zaynjarvis.com');
+    setSelectedChannelIds(new Set(settings.allowedChannelIds || []));
+    setTtl(settings.tokenTtlSeconds || 3600);
+    setSavedAt(settings.updatedAt || null);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!canAdminWorkspace) {
+      setLoaded(true);
+      return;
+    }
+    setLoaded(false);
+    setError(null);
+    try {
+      applySettings(await api.getEmbedSettings());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load embed settings');
+    } finally {
+      setLoaded(true);
+    }
+  }, [applySettings, canAdminWorkspace]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh, activeWorkspaceId]);
+
+  const origins = originsText
+    .split(/[\n,]+/)
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const selectedChannels = channelRows.filter((channel) => selectedChannelIds.has(channel.id));
+  const firstChannel = selectedChannels[0]?.name || channelRows[0]?.name || 'all';
+  const zoukOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://zouk.zaynjarvis.com';
+  const snippet = [
+    `const session = await fetch("${zoukOrigin}/api/auth/embed-guest-session", {`,
+    '  method: "POST",',
+    '  headers: { "Content-Type": "application/json" },',
+    `  body: JSON.stringify({ workspaceId: "${activeWorkspaceId}", channel: "${firstChannel}", name: "reader" })`,
+    '}).then((res) => res.json());',
+    '',
+    `const ws = new WebSocket("${zoukOrigin.replace(/^http/, 'ws')}/ws?token=" + session.token + "&workspaceId=${activeWorkspaceId}");`,
+  ].join('\n');
+
+  const toggleChannel = (id: string) => {
+    setSelectedChannelIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const save = async () => {
+    if (!canAdminWorkspace || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const settings = await api.saveEmbedSettings({
+        enabled,
+        allowedOrigins: origins,
+        allowedChannelIds: [...selectedChannelIds],
+        tokenTtlSeconds: ttl,
+      });
+      applySettings(settings);
+      setSavedAt(settings.updatedAt || new Date().toISOString());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save embed settings');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!canAdminWorkspace) {
+    return (
+      <div className="max-w-xl space-y-4">
+        <div>
+          <p className="text-sm font-bold text-nc-text-bright tracking-wider">EMBED_ACCESS</p>
+          <p className="text-xs text-nc-muted font-mono mt-0.5">Workspace admin access is required.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loaded) {
+    return <p className="text-xs font-mono text-nc-muted">Loading embed settings...</p>;
+  }
+
+  return (
+    <div className="max-w-2xl space-y-5">
+      <div>
+        <p className="text-sm font-bold text-nc-text-bright tracking-wider">EMBED_ACCESS</p>
+        <p className="text-xs text-nc-muted font-mono mt-0.5">
+          Mint short-lived guest sessions for approved external origins and channel scopes.
+        </p>
+      </div>
+
+      {error && (
+        <div className="p-3 border border-nc-red/50 bg-nc-red/10 text-xs font-mono text-nc-red">
+          {error}
+        </div>
+      )}
+
+      <label className="flex items-center justify-between gap-3 cyber-panel-elevated p-3 cursor-pointer">
+        <span>
+          <span className="block text-sm font-bold text-nc-text-bright">Enable external chat</span>
+          <span className="block text-xs font-mono text-nc-muted mt-0.5">Browser tokens are scoped to the channels below.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => setEnabled(e.target.checked)}
+          className="w-5 h-5 accent-cyan-400"
+        />
+      </label>
+
+      <div>
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Allowed origins</label>
+        <textarea
+          value={originsText}
+          onChange={(e) => setOriginsText(e.target.value)}
+          className="cyber-input w-full px-3 py-2 text-xs font-mono min-h-24"
+          spellCheck={false}
+          placeholder="https://studio.zaynjarvis.com"
+        />
+        <p className="text-2xs font-mono text-nc-muted mt-1">One origin per line. Include local dev origins when testing locally.</p>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-xs font-bold text-nc-muted uppercase tracking-wider">Channel scope</label>
+          <span className="text-2xs font-mono text-nc-muted">{selectedChannelIds.size} selected</span>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {channelRows.map(channel => (
+            <label
+              key={channel.id}
+              className={`flex items-center gap-2 border px-3 py-2 text-sm cursor-pointer ${
+                selectedChannelIds.has(channel.id)
+                  ? 'border-nc-cyan/60 bg-nc-cyan/10 text-nc-cyan'
+                  : 'border-nc-border text-nc-muted hover:text-nc-text hover:bg-nc-elevated'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={selectedChannelIds.has(channel.id)}
+                onChange={() => toggleChannel(channel.id)}
+                className="accent-cyan-400"
+              />
+              <span className="font-mono">#{channel.name}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="max-w-xs">
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Token TTL seconds</label>
+        <input
+          type="number"
+          min={300}
+          max={86400}
+          step={60}
+          value={ttl}
+          onChange={(e) => setTtl(Number(e.target.value))}
+          className="cyber-input w-full px-3 py-2 text-xs font-mono"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">External bootstrap</label>
+        <pre className="cyber-panel-elevated p-3 overflow-x-auto text-2xs font-mono text-nc-muted whitespace-pre-wrap">
+          {snippet}
+        </pre>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={save}
+            disabled={busy}
+            className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider disabled:opacity-40"
+          >
+            {busy ? 'Saving...' : 'Save'}
+          </button>
+        </ScanlineTear>
+        {savedAt && <span className="text-2xs font-mono text-nc-muted">Saved {new Date(savedAt).toLocaleTimeString()}</span>}
       </div>
     </div>
   );

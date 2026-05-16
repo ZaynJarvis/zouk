@@ -1157,6 +1157,60 @@ async function loadWorkspaceMemberRemovals() {
   }
 }
 
+// ─── Workspace embed settings ─────────────────────────────────────
+
+async function saveWorkspaceEmbedSettings(settings) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_embed_settings
+         (workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace_id) DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         allowed_origins = EXCLUDED.allowed_origins,
+         allowed_channel_ids = EXCLUDED.allowed_channel_ids,
+         token_ttl_seconds = EXCLUDED.token_ttl_seconds,
+         updated_at = EXCLUDED.updated_at,
+         updated_by = EXCLUDED.updated_by`,
+      [
+        settings.workspaceId || DEFAULT_WORKSPACE_ID,
+        !!settings.enabled,
+        JSON.stringify(settings.allowedOrigins || []),
+        JSON.stringify(settings.allowedChannelIds || []),
+        settings.tokenTtlSeconds || 3600,
+        settings.updatedAt || new Date().toISOString(),
+        settings.updatedBy || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceEmbedSettings error:', e.message);
+  }
+}
+
+async function loadWorkspaceEmbedSettings() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by
+       FROM workspace_embed_settings
+       ORDER BY workspace_id ASC`
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      enabled: !!row.enabled,
+      allowedOrigins: Array.isArray(row.allowed_origins) ? row.allowed_origins : [],
+      allowedChannelIds: Array.isArray(row.allowed_channel_ids) ? row.allowed_channel_ids : [],
+      tokenTtlSeconds: row.token_ttl_seconds || 3600,
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceEmbedSettings error:', e.message);
+    return null;
+  }
+}
+
 // ─── Agent activities ─────────────────────────────────────────────
 
 const ACTIVITY_KEEP_LIMIT = 100;
@@ -1330,6 +1384,8 @@ module.exports = {
   saveWorkspaceMemberRemoval,
   deleteWorkspaceMemberRemoval,
   loadWorkspaceMemberRemovals,
+  saveWorkspaceEmbedSettings,
+  loadWorkspaceEmbedSettings,
   saveTask,
   loadTasks,
   loadMaxSeq,
