@@ -11,7 +11,7 @@ export default function TopBar() {
   const {
     activeChannelName, viewMode,
     channels, agents, humans, openChannelSettings, isGuest,
-    activeThreadMessage, setSidebarOpen,
+    setSidebarOpen,
   } = useApp();
 
   const inHomeView = viewMode === 'channel' || viewMode === 'dm';
@@ -76,17 +76,6 @@ export default function TopBar() {
                   }}
                 >
                   {channelAgents.length} agents · {humans.length} humans
-                </span>
-              )}
-              {activeThreadMessage && (
-                <span
-                  style={{
-                    fontFamily: 'var(--zk-font-display)',
-                    fontSize: 18, fontWeight: 500,
-                    color: 'var(--zk-ink-mute)',
-                  }}
-                >
-                  · Thread
                 </span>
               )}
             </div>
