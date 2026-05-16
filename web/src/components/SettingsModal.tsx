@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
-import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Link2, Activity, Ban, RefreshCw } from 'lucide-react';
+import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Link2, Activity, Ban, RefreshCw, Bell, BellOff } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -14,8 +14,20 @@ import {
   subscribeLinkTransforms,
   type LinkTransformRule,
 } from '../store/storage';
+import {
+  ensureNotificationPermission,
+  getCurrentPushSubscription,
+  localPushEnabled,
+  notificationPermission,
+  notificationsEnabled,
+  setLocalPushEnabled,
+  setNotificationsEnabled,
+  subscribeBrowserPush,
+  supportsPushNotifications,
+  unsubscribeBrowserPush,
+} from '../lib/browserNotifications';
 
-type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'connections' | 'links' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'notifications' | 'connections' | 'links' | 'about';
 
 const PROFILE_PRESET_MAX = 30;
 
@@ -70,6 +82,16 @@ export default function SettingsModal() {
   const [presetError, setPresetError] = useState<string | null>(null);
   const [presetDragOver, setPresetDragOver] = useState(false);
   const [prefs, setPrefs] = useState<Preferences>(loadPrefs);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [notificationState, setNotificationState] = useState({
+    permission: notificationPermission(),
+    pushSupported: supportsPushNotifications(),
+    enabled: notificationsEnabled(),
+    pushSubscribed: false,
+    serverPushEnabled: false,
+    localOnly: false,
+  });
 
   useEffect(() => {
     applyFontSizePreference(prefs.fontSize);
@@ -86,6 +108,75 @@ export default function SettingsModal() {
       return next;
     });
   }, []);
+
+  const refreshNotificationState = useCallback(async () => {
+    const permission = notificationPermission();
+    const pushSupported = supportsPushNotifications();
+    const [subscription, config] = await Promise.all([
+      pushSupported ? getCurrentPushSubscription().catch(() => null) : Promise.resolve(null),
+      api.fetchNotificationPublicKey().catch(() => null),
+    ]);
+    setNotificationState({
+      permission,
+      pushSupported,
+      enabled: notificationsEnabled(),
+      pushSubscribed: !!subscription && localPushEnabled(),
+      serverPushEnabled: !!config?.enabled,
+      localOnly: notificationsEnabled() && permission === 'granted' && (!config?.enabled || !pushSupported || !subscription),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!settingsOpen || section !== 'notifications') return;
+    refreshNotificationState().catch(() => {});
+  }, [settingsOpen, section, refreshNotificationState]);
+
+  const enableNotifications = useCallback(async () => {
+    setNotificationBusy(true);
+    setNotificationError(null);
+    try {
+      const permission = await ensureNotificationPermission();
+      if (permission !== 'granted') {
+        setNotificationsEnabled(false);
+        setLocalPushEnabled(false);
+        await refreshNotificationState();
+        return;
+      }
+
+      setNotificationsEnabled(true);
+      const config = await api.fetchNotificationPublicKey();
+      if (config.enabled && config.publicKey && supportsPushNotifications()) {
+        const subscription = await subscribeBrowserPush(config.publicKey);
+        if (subscription) await api.savePushSubscription(subscription);
+      } else {
+        setLocalPushEnabled(false);
+      }
+      await refreshNotificationState();
+    } catch (e) {
+      setNotificationError(e instanceof Error ? e.message : 'Failed to enable notifications');
+    } finally {
+      setNotificationBusy(false);
+    }
+  }, [refreshNotificationState]);
+
+  const disableNotifications = useCallback(async () => {
+    setNotificationBusy(true);
+    setNotificationError(null);
+    try {
+      const existing = await getCurrentPushSubscription().catch(() => null);
+      const endpoint = await unsubscribeBrowserPush();
+      if (endpoint || existing?.endpoint) {
+        await api.deletePushSubscription(endpoint || existing!.endpoint).catch(() => {});
+      }
+      setNotificationsEnabled(false);
+      setLocalPushEnabled(false);
+      await refreshNotificationState();
+    } catch (e) {
+      setNotificationError(e instanceof Error ? e.message : 'Failed to disable notifications');
+    } finally {
+      setNotificationBusy(false);
+    }
+  }, [refreshNotificationState]);
 
   const handleThemeChange = useCallback((newTheme: ThemeId) => {
     if (newTheme === theme) return;
@@ -164,6 +255,7 @@ export default function SettingsModal() {
     { key: 'appearance', label: 'DISPLAY', icon: Palette },
     { key: 'avatars', label: 'AVATARS', icon: Smile },
     { key: 'providers', label: 'PROVIDERS', icon: Server },
+    { key: 'notifications', label: 'ALERTS', icon: Bell },
     { key: 'connections', label: 'CONNECTIONS', icon: Activity },
     { key: 'links', label: 'LINKS', icon: Link2 },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
@@ -561,6 +653,90 @@ export default function SettingsModal() {
               </div>
             )}
 
+
+            {section === 'notifications' && (
+              <div className="max-w-md space-y-5">
+                <div className="cyber-panel-elevated p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-nc-text-bright tracking-wider">NOTIFICATIONS</p>
+                      <p className="text-xs text-nc-muted font-mono mt-0.5">
+                        Native alerts for DMs and mentions. iOS requires the Home Screen app.
+                      </p>
+                    </div>
+                    <span className={`shrink-0 w-9 h-9 border flex items-center justify-center ${
+                      notificationState.enabled && notificationState.permission === 'granted'
+                        ? 'border-nc-green/50 text-nc-green bg-nc-green/10'
+                        : 'border-nc-border text-nc-muted bg-nc-deep'
+                    }`}>
+                      {notificationState.enabled && notificationState.permission === 'granted' ? <Bell size={16} /> : <BellOff size={16} />}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="border border-nc-border bg-nc-deep/60 p-2">
+                      <p className="text-nc-muted">Permission</p>
+                      <p className="mt-1 text-nc-text-bright">{notificationState.permission.toString().toUpperCase()}</p>
+                    </div>
+                    <div className="border border-nc-border bg-nc-deep/60 p-2">
+                      <p className="text-nc-muted">Web Push</p>
+                      <p className="mt-1 text-nc-text-bright">
+                        {!notificationState.enabled
+                          ? 'OFF'
+                          : notificationState.serverPushEnabled && notificationState.pushSubscribed
+                          ? 'ACTIVE'
+                          : notificationState.serverPushEnabled
+                            ? 'READY'
+                            : notificationState.localOnly
+                              ? 'LOCAL_ONLY'
+                              : 'OFF'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {notificationError && (
+                    <p className="text-xs font-mono text-nc-red">{notificationError}</p>
+                  )}
+
+                  {notificationState.permission === 'denied' && (
+                    <p className="text-xs font-mono text-nc-yellow">
+                      Browser permission is blocked. Re-enable it from site settings.
+                    </p>
+                  )}
+
+                  <div className="flex gap-2">
+                    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        type="button"
+                        onClick={enableNotifications}
+                        disabled={notificationBusy || notificationState.permission === 'denied'}
+                        className="cyber-btn px-3 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider disabled:opacity-50 flex items-center gap-2"
+                      >
+                        <Bell size={14} />
+                        Enable
+                      </button>
+                    </ScanlineTear>
+                    <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+                      <button
+                        type="button"
+                        onClick={disableNotifications}
+                        disabled={notificationBusy}
+                        className="cyber-btn px-3 py-2 border border-nc-border text-nc-muted hover:text-nc-red hover:border-nc-red/50 font-bold text-sm tracking-wider disabled:opacity-50 flex items-center gap-2"
+                      >
+                        <BellOff size={14} />
+                        Disable
+                      </button>
+                    </ScanlineTear>
+                  </div>
+                </div>
+
+                {!notificationState.pushSupported && (
+                  <p className="text-xs font-mono text-nc-muted">
+                    This browser can only show notifications while Zouk is open.
+                  </p>
+                )}
+              </div>
+            )}
 
             {section === 'connections' && <ConnectionsSection />}
 

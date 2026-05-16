@@ -8,6 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const { URL } = require("url");
 const crypto = require("crypto");
+const webPush = require("web-push");
 const { OAuth2Client } = require("google-auth-library");
 const db = require("./db");
 const { createStore: createProfilePresetsStore, MAX_PRESETS: PROFILE_PRESET_MAX } = require("./profilePresets");
@@ -15,6 +16,10 @@ const { createStorage } = require("./storage");
 const mockData = require("./mockData");
 const { provisionAgentKey } = require("./openviking-admin");
 const { AgentDeliveryRouter } = require("./notifications/agentDeliveryRouter");
+const {
+  buildPushPayload,
+  messageTargetsUser,
+} = require("./notifications/webPushNotifications");
 const { DEFAULT_WORKSPACE_ID, allocateWorkspaceId, normalizeWorkspaceId } = require("./workspaceIds");
 
 function gravatarUrl(email) {
@@ -27,6 +32,19 @@ const PORT = process.env.PORT || 7777;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+const WEB_PUSH_VAPID_PUBLIC_KEY = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "";
+const WEB_PUSH_VAPID_PRIVATE_KEY = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || "";
+const WEB_PUSH_VAPID_SUBJECT = process.env.WEB_PUSH_VAPID_SUBJECT || process.env.WEB_PUSH_CONTACT || "mailto:notifications@zouk.local";
+const WEB_PUSH_NOTIFY_ALL_CHANNEL_MESSAGES = ["1", "true", "yes"].includes(
+  String(process.env.WEB_PUSH_NOTIFY_ALL_CHANNEL_MESSAGES || "").trim().toLowerCase()
+);
+const WEB_PUSH_ENABLED = !!(WEB_PUSH_VAPID_PUBLIC_KEY && WEB_PUSH_VAPID_PRIVATE_KEY);
+if (WEB_PUSH_ENABLED) {
+  webPush.setVapidDetails(WEB_PUSH_VAPID_SUBJECT, WEB_PUSH_VAPID_PUBLIC_KEY, WEB_PUSH_VAPID_PRIVATE_KEY);
+  console.log("[push] Web Push enabled");
+} else {
+  console.warn("[push] Web Push disabled — set WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY");
+}
 const DEFAULT_WORKSPACE_NAME = process.env.ZOUK_DEFAULT_WORKSPACE_NAME || "Default";
 const DEFAULT_WORKSPACE_ICON = process.env.ZOUK_DEFAULT_WORKSPACE_ICON || "z";
 const MAX_WORKSPACE_ICON_BYTES = 12 * 1024;
@@ -313,6 +331,7 @@ const CONFIG_DIR = process.env.ZOUK_CONFIG_DIR || path.join(__dirname, "..", "da
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
 const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
 const SESSIONS_FILE = path.join(CONFIG_DIR, "sessions.json");
+const PUSH_SUBSCRIPTIONS_FILE = path.join(CONFIG_DIR, "push-subscriptions.json");
 const AGENT_PROFILE_PRESETS_FILE = path.join(CONFIG_DIR, "agent-profile-presets.json");
 
 // ─── Agent config persistence ────────────────────────────────────
@@ -1761,6 +1780,117 @@ const onlineHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl
 // Guests are intentionally NOT stored here — they vanish from the list when their
 // only WS connection drops.
 const allTimeHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest: false }
+const pushSubscriptions = new Map(); // endpoint -> { endpoint, workspaceId, userName, userEmail, subscription, ... }
+
+function normalizePushSubscription(input) {
+  const sub = input && typeof input === "object" ? input : {};
+  const endpoint = typeof sub.endpoint === "string" ? sub.endpoint.trim() : "";
+  const keys = sub.keys && typeof sub.keys === "object" ? sub.keys : {};
+  if (!endpoint || typeof keys.p256dh !== "string" || typeof keys.auth !== "string") {
+    return null;
+  }
+  return {
+    endpoint,
+    expirationTime: sub.expirationTime || null,
+    keys: {
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+    },
+  };
+}
+
+function loadPushSubscriptionsFromDisk() {
+  try {
+    if (!fs.existsSync(PUSH_SUBSCRIPTIONS_FILE)) return [];
+    const raw = JSON.parse(fs.readFileSync(PUSH_SUBSCRIPTIONS_FILE, "utf8"));
+    return Array.isArray(raw) ? raw : [];
+  } catch (e) {
+    console.warn("[push] Failed to load subscriptions from disk:", e.message);
+    return [];
+  }
+}
+
+function savePushSubscriptionsToDisk() {
+  if (db.enabled) return;
+  try {
+    fs.writeFileSync(PUSH_SUBSCRIPTIONS_FILE, JSON.stringify([...pushSubscriptions.values()], null, 2), "utf8");
+  } catch (e) {
+    console.warn("[push] Failed to save subscriptions to disk:", e.message);
+  }
+}
+
+async function loadPushSubscriptions() {
+  let rows = null;
+  if (db.enabled) {
+    rows = await db.loadPushSubscriptions();
+  }
+  if (!rows) rows = loadPushSubscriptionsFromDisk();
+  for (const row of rows || []) {
+    const subscription = normalizePushSubscription(row.subscription);
+    if (!subscription) continue;
+    pushSubscriptions.set(subscription.endpoint, {
+      ...row,
+      endpoint: subscription.endpoint,
+      workspaceId: normalizeWorkspaceId(row.workspaceId || DEFAULT_WORKSPACE_ID),
+      subscription,
+    });
+  }
+  if (pushSubscriptions.size > 0) {
+    console.log(`[push] Loaded ${pushSubscriptions.size} web push subscription(s)`);
+  }
+}
+
+async function persistPushSubscription(record) {
+  pushSubscriptions.set(record.endpoint, record);
+  if (db.enabled) await db.savePushSubscription(record);
+  else savePushSubscriptionsToDisk();
+}
+
+async function removePushSubscription(endpoint) {
+  if (!endpoint) return;
+  pushSubscriptions.delete(endpoint);
+  if (db.enabled) await db.deletePushSubscription(endpoint);
+  else savePushSubscriptionsToDisk();
+}
+
+function stalePushStatusCode(err) {
+  return err?.statusCode || err?.status || err?.response?.statusCode || null;
+}
+
+function pushUserFromRecord(record) {
+  return {
+    name: record.userName,
+    email: record.userEmail || null,
+  };
+}
+
+async function notifyWebPushSubscribers(message) {
+  if (!WEB_PUSH_ENABLED || pushSubscriptions.size === 0 || !message) return;
+  const workspaceId = normalizeWorkspaceId(message.workspaceId || DEFAULT_WORKSPACE_ID);
+  const sends = [];
+  for (const record of pushSubscriptions.values()) {
+    if (normalizeWorkspaceId(record.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) continue;
+    const user = pushUserFromRecord(record);
+    if (!userCanAccessWorkspace(user, workspaceId)) continue;
+    if (!messageTargetsUser(message, user, {
+      notifyAllChannelMessages: WEB_PUSH_NOTIFY_ALL_CHANNEL_MESSAGES,
+    })) continue;
+
+    const payload = buildPushPayload(message, user, { publicUrl: PUBLIC_URL });
+    sends.push(
+      webPush.sendNotification(record.subscription, JSON.stringify(payload))
+        .catch(async (err) => {
+          const status = stalePushStatusCode(err);
+          if (status === 404 || status === 410) {
+            await removePushSubscription(record.endpoint);
+            return;
+          }
+          console.warn(`[push] send failed endpoint=${record.endpoint.slice(0, 48)} status=${status || "unknown"} error=${err.message}`);
+        })
+    );
+  }
+  if (sends.length > 0) await Promise.allSettled(sends);
+}
 
 // Per-agent queue of messages that arrived while the daemon socket was offline.
 // Drained on reconnect (see replayPendingDeliveries). Bounded per agent (oldest
@@ -1847,6 +1977,17 @@ function broadcastToWeb(event) {
     if (!shouldDeliverEventToWebViewer(event, ws)) continue;
     ws.send(data);
   }
+}
+
+function broadcastMessageToWeb(message) {
+  broadcastToWeb({
+    type: "message",
+    workspaceId: message.workspaceId || DEFAULT_WORKSPACE_ID,
+    message: formatMessageForClient(message),
+  });
+  notifyWebPushSubscribers(message).catch((e) =>
+    console.warn("[push] notification fanout failed:", e.message)
+  );
 }
 
 // DM messages must only reach the two parties; everything else (channel posts,
@@ -2393,7 +2534,7 @@ app.post("/internal/agent/:agentId/send", (req, res) => {
   // Deliver to other agents
   deliverToAllAgents(msg, agentId);
   // Broadcast to web UI
-  broadcastToWeb({ type: "message", workspaceId, message: formatMessageForClient(msg) });
+  broadcastMessageToWeb(msg);
 
   res.json({ messageId: msg.id, recentUnread: [] });
 });
@@ -2663,7 +2804,7 @@ app.post("/internal/agent/:agentId/tasks", async (req, res) => {
     appendMessage(msg);
     await db.saveTask(task);
     await db.saveMessage(msg);
-    broadcastToWeb({ type: "message", workspaceId, message: formatMessageForClient(msg) });
+    broadcastMessageToWeb(msg);
 
     created.push({ taskNumber: taskNum, messageId: msgId, title: td.title });
   }
@@ -2706,7 +2847,7 @@ app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
       };
       appendMessage(msg);
       await db.saveMessage(msg);
-      broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || workspaceId, message: formatMessageForClient(msg) });
+      broadcastMessageToWeb(msg);
     }
 
     return { taskNumber: num, messageId: task.messageId, success: true, reason: null };
@@ -2864,7 +3005,7 @@ app.post("/internal/agent/:agentId/tasks/update-status", async (req, res) => {
     };
     appendMessage(msg);
     await db.saveMessage(msg);
-    broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || workspaceId, message: formatMessageForClient(msg) });
+    broadcastMessageToWeb(msg);
   }
   res.json({ success: true });
 });
@@ -3007,8 +3148,57 @@ function fanoutUserMessage(msg) {
   // resolves parties from the canonical channel name inside deliverToAllAgents.
   deliverToAllAgents(msg);
   // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
-  broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, message: formatMessageForClient(msg) });
+  broadcastMessageToWeb(msg);
 }
+
+// Notification support: foreground notifications use the browser Notification
+// API; background/iOS PWA delivery uses Web Push when VAPID keys are configured.
+app.get("/api/notifications/public-key", requireAuth, (_req, res) => {
+  res.json({
+    enabled: WEB_PUSH_ENABLED,
+    publicKey: WEB_PUSH_ENABLED ? WEB_PUSH_VAPID_PUBLIC_KEY : null,
+    notifyAllChannelMessages: WEB_PUSH_NOTIFY_ALL_CHANNEL_MESSAGES,
+  });
+});
+
+app.post("/api/notifications/subscribe", requireAuth, async (req, res) => {
+  const subscription = normalizePushSubscription(req.body?.subscription);
+  if (!subscription) return res.status(400).json({ error: "Invalid push subscription" });
+  const user = req.user;
+  if (!user?.name) return res.status(403).json({ error: "User session required" });
+
+  const workspaceId = req.workspaceId || workspaceIdFromReq(req);
+  if (!userCanAccessWorkspace(user, workspaceId)) {
+    return res.status(403).json({ error: "Workspace access required" });
+  }
+
+  const nowIso = now();
+  const existing = pushSubscriptions.get(subscription.endpoint);
+  const record = {
+    endpoint: subscription.endpoint,
+    workspaceId,
+    userName: user.name,
+    userEmail: user.email || null,
+    subscription,
+    userAgent: String(req.headers["user-agent"] || "").slice(0, 500),
+    createdAt: existing?.createdAt || nowIso,
+    lastSeenAt: nowIso,
+  };
+  await persistPushSubscription(record);
+  res.json({ success: true, enabled: WEB_PUSH_ENABLED });
+});
+
+app.delete("/api/notifications/subscribe", requireAuth, async (req, res) => {
+  const endpoint = typeof req.body?.endpoint === "string" ? req.body.endpoint : "";
+  if (!endpoint) return res.status(400).json({ error: "endpoint required" });
+  const existing = pushSubscriptions.get(endpoint);
+  if (existing) {
+    const sameUser = existing.userName === req.user?.name || existing.userEmail === req.user?.email;
+    if (!sameUser) return res.status(403).json({ error: "Cannot remove another user's subscription" });
+  }
+  await removePushSubscription(endpoint);
+  res.json({ success: true });
+});
 
 // Send message from web UI (human user)
 app.post("/api/messages", requireAuth, (req, res) => {
@@ -6119,6 +6309,7 @@ function reconcileAgentsWithConfigs() {
   // above for the backstop).
   await initFromDB();
   await loadAuthSessions();
+  await loadPushSubscriptions();
   // Seed allTimeHumans from authSessions so anyone who has logged in is in the
   // people list immediately on boot (offline until they connect). Skip guest
   // sessions — they're CI/anonymous and shouldn't appear in the persistent list.

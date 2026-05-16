@@ -10,6 +10,7 @@ import type { WsEvent } from '../lib/ws';
 import * as api from '../lib/api';
 import { normalizeMessage } from '../lib/api';
 import type { AuthUser } from '../lib/api';
+import { shouldShowLocalNotification, showMessageNotification } from '../lib/browserNotifications';
 import { isMobileViewport } from '../lib/layout';
 import {
   clearStoredAuth,
@@ -133,6 +134,28 @@ function resolveAgentMessageChannel(msg: MessageRecord, currentUser: string): st
     return parentName;
   }
   return parentName;
+}
+
+function dmPeerName(msg: MessageRecord, currentUser: string): string {
+  if (msg.dm_parties && msg.dm_parties.length >= 2) {
+    return msg.dm_parties.find(p => p !== currentUser) || msg.dm_parties[0];
+  }
+  if (msg.channel_name.startsWith('dm:')) {
+    const parties = msg.channel_name.substring(3).split(',');
+    return parties.find(p => p !== currentUser) || parties[0];
+  }
+  return msg.channel_name;
+}
+
+function maybeShowMessageNotification(
+  msg: MessageRecord,
+  currentUser: string,
+  workspaceId: string,
+  channelLabel: string,
+  conversationFocused: boolean,
+) {
+  if (!shouldShowLocalNotification(msg, currentUser, conversationFocused)) return;
+  void showMessageNotification(msg, currentUser, workspaceId, channelLabel).catch(() => {});
 }
 
 function isValidSelection(
@@ -552,21 +575,24 @@ export function useAppStore() {
               [parentChannel]: (prev[parentChannel] || 0) + 1,
             }));
           }
+          const parentIsDm = msg.parent_channel_type === 'dm';
+          const parentConversationKey = parentIsDm ? dmPeerName(msg, currentName) : (parentChannel || msg.channel_name);
+          const parentFocused = threadIsOpen
+            && parentConversationKey === activeChannelRef.current
+            && ((parentIsDm && viewModeRef.current === 'dm') || (!parentIsDm && viewModeRef.current !== 'dm'));
+          maybeShowMessageNotification(
+            msg,
+            currentName,
+            activeWorkspaceRef.current,
+            parentIsDm ? `@${parentConversationKey}` : `#${parentConversationKey || 'thread'}`,
+            parentFocused,
+          );
         } else {
           const isDmMessage = msg.channel_type === 'dm';
           // For DMs, resolve peer name from dm_parties or canonical channel name
           let conversationKey = msg.channel_name;
           if (isDmMessage) {
-            if (msg.dm_parties && msg.dm_parties.length === 2) {
-              // Pick the party that isn't the current user
-              const currentName = currentUserRef.current;
-              conversationKey = msg.dm_parties.find(p => p !== currentName) || msg.dm_parties[0];
-            } else if (msg.channel_name.startsWith('dm:')) {
-              // Canonical name like "dm:alice,zeus" — resolve peer
-              const parties = msg.channel_name.substring(3).split(',');
-              const currentName = currentUserRef.current;
-              conversationKey = parties.find(p => p !== currentName) || parties[0];
-            }
+            conversationKey = dmPeerName(msg, currentUserRef.current);
           }
 
           const isActiveConversation = conversationKey === activeChannelRef.current
@@ -585,6 +611,13 @@ export function useAppStore() {
               [conversationKey]: (prev[conversationKey] || 0) + 1,
             }));
           }
+          maybeShowMessageNotification(
+            msg,
+            currentName,
+            activeWorkspaceRef.current,
+            isDmMessage ? `@${conversationKey}` : `#${conversationKey}`,
+            isActiveConversation,
+          );
         }
         break;
       }

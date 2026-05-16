@@ -135,6 +135,40 @@ export async function sendMessage(
   if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
 }
 
+export interface NotificationPublicKeyResponse {
+  enabled: boolean;
+  publicKey: string | null;
+  notifyAllChannelMessages?: boolean;
+}
+
+export async function fetchNotificationPublicKey(): Promise<NotificationPublicKeyResponse> {
+  const res = await fetch(`${getBaseUrl()}/api/notifications/public-key`, {
+    headers: getAuthHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Failed to load notification config: ${res.status}`);
+  return res.json();
+}
+
+export async function savePushSubscription(subscription: PushSubscriptionJSON): Promise<{ success: true; enabled: boolean }> {
+  const res = await fetch(`${getBaseUrl()}/api/notifications/subscribe`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ subscription }),
+  });
+  if (!res.ok) throw new Error(`Failed to save push subscription: ${res.status}`);
+  return res.json();
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  const res = await fetch(`${getBaseUrl()}/api/notifications/subscribe`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ endpoint }),
+  });
+  if (!res.ok) throw new Error(`Failed to delete push subscription: ${res.status}`);
+}
+
 export interface UploadedAttachment {
   id: string;
   filename: string;

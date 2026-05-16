@@ -5,7 +5,7 @@ import './index.css';
 import './styles/zk-tokens.css';
 import './themes/atlas';
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch((error) => {
       console.warn('Service worker registration failed', error);

@@ -148,6 +148,19 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint    TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_name   TEXT NOT NULL,
+  user_email  TEXT,
+  subscription JSONB NOT NULL,
+  user_agent  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_workspace_user_idx
+  ON push_subscriptions (workspace_id, user_name);
+
 CREATE TABLE IF NOT EXISTS agent_profile_presets (
   id         TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,

@@ -1294,6 +1294,66 @@ async function loadSessions() {
   }
 }
 
+// ─── Web push subscriptions ───────────────────────────────────────
+
+async function savePushSubscription(record) {
+  if (!pool || !record?.endpoint) return;
+  try {
+    await pool.query(
+      `INSERT INTO push_subscriptions (endpoint, workspace_id, user_name, user_email, subscription, user_agent, created_at, last_seen_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (endpoint) DO UPDATE SET
+         workspace_id = EXCLUDED.workspace_id,
+         user_name = EXCLUDED.user_name,
+         user_email = EXCLUDED.user_email,
+         subscription = EXCLUDED.subscription,
+         user_agent = EXCLUDED.user_agent,
+         last_seen_at = EXCLUDED.last_seen_at`,
+      [
+        record.endpoint,
+        record.workspaceId || DEFAULT_WORKSPACE_ID,
+        record.userName,
+        record.userEmail || null,
+        JSON.stringify(record.subscription),
+        record.userAgent || null,
+        record.createdAt || new Date().toISOString(),
+        record.lastSeenAt || new Date().toISOString(),
+      ]
+    );
+  } catch (e) {
+    console.error('[db] savePushSubscription error:', e.message);
+  }
+}
+
+async function deletePushSubscription(endpoint) {
+  if (!pool || !endpoint) return;
+  try {
+    await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
+  } catch (e) {
+    console.error('[db] deletePushSubscription error:', e.message);
+  }
+}
+
+async function loadPushSubscriptions() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query('SELECT * FROM push_subscriptions ORDER BY last_seen_at DESC');
+    return rows.map(row => ({
+      endpoint: row.endpoint,
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      userName: row.user_name,
+      userEmail: row.user_email || null,
+      subscription: row.subscription,
+      userAgent: row.user_agent || null,
+      createdAt: row.created_at,
+      lastSeenAt: row.last_seen_at,
+    }));
+  } catch (e) {
+    console.error('[db] loadPushSubscriptions error:', e.message);
+    return null;
+  }
+}
+
 async function closePool() {
   if (pool) await pool.end();
 }
@@ -1346,6 +1406,9 @@ module.exports = {
   saveSession,
   deleteSession,
   loadSessions,
+  savePushSubscription,
+  deletePushSubscription,
+  loadPushSubscriptions,
   loadEmailAllowlist,
   addEmailAllowlist,
   removeEmailAllowlist,
