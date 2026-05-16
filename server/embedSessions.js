@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 
 const DEFAULT_TTL_SECONDS = 60 * 60;
 const MIN_TTL_SECONDS = 5 * 60;
@@ -152,6 +153,27 @@ function sanitizeEmbedGuestName(raw) {
   return base || 'guest';
 }
 
+function sanitizeEmbedBrowserId(raw) {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '')
+    .slice(0, 96);
+  return value || null;
+}
+
+function embedGuestSuffixForBrowser({ browserId, workspaceId, origin, channelIds = [] }) {
+  const normalizedBrowserId = sanitizeEmbedBrowserId(browserId);
+  if (!normalizedBrowserId) return null;
+  const scoped = [
+    workspaceId || 'default',
+    origin || '',
+    [...channelIds].sort().join(','),
+    normalizedBrowserId,
+  ].join('|');
+  return crypto.createHash('sha256').update(scoped).digest('hex').slice(0, 6);
+}
+
 module.exports = {
   DEFAULT_TTL_SECONDS,
   MIN_TTL_SECONDS,
@@ -160,4 +182,6 @@ module.exports = {
   createEmbedSettingsStore,
   createEmbedRateLimiter,
   sanitizeEmbedGuestName,
+  sanitizeEmbedBrowserId,
+  embedGuestSuffixForBrowser,
 };
