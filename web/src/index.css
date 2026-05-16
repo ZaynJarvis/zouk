@@ -175,11 +175,11 @@
     color: rgb(var(--nc-selection-text));
   }
 
-  /* Prevent iOS Safari from zooming on input focus (triggered when font-size < 16px) */
-  @supports (-webkit-touch-callout: none) {
-    input, textarea, select {
-      font-size: max(16px, 1em);
-    }
+  /* Text controls stay at >=16px across themes and utility classes. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
   }
 }
 
