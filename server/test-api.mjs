@@ -43,6 +43,14 @@ const BASE = `http://localhost:${TEST_PORT}`;
 // Tests write real bytes through the attachment storage layer; keep them out of
 // the dev workspace's uploads/ dir so re-runs stay clean.
 const TEST_UPLOADS_DIR = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-test-uploads-'));
+const TEST_CONFIG_DIR = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-test-config-'));
+const ROOT_TOKEN = 'ci-root-token';
+const ROOT_EMAIL = 'ci-root@example.com';
+fs.writeFileSync(
+  path.join(TEST_CONFIG_DIR, 'sessions.json'),
+  JSON.stringify([[ROOT_TOKEN, { name: 'ci-root', email: ROOT_EMAIL, picture: null }]]),
+  'utf8'
+);
 
 let serverProc = null;
 
@@ -65,7 +73,14 @@ async function json(res) {
 
 before(async () => {
   serverProc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: { ...process.env, PORT: String(TEST_PORT), NODE_ENV: 'test', ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR },
+    env: {
+      ...process.env,
+      PORT: String(TEST_PORT),
+      NODE_ENV: 'test',
+      ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+      ZOUK_CONFIG_DIR: TEST_CONFIG_DIR,
+      ZOUK_SUPERUSERS: ROOT_EMAIL,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   serverProc.stdout.resume();
@@ -76,6 +91,7 @@ before(async () => {
 after(() => {
   serverProc?.kill('SIGTERM');
   fs.rmSync(TEST_UPLOADS_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -152,6 +168,77 @@ test('GET /api/channels: returns default "all" channel', async () => {
   assert.ok(Array.isArray(body.channels), 'channels must be an array');
   const all = body.channels.find(c => c.name === 'all');
   assert.ok(all, '"all" channel must exist in the default store');
+});
+
+test('embed guest session: channel-scoped token can only use allowed chat APIs', async () => {
+  const channelsRes = await json(await fetch(`${BASE}/api/channels`, {
+    headers: { Authorization: `Bearer ${ROOT_TOKEN}` },
+  }));
+  const all = channelsRes.body.channels.find(c => c.name === 'all');
+  assert.ok(all?.id, 'all channel id is required for embed scope');
+
+  const settingsRes = await json(await fetch(`${BASE}/api/settings/embed`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ROOT_TOKEN}` },
+    body: JSON.stringify({
+      enabled: true,
+      allowedOrigins: ['https://studio.zaynjarvis.com'],
+      allowedChannelIds: [all.id],
+      tokenTtlSeconds: 900,
+    }),
+  }));
+  assert.equal(settingsRes.status, 200);
+  assert.equal(settingsRes.body.settings.enabled, true);
+
+  const rejectedOrigin = await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+    body: JSON.stringify({ workspaceId: 'default', channel: 'all', name: 'bad-origin' }),
+  });
+  assert.equal(rejectedOrigin.status, 403);
+
+  const embedRes = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify({ workspaceId: 'default', channel: 'all', name: 'blog reader' }),
+  }));
+  assert.equal(embedRes.status, 200);
+  assert.equal(embedRes.body.user.embed, true);
+  assert.ok(embedRes.body.token, 'embed session must return a token');
+
+  const embedHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${embedRes.body.token}`,
+  };
+  const channelList = await json(await fetch(`${BASE}/api/channels`, { headers: embedHeaders }));
+  assert.equal(channelList.status, 200);
+  assert.deepEqual(channelList.body.channels.map(c => c.name), ['all']);
+
+  const marker = `ci-embed-chat-${Date.now()}`;
+  const sent = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: embedHeaders,
+    body: JSON.stringify({ target: '#all', content: marker }),
+  }));
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.message.content, marker);
+  assert.match(sent.body.message.senderName, /^embed-blog-reader-/);
+
+  const history = await json(await fetch(`${BASE}/api/messages`, {
+    headers: { ...embedHeaders, 'X-Channel': '#all', 'X-Limit': '20' },
+  }));
+  assert.equal(history.status, 200);
+  assert.ok(history.body.messages.some(m => m.content === marker), 'embed token must read allowed channel history');
+
+  const dmWrite = await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: embedHeaders,
+    body: JSON.stringify({ target: 'dm:@agent-mock-reviewer', content: 'nope' }),
+  });
+  assert.equal(dmWrite.status, 403, 'embed token must not write DMs');
+
+  const privilegedRead = await fetch(`${BASE}/api/agents`, { headers: embedHeaders });
+  assert.equal(privilegedRead.status, 403, 'embed token must not read non-chat APIs');
 });
 
 // ─── Messages ─────────────────────────────────────────────────────────────────

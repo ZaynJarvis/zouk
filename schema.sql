@@ -155,6 +155,16 @@ CREATE TABLE IF NOT EXISTS agent_profile_presets (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS workspace_embed_settings (
+  workspace_id       TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  enabled            BOOLEAN NOT NULL DEFAULT false,
+  allowed_origins    JSONB NOT NULL DEFAULT '[]',
+  allowed_channel_ids JSONB NOT NULL DEFAULT '[]',
+  token_ttl_seconds  INTEGER NOT NULL DEFAULT 3600,
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by         TEXT
+);
+
 CREATE TABLE IF NOT EXISTS email_allowlist (
   workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,
   email      TEXT NOT NULL,

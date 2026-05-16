@@ -1,4 +1,4 @@
-import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceEmbedSettings } from '../types';
 import { getActiveWorkspaceId as getScopedActiveWorkspaceId } from './workspaceRoute';
 
 function getBaseUrl(): string {
@@ -555,6 +555,38 @@ export async function removeWorkspaceMember(workspaceId: string, email: string):
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || `Failed to remove member: ${res.status}`);
   }
+}
+
+export async function getEmbedSettings(): Promise<WorkspaceEmbedSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/embed`, {
+    headers: getAuthHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to load embed settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
+}
+
+export async function saveEmbedSettings(input: {
+  enabled: boolean;
+  allowedOrigins: string[];
+  allowedChannelIds: string[];
+  tokenTtlSeconds: number;
+}): Promise<WorkspaceEmbedSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/embed`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to save embed settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
 }
 
 export async function getAllowlist(): Promise<AllowlistResponse> {

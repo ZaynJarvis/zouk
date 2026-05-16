@@ -11,6 +11,12 @@ const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const db = require("./db");
 const { createStore: createProfilePresetsStore, MAX_PRESETS: PROFILE_PRESET_MAX } = require("./profilePresets");
+const {
+  createEmbedSettingsStore,
+  createEmbedRateLimiter,
+  normalizeOrigin: normalizeEmbedOrigin,
+  sanitizeEmbedGuestName,
+} = require("./embedSessions");
 const { createStorage } = require("./storage");
 const mockData = require("./mockData");
 const { provisionAgentKey } = require("./openviking-admin");
@@ -314,6 +320,7 @@ const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
 const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
 const SESSIONS_FILE = path.join(CONFIG_DIR, "sessions.json");
 const AGENT_PROFILE_PRESETS_FILE = path.join(CONFIG_DIR, "agent-profile-presets.json");
+const WORKSPACE_EMBED_SETTINGS_FILE = path.join(CONFIG_DIR, "workspace-embed-settings.json");
 
 // ─── Agent config persistence ────────────────────────────────────
 
@@ -854,6 +861,9 @@ function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) 
 
 function userWorkspaceRole(user, workspaceId = DEFAULT_WORKSPACE_ID) {
   const id = normalizeWorkspaceId(workspaceId);
+  if (isEmbedSessionUser(user)) {
+    return normalizeWorkspaceId(user.embed.workspaceId) === id ? "member" : null;
+  }
   if (!user?.email) {
     if (id !== DEFAULT_WORKSPACE_ID || allowlistActive(id)) return null;
     return GUEST_ELEVATED ? "root" : "member";
@@ -1272,6 +1282,42 @@ function resolveTargetChannel(target, requesterName, workspaceId = DEFAULT_WORKS
   ));
   if (!ch) return { channel: null, channelName, channelType, threadId };
   return { channel: ch, channelName, channelType, threadId };
+}
+
+function embedAllowedChannelIds(user) {
+  if (!isEmbedSessionUser(user)) return null;
+  return new Set(Array.isArray(user.embed.allowedChannelIds) ? user.embed.allowedChannelIds : []);
+}
+
+function embedCanAccessChannel(user, channel, workspaceId = DEFAULT_WORKSPACE_ID) {
+  if (!isEmbedSessionUser(user)) return true;
+  if (!channel) return false;
+  if ((channel.type || "channel") !== "channel") return false;
+  if (normalizeWorkspaceId(user.embed.workspaceId) !== normalizeWorkspaceId(workspaceId)) return false;
+  if (normalizeWorkspaceId(channel.workspaceId || DEFAULT_WORKSPACE_ID) !== normalizeWorkspaceId(workspaceId)) return false;
+  return embedAllowedChannelIds(user)?.has(channel.id) || false;
+}
+
+function embedVisibleAgentIds(user) {
+  const allowed = embedAllowedChannelIds(user);
+  if (!allowed) return null;
+  const ids = new Set();
+  for (const channelId of allowed) {
+    const members = store.channelAgents.get(channelId);
+    if (!members) continue;
+    for (const [agentId, membership] of members.entries()) {
+      if (membership?.canRead || membership?.subscribed) ids.add(agentId);
+    }
+  }
+  return ids;
+}
+
+function embedApiRouteAllowed(req) {
+  const method = String(req.method || "").toUpperCase();
+  const path = req.path || "";
+  if (path === "/api/messages" && (method === "GET" || method === "POST")) return true;
+  if (path === "/api/channels" && method === "GET") return true;
+  return false;
 }
 
 // Channel ids the agent is allowed to read messages in: regular channels via
@@ -1856,9 +1902,23 @@ function shouldDeliverEventToWebViewer(event, ws) {
   if (eventWorkspaceId && normalizeWorkspaceId(ws._workspaceId || DEFAULT_WORKSPACE_ID) !== eventWorkspaceId) {
     return false;
   }
+  const viewerUser = ws._authToken ? getAuthSession(ws._authToken) : null;
+  if (isEmbedSessionUser(viewerUser) && event.type !== "message" && event.type !== "new_message") {
+    return false;
+  }
   if (event.type !== "message" && event.type !== "new_message") return true;
   const msg = event.message;
   if (!msg) return true;
+  if (isEmbedSessionUser(viewerUser)) {
+    const channel = msg.channelId
+      ? store.channels.find((ch) => ch.id === msg.channelId)
+      : store.channels.find((ch) => (
+        (ch.workspaceId || DEFAULT_WORKSPACE_ID) === normalizeWorkspaceId(msg.workspaceId || DEFAULT_WORKSPACE_ID)
+        && ch.name === (msg.parentChannelName || msg.channelName)
+        && (ch.type || "channel") === (msg.parentChannelType || msg.channelType || "channel")
+      ));
+    return embedCanAccessChannel(viewerUser, channel, msg.workspaceId || DEFAULT_WORKSPACE_ID);
+  }
   const isDm = msg.channelType === "dm" || msg.parentChannelType === "dm";
   if (!isDm) return true;
   const parties = msg.dmParties;
@@ -1872,6 +1932,12 @@ const profilePresets = createProfilePresetsStore({
   filePath: AGENT_PROFILE_PRESETS_FILE,
   db,
 });
+const embedSettings = createEmbedSettingsStore({
+  filePath: WORKSPACE_EMBED_SETTINGS_FILE,
+  db,
+  defaultWorkspaceId: DEFAULT_WORKSPACE_ID,
+});
+const embedSessionRateLimiter = createEmbedRateLimiter();
 
 function removeWorkspaceFromMemory(workspaceId) {
   const id = normalizeWorkspaceId(workspaceId);
@@ -1961,6 +2027,7 @@ function removeWorkspaceFromMemory(workspaceId) {
     if (key.startsWith(`${id}:`)) removedWorkspaceMembers.delete(key);
   }
   profilePresets.removeWorkspace?.(id);
+  embedSettings.removeWorkspace(id);
   return true;
 }
 
@@ -2092,7 +2159,7 @@ function closeWorkspaceSocketsForEmail(workspaceId, email, reason = "workspace m
   if (!normalized) return 0;
   let closed = 0;
   for (const ws of webSockets) {
-    const user = ws._authToken ? authSessions.get(ws._authToken) : null;
+    const user = ws._authToken ? getAuthSession(ws._authToken) : null;
     if (String(user?.email || "").trim().toLowerCase() !== normalized) continue;
     if (normalizeWorkspaceId(ws._workspaceId || DEFAULT_WORKSPACE_ID) !== id) continue;
     try { ws.close(4003, reason); } catch { void 0; }
@@ -2103,8 +2170,8 @@ function closeWorkspaceSocketsForEmail(workspaceId, email, reason = "workspace m
 
 function resolveWsHuman(msg = {}, fallbackToken = null) {
   const token = typeof msg.token === "string" && msg.token ? msg.token : fallbackToken;
-  if (token && authSessions.has(token)) {
-    const user = authSessions.get(token);
+  const user = token ? getAuthSession(token) : null;
+  if (user) {
     return {
       token,
       human: {
@@ -2916,17 +2983,20 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 // the allowlist became active (or whose email was later removed) is rejected.
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  const user = token ? authSessions.get(token) : null;
+  const user = token ? getAuthSession(token) : null;
   const workspaceId = workspaceIdFromReq(req);
   if (!user) {
     return res.status(403).json({ error: "Authentication required. Please sign in to perform this action." });
   }
-  if (allowlistActive(workspaceId) && !isEmailAllowed(user.email, workspaceId)) {
+  if (!isEmbedSessionUser(user) && allowlistActive(workspaceId) && !isEmailAllowed(user.email, workspaceId)) {
     return res.status(403).json({ error: "Email not authorized to access this server." });
   }
-  ensureWorkspaceMemberForUser(user, workspaceId);
+  if (!isEmbedSessionUser(user)) ensureWorkspaceMemberForUser(user, workspaceId);
   if (!findWorkspace(workspaceId) || !userCanAccessWorkspace(user, workspaceId)) {
     return res.status(403).json({ error: "Not a member of this workspace." });
+  }
+  if (isEmbedSessionUser(user) && !embedApiRouteAllowed(req)) {
+    return res.status(403).json({ error: "Embed session is not allowed to access this API." });
   }
   req.workspaceId = workspaceId;
   req.user = user;
@@ -2935,9 +3005,12 @@ function requireAuth(req, res, next) {
 
 function requireSessionAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  const user = token ? authSessions.get(token) : null;
+  const user = token ? getAuthSession(token) : null;
   if (!user) {
     return res.status(403).json({ error: "Authentication required. Sign in with Google to perform this action." });
+  }
+  if (isEmbedSessionUser(user)) {
+    return res.status(403).json({ error: "Full Zouk session required." });
   }
   if (visibleWorkspacesForUser(user).length === 0) {
     return res.status(403).json({ error: "Email not authorized to access this server." });
@@ -2953,10 +3026,13 @@ function requireWorkspaceRead(req, res, next) {
     return res.status(404).json({ error: "Workspace not found." });
   }
   const token = req.headers.authorization?.replace("Bearer ", "");
-  const user = token ? authSessions.get(token) : null;
+  const user = token ? getAuthSession(token) : null;
   const defaultOpenRead = !user && workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(workspaceId);
   if (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, workspaceId))) {
     return res.status(403).json({ error: "Not a member of this workspace." });
+  }
+  if (isEmbedSessionUser(user) && !embedApiRouteAllowed(req)) {
+    return res.status(403).json({ error: "Embed session is not allowed to access this API." });
   }
   req.workspaceId = workspaceId;
   req.user = user;
@@ -3016,12 +3092,18 @@ app.post("/api/messages", requireAuth, (req, res) => {
   // state can't pollute canonical DM channel names (would split PM threads).
   // Falls back to the legacy body.senderName, then to "local-user" for tooling.
   const token = req.headers.authorization?.replace("Bearer ", "");
-  const authedName = token ? authSessions.get(token)?.name : null;
+  const authedName = token ? getAuthSession(token)?.name : null;
   const { target, content, senderName: bodyName, attachmentIds } = req.body;
   const senderName = authedName || bodyName || "local-user";
   const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
   const { channelName, channelType, threadId } = parseTarget(target, senderName);
-  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
+  const resolved = resolveTargetChannel(target, senderName, workspaceId);
+  if (isEmbedSessionUser(req.user)) {
+    if (!resolved.channel || !embedCanAccessChannel(req.user, resolved.channel, workspaceId)) {
+      return res.status(403).json({ error: "Embed session is not allowed to write to this channel." });
+    }
+  }
+  const ch = resolved.channel || findOrCreateChannel(channelName, channelType, workspaceId);
 
   const msg = persistUserMessage({
     workspaceId,
@@ -3156,6 +3238,9 @@ app.get("/api/messages", requireWorkspaceRead, async (req, res) => {
   if (!resolved.channel) {
     return res.json({ messages: [], hasMore: false });
   }
+  if (isEmbedSessionUser(req.user) && !embedCanAccessChannel(req.user, resolved.channel, workspaceId)) {
+    return res.status(403).json({ error: "Embed session is not allowed to read this channel." });
+  }
   const channelId = resolved.channel.id;
   const threadId = resolved.threadId;
 
@@ -3201,6 +3286,7 @@ app.get("/api/channels", requireWorkspaceRead, (req, res) => {
     channels: store.channels.filter((ch) => (
       (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
       && (ch.type || "channel") === "channel"
+      && (!isEmbedSessionUser(req.user) || embedCanAccessChannel(req.user, ch, workspaceId))
     )),
   });
 });
@@ -4269,7 +4355,7 @@ server.on("upgrade", (request, socket, head) => {
     // hammering the server and the upgrade succeeds as a "guest" — same
     // expensive init payload, just under a different label. Outright reject
     // and escalate to a 24h block after a few strikes.
-    if (wsToken && !authSessions.has(wsToken)) {
+    if (wsToken && !hasAuthSession(wsToken)) {
       const entry = recordInvalidTokenAttempt(wsToken, remoteIp);
       const blocked = entry.blockedUntil > Date.now();
       const reason = (blocked ? entry.blockReason : "invalid or expired token").replace(/[\r\n]/g, " ").slice(0, 120);
@@ -4733,8 +4819,8 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
   ws._authenticated = !!authenticated;
   ws._authToken = token;
   ws._workspaceId = normalizeWorkspaceId(workspaceId);
-  const user = token ? authSessions.get(token) : null;
-  if (user && ws._workspaceId === DEFAULT_WORKSPACE_ID && findWorkspace(ws._workspaceId) && isEmailAllowed(user.email, ws._workspaceId)) {
+  const user = token ? getAuthSession(token) : null;
+  if (user && !isEmbedSessionUser(user) && ws._workspaceId === DEFAULT_WORKSPACE_ID && findWorkspace(ws._workspaceId) && isEmailAllowed(user.email, ws._workspaceId)) {
     ensureWorkspaceMemberForUser(user, ws._workspaceId);
   }
   if ((!user && ws._workspaceId !== DEFAULT_WORKSPACE_ID) || (user && !userCanAccessWorkspace(user, ws._workspaceId)) || !findWorkspace(ws._workspaceId)) {
@@ -4742,7 +4828,7 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
   }
   // Seed from the auth session so DM broadcasts can be filtered immediately;
   // setWebPresence() will overwrite this with the canonical presence identity.
-  ws._humanName = token ? (authSessions.get(token)?.name || null) : null;
+  ws._humanName = user?.name || null;
   ws._human = null;
   webSockets.add(ws);
 
@@ -4755,25 +4841,33 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
     const canReadWorkspace = user
       ? userCanAccessWorkspace(user, ws._workspaceId)
       : ws._workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(ws._workspaceId);
+    const embedUser = isEmbedSessionUser(user);
+    const embedAgentIds = embedUser ? embedVisibleAgentIds(user) : null;
+    const visibleChannels = canReadWorkspace ? store.channels.filter((ch) => (
+      (ch.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
+      && (ch.type || "channel") === "channel"
+      && (!embedUser || embedCanAccessChannel(user, ch, ws._workspaceId))
+    )) : [];
+    const visibleAgents = canReadWorkspace ? Object.keys(store.agents)
+      .map((id) => agentPayload(id))
+      .filter((agent) => (
+        (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
+        && (!embedAgentIds || embedAgentIds.has(agent.id))
+      )) : [];
     try {
       ws.send(JSON.stringify({
         type: "init",
         workspaceId: ws._workspaceId,
         workspaces: visibleWorkspacesForUser(user),
-        workspaceMembers: canReadWorkspace ? listWorkspaceMembers(ws._workspaceId) : [],
+        workspaceMembers: canReadWorkspace && !embedUser ? listWorkspaceMembers(ws._workspaceId) : [],
         workspaceAllowlistActive: allowlistActive(ws._workspaceId),
         viewerRole: user ? userWorkspaceRole(user, ws._workspaceId) : null,
         isSuperuser: !!(user && isSuperuser(user.email)),
-        channels: canReadWorkspace ? store.channels.filter((ch) => (
-          (ch.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
-          && (ch.type || "channel") === "channel"
-        )) : [],
-        agents: canReadWorkspace ? Object.keys(store.agents)
-          .map((id) => agentPayload(id))
-          .filter((agent) => (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
-        humans: currentHumans(),
-        configs: canReadWorkspace ? sanitizedAgentConfigs().filter((config) => (config.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
-        machines: canReadWorkspace ? Array.from(machines.values()).filter((machine) => (machine.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
+        channels: visibleChannels,
+        agents: visibleAgents,
+        humans: embedUser ? [] : currentHumans(),
+        configs: canReadWorkspace && !embedUser ? sanitizedAgentConfigs().filter((config) => (config.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
+        machines: canReadWorkspace && !embedUser ? Array.from(machines.values()).filter((machine) => (machine.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
       }));
     } catch (e) {
       console.warn("[web] init send failed:", e.message);
@@ -4819,7 +4913,7 @@ function webRequestWorkspaceId(ws, msg) {
     });
     return null;
   }
-  const user = ws._authToken ? authSessions.get(ws._authToken) : null;
+  const user = ws._authToken ? getAuthSession(ws._authToken) : null;
   const defaultOpenRead = !user && requestedWorkspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(requestedWorkspaceId);
   if (!findWorkspace(requestedWorkspaceId) || (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, requestedWorkspaceId)))) {
     sendWebError(ws, "Not a member of this workspace.", {
@@ -4851,6 +4945,11 @@ function handleWebMessage(ws, msg) {
   if (WS_AUTH_REQUIRED_TYPES.has(msg.type) && !ws._authenticated) {
     ws.send(JSON.stringify({ type: "error", message: "Authentication required. Please sign in to perform this action." }));
     console.log(`[web] Blocked unauthenticated WS message: ${msg.type}`);
+    return;
+  }
+  const user = ws._authToken ? getAuthSession(ws._authToken) : null;
+  if (isEmbedSessionUser(user) && msg.type !== "presence:update" && msg.type !== "presence:clear") {
+    sendWebError(ws, "Embed sessions can only use chat presence over websocket.", { code: "embed_forbidden" });
     return;
   }
 
@@ -5057,6 +5156,43 @@ function handleWebMessage(ws, msg) {
 const authSessions = new Map();
 const MAGIC_LOGIN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const magicLoginChallenges = new Map();
+
+function isEmbedSessionUser(user) {
+  return !!user?.embed?.workspaceId;
+}
+
+function embedSessionExpired(user) {
+  if (!isEmbedSessionUser(user)) return false;
+  const expiresAt = Date.parse(user.embed.expiresAt || "");
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+function getAuthSession(token) {
+  if (!token) return null;
+  const user = authSessions.get(token);
+  if (!user) return null;
+  if (embedSessionExpired(user)) {
+    authSessions.delete(token);
+    return null;
+  }
+  return user;
+}
+
+function hasAuthSession(token) {
+  return !!getAuthSession(token);
+}
+
+function publicAuthUser(user) {
+  if (!user) return null;
+  return {
+    name: user.name,
+    email: user.email || null,
+    picture: user.picture || null,
+    gravatarUrl: user.gravatarUrl || null,
+    guest: !!user.guest,
+    embed: isEmbedSessionUser(user),
+  };
+}
 
 // Load sessions from PostgreSQL (when available) or local file fallback.
 // Called at startup — must be awaited before server accepts requests.
@@ -5301,10 +5437,11 @@ app.post("/api/auth/supabase", async (req, res) => {
 
 app.get("/api/auth/me", (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "");
-  if (!token || !authSessions.has(token)) {
+  const user = token ? getAuthSession(token) : null;
+  if (!user) {
     return res.status(401).json({ error: "Not authenticated" });
   }
-  res.json({ user: authSessions.get(token) });
+  res.json({ user: publicAuthUser(user) });
 });
 
 app.post("/api/auth/logout", (req, res) => {
@@ -5326,7 +5463,7 @@ app.put("/api/auth/profile", requireAuth, (req, res) => {
   if (isReservedName(trimmed)) {
     return res.status(400).json({ error: `"${trimmed}" is a reserved username and cannot be used.` });
   }
-  const user = authSessions.get(token);
+  const user = getAuthSession(token);
   if (!user) return res.status(401).json({ error: "Not authenticated" });
   const oldName = user.name;
   user.name = trimmed;
@@ -5718,7 +5855,7 @@ app.get("/api/_internal/ws-clients", requireAuth, (req, res) => {
     pruneRecentConnects(entry, nowMs);
     let owner = null;
     if (entry.kind === "token" && entry.token) {
-      owner = authSessions.get(entry.token) || null;
+      owner = getAuthSession(entry.token) || null;
     }
     const blocked = entry.blockedUntil > nowMs;
     clients.push({
@@ -5740,7 +5877,7 @@ app.get("/api/_internal/ws-clients", requireAuth, (req, res) => {
       blockedUntil: blocked ? entry.blockedUntil : 0,
       blockReason: blocked ? entry.blockReason : null,
       manualBlock: !!entry.manualBlock,
-      sessionExists: entry.kind === "token" ? authSessions.has(entry.token) : null,
+      sessionExists: entry.kind === "token" ? hasAuthSession(entry.token) : null,
     });
   }
   clients.sort((a, b) => {
@@ -5775,7 +5912,7 @@ app.post("/api/_internal/ws-clients/:id/revoke", requireAuth, (req, res) => {
   entry.blockReason = "manual revoke";
   if (entry.kind === "token" && entry.token) {
     const tokenToKill = entry.token;
-    if (authSessions.has(tokenToKill)) {
+    if (hasAuthSession(tokenToKill)) {
       authSessions.delete(tokenToKill);
       removeSession(tokenToKill).catch(e => console.warn("[auth] removeSession error:", e.message));
     }
@@ -5802,6 +5939,81 @@ app.post("/api/_internal/ws-clients/:id/unblock", requireAuth, (req, res) => {
   entry.blockReason = null;
   entry.recentConnects = [];
   res.json({ ok: true });
+});
+
+function embedSettingsPayload(workspaceId) {
+  const settings = embedSettings.get(workspaceId);
+  const allowed = new Set(settings.allowedChannelIds || []);
+  const channels = store.channels
+    .filter((ch) => (
+      (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+      && (ch.type || "channel") === "channel"
+      && allowed.has(ch.id)
+    ))
+    .map((ch) => ({ id: ch.id, name: ch.name, description: ch.description || "" }));
+  return { ...settings, allowedChannels: channels };
+}
+
+function parseEmbedOrigins(rawOrigins) {
+  const values = Array.isArray(rawOrigins)
+    ? rawOrigins
+    : String(rawOrigins || "").split(/\n|,/);
+  const origins = [];
+  for (const raw of values) {
+    const value = String(raw || "").trim();
+    if (!value) continue;
+    const origin = normalizeEmbedOrigin(value);
+    if (!origin) {
+      const err = new Error(`Invalid origin: ${value}`);
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!origins.includes(origin)) origins.push(origin);
+  }
+  return origins;
+}
+
+// ─── Settings: external embed access ──────────────────────────────
+
+app.get("/api/settings/embed", requireAuth, requireWorkspaceAdmin, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  res.json({ settings: embedSettingsPayload(workspaceId) });
+});
+
+app.put("/api/settings/embed", requireAuth, requireWorkspaceAdmin, async (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  let allowedOrigins;
+  try {
+    allowedOrigins = parseEmbedOrigins(req.body?.allowedOrigins);
+  } catch (e) {
+    return res.status(e.statusCode || 400).json({ error: e.message });
+  }
+  const requestedChannelIds = Array.isArray(req.body?.allowedChannelIds) ? req.body.allowedChannelIds : [];
+  const allowedChannelIds = [];
+  for (const id of requestedChannelIds) {
+    const channelId = String(id || "").trim();
+    if (!channelId || allowedChannelIds.includes(channelId)) continue;
+    const channel = store.channels.find((ch) => (
+      ch.id === channelId
+      && (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+      && (ch.type || "channel") === "channel"
+    ));
+    if (!channel) return res.status(400).json({ error: `Unknown channel id: ${channelId}` });
+    allowedChannelIds.push(channelId);
+  }
+  if (req.body?.enabled && allowedOrigins.length === 0) {
+    return res.status(400).json({ error: "At least one allowed origin is required when embed is enabled." });
+  }
+  if (req.body?.enabled && allowedChannelIds.length === 0) {
+    return res.status(400).json({ error: "At least one channel scope is required when embed is enabled." });
+  }
+  const saved = await embedSettings.save(embedSettings.normalize({
+    enabled: !!req.body?.enabled,
+    allowedOrigins,
+    allowedChannelIds,
+    tokenTtlSeconds: req.body?.tokenTtlSeconds,
+  }, workspaceId, req.user?.email || req.user?.name || null));
+  res.json({ settings: embedSettingsPayload(saved.workspaceId) });
 });
 
 // ─── Settings: email allowlist (admin UI for the DB source) ──────
@@ -5841,7 +6053,7 @@ app.post("/api/settings/allowlist", requireAuth, requireWorkspaceAdmin, async (r
     return res.status(400).json({ error: "Invalid email address" });
   }
   const token = req.headers.authorization?.replace("Bearer ", "");
-  const addedBy = token ? authSessions.get(token)?.email || null : null;
+  const addedBy = token ? getAuthSession(token)?.email || null : null;
   const row = await db.addEmailAllowlist(normalized, addedBy, workspaceId);
   if (!row || row.dbError) {
     return res.status(500).json({ error: row?.dbError || "Failed to add allowlist entry" });
@@ -5875,6 +6087,87 @@ app.delete("/api/settings/allowlist/:email", requireAuth, requireWorkspaceAdmin,
   }
   dbAllowEmails.delete(key);
   res.json({ ok: true });
+});
+
+function resolveEmbedRequestedChannel(workspaceId, body = {}) {
+  const channelId = String(body.channelId || "").trim();
+  const channelName = String(body.channel || body.channelName || "").trim().replace(/^#/, "");
+  if (!channelId && !channelName) return null;
+  return store.channels.find((ch) => (
+    (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+    && (ch.type || "channel") === "channel"
+    && ((channelId && ch.id === channelId) || (channelName && ch.name === channelName))
+  )) || null;
+}
+
+app.post("/api/auth/embed-guest-session", (req, res) => {
+  const workspaceId = workspaceIdFromReq(req);
+  const workspace = findWorkspace(workspaceId);
+  if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+
+  const settings = embedSettings.get(workspaceId);
+  if (!settings.enabled) return res.status(403).json({ error: "Embed access is disabled for this workspace." });
+
+  const origin = normalizeEmbedOrigin(req.headers.origin || "");
+  if (!origin || !settings.allowedOrigins.includes(origin)) {
+    return res.status(403).json({ error: "Origin is not allowed for this workspace embed." });
+  }
+
+  const remoteIp = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim()
+    || req.socket.remoteAddress
+    || "unknown";
+  const rate = embedSessionRateLimiter.check(`${workspaceId}:${origin}:${remoteIp}`);
+  if (!rate.allowed) {
+    res.set("Retry-After", String(rate.retryAfterSeconds));
+    return res.status(429).json({ error: "Too many embed session requests." });
+  }
+
+  const configuredChannelIds = new Set(settings.allowedChannelIds || []);
+  const requested = resolveEmbedRequestedChannel(workspaceId, req.body || {});
+  let allowedChannelIds = [...configuredChannelIds].filter((id) => store.channels.some((ch) => (
+    ch.id === id
+    && (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
+    && (ch.type || "channel") === "channel"
+  )));
+  if (requested) {
+    if (!configuredChannelIds.has(requested.id)) {
+      return res.status(403).json({ error: "Requested channel is not allowed for this workspace embed." });
+    }
+    allowedChannelIds = [requested.id];
+  }
+  if (allowedChannelIds.length === 0) {
+    return res.status(403).json({ error: "No channel scope is configured for this workspace embed." });
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const baseName = sanitizeEmbedGuestName(req.body?.name);
+  const randomSuffix = crypto.randomBytes(3).toString("hex");
+  const name = `embed-${baseName}-${randomSuffix}`.slice(0, 64);
+  const expiresAt = new Date(Date.now() + settings.tokenTtlSeconds * 1000).toISOString();
+  const user = {
+    name,
+    email: null,
+    picture: null,
+    guest: true,
+    embed: {
+      workspaceId,
+      origin,
+      allowedChannelIds,
+      expiresAt,
+    },
+  };
+  authSessions.set(token, user);
+  res.json({
+    token,
+    user: publicAuthUser(user),
+    workspaceId,
+    allowedChannelIds,
+    allowedChannels: allowedChannelIds
+      .map((id) => store.channels.find((ch) => ch.id === id))
+      .filter(Boolean)
+      .map((ch) => ({ id: ch.id, name: ch.name })),
+    expiresAt,
+  });
 });
 
 // Guest session endpoint.
@@ -6060,6 +6353,7 @@ async function initFromDB() {
     }
 
     await profilePresets.hydrateFromDb();
+    await embedSettings.hydrateFromDb();
 
     // One-shot trim of any historical activity backlog — cheap at our scale.
     db.trimAllAgentActivities().catch((e) =>

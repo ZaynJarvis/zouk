@@ -263,6 +263,16 @@ export interface WorkspaceMember {
   joinedAt?: string | null;
 }
 
+export interface WorkspaceEmbedSettings {
+  workspaceId: string;
+  enabled: boolean;
+  allowedOrigins: string[];
+  allowedChannelIds: string[];
+  tokenTtlSeconds: number;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
 export interface InitPayload {
   channels: ServerChannel[];
   agents: ServerAgent[];
