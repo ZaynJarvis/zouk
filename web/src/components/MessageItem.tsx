@@ -373,7 +373,7 @@ export default function MessageItem({
 
           {/* Non-image attachments — V1-style file chip */}
           {fileAttachments.length > 0 && (
-            <div className="zk-row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <div className="zk-row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
               {fileAttachments.map((att) => (
                 <a
                   key={att.id}
@@ -381,6 +381,7 @@ export default function MessageItem({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="zk-row"
+                  title={att.filename}
                   style={{
                     gap: 8,
                     padding: '8px 12px',
@@ -390,10 +391,23 @@ export default function MessageItem({
                     color: 'var(--zk-ink)',
                     textDecoration: 'none',
                     fontSize: 12,
+                    maxWidth: '100%',
+                    minWidth: 0,
+                    overflow: 'hidden',
                   }}
                 >
-                  <Paperclip size={12} color="var(--zk-ember)" />
-                  <span style={{ fontFamily: 'var(--zk-font-mono)' }}>{att.filename}</span>
+                  <Paperclip size={12} color="var(--zk-ember)" style={{ flexShrink: 0 }} />
+                  <span
+                    style={{
+                      fontFamily: 'var(--zk-font-mono)',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {att.filename}
+                  </span>
                 </a>
               ))}
             </div>
