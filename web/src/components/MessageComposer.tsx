@@ -393,7 +393,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     : (placeholder || `Message ${channelLabel}`);
 
   return (
-    <div className={`flex-shrink-0 composer-outer${threadTarget ? '' : ' safe-bottom'}`}>
+    <div
+      className={`flex-shrink-0 composer-outer${threadTarget ? '' : ' safe-bottom zouk-vv-chat-composer'}`}
+      data-zouk-vv-composer={threadTarget ? undefined : true}
+    >
       <div className="composer-inner-pad px-2 sm:px-6 pt-1 sm:pt-2 pb-0 sm:pb-4 relative max-w-[var(--chat-max-width)] mx-auto w-full">
         {mentionQuery !== null && mentionMatches.length > 0 && (
           <div
