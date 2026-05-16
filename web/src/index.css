@@ -397,6 +397,19 @@ html[data-display-mode="standalone"] .safe-bottom {
   padding-bottom: 0;
 }
 
+html.visual-viewport-active,
+html.visual-viewport-active body,
+html.visual-viewport-active #root {
+  overflow: hidden;
+}
+
+html.visual-viewport-active body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* Phone/tablet composer surface: compact vertical padding lives in
    MessageComposer.tsx. This radius caps to a pill on single-line mobile
    surfaces and stays gently rounded once the composer grows multi-line. */
@@ -405,13 +418,38 @@ html[data-display-mode="standalone"] .safe-bottom {
     border-radius: 19px;
   }
 
-  /* On mobile / PWA, anchor the TopBar to the viewport so iOS keyboard
-     open-events (which translate the visual viewport upward) cannot push
-     the header off-screen. !important overrides .scanline-overlay's
-     `position: relative`; the pseudo-element scanline still renders
-     correctly because it is positioned relative to the fixed ancestor.
-     z-index 30 keeps the bar above page content and the right panel (z-20)
-     but below the sidebar overlay (z-30 backdrop) and sidebar (z-40). */
+  /* Mobile/PWA keyboard shell: the whole chat column follows the visual
+     viewport as one unit, matching the accepted standalone mock behavior. */
+  .zouk-vv-chat-shell {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: var(--zouk-vv-height, 100dvh);
+    min-height: 240px;
+    overflow: hidden;
+    transform: translate3d(0, var(--zouk-vv-top, 0px), 0);
+    will-change: transform, height;
+  }
+
+  .zouk-vv-chat-shell .top-bar-mobile-fixed {
+    position: relative !important;
+    top: auto;
+    left: auto;
+    right: auto;
+  }
+
+  .zouk-vv-chat-shell .top-bar-mobile-spacer {
+    display: none !important;
+  }
+
+  .zouk-vv-chat-scroller {
+    min-height: 0;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Non-chat mobile surfaces still use a fixed TopBar plus spacer. */
   .top-bar-mobile-fixed {
     position: fixed !important;
     top: 0;

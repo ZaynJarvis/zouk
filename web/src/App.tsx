@@ -22,6 +22,7 @@ import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
 import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
+import { useVisualViewportChatShell } from './hooks/useVisualViewportChatShell';
 import { initSupabase } from './lib/supabase';
 import { setStoredAuth, setStoredCurrentUser, setStoredActiveWorkspaceId, getStoredActiveWorkspaceIdOrNull } from './store/storage';
 import { normalizeWorkspaceId } from './lib/workspaceRoute';
@@ -56,6 +57,10 @@ function AppShell() {
   const threadRailRef = useRef<HTMLDivElement | null>(null);
   const [mobileSurface, setMobileSurface] = useState(() => isMobileViewport());
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
+  const showMessageView = viewMode === 'channel' || viewMode === 'dm';
+  const useViewportShell = isLoggedIn && showMessageView && mobileSurface;
+
+  useVisualViewportChatShell({ enabled: useViewportShell });
 
   useEffect(() => {
     const onResize = () => {
@@ -103,7 +108,6 @@ function AppShell() {
     return <LoginScreen />;
   }
 
-  const showMessageView = viewMode === 'channel' || viewMode === 'dm';
   // Desktop only renders the ChannelSidebar in conversational views — Memory
   // / Tasks / Agents are full-canvas surfaces with their own layouts.
   // The MOBILE sidebar modal, the floating menu button, and the edge-swipe
@@ -167,7 +171,7 @@ function AppShell() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={`flex-1 flex flex-col min-w-0 ${useViewportShell ? 'zouk-vv-chat-shell' : ''}`}>
         {/* TopBar is only needed in home (channel/dm) view. Full-canvas views
             render a safe-area-aware header with the mobile menu button inside
             the title row. TopBar stays mounted even when a right panel is
@@ -179,7 +183,7 @@ function AppShell() {
             <TopBar />
             {/* Mobile spacer reserves the h-12/14 below the fixed TopBar so
                 message content does not slide under the bar. */}
-            <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
+            <div className="top-bar-mobile-spacer flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
               <div className="h-12 sm:h-14" />
             </div>
           </>
