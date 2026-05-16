@@ -197,13 +197,15 @@ test('embed guest session: channel-scoped token can only use allowed chat APIs',
   });
   assert.equal(rejectedOrigin.status, 403);
 
+  const embedAvatar = 'https://studio.zaynjarvis.com/avatar.png';
   const embedRes = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
-    body: JSON.stringify({ workspaceId: 'default', channel: 'all', name: 'blog reader' }),
+    body: JSON.stringify({ workspaceId: 'default', channel: 'all', name: 'blog reader', picture: embedAvatar }),
   }));
   assert.equal(embedRes.status, 200);
   assert.equal(embedRes.body.user.embed, true);
+  assert.equal(embedRes.body.user.picture, embedAvatar);
   assert.ok(embedRes.body.token, 'embed session must return a token');
 
   const embedHeaders = {
@@ -228,7 +230,9 @@ test('embed guest session: channel-scoped token can only use allowed chat APIs',
     headers: { ...embedHeaders, 'X-Channel': '#all', 'X-Limit': '20' },
   }));
   assert.equal(history.status, 200);
-  assert.ok(history.body.messages.some(m => m.content === marker), 'embed token must read allowed channel history');
+  const storedEmbedMessage = history.body.messages.find(m => m.content === marker);
+  assert.ok(storedEmbedMessage, 'embed token must read allowed channel history');
+  assert.equal(storedEmbedMessage.senderPicture, embedAvatar, 'embed sender avatar should be exposed on message payloads');
 
   const dmWrite = await fetch(`${BASE}/api/messages`, {
     method: 'POST',

@@ -1545,6 +1545,35 @@ const agentDeliveryRouter = new AgentDeliveryRouter({
   },
 });
 
+function senderAvatarForMessage(msg) {
+  const senderName = msg?.senderName || "";
+  if (!senderName || senderName === "system" || msg?.senderType === "system") return {};
+  if (msg.senderType === "agent") {
+    const agent = Object.keys(store.agents)
+      .map((id) => agentPayload(id))
+      .find((a) => a && (a.name === senderName || a.displayName === senderName));
+    const config = agentConfigs.find((c) => c.name === senderName || c.displayName === senderName);
+    return {
+      senderPicture: agent?.picture || config?.picture || null,
+      senderGravatarUrl: null,
+    };
+  }
+  const sessionUser = Array.from(authSessions.values()).find((user) => user?.name === senderName);
+  if (sessionUser?.picture || sessionUser?.gravatarUrl) {
+    return {
+      senderPicture: sessionUser.picture || null,
+      senderGravatarUrl: sessionUser.gravatarUrl || null,
+    };
+  }
+  const human = onlineHumans.get(senderName)
+    || allTimeHumans.get(senderName)
+    || store.humans.find((h) => h.name === senderName);
+  return {
+    senderPicture: human?.picture || null,
+    senderGravatarUrl: human?.gravatarUrl || null,
+  };
+}
+
 function formatMessageForClient(msg, viewerName, options = {}) {
   const { includeReplies = false, threadReplyOverride = null } = options;
   const isThread = !!msg.threadId;
@@ -1578,6 +1607,7 @@ function formatMessageForClient(msg, viewerName, options = {}) {
     taskNumber: msg.taskNumber || null,
     taskAssigneeId: msg.taskAssigneeId || null,
     taskAssigneeType: msg.taskAssigneeType || null,
+    ...senderAvatarForMessage(msg),
     // Include parties so frontend can resolve peer without viewerName
     ...(parties && !viewerName ? { dmParties: parties } : {}),
   };
@@ -6100,6 +6130,22 @@ function resolveEmbedRequestedChannel(workspaceId, body = {}) {
   )) || null;
 }
 
+function sanitizeEmbedAvatarUrl(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 4096) return null;
+  if (trimmed.startsWith("data:image/")) {
+    return trimmed.length <= 14000 ? trimmed : null;
+  }
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
 app.post("/api/auth/embed-guest-session", (req, res) => {
   const workspaceId = workspaceIdFromReq(req);
   const workspace = findWorkspace(workspaceId);
@@ -6143,11 +6189,14 @@ app.post("/api/auth/embed-guest-session", (req, res) => {
   const baseName = sanitizeEmbedGuestName(req.body?.name);
   const randomSuffix = crypto.randomBytes(3).toString("hex");
   const name = `embed-${baseName}-${randomSuffix}`.slice(0, 64);
+  const picture = sanitizeEmbedAvatarUrl(req.body?.picture);
+  const gravatarUrl = sanitizeEmbedAvatarUrl(req.body?.gravatarUrl);
   const expiresAt = new Date(Date.now() + settings.tokenTtlSeconds * 1000).toISOString();
   const user = {
     name,
     email: null,
-    picture: null,
+    picture,
+    gravatarUrl,
     guest: true,
     embed: {
       workspaceId,
