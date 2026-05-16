@@ -16,6 +16,7 @@ const {
   createEmbedRateLimiter,
   normalizeOrigin: normalizeEmbedOrigin,
   sanitizeEmbedGuestName,
+  embedGuestSuffixForBrowser,
 } = require("./embedSessions");
 const { createStorage } = require("./storage");
 const mockData = require("./mockData");
@@ -6187,7 +6188,13 @@ app.post("/api/auth/embed-guest-session", (req, res) => {
 
   const token = crypto.randomBytes(32).toString("hex");
   const baseName = sanitizeEmbedGuestName(req.body?.name);
-  const randomSuffix = crypto.randomBytes(3).toString("hex");
+  const stableSuffix = embedGuestSuffixForBrowser({
+    browserId: req.body?.browserId || req.body?.clientId,
+    workspaceId,
+    origin,
+    channelIds: allowedChannelIds,
+  });
+  const randomSuffix = stableSuffix || crypto.randomBytes(3).toString("hex");
   const name = `embed-${baseName}-${randomSuffix}`.slice(0, 64);
   const picture = sanitizeEmbedAvatarUrl(req.body?.picture);
   const gravatarUrl = sanitizeEmbedAvatarUrl(req.body?.gravatarUrl);

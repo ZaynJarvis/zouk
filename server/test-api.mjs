@@ -208,6 +208,28 @@ test('embed guest session: channel-scoped token can only use allowed chat APIs',
   assert.equal(embedRes.body.user.picture, embedAvatar);
   assert.ok(embedRes.body.token, 'embed session must return a token');
 
+  const stableBrowserBody = { workspaceId: 'default', channel: 'all', name: 'stable reader', browserId: 'browser-ci-stable' };
+  const stableA = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify(stableBrowserBody),
+  }));
+  const stableB = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify(stableBrowserBody),
+  }));
+  const stableOther = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify({ ...stableBrowserBody, browserId: 'browser-ci-other' }),
+  }));
+  assert.equal(stableA.status, 200);
+  assert.equal(stableB.status, 200);
+  assert.equal(stableOther.status, 200);
+  assert.equal(stableA.body.user.name, stableB.body.user.name, 'same browser id should reuse the same embed name');
+  assert.notEqual(stableA.body.user.name, stableOther.body.user.name, 'different browser ids should get different embed names');
+
   const embedHeaders = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${embedRes.body.token}`,
