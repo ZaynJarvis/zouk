@@ -18,8 +18,10 @@ interface Props {
 }
 
 // Full-screen image viewer. Desktop: centered with letterbox backdrop.
-// Phone (`<lg` ≈ <1024px): fills the viewport; close button pinned to the
-// bottom-right inside safe-area.
+// Phone (`<lg` ≈ <1024px): fills the viewport. On phone the close button sits
+// at the top-right so it never sits under the MessageComposer that pins the
+// bottom of the chat shell; desktop keeps the bottom-right placement since
+// the letterbox leaves clear backdrop there.
 export default function ImageLightbox({ images, initialIndex, onClose }: Props) {
   const [index, setIndex] = useState(initialIndex);
   const current = images[index];
@@ -98,7 +100,7 @@ export default function ImageLightbox({ images, initialIndex, onClose }: Props) 
         type="button"
         onClick={(e) => { stop(e); onClose(); }}
         aria-label="Close image viewer"
-        className="absolute right-4 bottom-4 safe-bottom safe-right w-10 h-10 flex items-center justify-center bg-nc-surface/70 text-nc-text hover:bg-nc-surface border border-nc-border"
+        className="absolute right-[calc(env(safe-area-inset-right,0px)+1rem)] top-[calc(env(safe-area-inset-top,0px)+1rem)] lg:top-auto lg:bottom-[calc(env(safe-area-inset-bottom,0px)+1rem)] w-10 h-10 flex items-center justify-center bg-nc-surface/70 text-nc-text hover:bg-nc-surface border border-nc-border"
       >
         <X size={20} />
       </button>
