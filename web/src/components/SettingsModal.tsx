@@ -850,7 +850,7 @@ function OpenvikingSection({
   const [settings, setSettings] = useState<WorkspaceOpenvikingSettings | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [url, setUrl] = useState('');
-  const [adminApiKey, setAdminApiKey] = useState('');
+  const [rootApiKey, setRootApiKey] = useState('');
   const [keyDirty, setKeyDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -859,7 +859,7 @@ function OpenvikingSection({
     setSettings(next);
     setEnabled(next.enabled);
     setUrl(next.url || '');
-    setAdminApiKey('');
+    setRootApiKey('');
     setKeyDirty(false);
     setSavedAt(next.updatedAt || null);
   }, []);
@@ -892,7 +892,7 @@ function OpenvikingSection({
       const next = await api.saveOpenvikingSettings({
         enabled,
         url: url.trim(),
-        adminApiKey: keyDirty ? adminApiKey : undefined,
+        rootApiKey: keyDirty ? rootApiKey : undefined,
       });
       applySettings(next);
       setSavedAt(next.updatedAt || new Date().toISOString());
@@ -905,19 +905,19 @@ function OpenvikingSection({
 
   const clearKey = async () => {
     if (!canAdminWorkspace || busy) return;
-    if (!window.confirm('Clear the stored admin API key for this workspace? Provisioning will fall back to the server env key (if configured).')) return;
+    if (!window.confirm('Clear the stored root API key for this workspace? Provisioning will fall back to the server env key (if configured).')) return;
     setBusy(true);
     setError(null);
     try {
       const next = await api.saveOpenvikingSettings({
         enabled: false,
         url: url.trim(),
-        clearAdminApiKey: true,
+        clearRootApiKey: true,
       });
       applySettings(next);
       setSavedAt(next.updatedAt || new Date().toISOString());
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to clear admin key');
+      setError(e instanceof Error ? e.message : 'Failed to clear root key');
     } finally {
       setBusy(false);
     }
@@ -945,14 +945,15 @@ function OpenvikingSection({
       ? 'workspace override'
       : 'server env fallback'
     : 'none — provisioning disabled';
-  const adminConfigured = !!settings?.adminConfigured;
+  const rootConfigured = !!settings?.rootConfigured;
+  const rootAccount = settings?.rootAccount || null;
 
   return (
     <div className="max-w-2xl space-y-5">
       <div>
         <p className="text-sm font-bold text-nc-text-bright tracking-wider">OPENVIKING_PROVISIONING</p>
         <p className="text-xs text-nc-muted font-mono mt-0.5">
-          Per-workspace override for the OV server that mints agent memory keys. Leave disabled to fall back to the server env (<code>OPENVIKING_URL</code> / <code>OPENVIKING_ROOT_KEY</code>).
+          Per-workspace override for the OV server that mints agent memory keys. Same kind of credential as the server env (<code>OPENVIKING_ROOT_KEY</code>) — the account is encoded in the key, so no separate account field is needed. Leave disabled to fall back to the server env.
         </p>
       </div>
 
@@ -973,7 +974,7 @@ function OpenvikingSection({
       <label className="flex items-center justify-between gap-3 cyber-panel-elevated p-3 cursor-pointer">
         <span>
           <span className="block text-sm font-bold text-nc-text-bright">Enable workspace override</span>
-          <span className="block text-xs font-mono text-nc-muted mt-0.5">When enabled, new agents in this workspace provision under the URL + admin key below instead of the server env.</span>
+          <span className="block text-xs font-mono text-nc-muted mt-0.5">When enabled, new agents in this workspace provision under the URL + root key below instead of the server env.</span>
         </span>
         <input
           type="checkbox"
@@ -996,17 +997,20 @@ function OpenvikingSection({
       </div>
 
       <div>
-        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Admin / root API key</label>
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Root API key</label>
         <input
           type="password"
-          value={adminApiKey}
-          onChange={(e) => { setAdminApiKey(e.target.value); setKeyDirty(true); }}
-          placeholder={adminConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key (account.user.secret)'}
+          value={rootApiKey}
+          onChange={(e) => { setRootApiKey(e.target.value); setKeyDirty(true); }}
+          placeholder={rootConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key (account.user.secret)'}
           className="cyber-input w-full px-3 py-2 text-xs font-mono"
           spellCheck={false}
         />
         <p className="text-2xs font-mono text-nc-muted mt-1">
-          Use a new-format key from <code>POST /api/v1/admin/accounts/&#123;acct&#125;/users</code>. Legacy hex keys can&apos;t carry an account and will be rejected.
+          Same shape as the server <code>OPENVIKING_ROOT_KEY</code> env. Must be a new-format key (<code>account.user.secret</code>); the account is decoded from the key itself. Legacy hex keys can&apos;t carry an account and will be rejected.
+          {rootAccount && (
+            <span> Stored key&apos;s account: <code>{rootAccount}</code>.</span>
+          )}
         </p>
       </div>
 
@@ -1025,14 +1029,14 @@ function OpenvikingSection({
             {busy ? 'Saving...' : 'Save'}
           </button>
         </ScanlineTear>
-        {adminConfigured && (
+        {rootConfigured && (
           <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
             <button
               onClick={clearKey}
               disabled={busy}
               className="cyber-btn px-4 py-2 bg-nc-red/10 border border-nc-red/50 text-nc-red font-bold text-sm tracking-wider disabled:opacity-40"
             >
-              Clear admin key
+              Clear root key
             </button>
           </ScanlineTear>
         )}

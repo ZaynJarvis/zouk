@@ -1218,19 +1218,19 @@ async function saveWorkspaceOpenvikingSettings(settings) {
   try {
     await pool.query(
       `INSERT INTO workspace_openviking_settings
-         (workspace_id, enabled, url, admin_api_key, updated_at, updated_by)
+         (workspace_id, enabled, url, root_api_key, updated_at, updated_by)
        VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (workspace_id) DO UPDATE SET
          enabled = EXCLUDED.enabled,
          url = EXCLUDED.url,
-         admin_api_key = EXCLUDED.admin_api_key,
+         root_api_key = EXCLUDED.root_api_key,
          updated_at = EXCLUDED.updated_at,
          updated_by = EXCLUDED.updated_by`,
       [
         settings.workspaceId || DEFAULT_WORKSPACE_ID,
         !!settings.enabled,
         settings.url || null,
-        settings.adminApiKey || null,
+        settings.rootApiKey || null,
         settings.updatedAt || new Date().toISOString(),
         settings.updatedBy || null,
       ]
@@ -1244,7 +1244,7 @@ async function loadWorkspaceOpenvikingSettings() {
   if (!pool) return null;
   try {
     const { rows } = await pool.query(
-      `SELECT workspace_id, enabled, url, admin_api_key, updated_at, updated_by
+      `SELECT workspace_id, enabled, url, root_api_key, updated_at, updated_by
        FROM workspace_openviking_settings
        ORDER BY workspace_id ASC`
     );
@@ -1252,7 +1252,7 @@ async function loadWorkspaceOpenvikingSettings() {
       workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       enabled: !!row.enabled,
       url: row.url || '',
-      adminApiKey: row.admin_api_key || '',
+      rootApiKey: row.root_api_key || '',
       updatedAt: row.updated_at,
       updatedBy: row.updated_by || null,
     }));

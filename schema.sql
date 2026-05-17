@@ -167,13 +167,16 @@ CREATE TABLE IF NOT EXISTS workspace_embed_settings (
 
 -- Per-workspace OpenViking provisioning override. NULL/absent row =
 -- fall back to OPENVIKING_URL / OPENVIKING_ROOT_KEY env vars. When
--- `enabled` is true and both `url` and `admin_api_key` are set, agent
+-- `enabled` is true and both `url` and `root_api_key` are set, agent
 -- provisioning for this workspace uses these creds instead of env.
+-- `root_api_key` follows the same new-format convention as the env
+-- root key (base64url(account).base64url(user).base64url(secret)),
+-- so the account is decoded from the key itself — no separate column.
 CREATE TABLE IF NOT EXISTS workspace_openviking_settings (
   workspace_id   TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
   enabled        BOOLEAN NOT NULL DEFAULT false,
   url            TEXT,
-  admin_api_key  TEXT,
+  root_api_key   TEXT,
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by     TEXT
 );

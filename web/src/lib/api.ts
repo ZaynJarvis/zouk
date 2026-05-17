@@ -605,8 +605,8 @@ export async function getOpenvikingSettings(): Promise<WorkspaceOpenvikingSettin
 export async function saveOpenvikingSettings(input: {
   enabled: boolean;
   url: string;
-  adminApiKey?: string;
-  clearAdminApiKey?: boolean;
+  rootApiKey?: string;
+  clearRootApiKey?: boolean;
 }): Promise<WorkspaceOpenvikingSettings> {
   const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
     method: 'PUT',
