@@ -210,6 +210,10 @@ export interface AgentConfig {
   skills?: AgentSkill[];
   lifecycle?: 'persistent' | 'ephemeral';
   openvikingUserId?: string | null;
+  // URL the agent's provisioned key was minted under. Pinned at provision
+  // time so existing agents don't silently migrate when a workspace admin
+  // switches the workspace OV URL. NULL on legacy rows → server uses env URL.
+  openvikingUrl?: string | null;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   // Per-agent on/off override. `undefined` = follow the runtime default

@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   lifecycle                TEXT NOT NULL DEFAULT 'persistent',
   openviking_user_id       TEXT,
   openviking_api_key       TEXT,
+  openviking_url           TEXT,
   openviking_mode          TEXT NOT NULL DEFAULT 'provisioned',
   openviking_custom_url    TEXT,
   openviking_custom_api_key TEXT,
@@ -133,6 +134,10 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAU
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS env_vars JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_user_id TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_api_key TEXT;
+-- Per-agent URL pinning. Persisted at provision time so existing agents stay
+-- on the URL their key was minted under even if the workspace admin later
+-- switches the workspace OV URL. NULL on legacy rows → fall back to env URL.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_url TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_mode TEXT NOT NULL DEFAULT 'provisioned';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_url TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEXT;

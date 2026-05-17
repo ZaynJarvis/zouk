@@ -3605,18 +3605,21 @@ function resolveOvCredentials(agentId) {
   }
 
   if (mode === 'provisioned' && config.openvikingApiKey) {
-    // Use whichever URL provisioning is currently configured to use for this
-    // workspace (workspace override > env fallback). The account is decoded
-    // from the agent's own key so a previously-minted key remains readable
-    // even if the workspace admin key rotates within the same account.
-    const wsCreds = resolveProvisioningCreds(config.workspaceId || DEFAULT_WORKSPACE_ID);
-    if (wsCreds) {
+    // URL pinning: keys live on the URL they were minted under. Order:
+    //   1. config.openvikingUrl — set at provision time post this PR.
+    //   2. OPENVIKING_URL env — legacy fallback for keys minted before
+    //      per-agent pinning existed (all pre-PR data lands here).
+    // Account: decoded from the agent's own key so a previously-minted key
+    // remains readable even if a workspace's admin key rotates within the
+    // same account.
+    const pinnedUrl = config.openvikingUrl || OPENVIKING_URL;
+    if (pinnedUrl) {
       const decodedAccount = decodeOvKey(config.openvikingApiKey).account;
       return {
-        url: wsCreds.url,
+        url: pinnedUrl.replace(/\/+$/, ""),
         apiKey: config.openvikingApiKey,
         user: config.openvikingUserId || deriveOvUserId(agentId),
-        account: decodedAccount || wsCreds.account || "",
+        account: decodedAccount || OPENVIKING_ACCOUNT || "",
         agentId: agentName,
       };
     }
@@ -4181,6 +4184,11 @@ async function startAgentOnDaemon(id, config) {
   // the agent-id derivation when name is empty or non-conforming.
   let ovUserId = config.openvikingUserId || deriveOvUserIdFromName(config.name, id);
   let ovApiKey = config.openvikingApiKey || null;
+  // URL pinning: existing rows keep whatever they're already on (pre-PR keys
+  // have openvikingUrl=null → fall back to env so they never silently migrate
+  // when a workspace admin enables a different URL). Newly-minted keys below
+  // capture the URL they were minted under.
+  let ovUrl = config.openvikingUrl || (ovApiKey ? OPENVIKING_URL : null);
   let daemonOv = null;
 
   if (!ovEnabled) {
@@ -4217,20 +4225,23 @@ async function startAgentOnDaemon(id, config) {
         });
         ovApiKey = res.user_key;
         ovUserId = res.user_id;
+        ovUrl = provCreds.url; // pin the URL this key was minted under.
       } catch (err) {
         console.warn(`[ov] provisioning failed for ${id} (source=${provCreds.source}): ${err.message}`);
       }
     }
-    if (ovApiKey && provCreds) {
+    const effectiveUrl = ovUrl || provCreds?.url || null;
+    if (ovApiKey && effectiveUrl) {
       // Prefer the account encoded into the agent's own key (survives admin
       // key rotation within the same account); fall back to provisioner's.
       const decodedAccount = decodeOvKey(ovApiKey).account;
       daemonOv = {
-        url: provCreds.url,
-        account: decodedAccount || provCreds.account,
+        url: effectiveUrl,
+        account: decodedAccount || provCreds?.account || OPENVIKING_ACCOUNT || '',
         userId: ovUserId,
         apiKey: ovApiKey,
       };
+      ovUrl = effectiveUrl; // make sure it gets persisted below.
     }
   }
 
@@ -4289,6 +4300,7 @@ async function startAgentOnDaemon(id, config) {
     if (ovApiKey) {
       persisted.openvikingUserId = ovUserId;
       persisted.openvikingApiKey = ovApiKey;
+      if (ovUrl) persisted.openvikingUrl = ovUrl;
     }
     const usedImages = new Set(agentConfigs.filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId).map((c) => c.picture).filter(Boolean));
     const shardedPicture = profilePresets.pickForAgent(id, usedImages, workspaceId);
@@ -4304,6 +4316,7 @@ async function startAgentOnDaemon(id, config) {
     // Backfill an existing keyless agent. machineId is immutable — leave it.
     agentConfigs[existingIdx].openvikingUserId = ovUserId;
     agentConfigs[existingIdx].openvikingApiKey = ovApiKey;
+    if (ovUrl) agentConfigs[existingIdx].openvikingUrl = ovUrl;
     saveAgentConfigs(agentConfigs);
     db.saveAgentConfig(agentConfigs[existingIdx]);
   }
