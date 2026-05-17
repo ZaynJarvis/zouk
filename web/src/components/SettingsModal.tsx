@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
-import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Link2, Activity, Ban, RefreshCw, Globe2 } from 'lucide-react';
+import { X, User, Palette, Monitor, Server, Camera, Smile, Plus, Trash2, Link2, Activity, Ban, RefreshCw, Globe2, Brain } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -8,7 +8,7 @@ import type { ColorMode } from '../types';
 import { resizeAndEncode } from '../lib/imageEncode';
 import * as api from '../lib/api';
 import type { WsClientStats } from '../lib/api';
-import type { ServerChannel, WorkspaceEmbedSettings } from '../types';
+import type { ServerChannel, WorkspaceEmbedSettings, WorkspaceOpenvikingSettings } from '../types';
 import {
   getStoredLinkTransforms,
   setStoredLinkTransforms,
@@ -16,7 +16,7 @@ import {
   type LinkTransformRule,
 } from '../store/storage';
 
-type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'connections' | 'links' | 'embed' | 'about';
+type Section = 'profile' | 'appearance' | 'avatars' | 'providers' | 'connections' | 'links' | 'embed' | 'openviking' | 'about';
 
 const PROFILE_PRESET_MAX = 30;
 
@@ -169,6 +169,7 @@ export default function SettingsModal() {
     { key: 'connections', label: 'CONNECTIONS', icon: Activity },
     { key: 'links', label: 'LINKS', icon: Link2 },
     { key: 'embed', label: 'EMBED', icon: Globe2 },
+    { key: 'openviking', label: 'OPENVIKING', icon: Brain },
     { key: 'about', label: 'SYSTEM', icon: Monitor },
   ];
   const currentNavItem = navItems.find((item) => item.key === section) ?? navItems[0];
@@ -577,6 +578,13 @@ export default function SettingsModal() {
               />
             )}
 
+            {section === 'openviking' && (
+              <OpenvikingSection
+                canAdminWorkspace={!!canAdminWorkspace}
+                activeWorkspaceId={activeWorkspaceId}
+              />
+            )}
+
             {section === 'about' && (
               <div className="max-w-md space-y-4">
                 <div className="cyber-panel-elevated p-4">
@@ -824,6 +832,210 @@ function EmbedSection({
             {busy ? 'Saving...' : 'Save'}
           </button>
         </ScanlineTear>
+        {savedAt && <span className="text-2xs font-mono text-nc-muted">Saved {new Date(savedAt).toLocaleTimeString()}</span>}
+      </div>
+    </div>
+  );
+}
+
+function OpenvikingSection({
+  canAdminWorkspace,
+  activeWorkspaceId,
+}: {
+  canAdminWorkspace: boolean;
+  activeWorkspaceId: string;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [settings, setSettings] = useState<WorkspaceOpenvikingSettings | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [url, setUrl] = useState('');
+  const [adminApiKey, setAdminApiKey] = useState('');
+  const [keyDirty, setKeyDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  const applySettings = useCallback((next: WorkspaceOpenvikingSettings) => {
+    setSettings(next);
+    setEnabled(next.enabled);
+    setUrl(next.url || '');
+    setAdminApiKey('');
+    setKeyDirty(false);
+    setSavedAt(next.updatedAt || null);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!canAdminWorkspace) {
+      setLoaded(true);
+      return;
+    }
+    setLoaded(false);
+    setError(null);
+    try {
+      applySettings(await api.getOpenvikingSettings());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load OpenViking settings');
+    } finally {
+      setLoaded(true);
+    }
+  }, [applySettings, canAdminWorkspace]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh, activeWorkspaceId]);
+
+  const save = async () => {
+    if (!canAdminWorkspace || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await api.saveOpenvikingSettings({
+        enabled,
+        url: url.trim(),
+        adminApiKey: keyDirty ? adminApiKey : undefined,
+      });
+      applySettings(next);
+      setSavedAt(next.updatedAt || new Date().toISOString());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save OpenViking settings');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearKey = async () => {
+    if (!canAdminWorkspace || busy) return;
+    if (!window.confirm('Clear the stored admin API key for this workspace? Provisioning will fall back to the server env key (if configured).')) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await api.saveOpenvikingSettings({
+        enabled: false,
+        url: url.trim(),
+        clearAdminApiKey: true,
+      });
+      applySettings(next);
+      setSavedAt(next.updatedAt || new Date().toISOString());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to clear admin key');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!canAdminWorkspace) {
+    return (
+      <div className="max-w-xl space-y-4">
+        <div>
+          <p className="text-sm font-bold text-nc-text-bright tracking-wider">OPENVIKING_PROVISIONING</p>
+          <p className="text-xs text-nc-muted font-mono mt-0.5">Workspace admin access is required.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loaded) {
+    return <p className="text-xs font-mono text-nc-muted">Loading OpenViking settings...</p>;
+  }
+
+  const effective = settings?.effective || null;
+  const env = settings?.env || null;
+  const sourceLabel = effective
+    ? effective.source === 'workspace'
+      ? 'workspace override'
+      : 'server env fallback'
+    : 'none — provisioning disabled';
+  const adminConfigured = !!settings?.adminConfigured;
+
+  return (
+    <div className="max-w-2xl space-y-5">
+      <div>
+        <p className="text-sm font-bold text-nc-text-bright tracking-wider">OPENVIKING_PROVISIONING</p>
+        <p className="text-xs text-nc-muted font-mono mt-0.5">
+          Per-workspace override for the OV server that mints agent memory keys. Leave disabled to fall back to the server env (<code>OPENVIKING_URL</code> / <code>OPENVIKING_ROOT_KEY</code>).
+        </p>
+      </div>
+
+      {error && (
+        <div className="p-3 border border-nc-red/50 bg-nc-red/10 text-xs font-mono text-nc-red">
+          {error}
+        </div>
+      )}
+
+      <div className="cyber-panel-elevated p-3 text-2xs font-mono space-y-1">
+        <p className="text-nc-muted">Effective: <span className="text-nc-text-bright">{effective ? `${effective.url} (account=${effective.account})` : '—'}</span></p>
+        <p className="text-nc-muted">Source: <span className="text-nc-text-bright">{sourceLabel}</span></p>
+        {env && (
+          <p className="text-nc-muted">Server env: <span className="text-nc-text-bright">{env.url} (account={env.account})</span></p>
+        )}
+      </div>
+
+      <label className="flex items-center justify-between gap-3 cyber-panel-elevated p-3 cursor-pointer">
+        <span>
+          <span className="block text-sm font-bold text-nc-text-bright">Enable workspace override</span>
+          <span className="block text-xs font-mono text-nc-muted mt-0.5">When enabled, new agents in this workspace provision under the URL + admin key below instead of the server env.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => setEnabled(e.target.checked)}
+          className="w-5 h-5 accent-cyan-400"
+        />
+      </label>
+
+      <div>
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">OpenViking URL</label>
+        <input
+          type="text"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://ov.example.com"
+          className="cyber-input w-full px-3 py-2 text-xs font-mono"
+          spellCheck={false}
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Admin / root API key</label>
+        <input
+          type="password"
+          value={adminApiKey}
+          onChange={(e) => { setAdminApiKey(e.target.value); setKeyDirty(true); }}
+          placeholder={adminConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key (account.user.secret)'}
+          className="cyber-input w-full px-3 py-2 text-xs font-mono"
+          spellCheck={false}
+        />
+        <p className="text-2xs font-mono text-nc-muted mt-1">
+          Use a new-format key from <code>POST /api/v1/admin/accounts/&#123;acct&#125;/users</code>. Legacy hex keys can&apos;t carry an account and will be rejected.
+        </p>
+      </div>
+
+      <div className="cyber-panel-elevated p-3 text-2xs font-mono text-nc-muted space-y-1">
+        <p>Memory namespace is derived from the agent <em>name</em>: <code>alice</code> → <code>zouk-alice</code>; <code>alice[1]</code> shares with <code>alice</code>.</p>
+        <p>Existing provisioned agents keep their stored <code>user_id</code> — renaming or switching workspace URL does not migrate their OV memory; re-provision (clear + restart) if you want to move them.</p>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+          <button
+            onClick={save}
+            disabled={busy}
+            className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider disabled:opacity-40"
+          >
+            {busy ? 'Saving...' : 'Save'}
+          </button>
+        </ScanlineTear>
+        {adminConfigured && (
+          <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
+            <button
+              onClick={clearKey}
+              disabled={busy}
+              className="cyber-btn px-4 py-2 bg-nc-red/10 border border-nc-red/50 text-nc-red font-bold text-sm tracking-wider disabled:opacity-40"
+            >
+              Clear admin key
+            </button>
+          </ScanlineTear>
+        )}
         {savedAt && <span className="text-2xs font-mono text-nc-muted">Saved {new Date(savedAt).toLocaleTimeString()}</span>}
       </div>
     </div>

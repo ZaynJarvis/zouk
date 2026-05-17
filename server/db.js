@@ -1211,6 +1211,57 @@ async function loadWorkspaceEmbedSettings() {
   }
 }
 
+// ─── Workspace OpenViking settings ────────────────────────────────
+
+async function saveWorkspaceOpenvikingSettings(settings) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_openviking_settings
+         (workspace_id, enabled, url, admin_api_key, updated_at, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (workspace_id) DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         url = EXCLUDED.url,
+         admin_api_key = EXCLUDED.admin_api_key,
+         updated_at = EXCLUDED.updated_at,
+         updated_by = EXCLUDED.updated_by`,
+      [
+        settings.workspaceId || DEFAULT_WORKSPACE_ID,
+        !!settings.enabled,
+        settings.url || null,
+        settings.adminApiKey || null,
+        settings.updatedAt || new Date().toISOString(),
+        settings.updatedBy || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceOpenvikingSettings error:', e.message);
+  }
+}
+
+async function loadWorkspaceOpenvikingSettings() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT workspace_id, enabled, url, admin_api_key, updated_at, updated_by
+       FROM workspace_openviking_settings
+       ORDER BY workspace_id ASC`
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      enabled: !!row.enabled,
+      url: row.url || '',
+      adminApiKey: row.admin_api_key || '',
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceOpenvikingSettings error:', e.message);
+    return null;
+  }
+}
+
 // ─── Agent activities ─────────────────────────────────────────────
 
 const ACTIVITY_KEEP_LIMIT = 100;
@@ -1386,6 +1437,8 @@ module.exports = {
   loadWorkspaceMemberRemovals,
   saveWorkspaceEmbedSettings,
   loadWorkspaceEmbedSettings,
+  saveWorkspaceOpenvikingSettings,
+  loadWorkspaceOpenvikingSettings,
   saveTask,
   loadTasks,
   loadMaxSeq,

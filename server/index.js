@@ -21,6 +21,7 @@ const {
 const { createStorage } = require("./storage");
 const mockData = require("./mockData");
 const { provisionAgentKey } = require("./openviking-admin");
+const { createWorkspaceOpenvikingSettingsStore } = require("./workspaceOpenvikingSettings");
 const { AgentDeliveryRouter } = require("./notifications/agentDeliveryRouter");
 const { DEFAULT_WORKSPACE_ID, allocateWorkspaceId, normalizeWorkspaceId } = require("./workspaceIds");
 
@@ -146,13 +147,57 @@ function decodeAccountFromKey(key) {
   return decodeOvKey(key).account;
 }
 const OPENVIKING_ACCOUNT = decodeAccountFromKey(OPENVIKING_ROOT_KEY);
-const OV_PROVISIONING_ENABLED = !!(OPENVIKING_URL && OPENVIKING_ROOT_KEY && OPENVIKING_ACCOUNT);
-if (OPENVIKING_ROOT_KEY && !OV_PROVISIONING_ENABLED) {
+const OV_ENV_PROVISIONING_ENABLED = !!(OPENVIKING_URL && OPENVIKING_ROOT_KEY && OPENVIKING_ACCOUNT);
+if (OPENVIKING_ROOT_KEY && !OV_ENV_PROVISIONING_ENABLED) {
   console.warn(
-    "[ov] root key is legacy format — please use a new-format key from POST /api/v1/admin/accounts/{acct}/users; provisioning disabled"
+    "[ov] root key is legacy format — please use a new-format key from POST /api/v1/admin/accounts/{acct}/users; env provisioning disabled"
   );
-} else if (OV_PROVISIONING_ENABLED) {
-  console.log(`[ov] provisioning enabled (account=${OPENVIKING_ACCOUNT}, url=${OPENVIKING_URL})`);
+} else if (OV_ENV_PROVISIONING_ENABLED) {
+  console.log(`[ov] env provisioning enabled (account=${OPENVIKING_ACCOUNT}, url=${OPENVIKING_URL})`);
+}
+
+// Workspace-level provisioning override. A workspace with `enabled=true` and
+// both url + admin key set takes precedence over the env. Anything missing
+// or disabled falls back to env. Returns null when neither source is usable.
+function resolveProvisioningCreds(workspaceId) {
+  const wsId = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
+  const ws = workspaceOvSettings.get(wsId);
+  if (ws && ws.enabled && ws.url && ws.adminApiKey) {
+    const account = decodeAccountFromKey(ws.adminApiKey);
+    if (account) {
+      return {
+        url: ws.url.replace(/\/+$/, ""),
+        rootApiKey: ws.adminApiKey,
+        account,
+        source: "workspace",
+      };
+    }
+    // legacy-format key configured per workspace — log once-ish and fall through.
+    console.warn(`[ov] workspace ${wsId} has legacy-format admin key; falling back to env`);
+  }
+  if (OV_ENV_PROVISIONING_ENABLED) {
+    return {
+      url: OPENVIKING_URL,
+      rootApiKey: OPENVIKING_ROOT_KEY,
+      account: OPENVIKING_ACCOUNT,
+      source: "env",
+    };
+  }
+  return null;
+}
+
+// Derive a stable OpenViking user_id from an agent's NAME (with id fallback).
+// Convention: `name[suffix]` collapses to `name` so clones share memory with
+// their root (e.g. `alice[1]` reuses `alice`'s OV namespace). Persisted into
+// agent_configs.openviking_user_id on first provision and frozen thereafter —
+// renaming the agent does NOT move OV memory.
+function deriveOvUserIdFromName(name, fallbackId) {
+  const raw = typeof name === "string" ? name : "";
+  const root = raw.split("[")[0].trim().toLowerCase();
+  // Limit to chars OV accepts in user_id (matches sanitizeEmbedGuestName ethos).
+  const safe = root.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  if (safe) return `zouk-${safe}`;
+  return deriveOvUserId(fallbackId || "");
 }
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -322,6 +367,7 @@ const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
 const SESSIONS_FILE = path.join(CONFIG_DIR, "sessions.json");
 const AGENT_PROFILE_PRESETS_FILE = path.join(CONFIG_DIR, "agent-profile-presets.json");
 const WORKSPACE_EMBED_SETTINGS_FILE = path.join(CONFIG_DIR, "workspace-embed-settings.json");
+const WORKSPACE_OPENVIKING_SETTINGS_FILE = path.join(CONFIG_DIR, "workspace-openviking-settings.json");
 
 // ─── Agent config persistence ────────────────────────────────────
 
@@ -1968,6 +2014,11 @@ const embedSettings = createEmbedSettingsStore({
   db,
   defaultWorkspaceId: DEFAULT_WORKSPACE_ID,
 });
+const workspaceOvSettings = createWorkspaceOpenvikingSettingsStore({
+  filePath: WORKSPACE_OPENVIKING_SETTINGS_FILE,
+  db,
+  defaultWorkspaceId: DEFAULT_WORKSPACE_ID,
+});
 const embedSessionRateLimiter = createEmbedRateLimiter();
 
 function removeWorkspaceFromMemory(workspaceId) {
@@ -2059,6 +2110,7 @@ function removeWorkspaceFromMemory(workspaceId) {
   }
   profilePresets.removeWorkspace?.(id);
   embedSettings.removeWorkspace(id);
+  workspaceOvSettings.removeWorkspace(id);
   return true;
 }
 
@@ -3548,14 +3600,22 @@ function resolveOvCredentials(agentId) {
     };
   }
 
-  if (mode === 'provisioned' && config.openvikingApiKey && OPENVIKING_URL) {
-    return {
-      url: OPENVIKING_URL,
-      apiKey: config.openvikingApiKey,
-      user: config.openvikingUserId || deriveOvUserId(agentId),
-      account: OPENVIKING_ACCOUNT || "",
-      agentId: agentName,
-    };
+  if (mode === 'provisioned' && config.openvikingApiKey) {
+    // Use whichever URL provisioning is currently configured to use for this
+    // workspace (workspace override > env fallback). The account is decoded
+    // from the agent's own key so a previously-minted key remains readable
+    // even if the workspace admin key rotates within the same account.
+    const wsCreds = resolveProvisioningCreds(config.workspaceId || DEFAULT_WORKSPACE_ID);
+    if (wsCreds) {
+      const decodedAccount = decodeOvKey(config.openvikingApiKey).account;
+      return {
+        url: wsCreds.url,
+        apiKey: config.openvikingApiKey,
+        user: config.openvikingUserId || deriveOvUserId(agentId),
+        account: decodedAccount || wsCreds.account || "",
+        agentId: agentName,
+      };
+    }
   }
 
   // Fallback: check envVars (agents with explicit OPENVIKING_* env vars)
@@ -4111,7 +4171,11 @@ async function startAgentOnDaemon(id, config) {
   // never hand creds to the daemon — even custom-mode creds are withheld.
   const ovEnabled = isOvEnabledForAgent({ openvikingEnabled: config.openvikingEnabled, runtime });
   const ovMode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
-  let ovUserId = config.openvikingUserId || deriveOvUserId(id);
+  // Derive user_id: existing rows keep whatever's already on disk (cannot move
+  // OV memory of a previously-provisioned agent). New rows use the name-based
+  // derivation so clones `alice[N]` reuse `alice`'s namespace; falls back to
+  // the agent-id derivation when name is empty or non-conforming.
+  let ovUserId = config.openvikingUserId || deriveOvUserIdFromName(config.name, id);
   let ovApiKey = config.openvikingApiKey || null;
   let daemonOv = null;
 
@@ -4134,28 +4198,32 @@ async function startAgentOnDaemon(id, config) {
     // else: missing creds — daemon falls back to its local ovcli.conf, same as
     // when provisioning was never enabled.
   } else {
-    // Provisioned mode: lazily mint a per-agent key on first start (covers
-    // both new agents and existing keyless ones). Best-effort: if the OV
-    // admin call fails the agent still starts and the daemon falls back to
-    // its local ovcli.conf.
-    if (!ovApiKey && OV_PROVISIONING_ENABLED) {
+    // Provisioned mode: resolve workspace > env creds, then lazily mint a
+    // per-agent key on first start (covers both new agents and existing
+    // keyless ones). Best-effort: if the OV admin call fails the agent
+    // still starts and the daemon falls back to its local ovcli.conf.
+    const provCreds = resolveProvisioningCreds(workspaceId);
+    if (!ovApiKey && provCreds) {
       try {
         const res = await provisionAgentKey({
-          url: OPENVIKING_URL,
-          account: OPENVIKING_ACCOUNT,
-          rootApiKey: OPENVIKING_ROOT_KEY,
+          url: provCreds.url,
+          account: provCreds.account,
+          rootApiKey: provCreds.rootApiKey,
           agentId: ovUserId,
         });
         ovApiKey = res.user_key;
         ovUserId = res.user_id;
       } catch (err) {
-        console.warn(`[ov] provisioning failed for ${id}: ${err.message}`);
+        console.warn(`[ov] provisioning failed for ${id} (source=${provCreds.source}): ${err.message}`);
       }
     }
-    if (ovApiKey && OPENVIKING_URL && OPENVIKING_ACCOUNT) {
+    if (ovApiKey && provCreds) {
+      // Prefer the account encoded into the agent's own key (survives admin
+      // key rotation within the same account); fall back to provisioner's.
+      const decodedAccount = decodeOvKey(ovApiKey).account;
       daemonOv = {
-        url: OPENVIKING_URL,
-        account: OPENVIKING_ACCOUNT,
+        url: provCreds.url,
+        account: decodedAccount || provCreds.account,
         userId: ovUserId,
         apiKey: ovApiKey,
       };
@@ -6047,6 +6115,68 @@ app.put("/api/settings/embed", requireAuth, requireWorkspaceAdmin, async (req, r
   res.json({ settings: embedSettingsPayload(saved.workspaceId) });
 });
 
+// ─── Settings: per-workspace OpenViking provisioning ─────────────
+// admin_api_key is write-only — GET returns `adminConfigured` boolean instead
+// of echoing the key back. Send `clearAdminApiKey: true` on PUT to wipe it.
+
+function workspaceOvSettingsPayload(workspaceId) {
+  const ws = workspaceOvSettings.get(workspaceId);
+  const env = OV_ENV_PROVISIONING_ENABLED
+    ? { url: OPENVIKING_URL, account: OPENVIKING_ACCOUNT }
+    : null;
+  const effective = resolveProvisioningCreds(workspaceId);
+  return {
+    workspaceId,
+    enabled: !!ws?.enabled,
+    url: ws?.url || '',
+    adminConfigured: !!(ws?.adminApiKey),
+    updatedAt: ws?.updatedAt || null,
+    updatedBy: ws?.updatedBy || null,
+    env, // server-wide env fallback (read-only mirror)
+    effective: effective
+      ? { url: effective.url, account: effective.account, source: effective.source }
+      : null,
+  };
+}
+
+app.get("/api/settings/openviking", requireAuth, requireWorkspaceAdmin, (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  res.json({ settings: workspaceOvSettingsPayload(workspaceId) });
+});
+
+app.put("/api/settings/openviking", requireAuth, requireWorkspaceAdmin, async (req, res) => {
+  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+  const current = workspaceOvSettings.get(workspaceId);
+
+  const rawUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  const url = rawUrl.replace(/\/+$/, '');
+  const wantsClearKey = !!req.body?.clearAdminApiKey;
+  const incomingKey = typeof req.body?.adminApiKey === 'string' ? req.body.adminApiKey.trim() : '';
+  // Empty string = keep existing key (so the user can re-save url without
+  // re-typing the secret). Explicit clear flag wipes.
+  let adminApiKey = current.adminApiKey || '';
+  if (wantsClearKey) adminApiKey = '';
+  else if (incomingKey) adminApiKey = incomingKey;
+
+  const enabled = !!req.body?.enabled;
+  if (enabled) {
+    if (!url) return res.status(400).json({ error: "URL is required when OpenViking is enabled." });
+    if (!adminApiKey) return res.status(400).json({ error: "Admin API key is required when OpenViking is enabled." });
+    if (!decodeAccountFromKey(adminApiKey)) {
+      return res.status(400).json({
+        error: "Admin API key must be the new-format key from POST /api/v1/admin/accounts/{acct}/users.",
+      });
+    }
+  }
+
+  const saved = await workspaceOvSettings.save(workspaceOvSettings.normalize({
+    enabled,
+    url,
+    adminApiKey,
+  }, workspaceId, req.user?.email || req.user?.name || null));
+  res.json({ settings: workspaceOvSettingsPayload(saved.workspaceId) });
+});
+
 // ─── Settings: email allowlist (admin UI for the DB source) ──────
 // Any authenticated user may view and edit the allowlist. Entries seeded from
 // the ALLOW env are read-only here (listed with source="env") — editing them
@@ -6410,6 +6540,7 @@ async function initFromDB() {
 
     await profilePresets.hydrateFromDb();
     await embedSettings.hydrateFromDb();
+    await workspaceOvSettings.hydrateFromDb();
 
     // One-shot trim of any historical activity backlog — cheap at our scale.
     db.trimAllAgentActivities().catch((e) =>

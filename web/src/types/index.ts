@@ -273,6 +273,21 @@ export interface WorkspaceEmbedSettings {
   updatedBy?: string | null;
 }
 
+// Per-workspace OpenViking provisioning override. `adminConfigured` reflects
+// whether a key is stored server-side; the actual key is never echoed back.
+// `effective` describes which creds the server would currently use (workspace
+// override > env fallback) and is read-only.
+export interface WorkspaceOpenvikingSettings {
+  workspaceId: string;
+  enabled: boolean;
+  url: string;
+  adminConfigured: boolean;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  env: { url: string; account: string } | null;
+  effective: { url: string; account: string; source: 'workspace' | 'env' } | null;
+}
+
 export interface InitPayload {
   channels: ServerChannel[];
   agents: ServerAgent[];
