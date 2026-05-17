@@ -159,14 +159,15 @@ if (OPENVIKING_ROOT_KEY && !OV_ENV_PROVISIONING_ENABLED) {
 // Workspace-level provisioning override. A workspace with `enabled=true` and
 // both url + root key set takes precedence over the env. Anything missing or
 // disabled falls back to env. Returns null when neither source is usable.
-// The root key is the same kind of credential as OPENVIKING_ROOT_KEY: a new-
-// format key (account.user.secret) whose account segment we decode here, so
-// the workspace never needs a separate "account" field.
+//
+// Account resolution order: explicit ws.account > decoded from ws.rootApiKey.
+// The explicit override unblocks (a) multi-account root keys and (b) legacy
+// hex keys that can't carry an account in the key itself.
 function resolveProvisioningCreds(workspaceId) {
   const wsId = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
   const ws = workspaceOvSettings.get(wsId);
   if (ws && ws.enabled && ws.url && ws.rootApiKey) {
-    const account = decodeAccountFromKey(ws.rootApiKey);
+    const account = ws.account || decodeAccountFromKey(ws.rootApiKey);
     if (account) {
       return {
         url: ws.url.replace(/\/+$/, ""),
@@ -175,8 +176,8 @@ function resolveProvisioningCreds(workspaceId) {
         source: "workspace",
       };
     }
-    // legacy-format key configured per workspace — log once-ish and fall through.
-    console.warn(`[ov] workspace ${wsId} has legacy-format root key; falling back to env`);
+    // No account anywhere — set account explicitly to use this workspace.
+    console.warn(`[ov] workspace ${wsId} has no account (key can't carry one and no explicit override); falling back to env`);
   }
   if (OV_ENV_PROVISIONING_ENABLED) {
     return {
@@ -6131,13 +6132,14 @@ function workspaceOvSettingsPayload(workspaceId) {
     ? { url: OPENVIKING_URL, account: OPENVIKING_ACCOUNT }
     : null;
   const effective = resolveProvisioningCreds(workspaceId);
-  const storedAccount = ws?.rootApiKey ? decodeAccountFromKey(ws.rootApiKey) : null;
+  const decodedFromKey = ws?.rootApiKey ? decodeAccountFromKey(ws.rootApiKey) : null;
   return {
     workspaceId,
     enabled: !!ws?.enabled,
     url: ws?.url || '',
     rootConfigured: !!(ws?.rootApiKey),
-    rootAccount: storedAccount || null, // surfaced so admins can sanity-check which account they pasted
+    account: ws?.account || '', // explicit override; empty = decode from key
+    accountFromKey: decodedFromKey || null, // hint for the UI: what we'd use if account is left blank
     updatedAt: ws?.updatedAt || null,
     updatedBy: ws?.updatedBy || null,
     env, // server-wide env fallback (read-only mirror)
@@ -6166,13 +6168,22 @@ app.put("/api/settings/openviking", requireAuth, requireWorkspaceAdmin, async (r
   if (wantsClearKey) rootApiKey = '';
   else if (incomingKey) rootApiKey = incomingKey;
 
+  // Account: optional explicit override. Empty string in the payload means
+  // "no override — decode from the key" (different from "keep existing").
+  // Send `account` to set/replace, omit the field to keep the current value.
+  let account = current.account || '';
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'account')) {
+    account = typeof req.body.account === 'string' ? req.body.account.trim() : '';
+  }
+
   const enabled = !!req.body?.enabled;
   if (enabled) {
     if (!url) return res.status(400).json({ error: "URL is required when OpenViking is enabled." });
     if (!rootApiKey) return res.status(400).json({ error: "Root API key is required when OpenViking is enabled." });
-    if (!decodeAccountFromKey(rootApiKey)) {
+    const accountFromKey = decodeAccountFromKey(rootApiKey);
+    if (!account && !accountFromKey) {
       return res.status(400).json({
-        error: "Root API key must be the new-format key (account.user.secret); legacy hex keys can't carry an account.",
+        error: "Account is required: paste a new-format root key (account.user.secret) so the account can be decoded, or set the Account field explicitly (e.g. for legacy hex keys or multi-account roots).",
       });
     }
   }
@@ -6181,6 +6192,7 @@ app.put("/api/settings/openviking", requireAuth, requireWorkspaceAdmin, async (r
     enabled,
     url,
     rootApiKey,
+    account,
   }, workspaceId, req.user?.email || req.user?.name || null));
   res.json({ settings: workspaceOvSettingsPayload(saved.workspaceId) });
 });

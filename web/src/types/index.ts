@@ -275,15 +275,18 @@ export interface WorkspaceEmbedSettings {
 
 // Per-workspace OpenViking provisioning override. `rootConfigured` reflects
 // whether a key is stored server-side; the actual key is never echoed back.
-// `rootAccount` is the account segment decoded from the stored key (null when
-// no key is set). `effective` describes which creds the server would currently
-// use (workspace override > env fallback) and is read-only.
+// `account` is the optional explicit override (empty when blank — decode from
+// key). `accountFromKey` is what the server would decode from the currently
+// stored key (null if no key is set or key is legacy format). `effective`
+// describes which creds the server would currently use (workspace override >
+// env fallback) and is read-only.
 export interface WorkspaceOpenvikingSettings {
   workspaceId: string;
   enabled: boolean;
   url: string;
   rootConfigured: boolean;
-  rootAccount: string | null;
+  account: string;
+  accountFromKey: string | null;
   updatedAt?: string | null;
   updatedBy?: string | null;
   env: { url: string; account: string } | null;

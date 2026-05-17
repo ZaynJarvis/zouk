@@ -6,9 +6,12 @@
 // in server/index.js — this module only owns persistence).
 //
 // Field shape:
-//   { workspaceId, enabled, url, rootApiKey, updatedAt, updatedBy }
+//   { workspaceId, enabled, url, rootApiKey, account, updatedAt, updatedBy }
 // The key field mirrors the env var (OPENVIKING_ROOT_KEY): a new-format
 // account-scoped root key whose account segment is decoded at use-time.
+// `account` is an optional explicit override — used when the root key grants
+// access to multiple accounts (pin one) or when the key is legacy hex (can't
+// carry an account). When blank, the resolver decodes it from the key.
 // `enabled=false` keeps a saved url/key around but treats the workspace as
 // "use env fallback" — same gesture as toggling embed off.
 
@@ -20,6 +23,7 @@ function normalizeSettings(input, workspaceId, now) {
     enabled: !!input.enabled,
     url: typeof input.url === 'string' ? input.url.trim().replace(/\/+$/, '') : '',
     rootApiKey: typeof input.rootApiKey === 'string' ? input.rootApiKey : '',
+    account: typeof input.account === 'string' ? input.account.trim() : '',
     updatedAt: input.updatedAt || input.updated_at || now(),
     updatedBy: input.updatedBy || input.updated_by || null,
   };

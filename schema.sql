@@ -171,15 +171,20 @@ CREATE TABLE IF NOT EXISTS workspace_embed_settings (
 -- provisioning for this workspace uses these creds instead of env.
 -- `root_api_key` follows the same new-format convention as the env
 -- root key (base64url(account).base64url(user).base64url(secret)),
--- so the account is decoded from the key itself — no separate column.
+-- so `account` may be left NULL — the resolver will decode it from
+-- the key. Set `account` explicitly when (a) the root key grants
+-- access to multiple accounts and you want to pin one, or (b) the key
+-- is a legacy hex key that can't carry an account.
 CREATE TABLE IF NOT EXISTS workspace_openviking_settings (
   workspace_id   TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
   enabled        BOOLEAN NOT NULL DEFAULT false,
   url            TEXT,
   root_api_key   TEXT,
+  account        TEXT,
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by     TEXT
 );
+ALTER TABLE workspace_openviking_settings ADD COLUMN IF NOT EXISTS account TEXT;
 
 CREATE TABLE IF NOT EXISTS email_allowlist (
   workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,

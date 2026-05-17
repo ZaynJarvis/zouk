@@ -607,6 +607,9 @@ export async function saveOpenvikingSettings(input: {
   url: string;
   rootApiKey?: string;
   clearRootApiKey?: boolean;
+  // Empty string clears the explicit account (server will decode from key).
+  // Omit the field entirely to leave the stored account unchanged.
+  account?: string;
 }): Promise<WorkspaceOpenvikingSettings> {
   const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
     method: 'PUT',

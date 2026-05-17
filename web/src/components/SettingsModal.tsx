@@ -852,6 +852,8 @@ function OpenvikingSection({
   const [url, setUrl] = useState('');
   const [rootApiKey, setRootApiKey] = useState('');
   const [keyDirty, setKeyDirty] = useState(false);
+  const [account, setAccount] = useState('');
+  const [accountDirty, setAccountDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
@@ -861,6 +863,8 @@ function OpenvikingSection({
     setUrl(next.url || '');
     setRootApiKey('');
     setKeyDirty(false);
+    setAccount(next.account || '');
+    setAccountDirty(false);
     setSavedAt(next.updatedAt || null);
   }, []);
 
@@ -893,6 +897,9 @@ function OpenvikingSection({
         enabled,
         url: url.trim(),
         rootApiKey: keyDirty ? rootApiKey : undefined,
+        // Only send `account` when the user actually touched it. That way
+        // saving the panel without editing leaves the stored override alone.
+        account: accountDirty ? account.trim() : undefined,
       });
       applySettings(next);
       setSavedAt(next.updatedAt || new Date().toISOString());
@@ -913,6 +920,7 @@ function OpenvikingSection({
         enabled: false,
         url: url.trim(),
         clearRootApiKey: true,
+        account: '',
       });
       applySettings(next);
       setSavedAt(next.updatedAt || new Date().toISOString());
@@ -946,7 +954,9 @@ function OpenvikingSection({
       : 'server env fallback'
     : 'none — provisioning disabled';
   const rootConfigured = !!settings?.rootConfigured;
-  const rootAccount = settings?.rootAccount || null;
+  const accountFromKey = settings?.accountFromKey || null;
+  // Live preview of which account would be used given the current form state.
+  const effectiveAccountPreview = account.trim() || accountFromKey || '';
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -1002,14 +1012,32 @@ function OpenvikingSection({
           type="password"
           value={rootApiKey}
           onChange={(e) => { setRootApiKey(e.target.value); setKeyDirty(true); }}
-          placeholder={rootConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key (account.user.secret)'}
+          placeholder={rootConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste root key (new-format: account.user.secret)'}
           className="cyber-input w-full px-3 py-2 text-xs font-mono"
           spellCheck={false}
         />
         <p className="text-2xs font-mono text-nc-muted mt-1">
-          Same shape as the server <code>OPENVIKING_ROOT_KEY</code> env. Must be a new-format key (<code>account.user.secret</code>); the account is decoded from the key itself. Legacy hex keys can&apos;t carry an account and will be rejected.
-          {rootAccount && (
-            <span> Stored key&apos;s account: <code>{rootAccount}</code>.</span>
+          Same shape as the server <code>OPENVIKING_ROOT_KEY</code> env. New-format keys (<code>account.user.secret</code>) carry the account in the key itself; legacy hex keys don&apos;t — for those, set <em>Account</em> below explicitly.
+          {accountFromKey && (
+            <span> Stored key&apos;s decoded account: <code>{accountFromKey}</code>.</span>
+          )}
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">Account (optional override)</label>
+        <input
+          type="text"
+          value={account}
+          onChange={(e) => { setAccount(e.target.value); setAccountDirty(true); }}
+          placeholder={accountFromKey ? `(blank — decode from key: ${accountFromKey})` : 'required for legacy hex keys, or to pin a multi-account root'}
+          className="cyber-input w-full px-3 py-2 text-xs font-mono"
+          spellCheck={false}
+        />
+        <p className="text-2xs font-mono text-nc-muted mt-1">
+          Leave blank to use the account encoded in the root key. Set explicitly when (a) the root key grants access to multiple accounts, or (b) you&apos;re using a legacy hex key.
+          {effectiveAccountPreview && (
+            <span> Will provision under: <code>{effectiveAccountPreview}</code>.</span>
           )}
         </p>
       </div>
