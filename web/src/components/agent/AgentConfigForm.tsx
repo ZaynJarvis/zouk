@@ -71,6 +71,8 @@ export default function AgentConfigForm({
   // typing into the field flips dirty=true and we send the new value on save.
   const [ovCustomApiKey, setOvCustomApiKey] = useState<string>('');
   const [ovCustomApiKeyDirty, setOvCustomApiKeyDirty] = useState(false);
+  const persistedCustomLauncher = savedConfig?.customLauncher ?? '';
+  const [customLauncher, setCustomLauncher] = useState<string>(persistedCustomLauncher);
   const pictureInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -85,7 +87,7 @@ export default function AgentConfigForm({
     return () => { cancelled = true; };
   }, [agent.id, agent.channels]);
 
-  useEffect(() => {
+  const refreshModels = useCallback(() => {
     if (!agent.machineId || !agent.runtime) return;
     let cancelled = false;
     setModelsLoading(true);
@@ -95,6 +97,16 @@ export default function AgentConfigForm({
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
   }, [agent.machineId, agent.runtime]);
+
+  useEffect(() => refreshModels(), [refreshModels]);
+
+  // Custom launcher overrides the runtime binary, so the daemon's static
+  // model alias list almost certainly doesn't apply — force the free-form
+  // input so the user types the exact ID their launcher expects.
+  const launcherActive = customLauncher.trim().length > 0;
+  useEffect(() => {
+    if (launcherActive) setCustomModel(true);
+  }, [launcherActive]);
 
   useEffect(() => {
     if (modelOptions.length === 0) return;
@@ -142,13 +154,15 @@ export default function AgentConfigForm({
     !ovEnabled ||
     ovMode !== 'custom' ||
     (ovCustomUrl.trim().length > 0 && (persistedOvCustomConfigured || ovCustomApiKey.length > 0));
+  const customLauncherDirty = customLauncher.trim() !== (persistedCustomLauncher ?? '').trim();
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
     lifecycle !== persistedLifecycle ||
     model !== persistedModel ||
     envVarsDirty ||
-    ovDirty;
+    ovDirty ||
+    customLauncherDirty;
 
   const handleSave = () => {
     if (!ovCustomValid) return;
@@ -162,6 +176,9 @@ export default function AgentConfigForm({
       picture,
       envVars: envVars,
     };
+    if (customLauncherDirty) {
+      payload.customLauncher = customLauncher.trim() || null;
+    }
     if (ovDirty) {
       if (ovEnabledDirty) {
         payload.openvikingEnabled = ovEnabled;
@@ -374,7 +391,12 @@ export default function AgentConfigForm({
             <span>MODEL</span>
             {modelsLoading && <Loader2 size={10} className="animate-spin text-nc-cyan" />}
           </label>
-          {modelOptions.length > 0 && !customModel ? (
+          {launcherActive && (
+            <p className="text-2xs text-nc-yellow mb-1.5 font-mono">
+              Custom launcher is set — the suggested model list may not apply. Type the exact model identifier your launcher expects.
+            </p>
+          )}
+          {!launcherActive && modelOptions.length > 0 && !customModel ? (
             <>
               <div className="flex gap-2 flex-wrap">
                 {modelOptions.map((m) => (
@@ -427,6 +449,28 @@ export default function AgentConfigForm({
             </p>
           )}
         </div>
+
+        {/* CUSTOM_LAUNCHER */}
+        {agent.runtime !== 'vikingbot' && (
+          <div>
+            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CUSTOM_LAUNCHER</label>
+            <input
+              value={customLauncher}
+              onChange={(e) => setCustomLauncher(e.target.value)}
+              onBlur={refreshModels}
+              placeholder={`e.g. /path/to/${agent.runtime || 'binary'} or env LANG=C ${agent.runtime || 'binary'}`}
+              className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
+            />
+            <p className="text-2xs text-nc-muted mt-1 font-mono">
+              Override the default <span className="text-nc-cyan">{agent.runtime || ''}</span> binary. Leave blank for the runtime default. Split on whitespace into argv.
+            </p>
+            {agent.status === 'active' && customLauncherDirty && (
+              <p className="text-2xs text-nc-yellow mt-1 font-mono">
+                Saving applies on next agent start — restart the agent to use the new launcher.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* OPENVIKING */}
         <div>
