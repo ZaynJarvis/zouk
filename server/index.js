@@ -1313,6 +1313,15 @@ function embedVisibleAgentIds(user) {
   return ids;
 }
 
+function embedCanAccessAgentEvent(user, event, ws = null) {
+  if (!isEmbedSessionUser(user)) return true;
+  const agentId = event?.agent?.id || event?.agentId;
+  if (!agentId) return false;
+  const snapshot = ws?._embedAgentIds;
+  if (snapshot?.has?.(agentId)) return true;
+  return embedVisibleAgentIds(user)?.has(agentId) || false;
+}
+
 function embedApiRouteAllowed(req) {
   const method = String(req.method || "").toUpperCase();
   const path = req.path || "";
@@ -1922,8 +1931,19 @@ function broadcastToWeb(event) {
   for (const ws of webSockets) {
     if (ws.readyState !== 1) continue;
     if (!shouldDeliverEventToWebViewer(event, ws)) continue;
-    ws.send(data);
+    const scopedEvent = eventForWebViewer(event, ws);
+    ws.send(scopedEvent === event ? data : JSON.stringify(scopedEvent));
   }
+}
+
+function eventForWebViewer(event, ws) {
+  const viewerUser = ws._authToken ? getAuthSession(ws._authToken) : null;
+  if (!isEmbedSessionUser(viewerUser)) return event;
+  if (event.type === "agent_activity") {
+    const { type, agentId, activity, detail } = event;
+    return { type, agentId, activity, detail };
+  }
+  return event;
 }
 
 // DM messages must only reach the two parties; everything else (channel posts,
@@ -1935,7 +1955,10 @@ function shouldDeliverEventToWebViewer(event, ws) {
   }
   const viewerUser = ws._authToken ? getAuthSession(ws._authToken) : null;
   if (isEmbedSessionUser(viewerUser) && event.type !== "message" && event.type !== "new_message") {
-    return false;
+    return (
+      (event.type === "agent_started" || event.type === "agent_status" || event.type === "agent_activity")
+      && embedCanAccessAgentEvent(viewerUser, event, ws)
+    );
   }
   if (event.type !== "message" && event.type !== "new_message") return true;
   const msg = event.message;
@@ -4874,6 +4897,7 @@ function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFA
       : ws._workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(ws._workspaceId);
     const embedUser = isEmbedSessionUser(user);
     const embedAgentIds = embedUser ? embedVisibleAgentIds(user) : null;
+    ws._embedAgentIds = embedAgentIds;
     const visibleChannels = canReadWorkspace ? store.channels.filter((ch) => (
       (ch.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
       && (ch.type || "channel") === "channel"

@@ -265,6 +265,40 @@ test('embed guest session: channel-scoped token can only use allowed chat APIs',
 
   const privilegedRead = await fetch(`${BASE}/api/agents`, { headers: embedHeaders });
   assert.equal(privilegedRead.status, 403, 'embed token must not read non-chat APIs');
+
+  const embedWs = new WebSocket(`ws://localhost:${TEST_PORT}/ws?token=${embedRes.body.token}`);
+  const embedInitPromise = waitForMessageOrTimeout(embedWs, ev => ev.type === 'init', 3000);
+  await new Promise((resolve, reject) => {
+    embedWs.once('open', resolve);
+    embedWs.once('error', reject);
+  });
+  const embedInit = await embedInitPromise;
+  assert.ok(
+    embedInit?.agents?.some(agent => agent.id === MOCK_AGENT),
+    'embed websocket init must include agents visible to allowed channels',
+  );
+
+  const activityPromise = waitForMessageOrTimeout(
+    embedWs,
+    ev => ev.type === 'agent_activity' && ev.agentId === MOCK_AGENT,
+    3000,
+  );
+  const daemonWs = new WebSocket(`ws://localhost:${TEST_PORT}/daemon/connect?key=test`);
+  await new Promise((resolve, reject) => {
+    daemonWs.once('open', resolve);
+    daemonWs.once('error', reject);
+  });
+  daemonWs.send(JSON.stringify({
+    type: 'agent:activity',
+    agentId: MOCK_AGENT,
+    activity: 'working',
+    detail: 'CI visible progress',
+  }));
+  const visibleActivity = await activityPromise;
+  assert.equal(visibleActivity?.activity, 'working');
+  assert.equal(visibleActivity?.detail, 'CI visible progress');
+  daemonWs.close();
+  await closeWs(embedWs);
 });
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
