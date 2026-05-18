@@ -175,11 +175,16 @@
     color: rgb(var(--nc-selection-text));
   }
 
-  /* Text controls stay at >=16px across themes and utility classes. */
-  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
-  textarea,
-  select {
-    font-size: max(16px, 1em) !important;
+  /* Phone/tablet only: bump text controls to >=16px so iOS Safari doesn't
+     zoom on focus. On desktop, inputs follow whatever text-xs/text-sm/etc.
+     utility the call site picked — otherwise a small text-xs label sitting
+     next to a forced-16px input looks oversized and crowded. */
+  @media (max-width: 1023.98px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+    textarea,
+    select {
+      font-size: max(16px, 1em) !important;
+    }
   }
 }
 
