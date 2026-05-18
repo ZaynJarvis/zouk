@@ -7,7 +7,7 @@ export function humanStatus(h: Pick<ServerHuman, 'online'>): AvatarStatus {
 }
 
 export function agentStatus(a: Pick<ServerAgent, 'status' | 'activity'>): AvatarStatus {
-  if (!a.status || a.status === 'inactive') return 'offline';
+  if (a.status !== 'active') return 'offline';
   const activity: AgentActivity | undefined = a.activity;
   if (activity === 'thinking' || activity === 'working' || activity === 'error') return 'working';
   if (activity === 'online') return 'online';
@@ -21,6 +21,14 @@ export function agentStatus(a: Pick<ServerAgent, 'status' | 'activity'>): Avatar
 // colored only when the process is actually running (online/working).
 export function agentAvatarStatus(a: Pick<ServerAgent, 'status' | 'activity'>): AvatarStatus {
   return agentStatus(a);
+}
+
+export function agentIsLive(a: Pick<ServerAgent, 'status' | 'activity'>): boolean {
+  return a.status === 'active' && (a.activity === 'working' || a.activity === 'thinking');
+}
+
+export function agentIsOnline(a: Pick<ServerAgent, 'status' | 'activity'>): boolean {
+  return a.status === 'active' && !!a.activity && a.activity !== 'offline';
 }
 
 export const STATUS_CLASS: Record<AvatarStatus, string> = {
