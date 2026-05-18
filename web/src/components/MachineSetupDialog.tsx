@@ -91,7 +91,7 @@ export default function MachineSetupDialog({
 
   const apiKeyPart = generatedKey || '<api_key>';
   const installCommand =
-    'NPM_CONFIG_REGISTRY=https://bnpm.byted.org npm install -g @bnpm-viking/zouk-daemon';
+    'npm install -g @bnpm-viking/zouk-daemon --registry=https://bnpm.byted.org';
   const runCommand = `zouk-daemon --server-url ${serverUrl} --api-key ${apiKeyPart}`;
 
   return (

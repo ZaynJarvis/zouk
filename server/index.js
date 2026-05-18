@@ -5764,7 +5764,7 @@ function reconcileAgentsWithConfigs() {
     console.log(`  REST API:         ${PUBLIC_URL}/internal/agent/{id}/...`);
     console.log(`\nTo connect a daemon:`);
     console.log(`  # install once`);
-    console.log(`  NPM_CONFIG_REGISTRY=https://bnpm.byted.org npm install -g @bnpm-viking/zouk-daemon`);
+    console.log(`  npm install -g @bnpm-viking/zouk-daemon --registry=https://bnpm.byted.org`);
     console.log(`  # then run on any machine`);
     console.log(`  zouk-daemon --server-url ${PUBLIC_URL} --api-key <api_key>`);
     console.log(`  Generate additional keys via POST /api/machine-keys or the Machine Setup UI.`);
