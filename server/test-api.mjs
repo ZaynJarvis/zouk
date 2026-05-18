@@ -1920,3 +1920,129 @@ test('reserved username: profile rename to "system" is rejected', async () => {
   });
   assert.equal(res.status, 400);
 });
+
+// ─── update_profile (agent self-edit) ─────────────────────────────────────────
+// These tests exercise POST /internal/agent/:agentId/profile, the endpoint the
+// chat-bridge `update_profile` MCP tool calls. The endpoint must:
+//   1. Reject empty/oversize/reserved input
+//   2. Server-side resize uploaded pictures so a misbehaving agent can't blow up the DB
+
+const PROFILE_AGENT = 'agent-mock-reviewer';
+const sharp = require('sharp');
+
+async function makeTestPng(dim = 32) {
+  // Solid red 32x32 png — small and decodable.
+  return sharp({
+    create: { width: dim, height: dim, channels: 3, background: { r: 200, g: 30, b: 30 } },
+  }).png().toBuffer();
+}
+
+test('update_profile: rejects when no fields provided', async () => {
+  const form = new FormData();
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update_profile: updates display_name and broadcasts via /api/agents', async () => {
+  const form = new FormData();
+  form.append('display_name', 'Renamed Reviewer');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200);
+  assert.ok(body.updated.includes('displayName'));
+  assert.equal(body.agent.displayName, 'Renamed Reviewer');
+
+  // Verify the change is visible via the public listing the frontend reads.
+  const agentsRes = await fetch(`${BASE}/api/agents`, {
+    headers: { Authorization: `Bearer ${ROOT_TOKEN}` },
+  });
+  const agentsBody = await agentsRes.json();
+  const reviewer = agentsBody.agents.find((a) => a.id === PROFILE_AGENT);
+  assert.equal(reviewer.displayName, 'Renamed Reviewer');
+});
+
+test('update_profile: rejects display_name longer than 64 chars', async () => {
+  const form = new FormData();
+  form.append('display_name', 'x'.repeat(65));
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update_profile: rejects reserved display_name "system"', async () => {
+  const form = new FormData();
+  form.append('display_name', 'system');
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update_profile: small png upload yields ≤12KB data:image/webp;base64 picture', async () => {
+  const pngBuf = await makeTestPng(32);
+  const form = new FormData();
+  form.append('picture', new Blob([pngBuf], { type: 'image/png' }), 'avatar.png');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200);
+  assert.ok(body.updated.includes('picture'));
+  assert.ok(body.agent.picture.startsWith('data:image/webp;base64,'), `picture should be webp data URI, got: ${body.agent.picture?.slice(0, 30)}`);
+  // 12KB raw → ~16KB base64 + ~25 char prefix. Cap the data URI at 17KB.
+  assert.ok(body.agent.picture.length < 17 * 1024, `data URI should be < 17KB, got ${body.agent.picture.length}`);
+});
+
+test('update_profile: oversized random-noise png is resized successfully (DB-blowup defense)', async () => {
+  // Real-world photos compress poorly. Simulate that with random-noise pixels so
+  // the input stays multi-megabyte and we actually exercise the server-side resize.
+  const W = 1000, H = 1000;
+  const noise = Buffer.allocUnsafe(W * H * 3);
+  for (let i = 0; i < noise.length; i++) noise[i] = (Math.random() * 256) | 0;
+  const bigBuf = await sharp(noise, { raw: { width: W, height: H, channels: 3 } })
+    .png({ compressionLevel: 0 })
+    .toBuffer();
+  assert.ok(bigBuf.length > 500 * 1024, `expected large input png, got ${bigBuf.length}`);
+
+  const form = new FormData();
+  form.append('picture', new Blob([bigBuf], { type: 'image/png' }), 'huge.png');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200, `expected 200 after server-side resize, got ${status}`);
+  assert.ok(body.agent.picture.startsWith('data:image/webp;base64,'));
+  assert.ok(body.agent.picture.length < 17 * 1024, `resized data URI should be small (<17KB), got ${body.agent.picture.length}`);
+});
+
+test('update_profile: clear_picture removes the avatar', async () => {
+  const form = new FormData();
+  form.append('clear_picture', '1');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200);
+  // agentPayload omits picture when it's null/undefined
+  assert.equal(body.agent.picture, undefined);
+});
+
+test('update_profile: rejects when picture_path and clear_picture both set (server-side)', async () => {
+  // Daemon-side guard is also present but server must defend too.
+  const form = new FormData();
+  form.append('picture', new Blob([await makeTestPng(16)], { type: 'image/png' }), 'a.png');
+  form.append('clear_picture', '1');
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(res.status, 400);
+});

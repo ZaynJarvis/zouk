@@ -4,6 +4,7 @@ const { WebSocketServer } = require("ws");
 const cors = require("cors");
 const { v4: uuidv4 } = require("uuid");
 const multer = require("multer");
+const sharp = require("sharp");
 const path = require("path");
 const fs = require("fs");
 const { URL } = require("url");
@@ -38,6 +39,14 @@ const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const DEFAULT_WORKSPACE_NAME = process.env.ZOUK_DEFAULT_WORKSPACE_NAME || "Default";
 const DEFAULT_WORKSPACE_ICON = process.env.ZOUK_DEFAULT_WORKSPACE_ICON || "z";
 const MAX_WORKSPACE_ICON_BYTES = 12 * 1024;
+// Agent profile (avatar / displayName / description) — used by both the human-edit
+// PUT /api/agents/:id/config path and the agent-self-edit POST /internal/agent/:id/profile path.
+const MAX_AGENT_PICTURE_INPUT_BYTES = 5 * 1024 * 1024; // before sharp resize
+const MAX_AGENT_PICTURE_OUTPUT_BYTES = 12 * 1024;       // after resize+webp; aligns with workspace icon cap
+const AGENT_PICTURE_DIM = 128;                          // 128x128 cover crop, matches frontend resize
+const MAX_AGENT_DISPLAYNAME_LEN = 64;
+const MAX_AGENT_DESCRIPTION_LEN = 500;
+const AGENT_PICTURE_MIME_RE = /^image\/(png|jpe?g|webp|gif)$/i;
 const PERF_LOG_MODE = String(process.env.ZOUK_PERF_LOG || "slow").trim().toLowerCase();
 const PERF_LOG_ENABLED = ["1", "true", "yes", "slow", "verbose", "all"].includes(PERF_LOG_MODE);
 const PERF_LOG_VERBOSE = ["verbose", "all"].includes(PERF_LOG_MODE);
@@ -3072,6 +3081,130 @@ app.post("/internal/agent/:agentId/upload", upload.single("file"), async (req, r
   res.json({ id, filename: req.file.originalname, sizeBytes: req.file.size });
 });
 
+// update_profile: agent-self-edit of own avatar / displayName / description.
+// Mirrors the human-edit PUT /api/agents/:id/config path but with a tightly
+// scoped field whitelist (no machineId, no OV creds, no runtime/model). Server
+// resizes any incoming picture to AGENT_PICTURE_DIM webp so a misbehaving agent
+// can't blow up the JSON config file with a multi-MB data URI.
+//
+// TODO: matches the existing /internal/agent/* auth gap — the path's :agentId
+// is currently trusted without verifying the Bearer token belongs to that agent.
+// Tracked as a follow-up; do not fix here in isolation.
+app.post("/internal/agent/:agentId/profile", upload.single("picture"), async (req, res) => {
+  const { agentId } = req.params;
+  const workspaceId = workspaceIdFromAgent(agentId);
+
+  const rawDisplayName = req.body?.display_name;
+  const rawDescription = req.body?.description;
+  const clearPicture = req.body?.clear_picture === "1" || req.body?.clear_picture === "true";
+  const hasFile = !!req.file;
+  if (!hasFile && !clearPicture && rawDisplayName === undefined && rawDescription === undefined) {
+    return res.status(400).json({ error: "At least one of picture, clear_picture, display_name, description is required" });
+  }
+  if (hasFile && clearPicture) {
+    return res.status(400).json({ error: "picture and clear_picture are mutually exclusive" });
+  }
+
+  let displayName;
+  if (rawDisplayName !== undefined) {
+    if (typeof rawDisplayName !== "string") return res.status(400).json({ error: "display_name must be a string" });
+    const trimmed = rawDisplayName.trim();
+    if (!trimmed) return res.status(400).json({ error: "display_name cannot be empty" });
+    if (trimmed.length > MAX_AGENT_DISPLAYNAME_LEN) {
+      return res.status(400).json({ error: `display_name exceeds ${MAX_AGENT_DISPLAYNAME_LEN} chars` });
+    }
+    if (isReservedName(trimmed)) return res.status(400).json({ error: `display_name "${trimmed}" is reserved` });
+    displayName = trimmed;
+  }
+
+  let description;
+  if (rawDescription !== undefined) {
+    if (typeof rawDescription !== "string") return res.status(400).json({ error: "description must be a string" });
+    if (rawDescription.length > MAX_AGENT_DESCRIPTION_LEN) {
+      return res.status(400).json({ error: `description exceeds ${MAX_AGENT_DESCRIPTION_LEN} chars` });
+    }
+    description = rawDescription;
+  }
+
+  let pictureDataUri;
+  if (hasFile) {
+    if (!AGENT_PICTURE_MIME_RE.test(req.file.mimetype || "")) {
+      return res.status(415).json({ error: "picture must be png/jpeg/webp/gif" });
+    }
+    try {
+      let buf = await sharp(req.file.buffer, { failOn: "error" })
+        .rotate()
+        .resize(AGENT_PICTURE_DIM, AGENT_PICTURE_DIM, { fit: "cover", position: "centre" })
+        .webp({ quality: 80 })
+        .toBuffer();
+      if (buf.byteLength > MAX_AGENT_PICTURE_OUTPUT_BYTES) {
+        buf = await sharp(req.file.buffer)
+          .rotate()
+          .resize(AGENT_PICTURE_DIM, AGENT_PICTURE_DIM, { fit: "cover", position: "centre" })
+          .webp({ quality: 50 })
+          .toBuffer();
+      }
+      if (buf.byteLength > MAX_AGENT_PICTURE_OUTPUT_BYTES) {
+        return res.status(413).json({ error: `picture exceeds ${MAX_AGENT_PICTURE_OUTPUT_BYTES} bytes after resize` });
+      }
+      pictureDataUri = `data:image/webp;base64,${buf.toString("base64")}`;
+    } catch (err) {
+      return res.status(422).json({ error: "Failed to decode picture", detail: err.message });
+    }
+  }
+
+  let idx = agentConfigs.findIndex((c) => c.id === agentId);
+  if (idx >= 0 && (agentConfigs[idx].workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
+    return res.status(404).json({ error: "Agent not found" });
+  }
+  if (idx < 0) {
+    const running = store.agents[agentId];
+    if (!running) return res.status(404).json({ error: "Agent not found" });
+    if (!running.machineId) return res.status(400).json({ error: "Running agent has no machineId" });
+    agentConfigs.push({
+      id: agentId,
+      workspaceId,
+      name: running.name,
+      displayName: running.displayName,
+      runtime: running.runtime,
+      model: running.model,
+      workDir: running.workDir,
+      machineId: running.machineId,
+    });
+    idx = agentConfigs.length - 1;
+  }
+
+  const merged = { ...agentConfigs[idx] };
+  const changed = [];
+  if (displayName !== undefined) { merged.displayName = displayName; changed.push("displayName"); }
+  if (description !== undefined) {
+    merged.description = description;
+    merged.systemPrompt = description; // keep in sync (mirrors PUT /api/agents/:id/config)
+    changed.push("description");
+  }
+  if (pictureDataUri !== undefined) { merged.picture = pictureDataUri; changed.push("picture"); }
+  if (clearPicture) { merged.picture = null; changed.push("picture"); }
+
+  agentConfigs[idx] = merged;
+  saveAgentConfigs(agentConfigs);
+  db.saveAgentConfig(merged);
+  if (syncRuntimeAgentFromConfig(agentId, merged)) {
+    broadcastToWeb({ type: "agent_started", workspaceId, agent: agentPayload(agentId) });
+  }
+  broadcastToWeb({
+    type: "config_updated",
+    workspaceId,
+    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
+  });
+
+  res.json({
+    ok: true,
+    updated: changed,
+    pictureBytes: pictureDataUri ? Buffer.byteLength(pictureDataUri, "utf8") : 0,
+    agent: agentPayload(agentId),
+  });
+});
+
 // view_file (attachment download)
 app.get("/api/attachments/:attachmentId", (req, res) => {
   const id = req.params.attachmentId;
@@ -3860,6 +3993,7 @@ function syncRuntimeAgentFromConfig(id, config) {
   if (config.runtime !== undefined && config.runtime !== a.runtime) { a.runtime = config.runtime; changed = true; }
   if (config.model !== undefined && config.model !== a.model) { a.model = config.model; changed = true; }
   if (config.workDir !== undefined && config.workDir !== a.workDir) { a.workDir = config.workDir; changed = true; }
+  if (config.picture !== undefined && config.picture !== a.picture) { a.picture = config.picture; changed = true; }
   return changed;
 }
 
