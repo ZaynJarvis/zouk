@@ -38,7 +38,7 @@ export interface ServerAgent {
   description?: string;
   instructions?: string;
   picture?: string;
-  status: 'active' | 'inactive';
+  status: AgentLifecycleStatus;
   activity?: AgentActivity;
   activityDetail?: string;
   entries?: AgentEntry[];
@@ -134,6 +134,7 @@ export interface RuntimeConfig {
 }
 
 export type AgentActivity = 'thinking' | 'working' | 'online' | 'offline' | 'error';
+export type AgentLifecycleStatus = 'active' | 'inactive' | 'stopping';
 
 export interface AgentContextUsageModel {
   model: string;

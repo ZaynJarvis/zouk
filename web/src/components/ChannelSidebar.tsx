@@ -26,6 +26,7 @@ import {
   formatContextUsageTitle,
   pickDisplayContextUsage,
 } from '../lib/contextUsage';
+import { agentIsLive } from '../lib/avatarStatus';
 
 /* ───── Section header ───── */
 
@@ -116,7 +117,7 @@ function ChannelRow({
     () =>
       agents.filter(
         (a) =>
-          (a.activity === 'working' || a.activity === 'thinking') &&
+          agentIsLive(a) &&
           agentLastChannel[a.name]?.channel === channel.name,
       ),
     [agents, agentLastChannel, channel.name],
@@ -662,7 +663,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   };
 
   const forceShowActions = isMobileViewport() || isStandalonePWA();
-  const liveCount = agents.filter((a) => a.activity === 'working' || a.activity === 'thinking').length;
+  const liveCount = agents.filter(agentIsLive).length;
   const totalHumans = humans.length;
 
   // phoneModal mode: use flex:1 + min-h:0 (instead of height:100%) so the

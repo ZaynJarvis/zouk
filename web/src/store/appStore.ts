@@ -3,7 +3,7 @@ import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, ColorMode, Toast,
   WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
-  Workspace, WorkspaceMember, WorkspaceRole,
+  Workspace, WorkspaceMember, WorkspaceRole, AgentLifecycleStatus,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -589,13 +589,20 @@ export function useAppStore() {
         break;
       }
       case 'agent_status': {
-        const e = event as { agentId: string; status: string };
+        const e = event as { agentId: string; status: AgentLifecycleStatus | 'deleted' };
         if (e.status === 'deleted') {
           setAgents(prev => prev.filter(a => a.id !== e.agentId));
           setSelectedAgentId(prev => (prev === e.agentId ? null : prev));
         } else {
+          const status: AgentLifecycleStatus = e.status;
           setAgents(prev => prev.map(a =>
-            a.id === e.agentId ? { ...a, status: e.status as 'active' | 'inactive' } : a
+            a.id === e.agentId
+              ? {
+                  ...a,
+                  status,
+                  ...(status !== 'active' ? { activity: 'offline' as const, activityDetail: undefined } : {}),
+                }
+              : a
           ));
         }
         break;

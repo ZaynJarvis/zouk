@@ -1,7 +1,7 @@
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, AgentActivity, AgentEntry,
-  Workspace,
+  Workspace, AgentLifecycleStatus,
 } from '../types';
 import { getActiveWorkspaceId } from './workspaceRoute';
 
@@ -42,7 +42,7 @@ export interface WsMessageEvent {
 export interface WsAgentStatusEvent {
   type: 'agent_status';
   agentId: string;
-  status: 'active' | 'inactive';
+  status: AgentLifecycleStatus | 'deleted';
 }
 
 export interface WsAgentActivityEvent {

@@ -9,6 +9,7 @@ import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { Avatar, Eyebrow } from './zk/primitives';
 import * as api from '../lib/api';
 import type { TaskRecord } from '../types';
+import { agentIsLive } from '../lib/avatarStatus';
 
 export default function PinnedRail() {
   const { agents, activeChannelName, activeWorkspaceId, channels, tasksVersion, viewMode, agentLastChannel } = useApp();
@@ -44,7 +45,7 @@ export default function PinnedRail() {
   // no agent was active here, which made LIVE feel decoupled from "what's
   // happening in this room".
   const liveAgents = useMemo(() => {
-    const live = agents.filter((a) => a.activity === 'working' || a.activity === 'thinking');
+    const live = agents.filter(agentIsLive);
     if (!activeChannelName) return [];
     return live.filter((a) => agentLastChannel[a.name]?.channel === activeChannelName);
   }, [agents, activeChannelName, agentLastChannel]);

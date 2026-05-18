@@ -4305,8 +4305,8 @@ app.post("/api/agents/:id/stop", requireAuth, (req, res) => {
     ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
   }
   if (store.agents[id]) {
-    store.agents[id].status = "stopping";
-    broadcastToWeb({ type: "agent_status", workspaceId, agentId: id, status: "stopping" });
+    normalizeInactiveAgentState(id, "stopping");
+    broadcastAgentStatus(id, "stopping", workspaceId);
   }
   console.log(`[api] Stopping agent ${id}`);
   res.json({ success: true });
@@ -4336,8 +4336,8 @@ app.post("/api/agents/:id/reset-context", requireAuth, async (req, res) => {
       });
       ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
       if (store.agents[id]) {
-        store.agents[id].status = "stopping";
-        broadcastToWeb({ type: "agent_status", workspaceId, agentId: id, status: "stopping" });
+        normalizeInactiveAgentState(id, "stopping");
+        broadcastAgentStatus(id, "stopping", workspaceId);
       }
     });
   }
@@ -4498,9 +4498,9 @@ function handleDaemonConnection(ws, apiKey) {
     for (const agentId of connectedAgents) {
       if (daemonSockets.get(agentId) !== ws) continue;
       if (store.agents[agentId]) {
-        store.agents[agentId].status = "inactive";
-        daemonSockets.delete(agentId);
-        broadcastToWeb({ type: "agent_status", agentId, status: "inactive" });
+        const agentWorkspaceId = normalizeInactiveAgentState(agentId, "inactive");
+        clearAgentRuntimeBinding(agentId, ws);
+        broadcastAgentStatus(agentId, "inactive", agentWorkspaceId);
       }
     }
     // Daemon swap on the same machine: another daemon authenticated with the
@@ -4539,6 +4539,43 @@ function enqueueActivity(agentId, task) {
   next.finally(() => {
     if (activityChains.get(agentId) === next) activityChains.delete(agentId);
   });
+}
+
+function isBusyActivity(activity) {
+  return activity === "working" || activity === "thinking" || activity === "error";
+}
+
+function clearAgentRuntimeBinding(agentId, ws = null) {
+  if (!ws || daemonSockets.get(agentId) === ws) {
+    daemonSockets.delete(agentId);
+  }
+  for (const machine of machines.values()) {
+    if (Array.isArray(machine.agentIds)) {
+      machine.agentIds = machine.agentIds.filter((id) => id !== agentId);
+    }
+  }
+}
+
+function normalizeInactiveAgentState(agentId, status = "inactive") {
+  const agent = store.agents[agentId];
+  if (!agent) return null;
+  agent.status = status;
+  agent.activity = "offline";
+  agent.activityDetail = undefined;
+  return workspaceIdFromAgent(agentId);
+}
+
+function broadcastAgentStatus(agentId, status, workspaceId = null) {
+  const scopedWorkspaceId = workspaceId || workspaceIdFromAgent(agentId);
+  broadcastToWeb({ type: "agent_status", workspaceId: scopedWorkspaceId, agentId, status });
+  if (status !== "active") {
+    broadcastToWeb({
+      type: "agent_activity",
+      workspaceId: scopedWorkspaceId,
+      agentId,
+      activity: "offline",
+    });
+  }
 }
 
 function handleDaemonMessage(ws, msg, connectedAgents) {
@@ -4634,10 +4671,9 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
       // Reconcile stale agent state: any agent on this machine that is not
       // in runningAgents but still shows working/thinking/error activity had its
       // process die (or its turn_end event was dropped during a reconnect race)
-      // without the server receiving the final activity update. Reset to 'online'
-      // so it shows idle instead of stuck-working. Applies to both active and
-      // inactive agents — inactive agents can carry stale activity from a
-      // disconnect that happened mid-turn before they were marked inactive.
+      // without the server receiving the final activity update. Active agents
+      // are reset to online/idle; inactive or stopping agents stay offline so
+      // lifecycle state and activity never contradict each other.
       // Running agents are skipped here; the daemon re-broadcasts their current
       // activity via agent:activity messages that follow immediately after 'ready'.
       {
@@ -4645,10 +4681,17 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         for (const [agentId, agent] of Object.entries(store.agents)) {
           if (agent.machineId !== ws._machineId) continue;
           if (runningSet.has(agentId)) continue;
-          if (["working", "thinking", "error"].includes(agent.activity)) {
-            store.agents[agentId].activity = "online";
+          if (isBusyActivity(agent.activity)) {
+            const activity = agent.status === "active" ? "online" : "offline";
+            store.agents[agentId].activity = activity;
             store.agents[agentId].activityDetail = undefined;
-            broadcastToWeb({ type: "agent_activity", agentId, activity: "online", detail: "Idle" });
+            broadcastToWeb({
+              type: "agent_activity",
+              workspaceId: workspaceIdFromAgent(agentId),
+              agentId,
+              activity,
+              detail: activity === "online" ? "Idle" : undefined,
+            });
           }
         }
       }
@@ -4678,20 +4721,28 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         const cfg = agentConfigs.find((c) => c.id === agentId);
         if (cfg) syncRuntimeAgentFromConfig(agentId, cfg);
       }
-      connectedAgents.add(agentId);
-      daemonSockets.set(agentId, ws);
       store.agents[agentId].status = status;
       store.agents[agentId].machineId = ws._machineId;
       const workDirChanged = updateAgentWorkDir(agentId, msg.workDir);
-      // Track agent in machine record
-      const machine = machines.get(ws._machineId);
-      if (machine && !machine.agentIds.includes(agentId)) {
-        machine.agentIds.push(agentId);
+      const agentWorkspaceId = status === "active"
+        ? workspaceIdFromAgent(agentId)
+        : normalizeInactiveAgentState(agentId, status);
+      if (status === "active") {
+        connectedAgents.add(agentId);
+        daemonSockets.set(agentId, ws);
+        // Track agent in machine record
+        const machine = machines.get(ws._machineId);
+        if (machine && !machine.agentIds.includes(agentId)) {
+          machine.agentIds.push(agentId);
+        }
+      } else {
+        connectedAgents.delete(agentId);
+        clearAgentRuntimeBinding(agentId, ws);
       }
       if (isNew) {
         broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
       } else {
-        broadcastToWeb({ type: "agent_status", agentId, status });
+        broadcastAgentStatus(agentId, status, agentWorkspaceId);
         if (workDirChanged) {
           broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
           const workspaceId = workspaceIdFromAgent(agentId);
@@ -4734,6 +4785,18 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
         break;
       }
       enqueueActivity(agentId, async () => {
+        const current = store.agents[agentId];
+        if (current?.status !== "active" && activity !== "offline") {
+          console.warn(`[agent:${agentId}] Dropped activity=${activity} while status=${current?.status || "unknown"}`);
+          if (Array.isArray(entries) && entries.length > 0) {
+            try {
+              await db.saveActivityEntries(agentId, activity, detail, entries);
+            } catch (e) {
+              console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
+            }
+          }
+          return;
+        }
         const prev = store.agents[agentId]?.activity;
         if (store.agents[agentId]) {
           store.agents[agentId].activity = activity;
@@ -4752,7 +4815,15 @@ function handleDaemonMessage(ws, msg, connectedAgents) {
             console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
           }
         }
-        broadcastToWeb({ type: "agent_activity", agentId, activity, detail, entries, contextUsage });
+        broadcastToWeb({
+          type: "agent_activity",
+          workspaceId: workspaceIdFromAgent(agentId),
+          agentId,
+          activity,
+          detail,
+          entries,
+          contextUsage,
+        });
       });
       break;
     }

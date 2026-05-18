@@ -8,6 +8,7 @@ import { useApp } from '../store/AppContext';
 import { Avatar } from './zk/primitives';
 import { resizeAndEncode } from '../lib/imageEncode';
 import type { Workspace } from '../types';
+import { agentIsLive } from '../lib/avatarStatus';
 
 interface RailItem {
   id: 'home' | 'agents' | 'tasks' | 'memory';
@@ -75,9 +76,7 @@ export default function WorkspaceRail() {
     }
   };
 
-  const liveCount = agents.filter(
-    (a) => a.activity === 'working' || a.activity === 'thinking',
-  ).length;
+  const liveCount = agents.filter(agentIsLive).length;
 
   const handleCreateWorkspace = async () => {
     const name = window.prompt('Server name');
