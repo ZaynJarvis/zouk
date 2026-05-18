@@ -4842,9 +4842,37 @@ function broadcastAgentStatus(agentId, status, workspaceId = null) {
   }
 }
 
+function reconcileAgentLifecycleHealth(ws, msg) {
+  const { agentId, reason } = msg || {};
+  if (!agentId || !reason) return;
+  const agent = store.agents[agentId];
+  if (!agent) return;
+  const ownerWs = daemonSockets.get(agentId);
+  if (ownerWs && ownerWs !== ws) {
+    console.warn(`[agent:${agentId}] Ignoring lifecycle health reason=${reason} from stale connection machine=${ws._machineId}`);
+    return;
+  }
+  if (agent.status !== "active") return;
+
+  if (reason === "agent_idle" && agent.activity !== "online") {
+    const prev = agent.activity || "?";
+    agent.activity = "online";
+    agent.activityDetail = "Idle";
+    console.log(`[agent:${agentId}] Lifecycle health reconciled activity: ${prev} -> online`);
+    broadcastToWeb({
+      type: "agent_activity",
+      workspaceId: workspaceIdFromAgent(agentId),
+      agentId,
+      activity: "online",
+      detail: "Idle",
+    });
+  }
+}
+
 function handleDaemonMessage(ws, msg, connectedAgents) {
   switch (msg.type) {
     case "daemon:health": {
+      reconcileAgentLifecycleHealth(ws, msg);
       if (ws.readyState === 1) {
         ws.send(JSON.stringify({
           type: "daemon:health:ack",

@@ -163,20 +163,30 @@ test('inactive agent status clears stale busy activity and rejects late busy hea
   const daemon = await connectDaemon();
   sendReady(daemon);
 
+  const activePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => (
+      (ev.type === 'agent_started' && ev.agent?.id === AGENT_ID)
+      || (ev.type === 'agent_status' && ev.agentId === AGENT_ID && ev.status === 'active')
+    ),
+    3000,
+  );
   daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'active' }));
-  await waitForMessageOrTimeout(web, (ev) => ev.type === 'agent_started' && ev.agent?.id === AGENT_ID, 3000);
+  const active = await activePromise;
+  assert.ok(active, 'web client should observe the agent becoming active');
 
+  const busyPromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'working',
+    3000,
+  );
   daemon.send(JSON.stringify({
     type: 'agent:activity',
     agentId: AGENT_ID,
     activity: 'working',
     detail: 'CI busy',
   }));
-  const busy = await waitForMessageOrTimeout(
-    web,
-    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'working',
-    3000,
-  );
+  const busy = await busyPromise;
   assert.ok(busy, 'web client should observe the busy activity before inactive');
 
   let agent = await readAgent();
@@ -221,6 +231,76 @@ test('inactive agent status clears stale busy activity and rejects late busy hea
   assert.equal(agent.status, 'inactive');
   assert.equal(agent.activity, 'offline');
   assert.equal(agent.activityDetail, undefined);
+
+  await closeWs(daemon);
+  await closeWs(web);
+});
+
+test('agent idle health check reconciles stale busy activity to online', async () => {
+  const web = await connectWeb();
+  await waitForMessageOrTimeout(web, (ev) => ev.type === 'init', 3000);
+
+  const daemon = await connectDaemon();
+  sendReady(daemon);
+
+  const activePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => (
+      (ev.type === 'agent_started' && ev.agent?.id === AGENT_ID)
+      || (ev.type === 'agent_status' && ev.agentId === AGENT_ID && ev.status === 'active')
+    ),
+    3000,
+  );
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'active' }));
+  const active = await activePromise;
+  assert.ok(active, 'web client should observe the agent becoming active');
+
+  const busyPromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'working',
+    3000,
+  );
+  daemon.send(JSON.stringify({
+    type: 'agent:activity',
+    agentId: AGENT_ID,
+    activity: 'working',
+    detail: 'Checking messages...',
+  }));
+  const busy = await busyPromise;
+  assert.ok(busy, 'web client should observe the stale busy activity first');
+
+  let agent = await readAgent();
+  assert.equal(agent.status, 'active');
+  assert.equal(agent.activity, 'working');
+
+  const onlinePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'online',
+    3000,
+  );
+  const ackPromise = waitForMessageOrTimeout(
+    daemon,
+    (ev) => ev.type === 'daemon:health:ack' && ev.seq === 1001,
+    3000,
+  );
+  daemon.send(JSON.stringify({
+    type: 'daemon:health',
+    seq: 1001,
+    reason: 'agent_idle',
+    agentId: AGENT_ID,
+    sentAt: new Date().toISOString(),
+  }));
+
+  const ack = await ackPromise;
+  assert.ok(ack, 'daemon should receive the health ack');
+  const online = await onlinePromise;
+  assert.ok(online, 'web client should receive an online reconciliation activity');
+  assert.equal(online.detail, 'Idle');
+
+  agent = await readAgent();
+  assert.equal(agent.status, 'active');
+  assert.equal(agent.activity, 'online');
+  assert.equal(agent.activityDetail, 'Idle');
 
   await closeWs(daemon);
   await closeWs(web);
