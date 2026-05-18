@@ -71,7 +71,11 @@ node -e '
 echo "[build] installing prod-only deps in ${OUT}/"
 (
   cd "${OUT}"
-  npm install --omit=dev --omit=optional --no-audit --no-fund
+  # NB: do NOT pass --omit=optional. sharp ships its platform-specific
+  # native binary (e.g. @img/sharp-linux-x64) via optionalDependencies;
+  # omitting them yields a runtime "Could not load the sharp module" on
+  # boot.
+  npm install --omit=dev --no-audit --no-fund
 )
 
 # Sanity check: server entrypoint must resolve its requires before TCE
