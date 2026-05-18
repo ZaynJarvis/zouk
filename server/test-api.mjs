@@ -2046,3 +2046,78 @@ test('update_profile: rejects when picture_path and clear_picture both set (serv
   });
   assert.equal(res.status, 400);
 });
+
+// ─── customLauncher (per-agent driver binary override) ────────────────────────
+// PUT /api/agents/:id/config accepts a customLauncher field. The string is
+// whitespace-split into argv on the daemon side. These tests verify the
+// server-side validation: length cap, control chars, vikingbot gate, clearing.
+
+const LAUNCHER_AGENT = 'agent-mock-reviewer';
+
+async function setLauncher(value) {
+  return fetch(`${BASE}/api/agents/${LAUNCHER_AGENT}/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ROOT_TOKEN}` },
+    body: JSON.stringify({ customLauncher: value }),
+  });
+}
+
+test('customLauncher: PUT accepts a valid string and round-trips via GET', async () => {
+  const setRes = await setLauncher('/usr/local/bin/codex');
+  assert.equal(setRes.status, 200);
+  const getRes = await fetch(`${BASE}/api/agent-configs`, { headers: { Authorization: `Bearer ${ROOT_TOKEN}` } });
+  const { configs } = await getRes.json();
+  const cfg = configs.find((c) => c.id === LAUNCHER_AGENT);
+  assert.equal(cfg.customLauncher, '/usr/local/bin/codex');
+});
+
+test('customLauncher: PUT rejects string > 256 chars (400)', async () => {
+  const res = await setLauncher('x'.repeat(257));
+  assert.equal(res.status, 400);
+});
+
+test('customLauncher: PUT rejects control chars (400)', async () => {
+  const res = await setLauncher('claude\nrm -rf /');
+  assert.equal(res.status, 400);
+});
+
+test('customLauncher: PUT rejects when target runtime is vikingbot (400)', async () => {
+  // Swap reviewer's runtime to vikingbot temporarily, attempt to set the
+  // launcher, expect rejection, then restore runtime to claude.
+  const setVb = await fetch(`${BASE}/api/agents/${LAUNCHER_AGENT}/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ROOT_TOKEN}` },
+    body: JSON.stringify({ runtime: 'vikingbot' }),
+  });
+  assert.equal(setVb.status, 200);
+  try {
+    const res = await setLauncher('wrap vikingbot');
+    assert.equal(res.status, 400);
+  } finally {
+    await fetch(`${BASE}/api/agents/${LAUNCHER_AGENT}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ROOT_TOKEN}` },
+      body: JSON.stringify({ runtime: 'claude' }),
+    });
+  }
+});
+
+test('customLauncher: PUT with null clears the field', async () => {
+  await setLauncher('env LANG=C claude');
+  const res = await setLauncher(null);
+  assert.equal(res.status, 200);
+  const getRes = await fetch(`${BASE}/api/agent-configs`, { headers: { Authorization: `Bearer ${ROOT_TOKEN}` } });
+  const { configs } = await getRes.json();
+  const cfg = configs.find((c) => c.id === LAUNCHER_AGENT);
+  assert.equal(cfg.customLauncher ?? null, null);
+});
+
+test('customLauncher: PUT with empty string clears the field', async () => {
+  await setLauncher('env LANG=C claude');
+  const res = await setLauncher('');
+  assert.equal(res.status, 200);
+  const getRes = await fetch(`${BASE}/api/agent-configs`, { headers: { Authorization: `Bearer ${ROOT_TOKEN}` } });
+  const { configs } = await getRes.json();
+  const cfg = configs.find((c) => c.id === LAUNCHER_AGENT);
+  assert.equal(cfg.customLauncher ?? null, null);
+});

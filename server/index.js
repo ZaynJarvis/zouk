@@ -47,6 +47,10 @@ const AGENT_PICTURE_DIM = 128;                          // 128x128 cover crop, m
 const MAX_AGENT_DISPLAYNAME_LEN = 64;
 const MAX_AGENT_DESCRIPTION_LEN = 500;
 const AGENT_PICTURE_MIME_RE = /^image\/(png|jpe?g|webp|gif)$/i;
+// customLauncher: per-agent override that replaces the daemon driver's default
+// binary (e.g. "/usr/local/bin/codex" or "env LANG=C claude"). Whitespace-split into argv on
+// the daemon side. Not honored by vikingbot (internal node worker).
+const CUSTOM_LAUNCHER_MAX = 256;
 const PERF_LOG_MODE = String(process.env.ZOUK_PERF_LOG || "slow").trim().toLowerCase();
 const PERF_LOG_ENABLED = ["1", "true", "yes", "slow", "verbose", "all"].includes(PERF_LOG_MODE);
 const PERF_LOG_VERBOSE = ["verbose", "all"].includes(PERF_LOG_MODE);
@@ -131,6 +135,19 @@ function ovDefaultForRuntime(runtime) {
 function isOvEnabledForAgent(cfg) {
   if (cfg && typeof cfg.openvikingEnabled === "boolean") return cfg.openvikingEnabled;
   return ovDefaultForRuntime(cfg && cfg.runtime);
+}
+// Normalize / validate a customLauncher update payload. Returns
+// `{ ok: true, value: <trimmed-string-or-null> }` on success (null = clear),
+// or `{ ok: false, err: <reason> }` on validation failure.
+function validateCustomLauncher(value, runtime) {
+  if (value === null || value === undefined || value === "") return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false, err: "customLauncher must be a string" };
+  const trimmed = value.trim();
+  if (!trimmed) return { ok: true, value: null };
+  if (trimmed.length > CUSTOM_LAUNCHER_MAX) return { ok: false, err: `customLauncher exceeds ${CUSTOM_LAUNCHER_MAX} chars` };
+  if (/[\x00-\x1f\x7f]/.test(trimmed)) return { ok: false, err: "customLauncher contains control chars" };
+  if (runtime === "vikingbot") return { ok: false, err: "customLauncher is not supported for vikingbot runtime" };
+  return { ok: true, value: trimmed };
 }
 function decodeOvKey(key) {
   // New-format key: base64url(account).base64url(user).base64url(secret).
@@ -4006,6 +4023,12 @@ app.post("/api/agent-configs", requireAuth, (req, res) => {
   if (existing >= 0 && (agentConfigs[existing].workspaceId || DEFAULT_WORKSPACE_ID) !== config.workspaceId) {
     return res.status(404).json({ error: "Agent not found" });
   }
+  if (config.customLauncher !== undefined) {
+    const r = validateCustomLauncher(config.customLauncher, config.runtime);
+    if (!r.ok) return res.status(400).json({ error: r.err });
+    config.customLauncher = r.value; // null = drop the field on disk
+    if (r.value === null) delete config.customLauncher;
+  }
   if (existing >= 0) {
     // machineId is immutable — never let the payload overwrite the stored value.
     const { machineId: _ignored, ...rest } = config;
@@ -4064,11 +4087,21 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     openvikingCustomApiKey: incomingCustomApiKey,
     openvikingMode: incomingMode,
     openvikingEnabled: incomingEnabled,
+    customLauncher: incomingLauncher,
     ...rest
   } = updates;
 
   const merged = { ...agentConfigs[idx], ...rest };
   merged.workspaceId = workspaceId;
+
+  // customLauncher: per-agent override of the daemon driver's default binary.
+  // "Leave blank = clear" semantics (it's not a secret, so what-you-see is
+  // what's saved — differs from the OV API key field's "leave blank = keep").
+  if (incomingLauncher !== undefined) {
+    const r = validateCustomLauncher(incomingLauncher, merged.runtime);
+    if (!r.ok) return res.status(400).json({ error: r.err });
+    merged.customLauncher = r.value; // null clears the field, string sets it
+  }
 
   // openvikingEnabled: boolean = explicit override; null = clear to follow
   // the runtime default; undefined = leave as-is.
@@ -4293,6 +4326,16 @@ async function startAgentOnDaemon(id, config) {
     ? config.workDir.trim()
     : undefined;
 
+  // Normalize / validate the launcher override up-front so we never spawn an
+  // agent with an invalid value, and so the persisted row matches what the
+  // daemon receives. Empty / whitespace coerces to no override.
+  if (config.customLauncher !== undefined) {
+    const r = validateCustomLauncher(config.customLauncher, runtime);
+    if (!r.ok) return { error: r.err };
+    if (r.value === null) delete config.customLauncher;
+    else config.customLauncher = r.value;
+  }
+
   // Never spill a machine-pinned agent onto another host. That switches the
   // workspace underneath the server's saved config.
   let targetWs = null;
@@ -4420,6 +4463,7 @@ async function startAgentOnDaemon(id, config) {
     daemonConfig.envVars = config.envVars;
   }
   if (daemonOv) daemonConfig.openviking = daemonOv;
+  if (config.customLauncher) daemonConfig.customLauncher = config.customLauncher;
 
   // Send agent:start to daemon — read from config (source of truth),
   // not store.agents (which may have fallback values).
@@ -4451,6 +4495,7 @@ async function startAgentOnDaemon(id, config) {
     };
     if (requestedWorkDir) persisted.workDir = requestedWorkDir;
     if (config.envVars && typeof config.envVars === 'object') persisted.envVars = config.envVars;
+    if (config.customLauncher) persisted.customLauncher = config.customLauncher;
     if (typeof config.openvikingEnabled === 'boolean') {
       persisted.openvikingEnabled = config.openvikingEnabled;
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Plus, ChevronDown, Server, AlertTriangle, Loader as Loader2, Copy, Check, Star } from 'lucide-react';
 import type { ServerMachine } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
@@ -17,6 +17,9 @@ export interface CreateAgentConfig {
   // Omitted = follow server-side runtime default (OV_RUNTIME_WHITELIST).
   // Explicit boolean = user-set override that persists on the agent.
   openvikingEnabled?: boolean;
+  // Optional override of the daemon driver's default binary (e.g.
+  // "/usr/local/bin/codex" or "env LANG=C claude"). Whitespace-split on daemon.
+  customLauncher?: string;
 }
 
 export default function CreateAgentDialog({
@@ -47,6 +50,7 @@ export default function CreateAgentDialog({
   // we omit it from the submit payload. Once the user clicks one of the two
   // buttons, it locks to that boolean and we include it explicitly.
   const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
+  const [customLauncher, setCustomLauncher] = useState('');
 
   // Server is the source of truth for the OV-recommended runtime list. We use
   // it to surface a "★ OV" badge + one-liner installer below the runtime row
@@ -69,14 +73,34 @@ export default function CreateAgentDialog({
     }
   }, [machineRuntimes, runtime]);
 
-  // Pull the model catalog from the daemon when the selection changes. If the
-  // daemon can't provide one (old daemon, unsupported runtime, timeout) we
-  // silently fall back to the free-form input.
+  // Clear the launcher override whenever runtime changes — a wrapper for
+  // claude likely doesn't make sense for codex, etc. User has to re-enter.
   useEffect(() => {
-    setModel('');
-    setCustomModel(false);
-    setModelOptions([]);
-    if (!runtime || !selectedMachine) return;
+    setCustomLauncher('');
+  }, [runtime]);
+
+  // When a custom launcher is in play, the daemon's hardcoded model aliases
+  // (opus/sonnet/haiku for claude, codex's static list, etc.) likely don't
+  // apply — wrappers usually maintain their own model catalog. Force the
+  // free-form input and clear any auto-picked default so the user has to
+  // type the exact ID their launcher expects.
+  const launcherActive = customLauncher.trim().length > 0;
+  useEffect(() => {
+    if (launcherActive) {
+      setCustomModel(true);
+      setModel('');
+    }
+  }, [launcherActive]);
+
+  // Pull the model catalog from the daemon. Re-runs when the runtime / machine
+  // changes, or when the user blurs the launcher field (the daemon's detector
+  // reads runtime-side config, so a new launcher may want a fresh probe).
+  const refreshModels = useCallback(() => {
+    if (!runtime || !selectedMachine) {
+      setModelOptions([]);
+      setModel('');
+      return;
+    }
     let cancelled = false;
     setModelsLoading(true);
     fetchRuntimeModels(selectedMachine.id, runtime)
@@ -87,12 +111,19 @@ export default function CreateAgentDialog({
           const preferred = result.default && result.models.some((m) => m.id === result.default)
             ? result.default
             : result.models[0].id;
-          setModel(preferred);
+          setModel((current) => (current && result.models.some((m) => m.id === current) ? current : preferred));
         }
       })
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
   }, [runtime, selectedMachine]);
+
+  useEffect(() => {
+    setModel('');
+    setCustomModel(false);
+    setModelOptions([]);
+    return refreshModels();
+  }, [refreshModels]);
 
   const canSubmit = name.trim().length > 0 && runtime.length > 0;
   // Resolved on-screen value: the user's explicit override wins, otherwise
@@ -114,6 +145,7 @@ export default function CreateAgentDialog({
       // when this field is absent, so the new agent stays untouched DB-wise
       // for users who don't care about OV.
       ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
+      ...(customLauncher.trim() ? { customLauncher: customLauncher.trim() } : {}),
     });
   };
 
@@ -347,7 +379,12 @@ export default function CreateAgentDialog({
                 <span>MODEL</span>
                 {modelsLoading && <Loader2 size={10} className="animate-spin text-nc-cyan" />}
               </label>
-              {modelOptions.length > 0 && !customModel ? (
+              {launcherActive && (
+                <p className="text-2xs text-nc-yellow mb-1.5 font-mono">
+                  Custom launcher is set — the suggested model list may not apply. Type the exact model identifier your launcher expects.
+                </p>
+              )}
+              {!launcherActive && modelOptions.length > 0 && !customModel ? (
                 <>
                   <div className="flex gap-2 flex-wrap">
                     {modelOptions.map((m) => (
@@ -394,6 +431,22 @@ export default function CreateAgentDialog({
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {runtime && runtime !== 'vikingbot' && (
+            <div>
+              <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CUSTOM_LAUNCHER</label>
+              <input
+                value={customLauncher}
+                onChange={(e) => setCustomLauncher(e.target.value)}
+                onBlur={refreshModels}
+                placeholder={`e.g. /path/to/${runtime} or env LANG=C ${runtime}`}
+                className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
+              />
+              <p className="text-2xs text-nc-muted mt-1 font-mono">
+                Override the default <span className="text-nc-cyan">{runtime}</span> binary. Leave blank for the runtime default. Split on whitespace into argv.
+              </p>
             </div>
           )}
 

@@ -1208,6 +1208,7 @@ export function useAppStore() {
     runtime: string; model?: string; machineId?: string; channels?: string[];
     lifecycle?: 'persistent' | 'ephemeral';
     openvikingEnabled?: boolean;
+    customLauncher?: string;
   }) => {
     try {
       await api.startAgent(config);
