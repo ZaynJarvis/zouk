@@ -118,7 +118,7 @@ const OPENVIKING_ROOT_KEY = process.env.OPENVIKING_ROOT_KEY || null;
 // value of each agent's `openvikingEnabled` toggle. Users can override per
 // agent via Agent Config; this list only controls the default at creation
 // time and the `★ OV` recommendation badge in the create dialog.
-const OV_RUNTIME_WHITELIST = (process.env.OV_RUNTIME_WHITELIST || "claude")
+const OV_RUNTIME_WHITELIST = (process.env.OV_RUNTIME_WHITELIST || "claude,codex")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);

@@ -52,8 +52,13 @@ export default function CreateAgentDialog({
   // it to surface a "★ OV" badge + one-liner installer below the runtime row
   // when one of these is picked.
   const { ovRuntimeWhitelist } = useApp();
-  const OV_INSTALL_COMMAND =
-    'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/claude-code-memory-plugin/setup-helper/install.sh)';
+  // Per-runtime install URL: each plugin lives under
+  // examples/<plugin-name>/setup-helper/install.sh in the OpenViking repo.
+  const OV_INSTALL_COMMANDS: Record<string, string> = {
+    claude: 'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/claude-code-memory-plugin/setup-helper/install.sh)',
+    codex: 'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/codex-memory-plugin/setup-helper/install.sh)',
+  };
+  const installCommand = OV_INSTALL_COMMANDS[runtime] || '';
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId);
   const machineRuntimes = useMemo(() => selectedMachine?.runtimes || [], [selectedMachine]);
@@ -272,7 +277,7 @@ export default function CreateAgentDialog({
               </div>
             )}
 
-            {ovRuntimeWhitelist.includes(runtime) && (
+            {ovRuntimeWhitelist.includes(runtime) && installCommand && (
               <div className="mt-2 border border-nc-yellow/30 bg-nc-yellow/5 p-2.5 text-2xs font-mono space-y-1.5">
                 <div className="flex items-center gap-1.5 text-nc-yellow">
                   <Star size={10} className="fill-current" />
@@ -284,12 +289,12 @@ export default function CreateAgentDialog({
                     className="flex-1 px-2 py-1.5 border border-nc-border bg-nc-black text-2xs font-mono text-nc-green break-all select-all"
                     style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
                   >
-                    {OV_INSTALL_COMMAND}
+                    {installCommand}
                   </code>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(OV_INSTALL_COMMAND);
+                      navigator.clipboard.writeText(installCommand);
                       setOvInstallCopied(true);
                       setTimeout(() => setOvInstallCopied(false), 2000);
                     }}
