@@ -1,12 +1,22 @@
 import { GoogleLogin } from '@react-oauth/google';
+import { Loader2 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
-import { themes } from '../themes';
 import { initSupabase } from '../lib/supabase';
+import { createMagicLoginChallenge, pollMagicLoginChallenge, type MagicLoginChallenge } from '../lib/api';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
+const MAGIC_LINK_POLL_INTERVAL_MS = 2000;
+const MAGIC_LINK_EXPIRES_MS = 5 * 60 * 1000;
+
+function formatTimeLeft(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
 
 function ScrambleTitle({ nc }: { nc: boolean }) {
   const [text, setText] = useState('ZOUK');
@@ -53,13 +63,28 @@ function ScrambleTitle({ nc }: { nc: boolean }) {
 }
 
 export default function LoginScreen() {
-  const { loginWithGoogle, loginAsGuest, hasGoogleAuth, hasMagicLinkAuth, supabaseConfig, allowlistActive, feishuEnabled, theme, setTheme } = useApp();
+  const {
+    loginWithGoogle,
+    loginWithAuthResponse,
+    loginWithSupabaseAccessToken,
+    loginWithStoredAuth,
+    loginAsGuest,
+    hasGoogleAuth,
+    hasMagicLinkAuth,
+    supabaseConfig,
+    allowlistActive,
+    feishuEnabled,
+  } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [glitchActive, setGlitchActive] = useState(false);
   const [pendingAction, setPendingAction] = useState<'guest' | 'google' | 'magic' | null>(null);
   const [magicEmail, setMagicEmail] = useState('');
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [magicLinkState, setMagicLinkState] = useState<'idle' | 'pending' | 'expired'>('idle');
+  const [magicLinkExpiresAt, setMagicLinkExpiresAt] = useState<number | null>(null);
+  const [magicLinkNow, setMagicLinkNow] = useState(() => Date.now());
+  const [magicChallenge, setMagicChallenge] = useState<MagicLoginChallenge | null>(null);
+  const magicLoginInFlightRef = useRef(false);
 
   const handleGuestLogin = useCallback(() => {
     setLoading(true);
@@ -86,14 +111,26 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
     setPendingAction('magic');
+    setMagicLinkState('idle');
+    setMagicLinkExpiresAt(null);
+    setMagicChallenge(null);
     try {
+      const challenge = await createMagicLoginChallenge(magicEmail.trim());
+      const redirectUrl = new URL(window.location.origin);
+      redirectUrl.searchParams.set('magic_challenge', challenge.challengeId);
       const supabase = initSupabase(supabaseConfig.url, supabaseConfig.anonKey);
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: magicEmail.trim(),
-        options: { emailRedirectTo: window.location.origin },
+        options: { emailRedirectTo: redirectUrl.toString() },
       });
       if (otpError) throw otpError;
-      setMagicLinkSent(true);
+      const expiresAt = Number.isNaN(Date.parse(challenge.expiresAt))
+        ? Date.now() + MAGIC_LINK_EXPIRES_MS
+        : Date.parse(challenge.expiresAt);
+      setMagicLinkNow(Date.now());
+      setMagicLinkExpiresAt(expiresAt);
+      setMagicChallenge(challenge);
+      setMagicLinkState('pending');
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : 'Failed to send magic link.';
       setError(message);
@@ -102,6 +139,106 @@ export default function LoginScreen() {
       setPendingAction(null);
     }
   }, [magicEmail, supabaseConfig]);
+
+  const resetMagicLink = useCallback(() => {
+    setMagicLinkState('idle');
+    setMagicLinkExpiresAt(null);
+    setMagicChallenge(null);
+    setError(null);
+    setPendingAction(null);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (magicLinkState !== 'pending' || !magicLinkExpiresAt) return;
+    setMagicLinkNow(Date.now());
+    const timer = window.setInterval(() => setMagicLinkNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [magicLinkState, magicLinkExpiresAt]);
+
+  useEffect(() => {
+    if (magicLinkState !== 'pending' || !magicLinkExpiresAt || !supabaseConfig) return;
+    let cancelled = false;
+    let pollTimer: number | null = null;
+    let expiryTimer: number | null = null;
+
+    const supabase = initSupabase(supabaseConfig.url, supabaseConfig.anonKey);
+
+    const expire = () => {
+      if (cancelled) return;
+      setMagicLinkState('expired');
+      setMagicLinkNow(Date.now());
+      setPendingAction(null);
+      setLoading(false);
+    };
+
+    const completeWithAccessToken = async (accessToken: string) => {
+      if (magicLoginInFlightRef.current) return;
+      magicLoginInFlightRef.current = true;
+      setPendingAction('magic');
+      setLoading(true);
+      try {
+        await loginWithSupabaseAccessToken(accessToken);
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error && err.message ? err.message : 'Magic link login failed.';
+          setError(message);
+          setMagicLinkState('idle');
+          setMagicLinkExpiresAt(null);
+          setPendingAction(null);
+          setLoading(false);
+        }
+      } finally {
+        magicLoginInFlightRef.current = false;
+      }
+    };
+
+    const poll = async () => {
+      if (cancelled || magicLoginInFlightRef.current) return;
+      if (Date.now() >= magicLinkExpiresAt) {
+        expire();
+        return;
+      }
+      if (magicChallenge) {
+        try {
+          const handoff = await pollMagicLoginChallenge(magicChallenge.challengeId, magicChallenge.pollToken);
+          if (cancelled) return;
+          if (handoff.status === 'expired') {
+            expire();
+            return;
+          }
+          if (handoff.status === 'completed') {
+            loginWithAuthResponse(handoff);
+            return;
+          }
+        } catch {
+          // Keep polling; transient network errors should not cancel the wait.
+        }
+      }
+      if (loginWithStoredAuth()) return;
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (sessionError) return;
+      const accessToken = data.session?.access_token;
+      if (accessToken) void completeWithAccessToken(accessToken);
+    };
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) void completeWithAccessToken(session.access_token);
+    });
+
+    void poll();
+    pollTimer = window.setInterval(() => { void poll(); }, MAGIC_LINK_POLL_INTERVAL_MS);
+    expiryTimer = window.setTimeout(expire, Math.max(0, magicLinkExpiresAt - Date.now()));
+
+    return () => {
+      cancelled = true;
+      if (pollTimer !== null) window.clearInterval(pollTimer);
+      if (expiryTimer !== null) window.clearTimeout(expiryTimer);
+      authListener.subscription.unsubscribe();
+    };
+  }, [loginWithAuthResponse, loginWithStoredAuth, loginWithSupabaseAccessToken, magicChallenge, magicLinkExpiresAt, magicLinkState, supabaseConfig]);
 
   const handleGlitchComplete = useCallback(() => {
     setGlitchActive(false);
@@ -119,6 +256,7 @@ export default function LoginScreen() {
 
   const hasSeparator = hasGoogleAuth || hasMagicLinkAuth || feishuEnabled;
   const showGuestDivider = hasSeparator && !allowlistActive;
+  const magicLinkTimeLeft = magicLinkExpiresAt ? Math.max(0, magicLinkExpiresAt - magicLinkNow) : 0;
 
   const handleFeishuLogin = useCallback(() => {
     // Server-driven OIDC: bounce to /api/auth/feishu/start, which 302s into
@@ -128,7 +266,7 @@ export default function LoginScreen() {
   }, []);
 
   return (
-    <div className="login-shell flex sm:items-center items-start justify-center bg-nc-black font-body cyber-scanlines">
+    <div className="login-shell flex items-center justify-center bg-nc-black font-body cyber-scanlines">
       <GlitchTransition
         active={glitchActive}
         duration={500}
@@ -209,14 +347,34 @@ export default function LoginScreen() {
 
           {hasMagicLinkAuth && (
             <div className="mb-4">
-              {magicLinkSent ? (
+              {magicLinkState === 'pending' || magicLinkState === 'expired' ? (
                 <div className={`p-3 border text-xs font-mono text-center ${
-                  nc
+                  magicLinkState === 'expired'
+                    ? 'border-nc-red/50 bg-nc-red/10 text-nc-red'
+                    : nc
                     ? 'border-nc-cyan/40 bg-nc-cyan/5 text-nc-cyan'
                     : 'border-nc-border-bright bg-nc-panel text-nc-text-bright'
                 }`}>
-                  {nc ? '✓ LINK TRANSMITTED' : 'Check your email'}<br />
-                  <span className="text-nc-muted mt-1 block">Magic link sent to {magicEmail}</span>
+                  {magicLinkState === 'expired'
+                    ? (nc ? 'LINK EXPIRED' : 'Magic link expired')
+                    : (nc ? '✓ LINK TRANSMITTED' : 'Check your email')}<br />
+                  <span className="text-nc-muted mt-1 block">
+                    Magic link sent to {magicEmail}
+                  </span>
+                  {magicLinkState === 'pending' ? (
+                    <span className="text-nc-muted mt-2 flex items-center justify-center gap-2">
+                      <Loader2 size={12} className="animate-spin opacity-80" aria-hidden="true" />
+                      Waiting for sign-in · {formatTimeLeft(magicLinkTimeLeft)}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={resetMagicLink}
+                      className="mt-3 px-3 py-1.5 border border-nc-border-bright text-nc-text-bright hover:bg-nc-yellow"
+                    >
+                      Send a new link
+                    </button>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={handleMagicLink} className="space-y-2">
@@ -242,7 +400,7 @@ export default function LoginScreen() {
                   >
                     {loading && pendingAction === 'magic' ? (
                       <span className="flex items-center justify-center gap-2">
-                        <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
+                        <Loader2 size={14} className="animate-spin opacity-80" aria-hidden="true" />
                         {nc ? 'Transmitting...' : 'Sending...'}
                       </span>
                     ) : (
@@ -284,7 +442,7 @@ export default function LoginScreen() {
               >
                 {loading && pendingAction === 'guest' ? (
                   <span className="flex items-center justify-center gap-2">
-                    <span className={`w-3 h-3 border ${nc ? 'border-nc-cyan' : 'border-nc-border-bright'} border-t-transparent animate-spin`} />
+                    <Loader2 size={14} className="animate-spin opacity-80" aria-hidden="true" />
                     {nc ? 'Connecting...' : 'Connecting...'}
                   </span>
                 ) : (
@@ -294,30 +452,6 @@ export default function LoginScreen() {
             </ScanlineTear>
           )}
 
-
-          <div className="mt-4 hidden sm:flex items-center gap-3">
-            <div className="h-px flex-1 bg-nc-border" />
-            <span className="text-2xs text-nc-muted/60 font-mono">THEME</span>
-            <div className="h-px flex-1 bg-nc-border" />
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 sm:grid-cols-1 gap-3">
-            {themes.map((t) => {
-              const Btn = t.ThemeSelectButton;
-              return (
-                <Btn
-                  key={t.id}
-                  selected={theme === t.id}
-                  onClick={() => {
-                    if (theme !== t.id) {
-                      setPendingAction(null);
-                      setTheme(t.id);
-                    }
-                  }}
-                />
-              );
-            })}
-          </div>
 
           {nc && <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-nc-red/20 to-transparent" />}
         </div>

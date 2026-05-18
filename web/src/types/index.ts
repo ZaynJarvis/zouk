@@ -38,7 +38,7 @@ export interface ServerAgent {
   description?: string;
   instructions?: string;
   picture?: string;
-  status: 'active' | 'inactive';
+  status: AgentLifecycleStatus;
   activity?: AgentActivity;
   activityDetail?: string;
   entries?: AgentEntry[];
@@ -134,6 +134,7 @@ export interface RuntimeConfig {
 }
 
 export type AgentActivity = 'thinking' | 'working' | 'online' | 'offline' | 'error';
+export type AgentLifecycleStatus = 'active' | 'inactive' | 'stopping';
 
 export interface AgentContextUsageModel {
   model: string;
@@ -210,6 +211,10 @@ export interface AgentConfig {
   skills?: AgentSkill[];
   lifecycle?: 'persistent' | 'ephemeral';
   openvikingUserId?: string | null;
+  // URL the agent's provisioned key was minted under. Pinned at provision
+  // time so existing agents don't silently migrate when a workspace admin
+  // switches the workspace OV URL. NULL on legacy rows → server uses env URL.
+  openvikingUrl?: string | null;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   // Per-agent on/off override. `undefined` = follow the runtime default
@@ -263,6 +268,36 @@ export interface WorkspaceMember {
   joinedAt?: string | null;
 }
 
+export interface WorkspaceEmbedSettings {
+  workspaceId: string;
+  enabled: boolean;
+  allowedOrigins: string[];
+  allowedChannelIds: string[];
+  tokenTtlSeconds: number;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+// Per-workspace OpenViking provisioning override. `rootConfigured` reflects
+// whether a key is stored server-side; the actual key is never echoed back.
+// `account` is the optional explicit override (empty when blank — decode from
+// key). `accountFromKey` is what the server would decode from the currently
+// stored key (null if no key is set or key is legacy format). `effective`
+// describes which creds the server would currently use (workspace override >
+// env fallback) and is read-only.
+export interface WorkspaceOpenvikingSettings {
+  workspaceId: string;
+  enabled: boolean;
+  url: string;
+  rootConfigured: boolean;
+  account: string;
+  accountFromKey: string | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  env: { url: string; account: string } | null;
+  effective: { url: string; account: string; source: 'workspace' | 'env' } | null;
+}
+
 export interface InitPayload {
   channels: ServerChannel[];
   agents: ServerAgent[];
@@ -310,7 +345,7 @@ export interface TaskRecord {
 }
 
 export type ViewMode = 'channel' | 'dm' | 'agents' | 'tasks' | 'memory';
-export type RightPanel = 'thread' | 'agents' | 'workspace' | 'agent_profile' | 'channel_settings' | null;
+export type RightPanel = 'thread' | 'agents' | 'workspace' | 'agent_profile' | null;
 export type Theme = 'atlas';
 export type ColorMode = 'light' | 'dark' | 'system';
 

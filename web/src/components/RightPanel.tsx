@@ -3,10 +3,9 @@ import { useApp } from '../store/AppContext';
 import ThreadPanel from './ThreadPanel';
 import WorkspacePanel from './WorkspacePanel';
 import AgentProfilePanel from './AgentProfilePanel';
-import ChannelSettingsPanel from './ChannelSettingsPanel';
 
 export default function RightPanel() {
-  const { rightPanel, agentProfileId, channelSettingsId, closeRightPanel } = useApp();
+  const { rightPanel, agentProfileId, closeRightPanel } = useApp();
 
   useEffect(() => {
     if (!rightPanel) return;
@@ -29,8 +28,6 @@ export default function RightPanel() {
       return <WorkspacePanel />;
     case 'agent_profile':
       return <AgentProfilePanel key={agentProfileId ?? 'none'} />;
-    case 'channel_settings':
-      return <ChannelSettingsPanel key={channelSettingsId ?? 'none'} />;
     default:
       return null;
   }

@@ -144,7 +144,7 @@ export default function MessageList() {
 
   if (loadingMessages) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="zouk-vv-chat-scroller flex-1 flex items-center justify-center">
         <div
           className="zk-row"
           style={{
@@ -166,7 +166,7 @@ export default function MessageList() {
 
   if (channelMessages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="zouk-vv-chat-scroller flex-1 flex items-center justify-center">
         <div
           className="text-center"
           style={{
@@ -196,7 +196,7 @@ export default function MessageList() {
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="zk-scroll"
+      className="zk-scroll zouk-vv-chat-scroller"
       style={{
         flex: 1, overflowY: 'auto', overflowX: 'hidden',
         background: 'var(--zk-bg-0)',

@@ -4,7 +4,7 @@ import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
 import { getStoredLinkTransforms, subscribeLinkTransforms } from '../store/storage';
-import { parseMarkdown } from '../lib/markdown';
+import { parseMarkdown, renderInline } from '../lib/markdown';
 import ImageLightbox from './ImageLightbox';
 import FailableImage from './FailableImage';
 import { Avatar, AgentAvatar } from './zk/primitives';
@@ -181,17 +181,19 @@ export default function MessageItem({
   // System messages — compact, muted, centred
   if (isSystem) {
     return (
-      <div className="zk-row" style={{ gap: 12, padding: '4px 22px' }}>
-        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)' }} />
+      <div className="zk-row" style={{ gap: 12, padding: '4px 22px', minWidth: 0, overflow: 'hidden' }}>
+        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)', minWidth: 0 }} />
         <span
           style={{
             fontSize: 10, color: 'var(--zk-ink-low)',
             fontFamily: 'var(--zk-font-mono)', textAlign: 'center', padding: '0 8px',
+            display: 'block', flex: '0 1 auto', minWidth: 0, maxWidth: '100%',
+            lineHeight: 1.55, overflowWrap: 'anywhere', wordBreak: 'break-word',
           }}
         >
-          {message.content}
+          {message.content ? renderInline(message.content, `sys-${message.id}`, linkRules, { compactLinks: true }) : null}
         </span>
-        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)' }} />
+        <div className="zk-grow" style={{ borderTop: '1px solid var(--zk-line)', minWidth: 0 }} />
       </div>
     );
   }
@@ -371,7 +373,7 @@ export default function MessageItem({
 
           {/* Non-image attachments — V1-style file chip */}
           {fileAttachments.length > 0 && (
-            <div className="zk-row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <div className="zk-row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
               {fileAttachments.map((att) => (
                 <a
                   key={att.id}
@@ -379,6 +381,7 @@ export default function MessageItem({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="zk-row"
+                  title={att.filename}
                   style={{
                     gap: 8,
                     padding: '8px 12px',
@@ -388,10 +391,23 @@ export default function MessageItem({
                     color: 'var(--zk-ink)',
                     textDecoration: 'none',
                     fontSize: 12,
+                    maxWidth: '100%',
+                    minWidth: 0,
+                    overflow: 'hidden',
                   }}
                 >
-                  <Paperclip size={12} color="var(--zk-ember)" />
-                  <span style={{ fontFamily: 'var(--zk-font-mono)' }}>{att.filename}</span>
+                  <Paperclip size={12} color="var(--zk-ember)" style={{ flexShrink: 0 }} />
+                  <span
+                    style={{
+                      fontFamily: 'var(--zk-font-mono)',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {att.filename}
+                  </span>
                 </a>
               ))}
             </div>

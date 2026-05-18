@@ -5,6 +5,7 @@ import type { LinkTransformRule } from '../store/storage';
 type MentionSegment = { kind: 'mention'; start: number; end: number; handle: string };
 type InlineSegment = { kind: 'inline'; start: number; end: number; raw: string };
 type LinkSegment = { kind: 'link'; start: number; end: number; href: string; display: string };
+type InlineRenderOptions = { compactLinks?: boolean };
 
 const TRAILING_URL_PUNCT = '.,;:!?)，。！？；：、）】》」』';
 const CJK_URL_BOUNDARY_PUNCT = '，。！？；：、）】》」』';
@@ -43,7 +44,30 @@ function applyLinkTransforms(url: string, rules: LinkTransformRule[]): string {
   return url;
 }
 
-export function renderInline(text: string, keyPrefix: string, linkRules: LinkTransformRule[]): React.ReactNode[] {
+function compactLongLinkDisplay(display: string): string {
+  if (display.length <= 72) return display;
+
+  try {
+    const url = new URL(display);
+    const parts = url.pathname.split('/').filter(Boolean);
+    const head = parts.slice(0, 2).join('/');
+    const tail = parts[parts.length - 1];
+    const candidate = tail
+      ? `${url.hostname}${head ? `/${head}` : ''}/.../${tail}`
+      : `${url.hostname}/...`;
+    if (candidate.length <= 72) return candidate;
+    return `${candidate.slice(0, 34)}...${candidate.slice(-30)}`;
+  } catch {
+    return `${display.slice(0, 34)}...${display.slice(-30)}`;
+  }
+}
+
+export function renderInline(
+  text: string,
+  keyPrefix: string,
+  linkRules: LinkTransformRule[],
+  options: InlineRenderOptions = {},
+): React.ReactNode[] {
   const segments: (MentionSegment | InlineSegment | LinkSegment)[] = [];
   let m: RegExpExecArray | null;
 
@@ -92,6 +116,7 @@ export function renderInline(text: string, keyPrefix: string, linkRules: LinkTra
         </span>
       );
     } else if (seg.kind === 'link') {
+      const display = options.compactLinks ? compactLongLinkDisplay(seg.display) : seg.display;
       nodes.push(
         <a
           key={`${keyPrefix}-l-${seg.start}`}
@@ -99,8 +124,9 @@ export function renderInline(text: string, keyPrefix: string, linkRules: LinkTra
           target="_blank"
           rel="noopener noreferrer"
           className="text-nc-cyan hover:underline break-all"
+          title={display !== seg.href ? seg.href : undefined}
         >
-          {seg.display}
+          {display}
         </a>
       );
     } else {

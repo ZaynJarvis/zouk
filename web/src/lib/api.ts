@@ -1,15 +1,16 @@
-import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceEmbedSettings, WorkspaceOpenvikingSettings } from '../types';
+import { getActiveWorkspaceId as getScopedActiveWorkspaceId } from './workspaceRoute';
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_SLOCK_SERVER_URL || '';
 }
 
 export function getActiveWorkspaceId(): string {
-  return localStorage.getItem('zouk_active_workspace_id') || 'default';
+  return getScopedActiveWorkspaceId();
 }
 
 function getWorkspaceHeaders(): Record<string, string> {
-  return { 'X-Workspace-Id': getActiveWorkspaceId() };
+  return { 'X-Workspace-Id': encodeURIComponent(getActiveWorkspaceId()) };
 }
 
 function getAuthHeaders(): Record<string, string> {
@@ -366,11 +367,55 @@ export async function fetchAuthMe(token: string): Promise<AuthUser> {
   return body.user as AuthUser;
 }
 
-export async function supabaseLogin(accessToken: string): Promise<{ token: string; user: AuthUser }> {
+export type LoginResponse = {
+  token: string;
+  user: AuthUser;
+  requestedWorkspaceId?: string;
+  accessibleWorkspaces?: Workspace[];
+};
+
+export type MagicLoginChallenge = {
+  challengeId: string;
+  pollToken: string;
+  expiresAt: string;
+  expiresInSeconds?: number;
+};
+
+export type MagicLoginPollResponse =
+  | ({ status: 'pending'; expiresAt?: string })
+  | ({ status: 'expired' })
+  | ({ status: 'completed' } & LoginResponse);
+
+export async function createMagicLoginChallenge(email: string): Promise<MagicLoginChallenge> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/magic-link-challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Failed to start magic link login');
+  }
+  return res.json();
+}
+
+export async function pollMagicLoginChallenge(challengeId: string, pollToken: string): Promise<MagicLoginPollResponse> {
+  const url = new URL(`${getBaseUrl()}/api/auth/magic-link-challenge/${encodeURIComponent(challengeId)}`, window.location.origin);
+  url.searchParams.set('pollToken', pollToken);
+  const res = await fetch(url.toString(), { headers: getWorkspaceHeaders(), cache: 'no-store' });
+  if (res.status === 410) return { status: 'expired' };
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || 'Failed to poll magic link login');
+  }
+  return res.json();
+}
+
+export async function supabaseLogin(accessToken: string, magicLoginChallengeId?: string): Promise<LoginResponse> {
   const res = await fetch(`${getBaseUrl()}/api/auth/supabase`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
-    body: JSON.stringify({ accessToken }),
+    body: JSON.stringify({ accessToken, magicLoginChallengeId }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -379,7 +424,7 @@ export async function supabaseLogin(accessToken: string): Promise<{ token: strin
   return res.json();
 }
 
-export async function googleLogin(credential: string): Promise<{ token: string; user: AuthUser }> {
+export async function googleLogin(credential: string): Promise<LoginResponse> {
   const res = await fetch(`${getBaseUrl()}/api/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
@@ -462,6 +507,18 @@ export async function updateWorkspace(
   return res.json();
 }
 
+export async function deleteWorkspace(id: string): Promise<{ workspace: Workspace; workspaces: Workspace[] }> {
+  const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to delete workspace: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchWorkspaceMembers(workspaceId: string): Promise<{ workspaceId: string; members: WorkspaceMember[] }> {
   const res = await fetch(`${getBaseUrl()}/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
     headers: getAuthHeaders(),
@@ -508,6 +565,73 @@ export async function removeWorkspaceMember(workspaceId: string, email: string):
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || `Failed to remove member: ${res.status}`);
   }
+}
+
+export async function getEmbedSettings(): Promise<WorkspaceEmbedSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/embed`, {
+    headers: getAuthHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to load embed settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
+}
+
+export async function saveEmbedSettings(input: {
+  enabled: boolean;
+  allowedOrigins: string[];
+  allowedChannelIds: string[];
+  tokenTtlSeconds: number;
+}): Promise<WorkspaceEmbedSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/embed`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to save embed settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
+}
+
+export async function getOpenvikingSettings(): Promise<WorkspaceOpenvikingSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
+    headers: getAuthHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to load OpenViking settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
+}
+
+export async function saveOpenvikingSettings(input: {
+  enabled: boolean;
+  url: string;
+  rootApiKey?: string;
+  clearRootApiKey?: boolean;
+  // Empty string clears the explicit account (server will decode from key).
+  // Omit the field entirely to leave the stored account unchanged.
+  account?: string;
+}): Promise<WorkspaceOpenvikingSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to save OpenViking settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
 }
 
 export async function getAllowlist(): Promise<AllowlistResponse> {
@@ -568,6 +692,8 @@ export interface WsClientStats {
 export interface WsClientsResponse {
   rateWindowSeconds: number;
   autoBlockThreshold: number;
+  autoBlockMaxOpen?: number;
+  autoBlockHardThreshold?: number;
   blockDurationSeconds: number;
   revokeBlockSeconds: number;
   callerId: string | null;

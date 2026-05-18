@@ -9,7 +9,7 @@
      can invite by email or change/remove roles inline.
    - Bottom: user card (avatar + name + online + settings). */
 
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus, Hash, ChevronDown, ChevronRight,
   Settings, Trash2, RotateCcw, SlidersHorizontal,
@@ -26,6 +26,7 @@ import {
   formatContextUsageTitle,
   pickDisplayContextUsage,
 } from '../lib/contextUsage';
+import { agentIsLive } from '../lib/avatarStatus';
 
 /* ───── Section header ───── */
 
@@ -116,7 +117,7 @@ function ChannelRow({
     () =>
       agents.filter(
         (a) =>
-          (a.activity === 'working' || a.activity === 'thinking') &&
+          agentIsLive(a) &&
           agentLastChannel[a.name]?.channel === channel.name,
       ),
     [agents, agentLastChannel, channel.name],
@@ -369,7 +370,7 @@ function roleBadgeLabel(role: WorkspaceRole | null): string | null {
 
 function HumanRow({
   person, active, unread, isSelf, canAdmin, forceShowActions,
-  onClick, onChangeRole, onRemove,
+  canRemove, onClick, onChangeRole, onRemove,
 }: {
   person: PersonRow;
   active: boolean;
@@ -377,11 +378,24 @@ function HumanRow({
   isSelf: boolean;
   canAdmin: boolean;
   forceShowActions: boolean;
+  canRemove: boolean;
   onClick?: () => void;
   onChangeRole?: (role: WorkspaceRole) => void;
   onRemove?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  // Flip the menu above the trigger when there isn't room below — keeps it
+  // visible for rows near the viewport bottom (e.g. PEOPLE near the dock).
+  useLayoutEffect(() => {
+    if (!menuOpen || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const estimatedHeight = canRemove ? 132 : 92; // 2 role buttons + optional remove + padding
+    setFlipUp(rect.bottom + estimatedHeight > window.innerHeight);
+  }, [canRemove, menuOpen]);
+
   const Tag = isSelf ? 'div' : 'button';
   const badge = roleBadgeLabel(person.role);
   // Adapt the row into the ServerHuman shape HumanAvatar already understands.
@@ -451,6 +465,7 @@ function HumanRow({
           style={{ gap: 2, position: 'relative', alignSelf: 'center' }}
         >
           <button
+            ref={triggerRef}
             type="button"
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
             className="zk-btn zk-btn--ghost zk-btn--icon"
@@ -464,7 +479,9 @@ function HumanRow({
               role="menu"
               onClick={(e) => e.stopPropagation()}
               style={{
-                position: 'absolute', right: 0, top: 22, zIndex: 5,
+                position: 'absolute', right: 0,
+                ...(flipUp ? { bottom: 22 } : { top: 22 }),
+                zIndex: 5,
                 background: 'var(--zk-bg-1)', border: '1px solid var(--zk-line)',
                 borderRadius: 6, padding: 4, minWidth: 140,
                 boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
@@ -489,20 +506,24 @@ function HumanRow({
                   {person.role === r ? '✓ ' : '  '}set as {r}
                 </button>
               ))}
-              <div style={{ height: 1, background: 'var(--zk-line)', margin: '2px 0' }} />
-              <button
-                type="button"
-                onClick={() => { setMenuOpen(false); onRemove?.(); }}
-                style={{
-                  textAlign: 'left', padding: '4px 8px', borderRadius: 4,
-                  border: 0, background: 'transparent', cursor: 'pointer',
-                  color: 'var(--zk-ember)', fontSize: 12, fontFamily: 'var(--zk-font-mono)',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                Remove from workspace
-              </button>
+              {canRemove && (
+                <>
+                  <div style={{ height: 1, background: 'var(--zk-line)', margin: '2px 0' }} />
+                  <button
+                    type="button"
+                    onClick={() => { setMenuOpen(false); onRemove?.(); }}
+                    style={{
+                      textAlign: 'left', padding: '4px 8px', borderRadius: 4,
+                      border: 0, background: 'transparent', cursor: 'pointer',
+                      color: 'var(--zk-ember)', fontSize: 12, fontFamily: 'var(--zk-font-mono)',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    Remove from workspace
+                  </button>
+                </>
+              )}
             </div>
           )}
         </span>
@@ -520,7 +541,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     authUser, setSidebarOpen, agentLastChannel,
     openAgentProfile, openAgentSettings, resetAgentContext,
     openChannelSettings, navigateToView, setSettingsOpen,
-    workspaceMembers, canAdminWorkspace, activeWorkspaceId,
+    workspaceMembers, workspaceAllowlistActive, canAdminWorkspace, activeWorkspaceId,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
   } = useApp();
 
@@ -539,12 +560,11 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
     if (isMobileViewport()) setSidebarOpen(false);
   };
 
-  // PEOPLE list: always derived from workspace_members of the active
-  // workspace. The global `humans` stream is workspace-agnostic (it carries
-  // every account that ever logged in anywhere), so falling back to it for a
-  // private workspace would leak unrelated users' identities into the new
-  // sidebar. Default workspace is the one exception — it's the public lobby
-  // and explicitly lets guests show up without an invite.
+  // PEOPLE list: authenticated users come from workspace_members of the active
+  // workspace. The global `humans` stream is workspace-agnostic, so using it as
+  // a member fallback makes removed default-server people pop back into view.
+  // Keep only live guests from `humans` on default; real accounts are
+  // materialized as workspace members by the server.
   const peopleList = useMemo<PersonRow[]>(() => {
     const byName = new Map<string, PersonRow>();
     const isDefaultWorkspace = activeWorkspaceId === 'default';
@@ -566,6 +586,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
 
     if (isDefaultWorkspace) {
       for (const h of humans) {
+        if (!h.guest) continue;
         if (byName.has(h.name)) continue;
         if (h.name === currentUser) continue;
         byName.set(h.name, {
@@ -642,7 +663,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
   };
 
   const forceShowActions = isMobileViewport() || isStandalonePWA();
-  const liveCount = agents.filter((a) => a.activity === 'working' || a.activity === 'thinking').length;
+  const liveCount = agents.filter(agentIsLive).length;
   const totalHumans = humans.length;
 
   // phoneModal mode: use flex:1 + min-h:0 (instead of height:100%) so the
@@ -942,6 +963,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
 
           {!dmsCollapsed && peopleList.map((p) => {
             const isSelf = p.name === currentUser;
+            const canRemovePerson = activeWorkspaceId !== 'default' || workspaceAllowlistActive;
             return (
               <HumanRow
                 key={p.key}
@@ -951,6 +973,7 @@ export default function ChannelSidebar({ phoneModal = false }: { phoneModal?: bo
                 isSelf={isSelf}
                 canAdmin={!!canAdminWorkspace}
                 forceShowActions={forceShowActions}
+                canRemove={canRemovePerson}
                 onClick={() => pick(p.name, true)}
                 onChangeRole={p.email ? (role) => updateWorkspaceMemberRole(p.email!, role) : undefined}
                 onRemove={p.email ? () => {

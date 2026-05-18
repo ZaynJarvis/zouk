@@ -29,6 +29,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import WebSocket from 'ws';
@@ -42,6 +43,14 @@ const BASE = `http://localhost:${TEST_PORT}`;
 // Tests write real bytes through the attachment storage layer; keep them out of
 // the dev workspace's uploads/ dir so re-runs stay clean.
 const TEST_UPLOADS_DIR = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-test-uploads-'));
+const TEST_CONFIG_DIR = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-test-config-'));
+const ROOT_TOKEN = 'ci-root-token';
+const ROOT_EMAIL = 'ci-root@example.com';
+fs.writeFileSync(
+  path.join(TEST_CONFIG_DIR, 'sessions.json'),
+  JSON.stringify([[ROOT_TOKEN, { name: 'ci-root', email: ROOT_EMAIL, picture: null }]]),
+  'utf8'
+);
 
 let serverProc = null;
 
@@ -64,7 +73,14 @@ async function json(res) {
 
 before(async () => {
   serverProc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: { ...process.env, PORT: String(TEST_PORT), NODE_ENV: 'test', ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR },
+    env: {
+      ...process.env,
+      PORT: String(TEST_PORT),
+      NODE_ENV: 'test',
+      ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+      ZOUK_CONFIG_DIR: TEST_CONFIG_DIR,
+      ZOUK_SUPERUSERS: ROOT_EMAIL,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   serverProc.stdout.resume();
@@ -75,6 +91,7 @@ before(async () => {
 after(() => {
   serverProc?.kill('SIGTERM');
   fs.rmSync(TEST_UPLOADS_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_CONFIG_DIR, { recursive: true, force: true });
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -151,6 +168,137 @@ test('GET /api/channels: returns default "all" channel', async () => {
   assert.ok(Array.isArray(body.channels), 'channels must be an array');
   const all = body.channels.find(c => c.name === 'all');
   assert.ok(all, '"all" channel must exist in the default store');
+});
+
+test('embed guest session: channel-scoped token can only use allowed chat APIs', async () => {
+  const channelsRes = await json(await fetch(`${BASE}/api/channels`, {
+    headers: { Authorization: `Bearer ${ROOT_TOKEN}` },
+  }));
+  const all = channelsRes.body.channels.find(c => c.name === 'all');
+  assert.ok(all?.id, 'all channel id is required for embed scope');
+
+  const settingsRes = await json(await fetch(`${BASE}/api/settings/embed`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ROOT_TOKEN}` },
+    body: JSON.stringify({
+      enabled: true,
+      allowedOrigins: ['https://studio.zaynjarvis.com'],
+      allowedChannelIds: [all.id],
+      tokenTtlSeconds: 900,
+    }),
+  }));
+  assert.equal(settingsRes.status, 200);
+  assert.equal(settingsRes.body.settings.enabled, true);
+
+  const rejectedOrigin = await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+    body: JSON.stringify({ workspaceId: 'default', channel: 'all', name: 'bad-origin' }),
+  });
+  assert.equal(rejectedOrigin.status, 403);
+
+  const embedAvatar = 'https://studio.zaynjarvis.com/avatar.png';
+  const embedRes = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify({ workspaceId: 'default', channel: 'all', name: 'blog reader', picture: embedAvatar }),
+  }));
+  assert.equal(embedRes.status, 200);
+  assert.equal(embedRes.body.user.embed, true);
+  assert.equal(embedRes.body.user.picture, embedAvatar);
+  assert.ok(embedRes.body.token, 'embed session must return a token');
+
+  const stableBrowserBody = { workspaceId: 'default', channel: 'all', name: 'stable reader', browserId: 'browser-ci-stable' };
+  const stableA = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify(stableBrowserBody),
+  }));
+  const stableB = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify(stableBrowserBody),
+  }));
+  const stableOther = await json(await fetch(`${BASE}/api/auth/embed-guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://studio.zaynjarvis.com' },
+    body: JSON.stringify({ ...stableBrowserBody, browserId: 'browser-ci-other' }),
+  }));
+  assert.equal(stableA.status, 200);
+  assert.equal(stableB.status, 200);
+  assert.equal(stableOther.status, 200);
+  assert.equal(stableA.body.user.name, stableB.body.user.name, 'same browser id should reuse the same embed name');
+  assert.notEqual(stableA.body.user.name, stableOther.body.user.name, 'different browser ids should get different embed names');
+
+  const embedHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${embedRes.body.token}`,
+  };
+  const channelList = await json(await fetch(`${BASE}/api/channels`, { headers: embedHeaders }));
+  assert.equal(channelList.status, 200);
+  assert.deepEqual(channelList.body.channels.map(c => c.name), ['all']);
+
+  const marker = `ci-embed-chat-${Date.now()}`;
+  const sent = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: embedHeaders,
+    body: JSON.stringify({ target: '#all', content: marker }),
+  }));
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.message.content, marker);
+  assert.match(sent.body.message.senderName, /^embed-blog-reader-/);
+
+  const history = await json(await fetch(`${BASE}/api/messages`, {
+    headers: { ...embedHeaders, 'X-Channel': '#all', 'X-Limit': '20' },
+  }));
+  assert.equal(history.status, 200);
+  const storedEmbedMessage = history.body.messages.find(m => m.content === marker);
+  assert.ok(storedEmbedMessage, 'embed token must read allowed channel history');
+  assert.equal(storedEmbedMessage.senderPicture, embedAvatar, 'embed sender avatar should be exposed on message payloads');
+
+  const dmWrite = await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: embedHeaders,
+    body: JSON.stringify({ target: 'dm:@agent-mock-reviewer', content: 'nope' }),
+  });
+  assert.equal(dmWrite.status, 403, 'embed token must not write DMs');
+
+  const privilegedRead = await fetch(`${BASE}/api/agents`, { headers: embedHeaders });
+  assert.equal(privilegedRead.status, 403, 'embed token must not read non-chat APIs');
+
+  const embedWs = new WebSocket(`ws://localhost:${TEST_PORT}/ws?token=${embedRes.body.token}`);
+  const embedInitPromise = waitForMessageOrTimeout(embedWs, ev => ev.type === 'init', 3000);
+  await new Promise((resolve, reject) => {
+    embedWs.once('open', resolve);
+    embedWs.once('error', reject);
+  });
+  const embedInit = await embedInitPromise;
+  assert.ok(
+    embedInit?.agents?.some(agent => agent.id === MOCK_AGENT),
+    'embed websocket init must include agents visible to allowed channels',
+  );
+
+  const activityPromise = waitForMessageOrTimeout(
+    embedWs,
+    ev => ev.type === 'agent_activity' && ev.agentId === MOCK_AGENT,
+    3000,
+  );
+  const daemonWs = new WebSocket(`ws://localhost:${TEST_PORT}/daemon/connect?key=test`);
+  await new Promise((resolve, reject) => {
+    daemonWs.once('open', resolve);
+    daemonWs.once('error', reject);
+  });
+  daemonWs.send(JSON.stringify({
+    type: 'agent:activity',
+    agentId: MOCK_AGENT,
+    activity: 'working',
+    detail: 'CI visible progress',
+  }));
+  const visibleActivity = await activityPromise;
+  assert.equal(visibleActivity?.activity, 'working');
+  assert.equal(visibleActivity?.detail, 'CI visible progress');
+  daemonWs.close();
+  await closeWs(embedWs);
 });
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -339,6 +487,152 @@ test('attachments persist across server restart', async () => {
   }
 });
 
+// ─── Auth: allowlist union semantics ──────────────────────────────────────────
+
+test('GET /api/auth/config: allowlistActive=false when no allowlist source is configured', async () => {
+  // Baseline. Default server boot in this test file has no ALLOW env and no
+  // DB-backed allowlist rows, so guest button must remain enabled.
+  const defaultCfg = await json(await fetch(`${BASE}/api/auth/config`));
+  assert.equal(defaultCfg.status, 200);
+  assert.equal(defaultCfg.body.allowlistActive, false);
+  // Same answer when the request lands on a non-default workspace — the gate
+  // is now system-wide, not per-workspace.
+  const nonDefaultCfg = await json(await fetch(`${BASE}/api/auth/config`, {
+    headers: { 'X-Workspace-Id': 'somewhere-else' },
+  }));
+  assert.equal(nonDefaultCfg.status, 200);
+  assert.equal(nonDefaultCfg.body.allowlistActive, false);
+});
+
+test('GET /api/auth/config: allowlistActive=true when ANY workspace gates on an allowlist', async () => {
+  // Spec (zhiheng.liu 2026-05-15): the login safeguard must be the UNION across
+  // every workspace allowlist + env defaults. The frontend reads
+  // /api/auth/config.allowlistActive to decide whether to hide the guest
+  // button. Before the fix this was scoped to a single workspace, so adding an
+  // allowlist on workspace X failed to gate default-workspace visitors.
+  const port = TEST_PORT + 2;
+  const altBase = `http://localhost:${port}`;
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ALLOW: 'ci-allow@example.com',
+      ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+  try {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(`${altBase}/api/channels`);
+        if (r.ok) break;
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    const defaultCfg = await json(await fetch(`${altBase}/api/auth/config`));
+    assert.equal(defaultCfg.status, 200);
+    assert.equal(defaultCfg.body.allowlistActive, true);
+    // The bug: previously this came back false because the request was scoped
+    // to a workspace whose own allowlist was empty. The fix returns true
+    // because some workspace (default, via ENV) gates on an allowlist.
+    const nonDefaultCfg = await json(await fetch(`${altBase}/api/auth/config`, {
+      headers: { 'X-Workspace-Id': 'private-workspace' },
+    }));
+    assert.equal(nonDefaultCfg.status, 200);
+    assert.equal(nonDefaultCfg.body.allowlistActive, true);
+  } finally {
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+  }
+});
+
+test('magic link challenge: Safari callback can complete PWA poll', async () => {
+  const supabaseServer = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/auth/v1/user') {
+      assert.equal(req.headers.authorization, 'Bearer supabase-access-token');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ email: 'pwa-ci@example.com' }));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+  await new Promise((resolve) => supabaseServer.listen(0, '127.0.0.1', resolve));
+  const supabasePort = supabaseServer.address().port;
+  const port = TEST_PORT + 8;
+  const altBase = `http://localhost:${port}`;
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      NODE_ENV: 'test',
+      SUPABASE_URL: `http://127.0.0.1:${supabasePort}`,
+      SUPABASE_ANON_KEY: 'anon-key',
+      SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+      ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+  try {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(`${altBase}/api/channels`);
+        if (r.ok) break;
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    const challenge = await json(await fetch(`${altBase}/api/auth/magic-link-challenge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pwa-ci@example.com' }),
+    }));
+    assert.equal(challenge.status, 200);
+    assert.match(challenge.body.challengeId, /^[0-9a-f]{48}$/);
+    assert.match(challenge.body.pollToken, /^[0-9a-f]{48}$/);
+
+    const pending = await json(await fetch(`${altBase}/api/auth/magic-link-challenge/${challenge.body.challengeId}?pollToken=${challenge.body.pollToken}`));
+    assert.equal(pending.status, 200);
+    assert.equal(pending.body.status, 'pending');
+
+    const wrongPoll = await fetch(`${altBase}/api/auth/magic-link-challenge/${challenge.body.challengeId}?pollToken=wrong`);
+    assert.equal(wrongPoll.status, 404);
+
+    const completedLogin = await json(await fetch(`${altBase}/api/auth/supabase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accessToken: 'supabase-access-token',
+        magicLoginChallengeId: challenge.body.challengeId,
+      }),
+    }));
+    assert.equal(completedLogin.status, 200);
+    assert.equal(completedLogin.body.user.email, 'pwa-ci@example.com');
+    assert.ok(completedLogin.body.token);
+
+    const completedPoll = await json(await fetch(`${altBase}/api/auth/magic-link-challenge/${challenge.body.challengeId}?pollToken=${challenge.body.pollToken}`));
+    assert.equal(completedPoll.status, 200);
+    assert.equal(completedPoll.body.status, 'completed');
+    assert.equal(completedPoll.body.token, completedLogin.body.token);
+    assert.equal(completedPoll.body.user.email, 'pwa-ci@example.com');
+  } finally {
+    proc.kill('SIGTERM');
+    supabaseServer.close();
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+  }
+});
+
 // ─── Auth enforcement ─────────────────────────────────────────────────────────
 
 test('POST /api/messages without auth: returns 403', async () => {
@@ -348,6 +642,175 @@ test('POST /api/messages without auth: returns 403', async () => {
     body: JSON.stringify({ target: '#all', content: 'unauthorized' }),
   });
   assert.equal(res.status, 403, 'unauthenticated writes must be rejected with 403');
+});
+
+test('workspace members: public default workspace does not support removing people', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-remove-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-remove-uploads-'));
+  const port = TEST_PORT + 30;
+  const base = `http://localhost:${port}`;
+  const rootToken = 'member-remove-root-token';
+  const targetToken = 'member-remove-target-token';
+  const targetEmail = 'remove-target@example.com';
+  fs.mkdirSync(tmpConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [rootToken, { name: 'member-remove-root', email: 'member-remove-root@example.com', picture: null }],
+    [targetToken, { name: 'remove-target', email: targetEmail, picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ALLOW: '',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ZOUK_SUPERUSERS: 'member-remove-root@example.com',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${base}/api/auth/config`);
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'member removal test server must become ready');
+
+    const rootHeaders = { Authorization: `Bearer ${rootToken}`, 'X-Workspace-Id': 'default' };
+    const before = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(before.status, 200);
+    assert.ok(before.body.members.some(m => m.email === targetEmail), 'target session should be backfilled as a member before removal');
+
+    const removed = await json(await fetch(`${base}/api/workspaces/default/members/${encodeURIComponent(targetEmail)}`, {
+      method: 'DELETE',
+      headers: rootHeaders,
+    }));
+    assert.equal(removed.status, 400, 'open default workspace is public, so member removal is unsupported');
+
+    const after = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(after.status, 200);
+    assert.ok(after.body.members.some(m => m.email === targetEmail), 'public default member must remain listed after rejected removal');
+
+    const targetRead = await json(await fetch(`${base}/api/channels`, {
+      headers: { Authorization: `Bearer ${targetToken}`, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(targetRead.status, 200, 'public default member must keep access when removal is unsupported');
+  } finally {
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
+test('workspace members: restricted default removal blocks until re-invited', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-restrict-remove-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-restrict-remove-uploads-'));
+  const port = TEST_PORT + 31;
+  const base = `http://localhost:${port}`;
+  const rootToken = 'member-restrict-remove-root-token';
+  const targetToken = 'member-restrict-remove-target-token';
+  const rootEmail = 'member-restrict-remove-root@example.com';
+  const targetEmail = 'restrict-remove-target@example.com';
+  fs.mkdirSync(tmpConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [rootToken, { name: 'member-restrict-remove-root', email: rootEmail, picture: null }],
+    [targetToken, { name: 'restrict-remove-target', email: targetEmail, picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ALLOW: `${rootEmail},${targetEmail}`,
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ZOUK_SUPERUSERS: rootEmail,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${base}/api/auth/config`);
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'restricted member removal test server must become ready');
+
+    const rootHeaders = { Authorization: `Bearer ${rootToken}`, 'X-Workspace-Id': 'default', 'Content-Type': 'application/json' };
+    const before = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(before.status, 200);
+    assert.ok(before.body.members.some(m => m.email === targetEmail), 'allowed target session should be backfilled before removal');
+
+    const removed = await json(await fetch(`${base}/api/workspaces/default/members/${encodeURIComponent(targetEmail)}`, {
+      method: 'DELETE',
+      headers: rootHeaders,
+    }));
+    assert.equal(removed.status, 200);
+
+    const afterRemove = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: rootHeaders,
+    }));
+    assert.equal(afterRemove.status, 200);
+    assert.ok(!afterRemove.body.members.some(m => m.email === targetEmail), 'removed target must stay out of PEOPLE');
+
+    const blockedRead = await json(await fetch(`${base}/api/channels`, {
+      headers: { Authorization: `Bearer ${targetToken}`, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(blockedRead.status, 403, 'restricted default removal must block access and not re-materialize');
+
+    const reinvited = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      method: 'POST',
+      headers: rootHeaders,
+      body: JSON.stringify({ email: targetEmail, role: 'member' }),
+    }));
+    assert.equal(reinvited.status, 200);
+
+    const restoredRead = await json(await fetch(`${base}/api/channels`, {
+      headers: { Authorization: `Bearer ${targetToken}`, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(restoredRead.status, 200, 're-inviting clears the removal tombstone');
+  } finally {
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
 });
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
@@ -631,12 +1094,40 @@ test('search_messages: DM content does not leak via search to non-parties', asyn
 async function openAuthedWs(token) {
   const ws = new WebSocket(`ws://localhost:${TEST_PORT}/ws?token=${token}`);
   await new Promise((resolve, reject) => {
-    ws.once('open', resolve);
-    ws.once('error', reject);
+    const onOpen = () => {
+      ws.off('error', onError);
+      ws.off('unexpected-response', onUnexpectedResponse);
+      resolve();
+    };
+    const onError = (err) => {
+      ws.off('open', onOpen);
+      ws.off('unexpected-response', onUnexpectedResponse);
+      reject(err);
+    };
+    const onUnexpectedResponse = (_req, res) => {
+      ws.off('open', onOpen);
+      ws.off('error', onError);
+      reject(new Error(`unexpected websocket response ${res.statusCode}`));
+    };
+    ws.once('open', onOpen);
+    ws.once('error', onError);
+    ws.once('unexpected-response', onUnexpectedResponse);
   });
   // Drain the init frame so .once('message') below catches real traffic.
   await new Promise((resolve) => ws.once('message', resolve));
   return ws;
+}
+
+async function closeWs(ws) {
+  if (!ws || ws.readyState === WebSocket.CLOSED) return;
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 50);
+    ws.once('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    ws.close();
+  });
 }
 
 function waitForMessageOrTimeout(ws, predicate, timeoutMs = 600) {
@@ -658,6 +1149,133 @@ function waitForMessageOrTimeout(ws, predicate, timeoutMs = 600) {
     ws.on('message', onMsg);
   });
 }
+
+test('workspaces: unicode ids flow through route websocket and root delete', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-workspace-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-workspace-uploads-'));
+  const port = TEST_PORT + 20;
+  const base = `http://localhost:${port}`;
+  const token = 'workspace-root-token';
+  fs.mkdirSync(tmpConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [token, { name: 'workspace-root', email: 'workspace-root@example.com', picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${base}/api/channels`);
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'workspace test server must become ready');
+
+    const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const first = await json(await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: '中文 服务' }),
+    }));
+    assert.equal(first.status, 200);
+    assert.equal(first.body.workspace.id, '中文-服务');
+
+    const duplicate = await json(await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: '中文 服务' }),
+    }));
+    assert.equal(duplicate.status, 200);
+    assert.equal(duplicate.body.workspace.id, '中文-服务-2');
+
+    const workspaceId = first.body.workspace.id;
+    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${token}&workspaceId=${encodeURIComponent(workspaceId)}`);
+    const initPromise = waitForMessageOrTimeout(ws, ev => ev.type === 'init', 3000);
+    await new Promise((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    const init = await initPromise;
+    assert.equal(init?.workspaceId, workspaceId);
+
+    const deletedPromise = waitForMessageOrTimeout(ws, ev => ev.type === 'workspace_deleted' && ev.workspaceId === workspaceId, 3000);
+    const deleted = await json(await fetch(`${base}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders, 'X-Workspace-Id': encodeURIComponent(workspaceId) },
+    }));
+    assert.equal(deleted.status, 200);
+    assert.equal(deleted.body.workspace.id, workspaceId);
+    assert.ok(!deleted.body.workspaces.some(w => w.id === workspaceId));
+    assert.ok(await deletedPromise, 'deleted workspace tab must receive workspace_deleted over WS');
+    ws.close();
+
+    const defaultDelete = await json(await fetch(`${base}/api/workspaces/default`, {
+      method: 'DELETE',
+      headers: { ...authHeaders, 'X-Workspace-Id': 'default' },
+    }));
+    assert.equal(defaultDelete.status, 400);
+  } finally {
+    proc.kill('SIGKILL');
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
+test('WS rate limit allows many concurrent browser windows for one token', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `ws-tabs-${Date.now()}` }),
+  });
+  const { token } = await authRes.json();
+  const sockets = [];
+  try {
+    const opened = await Promise.all(Array.from({ length: 13 }, () => openAuthedWs(token)));
+    sockets.push(...opened);
+    assert.equal(sockets.length, 13);
+  } finally {
+    await Promise.all(sockets.map(closeWs));
+  }
+});
+
+test('WS rate limit does not block moderate reconnect churn while browser tabs are open', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `ws-pc-tabs-${Date.now()}` }),
+  });
+  const { token } = await authRes.json();
+  const persistent = [];
+  try {
+    const opened = await Promise.all(Array.from({ length: 3 }, () => openAuthedWs(token)));
+    persistent.push(...opened);
+    for (let i = 0; i < 25; i += 1) {
+      const ws = await openAuthedWs(token);
+      await closeWs(ws);
+    }
+  } finally {
+    await Promise.all(persistent.map(closeWs));
+  }
+});
 
 test('WS broadcast: DM messages reach only the two parties', async () => {
   const sessionFor = async (name) => {
@@ -693,9 +1311,7 @@ test('WS broadcast: DM messages reach only the two parties', async () => {
 
   const [aliceGot, bobGot, carolGot] = await Promise.all([alicePromise, bobPromise, carolPromise]);
 
-  aliceWs.close();
-  bobWs.close();
-  carolWs.close();
+  await Promise.all([aliceWs, bobWs, carolWs].map(closeWs));
 
   assert.ok(aliceGot, 'sender (alice) must receive her own DM echo');
   assert.ok(bobGot, 'recipient (bob) must receive the DM');
@@ -1301,6 +1917,132 @@ test('reserved username: profile rename to "system" is rejected', async () => {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ name: 'system' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+// ─── update_profile (agent self-edit) ─────────────────────────────────────────
+// These tests exercise POST /internal/agent/:agentId/profile, the endpoint the
+// chat-bridge `update_profile` MCP tool calls. The endpoint must:
+//   1. Reject empty/oversize/reserved input
+//   2. Server-side resize uploaded pictures so a misbehaving agent can't blow up the DB
+
+const PROFILE_AGENT = 'agent-mock-reviewer';
+const sharp = require('sharp');
+
+async function makeTestPng(dim = 32) {
+  // Solid red 32x32 png — small and decodable.
+  return sharp({
+    create: { width: dim, height: dim, channels: 3, background: { r: 200, g: 30, b: 30 } },
+  }).png().toBuffer();
+}
+
+test('update_profile: rejects when no fields provided', async () => {
+  const form = new FormData();
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update_profile: updates display_name and broadcasts via /api/agents', async () => {
+  const form = new FormData();
+  form.append('display_name', 'Renamed Reviewer');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200);
+  assert.ok(body.updated.includes('displayName'));
+  assert.equal(body.agent.displayName, 'Renamed Reviewer');
+
+  // Verify the change is visible via the public listing the frontend reads.
+  const agentsRes = await fetch(`${BASE}/api/agents`, {
+    headers: { Authorization: `Bearer ${ROOT_TOKEN}` },
+  });
+  const agentsBody = await agentsRes.json();
+  const reviewer = agentsBody.agents.find((a) => a.id === PROFILE_AGENT);
+  assert.equal(reviewer.displayName, 'Renamed Reviewer');
+});
+
+test('update_profile: rejects display_name longer than 64 chars', async () => {
+  const form = new FormData();
+  form.append('display_name', 'x'.repeat(65));
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update_profile: rejects reserved display_name "system"', async () => {
+  const form = new FormData();
+  form.append('display_name', 'system');
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update_profile: small png upload yields ≤12KB data:image/webp;base64 picture', async () => {
+  const pngBuf = await makeTestPng(32);
+  const form = new FormData();
+  form.append('picture', new Blob([pngBuf], { type: 'image/png' }), 'avatar.png');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200);
+  assert.ok(body.updated.includes('picture'));
+  assert.ok(body.agent.picture.startsWith('data:image/webp;base64,'), `picture should be webp data URI, got: ${body.agent.picture?.slice(0, 30)}`);
+  // 12KB raw → ~16KB base64 + ~25 char prefix. Cap the data URI at 17KB.
+  assert.ok(body.agent.picture.length < 17 * 1024, `data URI should be < 17KB, got ${body.agent.picture.length}`);
+});
+
+test('update_profile: oversized random-noise png is resized successfully (DB-blowup defense)', async () => {
+  // Real-world photos compress poorly. Simulate that with random-noise pixels so
+  // the input stays multi-megabyte and we actually exercise the server-side resize.
+  const W = 1000, H = 1000;
+  const noise = Buffer.allocUnsafe(W * H * 3);
+  for (let i = 0; i < noise.length; i++) noise[i] = (Math.random() * 256) | 0;
+  const bigBuf = await sharp(noise, { raw: { width: W, height: H, channels: 3 } })
+    .png({ compressionLevel: 0 })
+    .toBuffer();
+  assert.ok(bigBuf.length > 500 * 1024, `expected large input png, got ${bigBuf.length}`);
+
+  const form = new FormData();
+  form.append('picture', new Blob([bigBuf], { type: 'image/png' }), 'huge.png');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200, `expected 200 after server-side resize, got ${status}`);
+  assert.ok(body.agent.picture.startsWith('data:image/webp;base64,'));
+  assert.ok(body.agent.picture.length < 17 * 1024, `resized data URI should be small (<17KB), got ${body.agent.picture.length}`);
+});
+
+test('update_profile: clear_picture removes the avatar', async () => {
+  const form = new FormData();
+  form.append('clear_picture', '1');
+  const { status, body } = await json(await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
+  }));
+  assert.equal(status, 200);
+  // agentPayload omits picture when it's null/undefined
+  assert.equal(body.agent.picture, undefined);
+});
+
+test('update_profile: rejects when picture_path and clear_picture both set (server-side)', async () => {
+  // Daemon-side guard is also present but server must defend too.
+  const form = new FormData();
+  form.append('picture', new Blob([await makeTestPng(16)], { type: 'image/png' }), 'a.png');
+  form.append('clear_picture', '1');
+  const res = await fetch(`${BASE}/internal/agent/${PROFILE_AGENT}/profile`, {
+    method: 'POST',
+    body: form,
   });
   assert.equal(res.status, 400);
 });

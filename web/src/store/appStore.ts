@@ -3,7 +3,7 @@ import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, ViewMode, RightPanel, Theme, ColorMode, Toast,
   WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
-  Workspace, WorkspaceMember, WorkspaceRole,
+  Workspace, WorkspaceMember, WorkspaceRole, AgentLifecycleStatus,
 } from '../types';
 import { SlockWebSocket } from '../lib/ws';
 import type { WsEvent } from '../lib/ws';
@@ -24,7 +24,7 @@ import {
   getStoredTheme,
   getStoredColorMode,
   getStoredNowRailHidden,
-  getStoredActiveWorkspaceId,
+  getStoredActiveWorkspaceIdOrNull,
   setStoredAuth,
   setStoredAuthUser,
   setStoredAuthToken,
@@ -36,6 +36,15 @@ import {
   setStoredActiveWorkspaceId,
 } from './storage';
 import { applyTheme } from '../themes';
+import {
+  getInitialActiveWorkspaceId,
+  getWorkspaceIdFromPath,
+  normalizeWorkspaceId,
+  replaceWorkspaceRoute,
+  setActiveWorkspaceId as setScopedActiveWorkspaceId,
+} from '../lib/workspaceRoute';
+
+type WorkspaceRouteMode = 'none' | 'replace';
 
 function isKnownChannel(channels: ServerChannel[], name: string) {
   return channels.some(channel => channel.name === name);
@@ -55,6 +64,36 @@ function isKnownDmTarget(
 function resolveDefaultChannelName(channels: ServerChannel[]) {
   if (isKnownChannel(channels, 'all')) return 'all';
   return channels[0]?.name || 'all';
+}
+
+function chooseWorkspaceId(workspaces: Workspace[], candidates: Array<string | null | undefined>) {
+  const ids = new Set(workspaces.map(w => w.id).filter(Boolean));
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const normalized = normalizeWorkspaceId(candidate);
+    if (!ids.size || ids.has(normalized)) return normalized;
+  }
+  return workspaces[0]?.id || 'default';
+}
+
+// Route post-login: prefer the locally-stored last active workspace if the
+// user can still access it; otherwise fall back to the accessible workspace
+// whose name sorts first. Per @zhiheng.liu 2026-05-15 spec.
+function routePostLoginWorkspace(
+  accessible: Workspace[] | undefined,
+  commit: (workspaceId: string, routeMode?: WorkspaceRouteMode) => void,
+) {
+  if (!accessible || accessible.length === 0) return;
+  const stored = getStoredActiveWorkspaceIdOrNull();
+  const accessibleIds = new Set(accessible.map(w => w.id));
+  if (stored && accessibleIds.has(normalizeWorkspaceId(stored))) {
+    commit(stored, 'replace');
+    return;
+  }
+  const sortedByName = [...accessible].sort((a, b) =>
+    (a.name || a.id || '').localeCompare(b.name || b.id || '')
+  );
+  commit(sortedByName[0].id, 'replace');
 }
 
 function getValidStoredLastView(
@@ -122,11 +161,12 @@ export function useAppStore() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([
     { id: 'default', name: 'Default', icon: 'z' },
   ]);
-  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getStoredActiveWorkspaceId);
+  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string>(getInitialActiveWorkspaceId);
   // Members of the current workspace + caller's role + superuser flag. Driven
   // by WS init and `workspace:members` broadcasts; mutations go through API
   // helpers which trigger a server-side broadcast.
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [workspaceAllowlistActive, setWorkspaceAllowlistActive] = useState(false);
   const [viewerRole, setViewerRole] = useState<WorkspaceRole | null>(null);
   const [isSuperuser, setIsSuperuser] = useState<boolean>(false);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
@@ -195,6 +235,8 @@ export function useAppStore() {
   const [tasksVersion, setTasksVersion] = useState(0);
 
   const wsRef = useRef<SlockWebSocket | null>(null);
+  const workspacesRef = useRef(workspaces);
+  workspacesRef.current = workspaces;
   const activeWorkspaceRef = useRef(activeWorkspaceId);
   activeWorkspaceRef.current = activeWorkspaceId;
   const activeChannelRef = useRef(activeChannelName);
@@ -218,6 +260,72 @@ export function useAppStore() {
   const channelListReady = channels.length > 0;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
+
+  const commitWorkspaceSelection = useCallback((workspaceId: string, routeMode: WorkspaceRouteMode = 'none') => {
+    const next = normalizeWorkspaceId(workspaceId);
+    setScopedActiveWorkspaceId(next);
+    setStoredActiveWorkspaceId(next);
+    if (routeMode === 'replace') replaceWorkspaceRoute(next);
+
+    if (next === activeWorkspaceRef.current) return;
+
+    activeWorkspaceRef.current = next;
+    setActiveWorkspaceIdState(next);
+    hasResolvedInitialViewRef.current = false;
+    setChannels([]);
+    setAgents([]);
+    setConfigs([]);
+    setMachines([]);
+    setProfilePresets([]);
+    setWorkspaceMembers([]);
+    setViewerRole(null);
+    setMessages([]);
+    setThreadMessages([]);
+    setUnreadCounts({});
+    setAgentLastChannel({});
+    setWorkspaceFiles({});
+    setWsTreeCache({});
+    setWorkspaceFileContent(null);
+    setMemoryTreeCache({});
+    setMemoryTreeErrors({});
+    setMemoryContentCache({});
+    setSkillsCache({});
+    setActiveThreadMessage(null);
+    setRightPanel(prev => (prev === 'thread' ? null : prev));
+    setViewMode('channel');
+    setActiveChannelName('all');
+    setTasksVersion(v => v + 1);
+  }, []);
+
+  useEffect(() => {
+    const routeWorkspaceId = getWorkspaceIdFromPath();
+    if (routeWorkspaceId) {
+      commitWorkspaceSelection(routeWorkspaceId, 'none');
+      return;
+    }
+
+    const storedWorkspaceId = getStoredActiveWorkspaceIdOrNull();
+    if (storedWorkspaceId) commitWorkspaceSelection(storedWorkspaceId, 'replace');
+  }, [commitWorkspaceSelection]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const routeWorkspaceId = getWorkspaceIdFromPath();
+      if (routeWorkspaceId) {
+        commitWorkspaceSelection(routeWorkspaceId, 'none');
+        return;
+      }
+
+      const fallback = chooseWorkspaceId(workspacesRef.current, [
+        getStoredActiveWorkspaceIdOrNull(),
+        activeWorkspaceRef.current,
+      ]);
+      commitWorkspaceSelection(fallback, 'replace');
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [commitWorkspaceSelection]);
 
   const recordAgentLastChannel = useCallback((msg: MessageRecord) => {
     if (msg.sender_type !== 'agent' || !msg.sender_name) return;
@@ -298,29 +406,18 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
+        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; workspaceAllowlistActive?: boolean; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
         const nextChannels = e.channels || [];
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
         if (e.workspaces && e.workspaces.length > 0) setWorkspaces(e.workspaces);
         setWorkspaceMembers(e.workspaceMembers || []);
+        setWorkspaceAllowlistActive(!!e.workspaceAllowlistActive);
         setViewerRole(e.viewerRole ?? null);
         setIsSuperuser(!!e.isSuperuser);
-        const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceId);
+        const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceRef.current);
         if (workspaceChanged && e.workspaceId) {
-          activeWorkspaceRef.current = e.workspaceId;
-          setActiveWorkspaceIdState(e.workspaceId);
-          setStoredActiveWorkspaceId(e.workspaceId);
-          setMessages([]);
-          setThreadMessages([]);
-          setUnreadCounts({});
-          setAgentLastChannel({});
-          setWorkspaceFiles({});
-          setWsTreeCache({});
-          setWorkspaceFileContent(null);
-          setMemoryTreeCache({});
-          setMemoryContentCache({});
-          setSkillsCache({});
+          commitWorkspaceSelection(e.workspaceId, 'replace');
         }
         setChannels(nextChannels);
         // `init` replays on every WS reconnect. The server payload doesn't carry
@@ -372,6 +469,19 @@ export function useAppStore() {
         const e = event as { workspace?: Workspace };
         if (e.workspace?.id) {
           setWorkspaces(prev => prev.map(w => (w.id === e.workspace!.id ? e.workspace! : w)));
+        }
+        break;
+      }
+      case 'workspace_deleted': {
+        const e = event as { workspaceId?: string; workspace?: Workspace };
+        if (!e.workspaceId && !e.workspace?.id) break;
+        const deletedId = normalizeWorkspaceId(e.workspaceId || e.workspace?.id);
+        const nextWorkspaces = workspacesRef.current.filter(w => w.id !== deletedId);
+        setWorkspaces(nextWorkspaces);
+        if (deletedId === activeWorkspaceRef.current) {
+          const fallback = chooseWorkspaceId(nextWorkspaces, [getStoredActiveWorkspaceIdOrNull(), 'default']);
+          commitWorkspaceSelection(fallback, 'replace');
+          addToast('Server deleted', 'info');
         }
         break;
       }
@@ -480,13 +590,20 @@ export function useAppStore() {
         break;
       }
       case 'agent_status': {
-        const e = event as { agentId: string; status: string };
+        const e = event as { agentId: string; status: AgentLifecycleStatus | 'deleted' };
         if (e.status === 'deleted') {
           setAgents(prev => prev.filter(a => a.id !== e.agentId));
           setSelectedAgentId(prev => (prev === e.agentId ? null : prev));
         } else {
+          const status: AgentLifecycleStatus = e.status;
           setAgents(prev => prev.map(a =>
-            a.id === e.agentId ? { ...a, status: e.status as 'active' | 'inactive' } : a
+            a.id === e.agentId
+              ? {
+                  ...a,
+                  status,
+                  ...(status !== 'active' ? { activity: 'offline' as const, activityDetail: undefined } : {}),
+                }
+              : a
           ));
         }
         break;
@@ -674,39 +791,11 @@ export function useAppStore() {
         break;
       }
     }
-  }, [activeWorkspaceId, recordAgentLastChannel]);
+  }, [addToast, commitWorkspaceSelection, recordAgentLastChannel]);
 
   const setActiveWorkspaceId = useCallback((workspaceId: string) => {
-    const next = workspaceId || 'default';
-    if (next === activeWorkspaceId) return;
-    setStoredActiveWorkspaceId(next);
-    activeWorkspaceRef.current = next;
-    setActiveWorkspaceIdState(next);
-    hasResolvedInitialViewRef.current = false;
-    setChannels([]);
-    setAgents([]);
-    setConfigs([]);
-    setMachines([]);
-    setProfilePresets([]);
-    setWorkspaceMembers([]);
-    setViewerRole(null);
-    setMessages([]);
-    setThreadMessages([]);
-    setUnreadCounts({});
-    setAgentLastChannel({});
-    setWorkspaceFiles({});
-    setWsTreeCache({});
-    setWorkspaceFileContent(null);
-    setMemoryTreeCache({});
-    setMemoryTreeErrors({});
-    setMemoryContentCache({});
-    setSkillsCache({});
-    setActiveThreadMessage(null);
-    setRightPanel(prev => (prev === 'thread' || prev === 'channel_settings' ? null : prev));
-    setViewMode('channel');
-    setActiveChannelName('all');
-    setTasksVersion(v => v + 1);
-  }, [activeWorkspaceId]);
+    commitWorkspaceSelection(workspaceId, 'replace');
+  }, [commitWorkspaceSelection]);
 
   const createWorkspace = useCallback(async (input: { name: string; icon?: string }) => {
     const res = await api.createWorkspace(input);
@@ -721,6 +810,19 @@ export function useAppStore() {
     setWorkspaces(res.workspaces);
     return res.workspace;
   }, []);
+
+  const deleteWorkspace = useCallback(async (workspaceId: string) => {
+    const targetId = normalizeWorkspaceId(workspaceId);
+    const res = await api.deleteWorkspace(targetId);
+    const nextWorkspaces = res.workspaces || workspacesRef.current.filter(w => w.id !== targetId);
+    setWorkspaces(nextWorkspaces);
+    if (targetId === activeWorkspaceRef.current) {
+      const fallback = chooseWorkspaceId(nextWorkspaces, [getStoredActiveWorkspaceIdOrNull(), 'default']);
+      commitWorkspaceSelection(fallback, 'replace');
+    }
+    addToast(`Server ${res.workspace.name} deleted`, 'info');
+    return res.workspace;
+  }, [addToast, commitWorkspaceSelection]);
 
   const inviteWorkspaceMember = useCallback(async (input: { email: string; role: 'admin' | 'member'; name?: string }) => {
     try {
@@ -810,16 +912,19 @@ export function useAppStore() {
     api.fetchWorkspaces()
       .then((res) => {
         if (cancelled || activeWorkspaceRef.current !== workspaceId) return;
-        if (res.workspaces?.length) setWorkspaces(res.workspaces);
-        if (res.activeWorkspaceId) {
-          activeWorkspaceRef.current = res.activeWorkspaceId;
-          setActiveWorkspaceIdState(res.activeWorkspaceId);
-          setStoredActiveWorkspaceId(res.activeWorkspaceId);
-        }
+        const nextWorkspaces = res.workspaces || [];
+        if (nextWorkspaces.length) setWorkspaces(nextWorkspaces);
+        const nextWorkspaceId = chooseWorkspaceId(nextWorkspaces, [
+          getWorkspaceIdFromPath(),
+          getStoredActiveWorkspaceIdOrNull(),
+          res.activeWorkspaceId,
+          activeWorkspaceRef.current,
+        ]);
+        commitWorkspaceSelection(nextWorkspaceId, 'replace');
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [isLoggedIn, authToken, activeWorkspaceId]);
+  }, [isLoggedIn, authToken, activeWorkspaceId, commitWorkspaceSelection]);
 
   // Register guest users on the server so presence lists see them.
   // Authenticated users are pushed into store.humans by /api/auth/google; guests
@@ -1074,9 +1179,12 @@ export function useAppStore() {
 
   const openChannelSettings = useCallback((channelId: string) => {
     setChannelSettingsId(channelId);
-    setRightPanel('channel_settings');
     closeSidebarOnMobile();
   }, [closeSidebarOnMobile]);
+
+  const closeChannelSettings = useCallback(() => {
+    setChannelSettingsId(null);
+  }, []);
 
   const createChannelAction = useCallback(async (name: string) => {
     try {
@@ -1273,8 +1381,8 @@ export function useAppStore() {
     });
   }, [authUser, addToast]);
 
-  const loginWithGoogle = useCallback(async (credential: string) => {
-    const { token, user } = await api.googleLogin(credential);
+  const completeAuthenticatedLogin = useCallback((result: api.LoginResponse) => {
+    const { token, user, accessibleWorkspaces } = result;
     // Server already uses email prefix as name; use it as display name
     setStoredAuth(token, user);
     setStoredCurrentUser(user.name);
@@ -1282,6 +1390,26 @@ export function useAppStore() {
     setAuthUser(user);
     setIsLoggedIn(true);
     setCurrentUser(user.name);
+    routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection);
+  }, [commitWorkspaceSelection]);
+
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    completeAuthenticatedLogin(await api.googleLogin(credential));
+  }, [completeAuthenticatedLogin]);
+
+  const loginWithSupabaseAccessToken = useCallback(async (accessToken: string) => {
+    completeAuthenticatedLogin(await api.supabaseLogin(accessToken));
+  }, [completeAuthenticatedLogin]);
+
+  const loginWithStoredAuth = useCallback(() => {
+    const stored = getStoredAuth();
+    if (!stored) return false;
+    setAuthToken(stored.token);
+    setAuthUser(stored.user);
+    setIsLoggedIn(true);
+    setCurrentUser(stored.user.name);
+    setStoredCurrentUser(stored.user.name);
+    return true;
   }, []);
 
   const loginAsGuest = useCallback(() => {
@@ -1333,16 +1461,16 @@ export function useAppStore() {
   }, []);
 
   const requestWorkspaceFiles = useCallback((agentId: string, dirPath?: string) => {
-    wsRef.current?.send({ type: 'workspace:list', agentId, dirPath: dirPath || null });
+    wsRef.current?.send({ type: 'workspace:list', workspaceId: activeWorkspaceRef.current, agentId, dirPath: dirPath || null });
   }, []);
 
   const requestFileContent = useCallback((agentId: string, filePath: string) => {
-    wsRef.current?.send({ type: 'workspace:read', agentId, requestId: filePath, path: filePath });
+    wsRef.current?.send({ type: 'workspace:read', workspaceId: activeWorkspaceRef.current, agentId, requestId: filePath, path: filePath });
   }, []);
 
   const requestMemoryList = useCallback((agentId: string, uri?: string) => {
     const key = uri || 'viking://';
-    wsRef.current?.send({ type: 'memory:list', agentId, uri: key });
+    wsRef.current?.send({ type: 'memory:list', workspaceId: activeWorkspaceRef.current, agentId, uri: key });
   }, []);
 
   const requestMemoryContent = useCallback((agentId: string, uri: string, level?: 'l0' | 'l1' | 'l2') => {
@@ -1356,11 +1484,11 @@ export function useAppStore() {
       agentBucket[uri] = rest;
       return { ...prev, [agentId]: agentBucket };
     });
-    wsRef.current?.send({ type: 'memory:read', agentId, requestId: uri, uri, level: level || null });
+    wsRef.current?.send({ type: 'memory:read', workspaceId: activeWorkspaceRef.current, agentId, requestId: uri, uri, level: level || null });
   }, []);
 
   const requestSkills = useCallback((agentId: string, runtime?: string | null) => {
-    wsRef.current?.send({ type: 'skills:list', agentId, runtime: runtime || null });
+    wsRef.current?.send({ type: 'skills:list', workspaceId: activeWorkspaceRef.current, agentId, runtime: runtime || null });
   }, []);
 
   return {
@@ -1368,8 +1496,9 @@ export function useAppStore() {
     colorMode, setColorMode,
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
-    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace,
-    workspaceMembers, viewerRole, isSuperuser,
+    workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace,
+    workspaceMembers, workspaceAllowlistActive, viewerRole, isSuperuser,
+    canRootWorkspace: viewerRole === 'root' || isSuperuser,
     canAdminWorkspace: viewerRole === 'root' || viewerRole === 'owner' || viewerRole === 'admin' || isSuperuser,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
     channels, agents, humans, configs, machines,
@@ -1380,7 +1509,7 @@ export function useAppStore() {
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
     agentProfileId, setAgentProfileId, agentProfileTab, setAgentProfileTab, openAgentProfile, openAgentSettings,
-    channelSettingsId, openChannelSettings,
+    channelSettingsId, openChannelSettings, closeChannelSettings,
     activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,
     workspaceMenuOpen, setWorkspaceMenuOpen,
@@ -1420,6 +1549,8 @@ export function useAppStore() {
     ovRuntimeWhitelist, setOvRuntimeWhitelist,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
+    loginWithAuthResponse: completeAuthenticatedLogin,
+    loginWithSupabaseAccessToken, loginWithStoredAuth,
     tasksVersion,
   };
 }

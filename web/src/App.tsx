@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { Loader2 } from 'lucide-react';
 import { AppProvider, useApp } from './store/AppContext';
 import WorkspaceRail from './components/WorkspaceRail';
 import ChannelSidebar from './components/ChannelSidebar';
@@ -12,6 +13,7 @@ import AgentStatus, { AgentStatusPeek } from './components/AgentStatus';
 import AgentProfilePanel from './components/AgentProfilePanel';
 import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
+import ChannelSettingsModal from './components/ChannelSettingsModal';
 import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
 import TasksView from './components/TasksView';
@@ -20,8 +22,10 @@ import LoginScreen from './components/LoginScreen';
 import * as api from './lib/api';
 import { isMobileViewport } from './lib/layout';
 import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
+import { useVisualViewportChatShell } from './hooks/useVisualViewportChatShell';
 import { initSupabase } from './lib/supabase';
-import { setStoredAuth, setStoredCurrentUser } from './store/storage';
+import { setStoredAuth, setStoredCurrentUser, setStoredActiveWorkspaceId, getStoredActiveWorkspaceIdOrNull } from './store/storage';
+import { normalizeWorkspaceId } from './lib/workspaceRoute';
 
 function GoogleAuthSync() {
   const { setHasGoogleAuth } = useApp();
@@ -58,6 +62,10 @@ function AppShell() {
   const threadRailRef = useRef<HTMLDivElement | null>(null);
   const [mobileSurface, setMobileSurface] = useState(() => isMobileViewport());
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
+  const showMessageView = viewMode === 'channel' || viewMode === 'dm';
+  const useViewportShell = isLoggedIn && showMessageView && mobileSurface;
+
+  useVisualViewportChatShell({ enabled: useViewportShell });
 
   useEffect(() => {
     const onResize = () => {
@@ -105,7 +113,6 @@ function AppShell() {
     return <LoginScreen />;
   }
 
-  const showMessageView = viewMode === 'channel' || viewMode === 'dm';
   // Desktop only renders the ChannelSidebar in conversational views — Memory
   // / Tasks / Agents are full-canvas surfaces with their own layouts.
   // The MOBILE sidebar modal, the floating menu button, and the edge-swipe
@@ -169,7 +176,7 @@ function AppShell() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className={`flex-1 flex flex-col min-w-0 ${useViewportShell ? 'zouk-vv-chat-shell' : ''}`}>
         {/* TopBar is only needed in home (channel/dm) view. Full-canvas views
             render a safe-area-aware header with the mobile menu button inside
             the title row. TopBar stays mounted even when a right panel is
@@ -181,7 +188,7 @@ function AppShell() {
             <TopBar />
             {/* Mobile spacer reserves the h-12/14 below the fixed TopBar so
                 message content does not slide under the bar. */}
-            <div className="flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
+            <div className="top-bar-mobile-spacer flex-shrink-0 safe-top lg:hidden" aria-hidden="true">
               <div className="h-12 sm:h-14" />
             </div>
           </>
@@ -265,6 +272,7 @@ function AppShell() {
       </div>
 
       <SettingsModal />
+      <ChannelSettingsModal />
       <ToastContainer />
     </div>
   );
@@ -314,6 +322,7 @@ function AppWithAuth() {
           // Handle magic link callback — PKCE flow (?code=) or implicit flow (#access_token=)
           const urlParams = new URLSearchParams(window.location.search);
           const code = urlParams.get('code');
+          const magicLoginChallengeId = urlParams.get('magic_challenge') || undefined;
           const hash = new URLSearchParams(window.location.hash.slice(1));
           const hashToken = hash.get('access_token');
           const hashType = hash.get('type');
@@ -333,9 +342,22 @@ function AppWithAuth() {
 
             if (accessToken) {
               window.history.replaceState({}, '', window.location.pathname);
-              const result = await api.supabaseLogin(accessToken);
+              const result = await api.supabaseLogin(accessToken, magicLoginChallengeId);
               setStoredAuth(result.token, result.user);
               setStoredCurrentUser(result.user.name);
+              const accessible = result.accessibleWorkspaces || [];
+              if (accessible.length > 0) {
+                const stored = getStoredActiveWorkspaceIdOrNull();
+                const accessibleIds = new Set(accessible.map(w => w.id));
+                if (stored && accessibleIds.has(normalizeWorkspaceId(stored))) {
+                  setStoredActiveWorkspaceId(stored);
+                } else {
+                  const sortedByName = [...accessible].sort((a, b) =>
+                    (a.name || a.id || '').localeCompare(b.name || b.id || '')
+                  );
+                  setStoredActiveWorkspaceId(sortedByName[0].id);
+                }
+              }
             }
           } catch (e) {
             console.error('[auth] Magic link exchange failed:', e);
@@ -348,7 +370,13 @@ function AppWithAuth() {
     })();
   }, []);
 
-  if (!loaded) return null;
+  if (!loaded) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-nc-black">
+        <Loader2 size={28} className="animate-spin text-nc-muted" aria-label="Loading" />
+      </div>
+    );
+  }
 
   const syncComponents = (
     <>

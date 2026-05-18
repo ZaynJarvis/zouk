@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS workspace_members (
   PRIMARY KEY (workspace_id, email)
 );
 
+CREATE TABLE IF NOT EXISTS workspace_member_removals (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  email        TEXT NOT NULL,
+  removed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  removed_by   TEXT,
+  PRIMARY KEY (workspace_id, email)
+);
+
 CREATE TABLE IF NOT EXISTS messages (
   id                 TEXT PRIMARY KEY,
   seq                INTEGER NOT NULL,
@@ -45,8 +53,14 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS messages_seq_idx     ON messages (seq);
 CREATE INDEX IF NOT EXISTS messages_channel_idx ON messages (channel_name, channel_type);
 CREATE INDEX IF NOT EXISTS messages_thread_idx  ON messages (thread_id) WHERE thread_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS messages_thread_channel_seq_idx
+  ON messages (thread_id, channel_id, seq) WHERE thread_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS messages_workspace_seq_idx ON messages (workspace_id, seq);
 CREATE INDEX IF NOT EXISTS messages_workspace_channel_seq_idx ON messages (workspace_id, channel_id, seq);
+-- DM reads are party-scoped (queryMessagesForAgent filters DM rows by
+-- channel_id only, ignoring workspace_id) — keep a channel-only index so
+-- cross-workspace DM check_messages stays index-backed.
+CREATE INDEX IF NOT EXISTS messages_channel_seq_idx ON messages (channel_id, seq);
 
 CREATE TABLE IF NOT EXISTS channels (
   id          TEXT PRIMARY KEY,
@@ -108,6 +122,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   lifecycle                TEXT NOT NULL DEFAULT 'persistent',
   openviking_user_id       TEXT,
   openviking_api_key       TEXT,
+  openviking_url           TEXT,
   openviking_mode          TEXT NOT NULL DEFAULT 'provisioned',
   openviking_custom_url    TEXT,
   openviking_custom_api_key TEXT,
@@ -119,6 +134,10 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAU
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS env_vars JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_user_id TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_api_key TEXT;
+-- Per-agent URL pinning. Persisted at provision time so existing agents stay
+-- on the URL their key was minted under even if the workspace admin later
+-- switches the workspace OV URL. NULL on legacy rows → fall back to env URL.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_url TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_mode TEXT NOT NULL DEFAULT 'provisioned';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_url TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEXT;
@@ -140,6 +159,37 @@ CREATE TABLE IF NOT EXISTS agent_profile_presets (
   image      TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS workspace_embed_settings (
+  workspace_id       TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  enabled            BOOLEAN NOT NULL DEFAULT false,
+  allowed_origins    JSONB NOT NULL DEFAULT '[]',
+  allowed_channel_ids JSONB NOT NULL DEFAULT '[]',
+  token_ttl_seconds  INTEGER NOT NULL DEFAULT 3600,
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by         TEXT
+);
+
+-- Per-workspace OpenViking provisioning override. NULL/absent row =
+-- fall back to OPENVIKING_URL / OPENVIKING_ROOT_KEY env vars. When
+-- `enabled` is true and both `url` and `root_api_key` are set, agent
+-- provisioning for this workspace uses these creds instead of env.
+-- `root_api_key` follows the same new-format convention as the env
+-- root key (base64url(account).base64url(user).base64url(secret)),
+-- so `account` may be left NULL — the resolver will decode it from
+-- the key. Set `account` explicitly when (a) the root key grants
+-- access to multiple accounts and you want to pin one, or (b) the key
+-- is a legacy hex key that can't carry an account.
+CREATE TABLE IF NOT EXISTS workspace_openviking_settings (
+  workspace_id   TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  enabled        BOOLEAN NOT NULL DEFAULT false,
+  url            TEXT,
+  root_api_key   TEXT,
+  account        TEXT,
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by     TEXT
+);
+ALTER TABLE workspace_openviking_settings ADD COLUMN IF NOT EXISTS account TEXT;
 
 CREATE TABLE IF NOT EXISTS email_allowlist (
   workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,

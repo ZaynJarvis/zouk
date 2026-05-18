@@ -69,6 +69,25 @@ function buildPoolConfig(databaseUrl) {
 
 const enabled = Boolean(DATABASE_URL);
 const pool = enabled ? new Pool(buildPoolConfig(DATABASE_URL)) : null;
+const PERF_LOG_MODE = String(process.env.ZOUK_DB_PERF_LOG || process.env.ZOUK_PERF_LOG || "slow").trim().toLowerCase();
+const PERF_LOG_ENABLED = ["1", "true", "yes", "slow", "verbose", "all"].includes(PERF_LOG_MODE);
+const PERF_LOG_VERBOSE = ["verbose", "all"].includes(PERF_LOG_MODE);
+const PERF_SLOW_MS = Math.max(1, parseInt(process.env.ZOUK_DB_PERF_SLOW_MS || process.env.ZOUK_PERF_SLOW_MS || "1000", 10) || 1000);
+
+function perfNowMs() {
+  return Number(process.hrtime.bigint()) / 1e6;
+}
+
+function logDbPerf(label, durationMs, fields = {}, { force = false } = {}) {
+  if (!PERF_LOG_ENABLED) return;
+  if (!force && !PERF_LOG_VERBOSE && durationMs < PERF_SLOW_MS) return;
+  const parts = [`[db:perf] ${label}`, `duration_ms=${durationMs.toFixed(1)}`];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null || value === "") continue;
+    parts.push(`${key}=${JSON.stringify(value)}`);
+  }
+  console.warn(parts.join(" "));
+}
 
 if (enabled) {
   console.log('[db] PostgreSQL persistence enabled');
@@ -122,6 +141,7 @@ async function migrate() {
 
 async function saveMessage(msg) {
   if (!pool) return;
+  const started = perfNowMs();
   try {
     await pool.query(
       `INSERT INTO messages (id, seq, workspace_id, channel_id, channel_name, channel_type, thread_id, sender_name, sender_type, content, created_at, attachments, task_number, task_status, task_assignee_id, task_assignee_type)
@@ -161,6 +181,12 @@ async function saveMessage(msg) {
         msg.taskAssigneeType || null,
       ]
     );
+    logDbPerf('saveMessage', perfNowMs() - started, {
+      workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID,
+      channelId: msg.channelId,
+      channelType: msg.channelType,
+      thread: !!msg.threadId,
+    });
   } catch (e) {
     console.error('[db] saveMessage error:', e.message);
   }
@@ -226,6 +252,7 @@ async function findMessagesByIdPrefix({ prefix, workspaceId = null, limit = 2 })
 // (workspace_id, channel_id, seq) index.
 async function queryMessages({ workspaceId, channelId, threadId = null, threadIdFilter = 'auto', beforeSeq = null, afterSeq = null, limit = 100 }) {
   if (!pool) return [];
+  const started = perfNowMs();
   try {
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
     // threadIdFilter semantics:
@@ -263,6 +290,15 @@ async function queryMessages({ workspaceId, channelId, threadId = null, threadId
        ) sub ORDER BY seq ASC`,
       params
     );
+    logDbPerf('queryMessages', perfNowMs() - started, {
+      workspaceId: wsId,
+      channelId,
+      thread: !!threadId,
+      before: beforeSeq != null,
+      after: afterSeq != null,
+      limit,
+      rows: rows.length,
+    });
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryMessages error:', e.message);
@@ -275,6 +311,7 @@ async function queryMessages({ workspaceId, channelId, threadId = null, threadId
 // inclusive of the center message itself).
 async function queryMessagesAround({ workspaceId, channelId, centerSeq, limit = 50 }) {
   if (!pool) return [];
+  const started = perfNowMs();
   try {
     const half = Math.floor(limit / 2);
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
@@ -289,6 +326,13 @@ async function queryMessagesAround({ workspaceId, channelId, centerSeq, limit = 
        ORDER BY seq ASC`,
       [wsId, channelId, centerSeq, half, half + 1]
     );
+    logDbPerf('queryMessagesAround', perfNowMs() - started, {
+      workspaceId: wsId,
+      channelId,
+      centerSeq,
+      limit,
+      rows: rows.length,
+    });
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryMessagesAround error:', e.message);
@@ -301,14 +345,27 @@ async function queryMessagesAround({ workspaceId, channelId, centerSeq, limit = 
 // (DM membership, self-exclusion) still happens in-process after fetch.
 async function queryMessagesForAgent({ workspaceId, channelIds, sinceSeq = 0, limit = 200 }) {
   if (!pool || !Array.isArray(channelIds) || channelIds.length === 0) return [];
+  const started = perfNowMs();
   try {
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
+    // DM messages are party-scoped — match them by channel_id regardless of
+    // the sender's workspace. Non-DM rows still gate on workspace_id so we
+    // don't leak cross-workspace channel history.
     const { rows } = await pool.query(
       `SELECT * FROM messages
-        WHERE workspace_id = $1 AND channel_id = ANY($2::text[]) AND seq > $3
+        WHERE channel_id = ANY($2::text[])
+          AND (workspace_id = $1 OR channel_type = 'dm')
+          AND seq > $3
         ORDER BY seq ASC LIMIT $4`,
       [wsId, channelIds, sinceSeq, limit]
     );
+    logDbPerf('queryMessagesForAgent', perfNowMs() - started, {
+      workspaceId: wsId,
+      channels: channelIds.length,
+      sinceSeq,
+      limit,
+      rows: rows.length,
+    });
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryMessagesForAgent error:', e.message);
@@ -324,9 +381,12 @@ async function searchMessages({ workspaceId, channelIds, keyword, limit = 50 }) 
   try {
     const wsId = workspaceId || DEFAULT_WORKSPACE_ID;
     const hasChannelFilter = Array.isArray(channelIds) && channelIds.length > 0;
+    // Mirror queryMessagesForAgent: DM rows match by channel_id only.
     const sql = hasChannelFilter
       ? `SELECT * FROM messages
-           WHERE workspace_id = $1 AND channel_id = ANY($2::text[]) AND content ILIKE $3
+           WHERE channel_id = ANY($2::text[])
+             AND (workspace_id = $1 OR channel_type = 'dm')
+             AND content ILIKE $3
            ORDER BY seq DESC LIMIT $4`
       : `SELECT * FROM messages
            WHERE workspace_id = $1 AND content ILIKE $2
@@ -356,6 +416,55 @@ async function queryThreadReplies({ threadId, channelId, limit = 50 }) {
     return rows.map(rowToMessage);
   } catch (e) {
     console.error('[db] queryThreadReplies error:', e.message);
+    return [];
+  }
+}
+
+async function queryThreadRepliesBatch({ pairs, limit = 50 }) {
+  if (!pool || !Array.isArray(pairs) || pairs.length === 0) return [];
+  const started = perfNowMs();
+  const unique = [];
+  const seen = new Set();
+  for (const pair of pairs) {
+    if (!pair?.threadId || !pair?.channelId) continue;
+    const key = `${pair.threadId}:${pair.channelId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({ threadId: pair.threadId, channelId: pair.channelId });
+  }
+  if (unique.length === 0) return [];
+  try {
+    const threadIds = unique.map((pair) => pair.threadId);
+    const channelIds = unique.map((pair) => pair.channelId);
+    const { rows } = await pool.query(
+      `WITH pairs AS (
+         SELECT * FROM unnest($1::text[], $2::text[]) AS p(thread_id, channel_id)
+       ),
+       ranked AS (
+         SELECT m.*,
+                row_number() OVER (
+                  PARTITION BY m.thread_id, m.channel_id
+                  ORDER BY m.seq ASC
+                ) AS reply_rank
+           FROM messages m
+           JOIN pairs p ON p.thread_id = m.thread_id AND p.channel_id = m.channel_id
+       )
+       SELECT *
+         FROM ranked
+        WHERE reply_rank <= $3
+        ORDER BY seq ASC`,
+      [threadIds, channelIds, limit]
+    );
+    logDbPerf('queryThreadRepliesBatch', perfNowMs() - started, {
+      pairs: unique.length,
+      limit,
+      rows: rows.length,
+    }, {
+      force: PERF_LOG_MODE !== "slow" && unique.length >= 10,
+    });
+    return rows.map(rowToMessage);
+  } catch (e) {
+    console.error('[db] queryThreadRepliesBatch error:', e.message);
     return [];
   }
 }
@@ -625,10 +734,10 @@ async function saveAgentConfig(config) {
          id, workspace_id, machine_id, name, display_name, description, runtime, model,
          system_prompt, instructions, work_dir, picture, visibility,
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
-         openviking_user_id, openviking_api_key,
+         openviking_user_id, openviking_api_key, openviking_url,
          openviking_mode, openviking_custom_url, openviking_custom_api_key,
          openviking_enabled
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        ON CONFLICT (id) DO UPDATE SET
          workspace_id                 = EXCLUDED.workspace_id,
          name                       = EXCLUDED.name,
@@ -648,6 +757,7 @@ async function saveAgentConfig(config) {
          env_vars                   = EXCLUDED.env_vars,
          openviking_user_id         = EXCLUDED.openviking_user_id,
          openviking_api_key         = EXCLUDED.openviking_api_key,
+         openviking_url             = EXCLUDED.openviking_url,
          openviking_mode            = EXCLUDED.openviking_mode,
          openviking_custom_url      = EXCLUDED.openviking_custom_url,
          openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key,
@@ -673,6 +783,7 @@ async function saveAgentConfig(config) {
         JSON.stringify(config.envVars || {}),
         config.openvikingUserId || null,
         config.openvikingApiKey || null,
+        config.openvikingUrl || null,
         config.openvikingMode === 'custom' ? 'custom' : 'provisioned',
         config.openvikingCustomUrl || null,
         config.openvikingCustomApiKey || null,
@@ -702,7 +813,7 @@ async function loadAgentConfigs() {
               workspace_id,
               system_prompt, instructions, work_dir, picture, visibility,
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
-              openviking_user_id, openviking_api_key,
+              openviking_user_id, openviking_api_key, openviking_url,
               openviking_mode, openviking_custom_url, openviking_custom_api_key,
               openviking_enabled
          FROM agent_configs
@@ -729,6 +840,7 @@ async function loadAgentConfigs() {
       envVars: row.env_vars && typeof row.env_vars === 'object' ? row.env_vars : {},
       openvikingUserId: row.openviking_user_id || null,
       openvikingApiKey: row.openviking_api_key || null,
+      openvikingUrl: row.openviking_url || null,
       openvikingMode: row.openviking_mode === 'custom' ? 'custom' : 'provisioned',
       openvikingCustomUrl: row.openviking_custom_url || null,
       openvikingCustomApiKey: row.openviking_custom_api_key || null,
@@ -953,6 +1065,17 @@ async function loadWorkspaces() {
   }
 }
 
+async function deleteWorkspace(id) {
+  if (!pool) return false;
+  try {
+    const { rowCount } = await pool.query('DELETE FROM workspaces WHERE id = $1', [id || DEFAULT_WORKSPACE_ID]);
+    return rowCount > 0;
+  } catch (e) {
+    console.error('[db] deleteWorkspace error:', e.message);
+    return false;
+  }
+}
+
 async function saveWorkspaceMember(member) {
   if (!pool) return;
   try {
@@ -1004,6 +1127,167 @@ async function loadWorkspaceMembers() {
     }));
   } catch (e) {
     console.error('[db] loadWorkspaceMembers error:', e.message);
+    return null;
+  }
+}
+
+async function saveWorkspaceMemberRemoval(removal) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_member_removals (workspace_id, email, removed_at, removed_by)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (workspace_id, email) DO UPDATE SET
+         removed_at = EXCLUDED.removed_at,
+         removed_by = EXCLUDED.removed_by`,
+      [
+        removal.workspaceId || DEFAULT_WORKSPACE_ID,
+        String(removal.email || '').trim().toLowerCase(),
+        removal.removedAt || new Date().toISOString(),
+        removal.removedBy || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceMemberRemoval error:', e.message);
+  }
+}
+
+async function deleteWorkspaceMemberRemoval(workspaceId, email) {
+  if (!pool) return false;
+  try {
+    await pool.query(
+      'DELETE FROM workspace_member_removals WHERE workspace_id=$1 AND email=$2',
+      [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]
+    );
+    return true;
+  } catch (e) {
+    console.error('[db] deleteWorkspaceMemberRemoval error:', e.message);
+    return false;
+  }
+}
+
+async function loadWorkspaceMemberRemovals() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      'SELECT workspace_id, email, removed_at, removed_by FROM workspace_member_removals ORDER BY workspace_id ASC, email ASC'
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      email: row.email,
+      removedAt: row.removed_at,
+      removedBy: row.removed_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceMemberRemovals error:', e.message);
+    return null;
+  }
+}
+
+// ─── Workspace embed settings ─────────────────────────────────────
+
+async function saveWorkspaceEmbedSettings(settings) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_embed_settings
+         (workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace_id) DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         allowed_origins = EXCLUDED.allowed_origins,
+         allowed_channel_ids = EXCLUDED.allowed_channel_ids,
+         token_ttl_seconds = EXCLUDED.token_ttl_seconds,
+         updated_at = EXCLUDED.updated_at,
+         updated_by = EXCLUDED.updated_by`,
+      [
+        settings.workspaceId || DEFAULT_WORKSPACE_ID,
+        !!settings.enabled,
+        JSON.stringify(settings.allowedOrigins || []),
+        JSON.stringify(settings.allowedChannelIds || []),
+        settings.tokenTtlSeconds || 3600,
+        settings.updatedAt || new Date().toISOString(),
+        settings.updatedBy || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceEmbedSettings error:', e.message);
+  }
+}
+
+async function loadWorkspaceEmbedSettings() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by
+       FROM workspace_embed_settings
+       ORDER BY workspace_id ASC`
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      enabled: !!row.enabled,
+      allowedOrigins: Array.isArray(row.allowed_origins) ? row.allowed_origins : [],
+      allowedChannelIds: Array.isArray(row.allowed_channel_ids) ? row.allowed_channel_ids : [],
+      tokenTtlSeconds: row.token_ttl_seconds || 3600,
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceEmbedSettings error:', e.message);
+    return null;
+  }
+}
+
+// ─── Workspace OpenViking settings ────────────────────────────────
+
+async function saveWorkspaceOpenvikingSettings(settings) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_openviking_settings
+         (workspace_id, enabled, url, root_api_key, account, updated_at, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace_id) DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         url = EXCLUDED.url,
+         root_api_key = EXCLUDED.root_api_key,
+         account = EXCLUDED.account,
+         updated_at = EXCLUDED.updated_at,
+         updated_by = EXCLUDED.updated_by`,
+      [
+        settings.workspaceId || DEFAULT_WORKSPACE_ID,
+        !!settings.enabled,
+        settings.url || null,
+        settings.rootApiKey || null,
+        settings.account || null,
+        settings.updatedAt || new Date().toISOString(),
+        settings.updatedBy || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceOpenvikingSettings error:', e.message);
+  }
+}
+
+async function loadWorkspaceOpenvikingSettings() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT workspace_id, enabled, url, root_api_key, account, updated_at, updated_by
+       FROM workspace_openviking_settings
+       ORDER BY workspace_id ASC`
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      enabled: !!row.enabled,
+      url: row.url || '',
+      rootApiKey: row.root_api_key || '',
+      account: row.account || '',
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceOpenvikingSettings error:', e.message);
     return null;
   }
 }
@@ -1163,6 +1447,7 @@ module.exports = {
   queryMessagesForAgent,
   searchMessages,
   queryThreadReplies,
+  queryThreadRepliesBatch,
   updateMessageTaskFields,
   loadTaskMessageTimes,
   saveChannel,
@@ -1173,9 +1458,17 @@ module.exports = {
   loadChannelAgents,
   saveWorkspace,
   loadWorkspaces,
+  deleteWorkspace,
   saveWorkspaceMember,
   deleteWorkspaceMember,
   loadWorkspaceMembers,
+  saveWorkspaceMemberRemoval,
+  deleteWorkspaceMemberRemoval,
+  loadWorkspaceMemberRemovals,
+  saveWorkspaceEmbedSettings,
+  loadWorkspaceEmbedSettings,
+  saveWorkspaceOpenvikingSettings,
+  loadWorkspaceOpenvikingSettings,
   saveTask,
   loadTasks,
   loadMaxSeq,

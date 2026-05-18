@@ -13,12 +13,9 @@ import {
   formatContextUsageTitle,
   pickDisplayContextUsage,
 } from '../lib/contextUsage';
+import { agentIsLive, agentIsOnline } from '../lib/avatarStatus';
 
 type Filter = 'live' | 'online' | 'all';
-
-function isLive(a: ServerAgent) {
-  return a.activity === 'working' || a.activity === 'thinking';
-}
 
 function NowCard({
   agent, machineName, onSelect,
@@ -27,7 +24,8 @@ function NowCard({
   machineName?: string;
   onSelect: (id: string) => void;
 }) {
-  const live = isLive(agent);
+  const live = agentIsLive(agent);
+  const online = agentIsOnline(agent);
   const usage = pickDisplayContextUsage(agent.contextUsage, agent.model);
   const pct = usage?.percent;
   const usageLabel = formatContextUsageCompact(usage);
@@ -76,7 +74,7 @@ function NowCard({
         >
           {live
             ? (agent.activityDetail || `${agent.activity}…`)
-            : (agent.activity || 'offline')}
+            : (online ? agent.activity : 'offline')}
         </div>
         <div className="zk-row" style={{ gap: 8, marginTop: 4 }}>
           {usageLabel && (
@@ -109,18 +107,19 @@ export default function AgentStatus() {
   const [filter, setFilter] = useState<Filter>('live');
 
   const counts = useMemo(() => ({
-    live: agents.filter(isLive).length,
-    online: agents.filter((a) => a.activity && a.activity !== 'offline').length,
+    live: agents.filter(agentIsLive).length,
+    online: agents.filter(agentIsOnline).length,
     all: agents.length,
   }), [agents]);
 
   const filtered = useMemo(() => {
     const base =
-      filter === 'live' ? agents.filter(isLive)
-      : filter === 'online' ? agents.filter((a) => a.activity && a.activity !== 'offline')
+      filter === 'live' ? agents.filter(agentIsLive)
+      : filter === 'online' ? agents.filter(agentIsOnline)
       : agents;
     const rank = (a: ServerAgent) =>
-      a.activity === 'working' ? 0
+      !agentIsOnline(a) ? 4
+      : a.activity === 'working' ? 0
       : a.activity === 'thinking' ? 1
       : a.activity === 'online' ? 2
       : a.activity === 'error' ? 3
@@ -256,7 +255,7 @@ export default function AgentStatus() {
    when the user has collapsed it. Click expands the rail back. */
 export function AgentStatusPeek() {
   const { setNowRailHidden, agents } = useApp();
-  const liveCount = agents.filter(isLive).length;
+  const liveCount = agents.filter(agentIsLive).length;
 
   return (
     <button
