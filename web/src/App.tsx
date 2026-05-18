@@ -294,25 +294,35 @@ function AppWithAuth() {
           const sc = { url: config.supabaseUrl, anonKey: config.supabaseAnonKey };
           setSupabaseConfig(sc);
 
-          // Handle magic link callback — PKCE flow (?code=) or implicit flow (#access_token=)
+          // Handle magic link / OAuth callback. We use Supabase implicit flow
+          // (see lib/supabase.ts) so the access_token lands in the URL hash and
+          // works cross-browser. We still accept a PKCE ?code= as a fallback for
+          // any provider that issues one.
           const urlParams = new URLSearchParams(window.location.search);
           const code = urlParams.get('code');
           const magicLoginChallengeId = urlParams.get('magic_challenge') || undefined;
           const hash = new URLSearchParams(window.location.hash.slice(1));
           const hashToken = hash.get('access_token');
           const hashType = hash.get('type');
+          // Supabase tags the callback with type=magiclink for existing users,
+          // type=signup for first-time signups, and type=recovery for password
+          // resets. All of them carry a valid session access_token.
+          const isAuthCallbackType =
+            hashType === 'magiclink' || hashType === 'signup' || hashType === 'recovery';
 
           try {
             let accessToken: string | null = null;
 
-            if (code) {
+            if (hashToken && isAuthCallbackType) {
+              accessToken = hashToken;
+            } else if (code) {
               const supabase = initSupabase(sc.url, sc.anonKey);
               const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-              if (!error && data.session?.access_token) {
+              if (error) {
+                console.error('[auth] PKCE exchange failed (likely cross-browser):', error);
+              } else if (data.session?.access_token) {
                 accessToken = data.session.access_token;
               }
-            } else if (hashToken && hashType === 'magiclink') {
-              accessToken = hashToken;
             }
 
             if (accessToken) {
