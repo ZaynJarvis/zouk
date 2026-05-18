@@ -230,6 +230,10 @@ export interface AgentConfig {
   ovEnabled?: boolean;
   ovEnabledIsDefault?: boolean;
   ovDefault?: boolean;
+  // Per-agent override of the daemon driver's default binary command (e.g.
+  // "/usr/local/bin/codex" or "env LANG=C claude"). Daemon whitespace-splits this into argv.
+  // Empty/null = use the runtime default. Not supported for vikingbot.
+  customLauncher?: string | null;
 }
 
 export interface ServerMachine {
