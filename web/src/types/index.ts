@@ -211,6 +211,10 @@ export interface AgentConfig {
   skills?: AgentSkill[];
   lifecycle?: 'persistent' | 'ephemeral';
   openvikingUserId?: string | null;
+  // URL the agent's provisioned key was minted under. Pinned at provision
+  // time so existing agents don't silently migrate when a workspace admin
+  // switches the workspace OV URL. NULL on legacy rows → server uses env URL.
+  openvikingUrl?: string | null;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   // Per-agent on/off override. `undefined` = follow the runtime default
@@ -272,6 +276,26 @@ export interface WorkspaceEmbedSettings {
   tokenTtlSeconds: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
+}
+
+// Per-workspace OpenViking provisioning override. `rootConfigured` reflects
+// whether a key is stored server-side; the actual key is never echoed back.
+// `account` is the optional explicit override (empty when blank — decode from
+// key). `accountFromKey` is what the server would decode from the currently
+// stored key (null if no key is set or key is legacy format). `effective`
+// describes which creds the server would currently use (workspace override >
+// env fallback) and is read-only.
+export interface WorkspaceOpenvikingSettings {
+  workspaceId: string;
+  enabled: boolean;
+  url: string;
+  rootConfigured: boolean;
+  account: string;
+  accountFromKey: string | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  env: { url: string; account: string } | null;
+  effective: { url: string; account: string; source: 'workspace' | 'env' } | null;
 }
 
 export interface InitPayload {

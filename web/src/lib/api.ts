@@ -1,4 +1,4 @@
-import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceEmbedSettings } from '../types';
+import type { MessageRecord, AgentConfig, MachineApiKey, AgentProfilePreset, TaskRecord, Workspace, WorkspaceMember, WorkspaceRole, WorkspaceEmbedSettings, WorkspaceOpenvikingSettings } from '../types';
 import { getActiveWorkspaceId as getScopedActiveWorkspaceId } from './workspaceRoute';
 
 function getBaseUrl(): string {
@@ -584,6 +584,41 @@ export async function saveEmbedSettings(input: {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body?.error || `Failed to save embed settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
+}
+
+export async function getOpenvikingSettings(): Promise<WorkspaceOpenvikingSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
+    headers: getAuthHeaders(),
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to load OpenViking settings: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.settings;
+}
+
+export async function saveOpenvikingSettings(input: {
+  enabled: boolean;
+  url: string;
+  rootApiKey?: string;
+  clearRootApiKey?: boolean;
+  // Empty string clears the explicit account (server will decode from key).
+  // Omit the field entirely to leave the stored account unchanged.
+  account?: string;
+}): Promise<WorkspaceOpenvikingSettings> {
+  const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error || `Failed to save OpenViking settings: ${res.status}`);
   }
   const data = await res.json();
   return data.settings;

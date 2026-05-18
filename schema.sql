@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   lifecycle                TEXT NOT NULL DEFAULT 'persistent',
   openviking_user_id       TEXT,
   openviking_api_key       TEXT,
+  openviking_url           TEXT,
   openviking_mode          TEXT NOT NULL DEFAULT 'provisioned',
   openviking_custom_url    TEXT,
   openviking_custom_api_key TEXT,
@@ -133,6 +134,10 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS lifecycle TEXT NOT NULL DEFAU
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS env_vars JSONB NOT NULL DEFAULT '{}';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_user_id TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_api_key TEXT;
+-- Per-agent URL pinning. Persisted at provision time so existing agents stay
+-- on the URL their key was minted under even if the workspace admin later
+-- switches the workspace OV URL. NULL on legacy rows → fall back to env URL.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_url TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_mode TEXT NOT NULL DEFAULT 'provisioned';
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_url TEXT;
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEXT;
@@ -164,6 +169,27 @@ CREATE TABLE IF NOT EXISTS workspace_embed_settings (
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by         TEXT
 );
+
+-- Per-workspace OpenViking provisioning override. NULL/absent row =
+-- fall back to OPENVIKING_URL / OPENVIKING_ROOT_KEY env vars. When
+-- `enabled` is true and both `url` and `root_api_key` are set, agent
+-- provisioning for this workspace uses these creds instead of env.
+-- `root_api_key` follows the same new-format convention as the env
+-- root key (base64url(account).base64url(user).base64url(secret)),
+-- so `account` may be left NULL — the resolver will decode it from
+-- the key. Set `account` explicitly when (a) the root key grants
+-- access to multiple accounts and you want to pin one, or (b) the key
+-- is a legacy hex key that can't carry an account.
+CREATE TABLE IF NOT EXISTS workspace_openviking_settings (
+  workspace_id   TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  enabled        BOOLEAN NOT NULL DEFAULT false,
+  url            TEXT,
+  root_api_key   TEXT,
+  account        TEXT,
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by     TEXT
+);
+ALTER TABLE workspace_openviking_settings ADD COLUMN IF NOT EXISTS account TEXT;
 
 CREATE TABLE IF NOT EXISTS email_allowlist (
   workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,

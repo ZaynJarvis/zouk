@@ -710,10 +710,10 @@ async function saveAgentConfig(config) {
          id, workspace_id, machine_id, name, display_name, description, runtime, model,
          system_prompt, instructions, work_dir, picture, visibility,
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
-         openviking_user_id, openviking_api_key,
+         openviking_user_id, openviking_api_key, openviking_url,
          openviking_mode, openviking_custom_url, openviking_custom_api_key,
          openviking_enabled
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        ON CONFLICT (id) DO UPDATE SET
          workspace_id                 = EXCLUDED.workspace_id,
          name                       = EXCLUDED.name,
@@ -733,6 +733,7 @@ async function saveAgentConfig(config) {
          env_vars                   = EXCLUDED.env_vars,
          openviking_user_id         = EXCLUDED.openviking_user_id,
          openviking_api_key         = EXCLUDED.openviking_api_key,
+         openviking_url             = EXCLUDED.openviking_url,
          openviking_mode            = EXCLUDED.openviking_mode,
          openviking_custom_url      = EXCLUDED.openviking_custom_url,
          openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key,
@@ -758,6 +759,7 @@ async function saveAgentConfig(config) {
         JSON.stringify(config.envVars || {}),
         config.openvikingUserId || null,
         config.openvikingApiKey || null,
+        config.openvikingUrl || null,
         config.openvikingMode === 'custom' ? 'custom' : 'provisioned',
         config.openvikingCustomUrl || null,
         config.openvikingCustomApiKey || null,
@@ -787,7 +789,7 @@ async function loadAgentConfigs() {
               workspace_id,
               system_prompt, instructions, work_dir, picture, visibility,
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
-              openviking_user_id, openviking_api_key,
+              openviking_user_id, openviking_api_key, openviking_url,
               openviking_mode, openviking_custom_url, openviking_custom_api_key,
               openviking_enabled
          FROM agent_configs
@@ -814,6 +816,7 @@ async function loadAgentConfigs() {
       envVars: row.env_vars && typeof row.env_vars === 'object' ? row.env_vars : {},
       openvikingUserId: row.openviking_user_id || null,
       openvikingApiKey: row.openviking_api_key || null,
+      openvikingUrl: row.openviking_url || null,
       openvikingMode: row.openviking_mode === 'custom' ? 'custom' : 'provisioned',
       openvikingCustomUrl: row.openviking_custom_url || null,
       openvikingCustomApiKey: row.openviking_custom_api_key || null,
@@ -1211,6 +1214,60 @@ async function loadWorkspaceEmbedSettings() {
   }
 }
 
+// ─── Workspace OpenViking settings ────────────────────────────────
+
+async function saveWorkspaceOpenvikingSettings(settings) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO workspace_openviking_settings
+         (workspace_id, enabled, url, root_api_key, account, updated_at, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (workspace_id) DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         url = EXCLUDED.url,
+         root_api_key = EXCLUDED.root_api_key,
+         account = EXCLUDED.account,
+         updated_at = EXCLUDED.updated_at,
+         updated_by = EXCLUDED.updated_by`,
+      [
+        settings.workspaceId || DEFAULT_WORKSPACE_ID,
+        !!settings.enabled,
+        settings.url || null,
+        settings.rootApiKey || null,
+        settings.account || null,
+        settings.updatedAt || new Date().toISOString(),
+        settings.updatedBy || null,
+      ]
+    );
+  } catch (e) {
+    console.error('[db] saveWorkspaceOpenvikingSettings error:', e.message);
+  }
+}
+
+async function loadWorkspaceOpenvikingSettings() {
+  if (!pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT workspace_id, enabled, url, root_api_key, account, updated_at, updated_by
+       FROM workspace_openviking_settings
+       ORDER BY workspace_id ASC`
+    );
+    return rows.map(row => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
+      enabled: !!row.enabled,
+      url: row.url || '',
+      rootApiKey: row.root_api_key || '',
+      account: row.account || '',
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by || null,
+    }));
+  } catch (e) {
+    console.error('[db] loadWorkspaceOpenvikingSettings error:', e.message);
+    return null;
+  }
+}
+
 // ─── Agent activities ─────────────────────────────────────────────
 
 const ACTIVITY_KEEP_LIMIT = 100;
@@ -1386,6 +1443,8 @@ module.exports = {
   loadWorkspaceMemberRemovals,
   saveWorkspaceEmbedSettings,
   loadWorkspaceEmbedSettings,
+  saveWorkspaceOpenvikingSettings,
+  loadWorkspaceOpenvikingSettings,
   saveTask,
   loadTasks,
   loadMaxSeq,
