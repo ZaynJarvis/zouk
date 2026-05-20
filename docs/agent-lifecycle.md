@@ -43,8 +43,7 @@ Current invariants:
 This means "idle" is not a server lifecycle status. An idle but wakeable agent
 is still `status = active`; its visible activity should be `online` with an
 idle detail, or `offline` only when the runtime is explicitly stopped or the
-server marks it non-active. See `docs/idle-agent-wake.md` for the cached-idle
-wake policy.
+server marks it non-active.
 
 ## Runtime event flow
 
@@ -191,6 +190,28 @@ activity event (thinking, text, tool_call).
 
 These drivers exit with code 0 at every `turn_end`. The daemon caches the
 agent into `idleAgentConfigs` immediately on exit.
+
+## Idle delivery and wake policy
+
+There are two idle flavors:
+
+| Flavor | Subprocess | Daemon-side state | Server-side `status` |
+|--------|------------|-------------------|----------------------|
+| **Live idle** | alive, waiting on stdin | process is idle | `active` |
+| **Cached idle** | stopped | config parked in `idleAgentConfigs` | `active` |
+
+Both states are wakeable, so both remain `active` on the server. A targeted DM
+or `@mention` can wake either form. The difference is cost:
+
+- live idle wake is cheap: send a stdin notification to an existing process.
+- cached idle wake restarts the runtime and spends a full turn.
+
+Current delivery routing selects recipients before the daemon decides how to
+wake them. If the router selects a cached-idle agent, the daemon restarts it.
+Future routing may choose to avoid restarting cached-idle agents for
+unmentioned channel broadcasts and instead rely on queued delivery or unread
+summary at the next explicit wake. That optimization belongs in delivery
+routing; it should not introduce a new lifecycle status.
 
 ## How ephemeral vs persistent differs
 
