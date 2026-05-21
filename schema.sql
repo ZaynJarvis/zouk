@@ -126,7 +126,8 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   openviking_mode          TEXT NOT NULL DEFAULT 'provisioned',
   openviking_custom_url    TEXT,
   openviking_custom_api_key TEXT,
-  openviking_enabled       BOOLEAN
+  openviking_enabled       BOOLEAN,
+  openviking_use_agent_name_as_user BOOLEAN NOT NULL DEFAULT false
 );
 -- Migration for existing deployments — server runs schema.sql on every boot
 -- (db.js migrate()), so this ALTER lands automatically on the next restart.
@@ -144,6 +145,10 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEX
 -- NULL means "follow the runtime default (OV_RUNTIME_WHITELIST)"; boolean is
 -- an explicit per-agent override.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_enabled BOOLEAN;
+-- False/default: provision a distinct OV user from the immutable Zouk agent id.
+-- True: derive the OV user id from agent.name so cloned agents can intentionally
+-- share one OV namespace (`alice[1]` -> `zouk-alice`).
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_use_agent_name_as_user BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

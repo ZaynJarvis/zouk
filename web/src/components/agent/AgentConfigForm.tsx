@@ -39,6 +39,7 @@ export default function AgentConfigForm({
   const persistedEnvVars = savedConfig?.envVars ?? {};
   const persistedOvMode: 'provisioned' | 'custom' =
     savedConfig?.openvikingMode === 'custom' ? 'custom' : 'provisioned';
+  const persistedOvUseAgentNameAsUser = savedConfig?.openvikingUseAgentNameAsUser === true;
   const persistedOvCustomUrl = savedConfig?.openvikingCustomUrl ?? '';
   const persistedOvCustomConfigured = !!savedConfig?.openvikingCustomConfigured;
   // Per-agent OV on/off — `openvikingEnabled` is the raw user override
@@ -65,6 +66,7 @@ export default function AgentConfigForm({
   const [visibleChannels, setVisibleChannels] = useState<string[] | null>(agent.channels ?? null);
   const [ovEnabled, setOvEnabled] = useState<boolean>(persistedOvEnabledResolved);
   const [ovMode, setOvMode] = useState<'provisioned' | 'custom'>(persistedOvMode);
+  const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState<boolean>(persistedOvUseAgentNameAsUser);
   const [ovCustomUrl, setOvCustomUrl] = useState<string>(persistedOvCustomUrl ?? '');
   // We never receive the actual API key from the server, only a "configured"
   // boolean. Empty input + dirty=false = "leave saved value alone". User
@@ -146,6 +148,7 @@ export default function AgentConfigForm({
     : ovEnabled !== persistedOvDefault;
   const ovDirty =
     ovEnabledDirty ||
+    ovUseAgentNameAsUser !== persistedOvUseAgentNameAsUser ||
     ovMode !== persistedOvMode ||
     (ovMode === 'custom' && (ovCustomUrl !== (persistedOvCustomUrl ?? '') || ovCustomApiKeyDirty));
   // Custom mode requires url + (existing configured key OR a freshly typed one)
@@ -183,6 +186,7 @@ export default function AgentConfigForm({
       if (ovEnabledDirty) {
         payload.openvikingEnabled = ovEnabled;
       }
+      payload.openvikingUseAgentNameAsUser = ovUseAgentNameAsUser;
       payload.openvikingMode = ovMode;
       // Only include url when in custom mode (so toggling back to provisioned
       // doesn't overwrite stored values unintentionally).
@@ -535,14 +539,29 @@ export default function AgentConfigForm({
                 </button>
               </div>
               {ovMode === 'provisioned' ? (
-                <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
-                  <span className={`w-2 h-2 shrink-0 ${savedConfig?.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
-                  <span className="font-bold text-sm text-nc-text-bright font-mono">
-                    {savedConfig?.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
-                  </span>
-                  {savedConfig?.openvikingUserId && (
-                    <span className="text-xs text-nc-muted font-mono ml-auto truncate">{savedConfig.openvikingUserId}</span>
-                  )}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
+                    <span className={`w-2 h-2 shrink-0 ${savedConfig?.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
+                    <span className="font-bold text-sm text-nc-text-bright font-mono">
+                      {savedConfig?.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
+                    </span>
+                    {savedConfig?.openvikingUserId && (
+                      <span className="text-xs text-nc-muted font-mono ml-auto truncate">{savedConfig.openvikingUserId}</span>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-nc-muted font-mono">
+                    <input
+                      type="checkbox"
+                      checked={ovUseAgentNameAsUser}
+                      onChange={(e) => setOvUseAgentNameAsUser(e.target.checked)}
+                      disabled={!!savedConfig?.openvikingProvisioned}
+                      className="accent-nc-cyan"
+                    />
+                    <span>USE_AGENT_NAME_AS_OV_USER</span>
+                    {savedConfig?.openvikingProvisioned && (
+                      <span className="ml-auto text-2xs text-nc-muted/70">LOCKED_AFTER_PROVISION</span>
+                    )}
+                  </label>
                 </div>
               ) : (
                 <div className="space-y-2">

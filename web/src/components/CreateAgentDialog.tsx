@@ -17,6 +17,7 @@ export interface CreateAgentConfig {
   // Omitted = follow server-side runtime default (OV_RUNTIME_WHITELIST).
   // Explicit boolean = user-set override that persists on the agent.
   openvikingEnabled?: boolean;
+  openvikingUseAgentNameAsUser?: boolean;
   // Optional override of the daemon driver's default binary (e.g.
   // "/usr/local/bin/codex" or "env LANG=C claude"). Whitespace-split on daemon.
   customLauncher?: string;
@@ -50,6 +51,7 @@ export default function CreateAgentDialog({
   // we omit it from the submit payload. Once the user clicks one of the two
   // buttons, it locks to that boolean and we include it explicitly.
   const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
+  const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState(false);
   const [customLauncher, setCustomLauncher] = useState('');
 
   // Server is the source of truth for the OV-recommended runtime list. We use
@@ -150,6 +152,7 @@ export default function CreateAgentDialog({
       // when this field is absent, so the new agent stays untouched DB-wise
       // for users who don't care about OV.
       ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
+      ...(effectiveOvEnabled && ovUseAgentNameAsUser ? { openvikingUseAgentNameAsUser: true } : {}),
       ...(customLauncher.trim() ? { customLauncher: customLauncher.trim() } : {}),
     });
   };
@@ -492,6 +495,17 @@ export default function CreateAgentDialog({
                   ? 'OV creds will be delivered to the daemon. Configure PROVISIONED / CUSTOM in agent settings after creation.'
                   : 'OV creds will not be delivered. You can enable later in agent settings.'}
               </p>
+              {effectiveOvEnabled && (
+                <label className="mt-2 flex items-center gap-2 text-xs text-nc-muted font-mono">
+                  <input
+                    type="checkbox"
+                    checked={ovUseAgentNameAsUser}
+                    onChange={(e) => setOvUseAgentNameAsUser(e.target.checked)}
+                    className="accent-nc-cyan"
+                  />
+                  <span>USE_AGENT_NAME_AS_OV_USER</span>
+                </label>
+              )}
             </div>
           )}
 
