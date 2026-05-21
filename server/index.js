@@ -216,11 +216,12 @@ function resolveProvisioningCreds(workspaceId) {
   return null;
 }
 
-// Derive a stable OpenViking user_id from an agent's NAME (with id fallback).
-// Convention: `name[suffix]` collapses to `name` so clones share memory with
-// their root (e.g. `alice[1]` reuses `alice`'s OV namespace). Persisted into
-// agent_configs.openviking_user_id on first provision and frozen thereafter —
-// renaming the agent does NOT move OV memory.
+// Optional OpenViking user_id strategy: when enabled for an agent, derive from
+// agent.name. Convention: `name[suffix]` collapses to `name` so clones share
+// memory with their root (e.g. `alice[1]` reuses `alice`'s OV namespace).
+// The resulting user_id is persisted into agent_configs.openviking_user_id on
+// first provision and frozen thereafter — renaming the agent does NOT move OV
+// memory.
 function deriveOvUserIdFromName(name, fallbackId) {
   const raw = typeof name === "string" ? name : "";
   const root = raw.split("[")[0].trim().toLowerCase();
@@ -228,6 +229,12 @@ function deriveOvUserIdFromName(name, fallbackId) {
   const safe = root.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
   if (safe) return `zouk-${safe}`;
   return deriveOvUserId(fallbackId || "");
+}
+
+function resolveInitialOvUserId(config, agentId) {
+  return config?.openvikingUseAgentNameAsUser === true
+    ? deriveOvUserIdFromName(config.name, agentId)
+    : deriveOvUserId(agentId);
 }
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -500,6 +507,7 @@ function agentPayload(agentId) {
     openvikingProvisioned: !!cfg.openvikingApiKey,
     openvikingMode: cfg.openvikingMode === 'custom' ? 'custom' : 'provisioned',
     openvikingCustomConfigured: !!cfg.openvikingCustomApiKey,
+    openvikingUseAgentNameAsUser: cfg.openvikingUseAgentNameAsUser === true,
     ovEnabled: isOvEnabledForAgent(cfg),
     ovEnabledIsDefault: typeof cfg.openvikingEnabled !== 'boolean',
     ovDefault: ovDefaultForRuntime(cfg.runtime || a.runtime),
@@ -4029,6 +4037,9 @@ app.post("/api/agent-configs", requireAuth, (req, res) => {
     config.customLauncher = r.value; // null = drop the field on disk
     if (r.value === null) delete config.customLauncher;
   }
+  if (config.openvikingUseAgentNameAsUser !== undefined) {
+    config.openvikingUseAgentNameAsUser = config.openvikingUseAgentNameAsUser === true;
+  }
   if (existing >= 0) {
     // machineId is immutable — never let the payload overwrite the stored value.
     const { machineId: _ignored, ...rest } = config;
@@ -4087,6 +4098,7 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     openvikingCustomApiKey: incomingCustomApiKey,
     openvikingMode: incomingMode,
     openvikingEnabled: incomingEnabled,
+    openvikingUseAgentNameAsUser: incomingUseAgentNameAsUser,
     customLauncher: incomingLauncher,
     ...rest
   } = updates;
@@ -4109,6 +4121,9 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     delete merged.openvikingEnabled;
   } else if (typeof incomingEnabled === 'boolean') {
     merged.openvikingEnabled = incomingEnabled;
+  }
+  if (incomingUseAgentNameAsUser !== undefined) {
+    merged.openvikingUseAgentNameAsUser = incomingUseAgentNameAsUser === true;
   }
 
   // openvikingMode: clamp to known values; default unchanged.
@@ -4379,10 +4394,10 @@ async function startAgentOnDaemon(id, config) {
   const ovEnabled = isOvEnabledForAgent({ openvikingEnabled: config.openvikingEnabled, runtime });
   const ovMode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
   // Derive user_id: existing rows keep whatever's already on disk (cannot move
-  // OV memory of a previously-provisioned agent). New rows use the name-based
-  // derivation so clones `alice[N]` reuse `alice`'s namespace; falls back to
-  // the agent-id derivation when name is empty or non-conforming.
-  let ovUserId = config.openvikingUserId || deriveOvUserIdFromName(config.name, id);
+  // OV memory of a previously-provisioned agent). New rows default to the
+  // immutable Zouk agent id. The explicit openvikingUseAgentNameAsUser option
+  // switches new provisioned rows to the name-based clone-sharing namespace.
+  let ovUserId = config.openvikingUserId || resolveInitialOvUserId(config, id);
   let ovApiKey = config.openvikingApiKey || null;
   // URL pinning: existing rows keep whatever they're already on (pre-PR keys
   // have openvikingUrl=null → fall back to env so they never silently migrate
@@ -4498,6 +4513,9 @@ async function startAgentOnDaemon(id, config) {
     if (config.customLauncher) persisted.customLauncher = config.customLauncher;
     if (typeof config.openvikingEnabled === 'boolean') {
       persisted.openvikingEnabled = config.openvikingEnabled;
+    }
+    if (config.openvikingUseAgentNameAsUser === true) {
+      persisted.openvikingUseAgentNameAsUser = true;
     }
     if (ovApiKey) {
       persisted.openvikingUserId = ovUserId;
