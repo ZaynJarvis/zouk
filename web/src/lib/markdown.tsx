@@ -440,7 +440,7 @@ function CodeBlock({ code, lang, highlighted }: { code: string; lang: string; hi
         onClick={handleCopy}
         aria-label={copied ? 'Copied code to clipboard' : 'Copy code'}
         title={copied ? 'Copied' : 'Copy'}
-        className="absolute top-1 right-1 z-10 inline-flex items-center justify-center w-6 h-6 rounded-sm bg-nc-black/70 text-nc-green/70 hover:text-nc-green hover:bg-nc-black/90 focus-visible:text-nc-green focus-visible:bg-nc-black/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-nc-cyan opacity-50 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-1 right-1 z-10 inline-flex items-center justify-center w-6 h-6 rounded-sm bg-nc-black/70 text-nc-green/70 hover:text-nc-green hover:bg-nc-black/90 focus-visible:text-nc-green focus-visible:bg-nc-black/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-nc-cyan opacity-50 sm:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         {copied ? (
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
