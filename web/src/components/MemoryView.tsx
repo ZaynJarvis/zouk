@@ -656,7 +656,8 @@ export default function MemoryView() {
     agents, memoryTreeCache, requestMemoryList, requestMemoryContent,
     wsTreeCache, requestWorkspaceFiles, requestFileContent,
   } = useApp();
-  const [agentId, setAgentId] = useState<string | null>(null);
+  const { memoryFocusAgentId, setMemoryFocusAgentId } = useApp();
+  const [agentId, setAgentId] = useState<string | null>(memoryFocusAgentId);
   const selectedAgent = useMemo(() => agentId ? agents.find(a => a.id === agentId) ?? null : null, [agentId, agents]);
   // Treat undefined as enabled to stay forward-compatible with servers that
   // haven't shipped the OV gate yet — only actively false flips behavior.
@@ -690,6 +691,13 @@ export default function MemoryView() {
       previewResizeCleanupRef.current?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (memoryFocusAgentId && agents.find((a) => a.id === memoryFocusAgentId)) {
+      setAgentId(memoryFocusAgentId);
+      setMemoryFocusAgentId(null);
+    }
+  }, [memoryFocusAgentId, agents, setMemoryFocusAgentId]);
 
   useEffect(() => {
     if (!agentId && agents.length > 0) setAgentId(agents[0].id);

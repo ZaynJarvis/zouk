@@ -70,9 +70,13 @@ export interface ServerAgent {
   ovEnabled?: boolean;
   ovEnabledIsDefault?: boolean;
   ovDefault?: boolean;
+  ovMcpEnabled?: boolean;
+  ovMcpEnabledIsDefault?: boolean;
+  ovMcpDefault?: boolean;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   openvikingCustomConfigured?: boolean;
+  openvikingUseAgentNameAsUser?: boolean;
 }
 
 export interface AgentSkill {
@@ -217,6 +221,9 @@ export interface AgentConfig {
   openvikingUrl?: string | null;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
+  // False/default = provision by immutable Zouk agent id. True = derive the
+  // OV user from agent.name so clones can intentionally share a namespace.
+  openvikingUseAgentNameAsUser?: boolean;
   // Per-agent on/off override. `undefined` = follow the runtime default
   // (server's OV_RUNTIME_WHITELIST). `true`/`false` = user-set explicit value.
   openvikingEnabled?: boolean | null;
@@ -230,6 +237,11 @@ export interface AgentConfig {
   ovEnabled?: boolean;
   ovEnabledIsDefault?: boolean;
   ovDefault?: boolean;
+  // Per-agent override for OV MCP server injection. Same tri-state as
+  // openvikingEnabled: undefined = follow runtime default, boolean = explicit.
+  ovMcpEnabled?: boolean | null;
+  ovMcpEnabledIsDefault?: boolean;
+  ovMcpDefault?: boolean;
   // Per-agent override of the daemon driver's default binary command (e.g.
   // "/usr/local/bin/codex" or "env LANG=C claude"). Daemon whitespace-splits this into argv.
   // Empty/null = use the runtime default. Not supported for vikingbot.

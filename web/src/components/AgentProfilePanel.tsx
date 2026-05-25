@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  X, User as UserIcon, Activity, Settings as SettingsIcon,
+  X, Activity, Settings as SettingsIcon,
   Brain, ChevronRight, File, Folder, FolderOpen as FolderOpenIcon,
   RefreshCw,
 } from 'lucide-react';
@@ -20,10 +20,10 @@ import '../styles/atlas-renderers.css';
 
 type Tab = 'profile' | 'workspace' | 'config';
 
-const TAB_CONFIG: { key: Tab; label: string; icon: typeof Activity }[] = [
-  { key: 'profile', label: 'PROFILE', icon: UserIcon },
-  { key: 'workspace', label: 'MEM', icon: Brain },
-  { key: 'config', label: 'CONFIG', icon: SettingsIcon },
+const TAB_CONFIG: { key: Tab | 'mem_nav'; label: string; icon: typeof Activity }[] = [
+  { key: 'profile', label: 'Activity', icon: Activity },
+  { key: 'mem_nav', label: 'Memory', icon: Brain },
+  { key: 'config', label: 'Config', icon: SettingsIcon },
 ];
 
 function ProfileTab({ agent }: { agent: ServerAgent }) {
@@ -70,71 +70,61 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
               className={`zk-dot zk-dot--${avatarStatus}`}
             />
           </button>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="font-display font-black text-base text-nc-text-bright truncate tracking-wider">
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <div className="zk-display" style={{ fontSize: 15, color: 'var(--zk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 @{agent.displayName || agent.name}
               </div>
-              <span className="text-2xs bg-nc-green/10 text-nc-green border border-nc-green/30 px-1.5 py-0.5 font-bold uppercase font-mono leading-none shrink-0">
-                Agent
-              </span>
+              <span className="zk-pill zk-pill--ok" style={{ flexShrink: 0 }}>Agent</span>
             </div>
-            <div className="text-2xs text-nc-muted font-mono mt-0.5 truncate">
-              {isActive ? activityLabels[activity] : 'INACTIVE'}
+            <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-mute)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {isActive ? activityLabels[activity] : 'Inactive'}
               {agent.activityDetail && isActive ? ` · ${agent.activityDetail}` : ''}
             </div>
           </div>
         </div>
 
         {agent.description && (
-          <p className="text-xs text-nc-text leading-relaxed">{agent.description}</p>
+          <p style={{ fontSize: 12, color: 'var(--zk-ink-dim)', fontFamily: 'var(--zk-font-sans)', lineHeight: 1.5, margin: 0 }}>{agent.description}</p>
         )}
 
-        <div className="text-2xs font-mono text-nc-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-          <span className="text-nc-text-bright">{runtimeLabel}</span>
+        <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-mute)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 6px' }}>
+          <span style={{ color: 'var(--zk-ink)' }}>{runtimeLabel}</span>
           {agent.model && (
             <>
               <span>·</span>
-              <span className="text-nc-text-bright truncate">{agent.model}</span>
+              <span style={{ color: 'var(--zk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{agent.model}</span>
             </>
           )}
           {machineLabel && (
             <>
               <span>·</span>
-              <span className="text-nc-green truncate">@{machineLabel}</span>
+              <span style={{ color: 'var(--zk-ok)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{machineLabel}</span>
             </>
           )}
         </div>
 
         {((agent.channels && agent.channels.length > 0) || (agent.skills && agent.skills.length > 0)) && (
-          <div className="flex flex-wrap gap-1">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {agent.channels?.map((ch) => (
-              <span key={`c-${ch}`} className="px-1.5 py-0.5 border border-nc-cyan/30 bg-nc-cyan/10 text-2xs font-bold text-nc-cyan font-mono">
-                #{ch}
-              </span>
+              <span key={`c-${ch}`} className="zk-pill zk-pill--ember">#{ch}</span>
             ))}
             {agent.skills?.map((s) => (
-              <span
-                key={`s-${s.id}`}
-                title={s.description || s.name}
-                className="px-1.5 py-0.5 border border-nc-yellow/30 bg-nc-yellow/10 text-2xs font-bold text-nc-yellow font-mono"
-              >
-                {s.name}
-              </span>
+              <span key={`s-${s.id}`} className="zk-pill zk-pill--warn" title={s.description || s.name}>{s.name}</span>
             ))}
           </div>
         )}
 
         {agent.workDir && (
-          <div className="text-2xs font-mono text-nc-green truncate" title={agent.workDir}>
+          <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ok)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={agent.workDir}>
             {agent.workDir}
           </div>
         )}
       </div>
 
-      <div className="shrink-0 border-t border-nc-border px-4 py-1.5 flex items-center gap-1.5">
-        <Activity size={11} className="text-nc-green" />
-        <span className="text-2xs font-bold text-nc-muted font-mono tracking-wider">ACTIVITY</span>
+      <div style={{ flexShrink: 0, borderTop: '1px solid var(--zk-line)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Activity size={11} style={{ color: 'var(--zk-ok)' }} />
+        <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'var(--zk-font-mono)', color: 'var(--zk-ink-mute)', letterSpacing: '0.02em' }}>Activity</span>
       </div>
 
       {/* Activity feed reaches the bottom of the full-screen panel on phone
@@ -142,10 +132,10 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
           while keeping the last row reachable above it once scrolled to end. */}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin safe-bottom-fill">
         {entries.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center py-8 px-4">
-            <Activity size={20} className="text-nc-muted mb-2" />
-            <p className="text-xs text-nc-muted font-bold font-mono">NO_ACTIVITY</p>
-            <p className="text-2xs text-nc-muted mt-1 font-mono">Activity will appear here when the agent starts working.</p>
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '32px 16px' }}>
+            <Activity size={20} style={{ color: 'var(--zk-ink-low)', marginBottom: 8 }} />
+            <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-sans)', margin: 0 }}>No activity</p>
+            <p style={{ fontSize: 11, color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-sans)', margin: '4px 0 0' }}>Activity will appear here when the agent starts working.</p>
           </div>
         ) : (
           <AgentActivityFeed entries={entries} className="p-3 space-y-1" />
@@ -448,7 +438,7 @@ function ConfigTab({ agent }: { agent: ServerAgent }) {
  * also clears `rightPanel='agent_profile'` so the modal unmounts.
  */
 export default function AgentProfilePanel({ inline = false }: { inline?: boolean }) {
-  const { agents, configs, closeAgentProfileRail, agentProfileId, agentProfileTab, setAgentProfileTab } = useApp();
+  const { agents, configs, closeAgentProfileRail, agentProfileId, agentProfileTab, setAgentProfileTab, navigateToView, setMemoryFocusAgentId } = useApp();
   const tab = agentProfileTab as Tab;
   const setTab = (next: Tab) => setAgentProfileTab(next);
 
@@ -488,8 +478,8 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
   }, [agentProfileId, agent, closeAgentProfileRail]);
 
   const outerClass = inline
-    ? 'w-full h-full border-l border-nc-border flex flex-col'
-    : 'w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full border-l border-nc-border flex flex-col animate-slide-in-right';
+    ? 'w-full h-full flex flex-col'
+    : 'w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full flex flex-col animate-slide-in-right';
 
   if (!agent) {
     return null;
@@ -498,7 +488,7 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
   return (
     <div
       className={outerClass}
-      style={{ background: 'var(--zk-bg-0)' }}
+      style={{ background: 'var(--zk-bg-0)', borderLeft: '1px solid var(--zk-line)' }}
     >
       {/* Single header row: PROFILE / MEM / CONFIG tabs + close button share the
           row to save vertical space; tab height drives the close-button
@@ -506,32 +496,55 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
           below the iOS notch on phone PWA where this panel covers the full
           viewport without a parent TopBar. */}
       <div
-        className="border-b border-nc-border flex items-stretch shrink-0"
-        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        style={{
+          borderBottom: '1px solid var(--zk-line)',
+          display: 'flex', alignItems: 'stretch', flexShrink: 0,
+          paddingTop: 'env(safe-area-inset-top, 0px)',
+        }}
       >
         <div className="flex-1" />
         {TAB_CONFIG.map(({ key, label, icon: Icon }) => {
-          const active = tab === key;
+          const isMemNav = key === 'mem_nav';
+          const active = !isMemNav && tab === key;
           return (
             <button
               key={key}
               type="button"
-              onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold font-mono border-b-2 -mb-[1px] transition-colors tracking-wider ${
-                active
-                  ? 'text-nc-cyan'
-                  : 'border-transparent text-nc-muted hover:text-nc-text-bright'
-              }`}
-              style={active ? { borderBottomColor: 'var(--zk-line-bright)' } : undefined}
+              onClick={() => {
+                if (isMemNav) {
+                  if (agent) setMemoryFocusAgentId(agent.id);
+                  navigateToView('memory');
+                  closeAgentProfileRail();
+                } else {
+                  setTab(key as Tab);
+                }
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '10px 12px', fontSize: 11, fontWeight: 600,
+                fontFamily: 'var(--zk-font-mono)', letterSpacing: '0.02em',
+                borderBottom: '2px solid', marginBottom: -1,
+                borderColor: active ? 'var(--zk-ember)' : 'transparent',
+                color: active ? 'var(--zk-ink)' : isMemNav ? 'var(--zk-ink-mute)' : 'var(--zk-ink-mute)',
+                background: 'transparent', border: 'none',
+                borderBottomWidth: 2, borderBottomStyle: 'solid',
+                borderBottomColor: active ? 'var(--zk-ember)' : 'transparent',
+                cursor: 'pointer',
+                transition: 'color 160ms, border-color 160ms',
+              }}
+              onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = 'var(--zk-ink)'; }}
+              onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = 'var(--zk-ink-mute)'; }}
             >
               <Icon size={12} />
               {label}
+              {isMemNav && <span style={{ fontSize: 9, opacity: 0.5 }}>↗</span>}
             </button>
           );
         })}
         <button
           onClick={closeAgentProfileRail}
-          className="flex items-center justify-center px-3 text-nc-muted hover:text-nc-red transition-colors shrink-0"
+          className="zk-btn zk-btn--ghost zk-btn--icon"
+          style={{ flexShrink: 0, alignSelf: 'center', marginRight: 8 }}
           title="Close"
         >
           <X size={16} />

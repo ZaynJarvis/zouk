@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import type { MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import FailableImage from './FailableImage';
 
@@ -17,11 +18,9 @@ interface Props {
   onClose: () => void;
 }
 
-// Full-screen image viewer. Desktop: centered with letterbox backdrop.
-// Phone (`<lg` ≈ <1024px): fills the viewport. On phone the close button sits
-// at the top-right so it never sits under the MessageComposer that pins the
-// bottom of the chat shell; desktop keeps the bottom-right placement since
-// the letterbox leaves clear backdrop there.
+// Full-screen image viewer. Render through a body portal so the chat shell's
+// mobile visual-viewport transform and TopBar cannot create a competing
+// stacking context above the close controls.
 export default function ImageLightbox({ images, initialIndex, onClose }: Props) {
   const [index, setIndex] = useState(initialIndex);
   const current = images[index];
@@ -50,9 +49,9 @@ export default function ImageLightbox({ images, initialIndex, onClose }: Props) 
   // working dismiss the X button.
   const stop = (e: MouseEvent) => e.stopPropagation();
 
-  return (
+  const lightbox = (
     <div
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center animate-fade-in"
+      className="image-lightbox fixed inset-0 z-[1000] bg-black/85 backdrop-blur-sm flex items-center justify-center animate-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -63,7 +62,7 @@ export default function ImageLightbox({ images, initialIndex, onClose }: Props) 
         alt={current.alt}
         width={current.width}
         height={current.height}
-        className="max-w-full max-h-full lg:max-w-[90vw] lg:max-h-[90vh] object-contain select-none"
+        className="image-lightbox__image object-contain select-none"
         fallbackClassName="w-[240px] h-[180px] border border-nc-border"
         onClick={stop}
         draggable={false}
@@ -96,14 +95,18 @@ export default function ImageLightbox({ images, initialIndex, onClose }: Props) 
         </>
       )}
 
-      <button
-        type="button"
-        onClick={(e) => { stop(e); onClose(); }}
-        aria-label="Close image viewer"
-        className="absolute right-[calc(env(safe-area-inset-right,0px)+1rem)] top-[calc(env(safe-area-inset-top,0px)+1rem)] lg:top-auto lg:bottom-[calc(env(safe-area-inset-bottom,0px)+1rem)] w-10 h-10 flex items-center justify-center bg-nc-surface/70 text-nc-text hover:bg-nc-surface border border-nc-border"
-      >
-        <X size={20} />
-      </button>
+      <div className="image-lightbox__chrome">
+        <button
+          type="button"
+          onClick={(e) => { stop(e); onClose(); }}
+          aria-label="Close image viewer"
+          className="w-10 h-10 flex items-center justify-center bg-nc-surface/80 text-nc-text hover:bg-nc-surface border border-nc-border shadow-lg"
+        >
+          <X size={20} />
+        </button>
+      </div>
     </div>
   );
+
+  return createPortal(lightbox, document.body);
 }

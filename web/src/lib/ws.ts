@@ -192,6 +192,19 @@ function shouldForceReconnectOnVisible(): boolean {
   return isiOS || (isSafari && (displayStandalone || navigatorStandalone));
 }
 
+// Lightweight connection-lifecycle logging. Kept permanent because the most
+// common PWA debug — "why didn't my message send / why did WS take so long?" —
+// is impossible to triage without seeing onopen / onclose / scheduleReconnect
+// timings in the iOS Web Inspector console. Format is intentionally compact so
+// it greps well on the constrained iPhone console UI.
+const WS_MODULE_LOADED_AT = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+let wsInstanceCounter = 0;
+function wsLog(instanceId: number, msg: string): void {
+  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const t = (now - WS_MODULE_LOADED_AT).toFixed(0);
+  console.info(`[ws#${instanceId} +${t}ms] ${msg}`);
+}
+
 // iOS (Safari / PWA) silently kills WebSocket TCP connections when the app is
 // backgrounded or the screen locks. Unlike a normal close, the OS never sends a
 // FIN/RST, so `onclose` never fires and `readyState` stays OPEN — the socket is
@@ -233,9 +246,12 @@ export class SlockWebSocket {
   // full slow-schedule 3s on every blip is wasted downtime. Flag clears after
   // the fast probe is scheduled so a second failure falls back to slow.
   private wasConnected = false;
+  private readonly instanceId: number;
 
   constructor(serverUrl: string) {
     this.serverUrl = serverUrl;
+    this.instanceId = ++wsInstanceCounter;
+    wsLog(this.instanceId, `constructed serverUrl=${serverUrl || '(window.location)'}`);
   }
 
   get connected(): boolean {
@@ -266,20 +282,27 @@ export class SlockWebSocket {
     }
 
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      wsLog(this.instanceId, `connect() skipped readyState=${this.ws.readyState}`);
       return;
     }
+
+    const attemptStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    wsLog(this.instanceId, `connect() opening attempt=${this.failedAttempts + 1}`);
 
     let socket: WebSocket;
     try {
       socket = new WebSocket(this.buildUrl());
       this.ws = socket;
-    } catch {
+    } catch (e) {
+      wsLog(this.instanceId, `new WebSocket() threw: ${(e as Error)?.message || e}`);
       this.scheduleReconnect();
       return;
     }
 
     socket.onopen = () => {
       if (!this.reconnectEnabled || this.ws !== socket) return;
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      wsLog(this.instanceId, `onopen handshake=${(now - attemptStart).toFixed(0)}ms pendingSends=${this.pendingSends.length}`);
       this._connected = true;
       this.wasConnected = true;
       this.failedAttempts = 0;
@@ -299,8 +322,10 @@ export class SlockWebSocket {
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (e) => {
       if (!this.reconnectEnabled || this.ws !== socket) return;
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      wsLog(this.instanceId, `onclose code=${e.code} reason=${e.reason || ''} elapsed=${(now - attemptStart).toFixed(0)}ms wasConnected=${this.wasConnected}`);
       this._connected = false;
       this.clearWatchdog();
       this.emit({ type: 'ws:disconnected' });
@@ -309,6 +334,7 @@ export class SlockWebSocket {
 
     socket.onerror = () => {
       if (!this.reconnectEnabled || this.ws !== socket) return;
+      wsLog(this.instanceId, `onerror readyState=${socket.readyState}`);
       this._connected = false;
     };
   }
@@ -350,6 +376,7 @@ export class SlockWebSocket {
       this.pendingSends.shift();
     }
     this.pendingSends.push(payload);
+    wsLog(this.instanceId, `send() queued readyState=${this.ws?.readyState ?? 'null'} queueLen=${this.pendingSends.length}`);
   }
 
   private flushPending(): void {
@@ -358,6 +385,7 @@ export class SlockWebSocket {
     }
     const queue = this.pendingSends;
     this.pendingSends = [];
+    wsLog(this.instanceId, `flushPending sending=${queue.length}`);
     for (const payload of queue) {
       this.ws.send(payload);
     }
@@ -394,6 +422,7 @@ export class SlockWebSocket {
           BASE_BACKOFF_MS * Math.pow(2, Math.max(0, this.failedAttempts - 1)),
           MAX_BACKOFF_MS,
         );
+    wsLog(this.instanceId, `scheduleReconnect delay=${delay}ms failedAttempts=${this.failedAttempts} fastProbe=${fastProbe}`);
     if (this.failedAttempts === VALIDATE_TOKEN_AFTER_FAILURES) {
       // Fire-and-forget so the reconnect timer isn't blocked by the fetch.
       void this.maybeDropDeadToken();
@@ -459,10 +488,12 @@ export class SlockWebSocket {
     const state = this.ws?.readyState;
     if (!shouldForceReconnectOnVisible()) {
       if (state !== WebSocket.OPEN && state !== WebSocket.CONNECTING) {
+        wsLog(this.instanceId, `visibilitychange reconnecting state=${state ?? 'null'}`);
         this.connect();
       }
       return;
     }
+    wsLog(this.instanceId, `visibilitychange force-reconnect (iOS) state=${state ?? 'null'}`);
     // Detach all callbacks before closing so no stale handlers fire.
     if (this.ws) {
       this.ws.onopen = null;
