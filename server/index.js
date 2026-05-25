@@ -6005,6 +6005,7 @@ app.get("/api/auth/config", (req, res) => {
     supabaseUrl: SUPABASE_URL || null,
     supabaseAnonKey: SUPABASE_ANON_KEY || null,
     ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,
+    ovMcpRuntimeWhitelist: OV_MCP_RUNTIME_WHITELIST,
   });
 });
 
