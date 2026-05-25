@@ -9,8 +9,9 @@ creates low-value replies.
 
 This design keeps the feature inside the Zouk server notification path. It
 decides who should receive delivery. It does not replace the cached-idle wake
-policy described in `docs/idle-agent-wake.md`, which decides whether a selected
-recipient should be restarted immediately or caught up later.
+policy described in `docs/agent-lifecycle.md#idle-delivery-and-wake-policy`,
+which decides whether a selected recipient should be restarted immediately or
+caught up later.
 
 Agents should not decide whether they should have received a message; the
 server should decide which agent deliveries are worth sending, then each

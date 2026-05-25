@@ -51,9 +51,10 @@ function FeishuAuthSync({ enabled }: { enabled: boolean }) {
   return null;
 }
 
-function OvWhitelistSync({ whitelist }: { whitelist: string[] }) {
-  const { setOvRuntimeWhitelist } = useApp();
+function OvWhitelistSync({ whitelist, mcpWhitelist }: { whitelist: string[]; mcpWhitelist: string[] }) {
+  const { setOvRuntimeWhitelist, setOvMcpRuntimeWhitelist } = useApp();
   useEffect(() => { setOvRuntimeWhitelist(whitelist); }, [whitelist, setOvRuntimeWhitelist]);
+  useEffect(() => { setOvMcpRuntimeWhitelist(mcpWhitelist); }, [mcpWhitelist, setOvMcpRuntimeWhitelist]);
   return null;
 }
 
@@ -284,6 +285,7 @@ function AppWithAuth() {
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [feishuEnabled, setFeishuEnabled] = useState(false);
   const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
+  const [ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -313,6 +315,9 @@ function AppWithAuth() {
         setFeishuEnabled(!!config.feishuEnabled);
         if (Array.isArray(config.ovRuntimeWhitelist)) {
           setOvRuntimeWhitelist(config.ovRuntimeWhitelist);
+        }
+        if (Array.isArray(config.ovMcpRuntimeWhitelist)) {
+          setOvMcpRuntimeWhitelist(config.ovMcpRuntimeWhitelist);
         }
 
         if (config.supabaseUrl && config.supabaseAnonKey) {
@@ -393,7 +398,7 @@ function AppWithAuth() {
       <AllowlistSync active={allowlistActive} />
       {supabaseConfig && <SupabaseConfigSync config={supabaseConfig} />}
       <FeishuAuthSync enabled={feishuEnabled} />
-      <OvWhitelistSync whitelist={ovRuntimeWhitelist} />
+      <OvWhitelistSync whitelist={ovRuntimeWhitelist} mcpWhitelist={ovMcpRuntimeWhitelist} />
     </>
   );
 

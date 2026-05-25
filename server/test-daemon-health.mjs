@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEST_PORT = 17781;
+const TEST_PORT = 17850;
 const BASE = `http://localhost:${TEST_PORT}`;
 const WS_BASE = `ws://localhost:${TEST_PORT}`;
 const TEST_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'zouk-test-health-config-'));

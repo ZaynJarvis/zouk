@@ -7,6 +7,7 @@
  *   3. Open lightbox → click X button                 → expect closed
  *   4. Open lightbox (2 imgs) → click next then prev  → expect still open, index cycles
  *   5. Open lightbox → press Escape                   → expect closed
+ *   6. Mobile phone-sized image → X and backdrop still close
  *
  * Saves before / after screenshots for case 1 (the regression target).
  */
@@ -67,14 +68,17 @@ function buildSolidPng(width, height, r, g, b) {
 // where the backdrop click needs to land.
 const PNG_A = buildSolidPng(400, 800, 220, 60, 80);
 const PNG_B = buildSolidPng(400, 800, 60, 160, 180);
+const PNG_PHONE = buildSolidPng(393, 852, 180, 95, 60);
 const ATT_A = 'att-a';
 const ATT_B = 'att-b';
+const ATT_PHONE = 'att-phone';
 
 async function routeAttachments(page) {
   await page.route('**/api/attachments/*', (route) => {
     const url = route.request().url();
     if (url.endsWith(ATT_A)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_A });
     if (url.endsWith(ATT_B)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_B });
+    if (url.endsWith(ATT_PHONE)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_PHONE });
     return route.fulfill({ status: 404 });
   });
 }
@@ -90,6 +94,21 @@ function seedTwoImageMessage() {
       attachments: [
         { id: ATT_A, filename: 'hero.png', contentType: 'image/png', width: 400, height: 800 },
         { id: ATT_B, filename: 'detail.png', contentType: 'image/png', width: 400, height: 800 },
+      ],
+    } },
+  ];
+}
+
+function seedPhoneSizedImageMessage() {
+  const now = Date.now();
+  return [
+    { type: 'new_message', message: {
+      id: 'm-phone', channel_name: 'all', channel_type: 'channel',
+      sender_name: 'QA Tester', sender_type: 'human',
+      content: 'phone-sized image',
+      timestamp: new Date(now - 30000).toISOString(),
+      attachments: [
+        { id: ATT_PHONE, filename: 'phone-fit.png', contentType: 'image/png', width: 393, height: 852 },
       ],
     } },
   ];
@@ -172,6 +191,44 @@ await page.waitForTimeout(250);
 assertEq(await lightboxOpen(page), false, 'Escape closes lightbox');
 
 await ctx.close();
+
+// ── Case 6: mobile same-as-phone image still has reliable close paths ───────
+{
+  const mobileCtx = await browser.newContext({
+    viewport: { width: 393, height: 852 },
+    deviceScaleFactor: 3,
+    isMobile: true,
+    hasTouch: true,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+  });
+  const mobilePage = await mobileCtx.newPage();
+  await routeAttachments(mobilePage);
+  await loadApp(mobilePage, URL, { extraMessages: seedPhoneSizedImageMessage() });
+  await mobilePage.waitForTimeout(600);
+
+  const thumb = mobilePage.getByRole('button', { name: /Open phone-fit\.png/ });
+  await thumb.click();
+  await mobilePage.locator('[role="dialog"]').waitFor({ state: 'visible' });
+  await mobilePage.waitForTimeout(250);
+
+  const phoneShot = resolve(OUT, 'lightbox-phone-sized.png');
+  await mobilePage.screenshot({ path: phoneShot });
+  console.log('Saved:', phoneShot);
+
+  await mobilePage.getByRole('button', { name: 'Close image viewer' }).click();
+  await mobilePage.waitForTimeout(250);
+  assertEq(await lightboxOpen(mobilePage), false, 'mobile X closes phone-sized lightbox');
+
+  await thumb.click();
+  await mobilePage.locator('[role="dialog"]').waitFor({ state: 'visible' });
+  await mobilePage.waitForTimeout(250);
+  await mobilePage.mouse.click(6, 846);
+  await mobilePage.waitForTimeout(250);
+  assertEq(await lightboxOpen(mobilePage), false, 'mobile backdrop remains tappable for phone-sized image');
+
+  await mobileCtx.close();
+}
+
 await browser.close();
 
 if (process.exitCode === 1) {
