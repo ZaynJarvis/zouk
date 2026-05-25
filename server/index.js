@@ -136,6 +136,19 @@ function isOvEnabledForAgent(cfg) {
   if (cfg && typeof cfg.openvikingEnabled === "boolean") return cfg.openvikingEnabled;
   return ovDefaultForRuntime(cfg && cfg.runtime);
 }
+// Runtimes that get OV MCP server injected by default. Claude/Codex excluded
+// because the OV plugin handles it; VikingBot excluded (no MCP support).
+const OV_MCP_RUNTIME_WHITELIST = (process.env.OV_MCP_RUNTIME_WHITELIST || "hermes,coco,opencode,kimi")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+function ovMcpDefaultForRuntime(runtime) {
+  return !!runtime && OV_MCP_RUNTIME_WHITELIST.includes(runtime);
+}
+function isOvMcpEnabledForAgent(cfg) {
+  if (cfg && typeof cfg.ovMcpEnabled === "boolean") return cfg.ovMcpEnabled;
+  return ovMcpDefaultForRuntime(cfg && cfg.runtime);
+}
 // Normalize / validate a customLauncher update payload. Returns
 // `{ ok: true, value: <trimmed-string-or-null> }` on success (null = clear),
 // or `{ ok: false, err: <reason> }` on validation failure.
@@ -491,6 +504,9 @@ function agentPayload(agentId) {
       ovEnabled: ovDefaultForRuntime(runtime),
       ovEnabledIsDefault: true,
       ovDefault: ovDefaultForRuntime(runtime),
+      ovMcpEnabled: ovMcpDefaultForRuntime(runtime),
+      ovMcpEnabledIsDefault: true,
+      ovMcpDefault: ovMcpDefaultForRuntime(runtime),
     };
   }
   return {
@@ -511,6 +527,9 @@ function agentPayload(agentId) {
     ovEnabled: isOvEnabledForAgent(cfg),
     ovEnabledIsDefault: typeof cfg.openvikingEnabled !== 'boolean',
     ovDefault: ovDefaultForRuntime(cfg.runtime || a.runtime),
+    ovMcpEnabled: isOvMcpEnabledForAgent(cfg),
+    ovMcpEnabledIsDefault: typeof cfg.ovMcpEnabled !== 'boolean',
+    ovMcpDefault: ovMcpDefaultForRuntime(cfg.runtime || a.runtime),
   };
 }
 
@@ -527,6 +546,9 @@ function sanitizedAgentConfigs() {
     ovEnabled: isOvEnabledForAgent(rest),
     ovEnabledIsDefault: typeof rest.openvikingEnabled !== 'boolean',
     ovDefault: ovDefaultForRuntime(rest.runtime),
+    ovMcpEnabled: isOvMcpEnabledForAgent(rest),
+    ovMcpEnabledIsDefault: typeof rest.ovMcpEnabled !== 'boolean',
+    ovMcpDefault: ovMcpDefaultForRuntime(rest.runtime),
   }));
 }
 
@@ -4099,6 +4121,7 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     openvikingMode: incomingMode,
     openvikingEnabled: incomingEnabled,
     openvikingUseAgentNameAsUser: incomingUseAgentNameAsUser,
+    ovMcpEnabled: incomingOvMcpEnabled,
     customLauncher: incomingLauncher,
     ...rest
   } = updates;
@@ -4124,6 +4147,13 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
   }
   if (incomingUseAgentNameAsUser !== undefined) {
     merged.openvikingUseAgentNameAsUser = incomingUseAgentNameAsUser === true;
+  }
+
+  // ovMcpEnabled: same tri-state as openvikingEnabled.
+  if (incomingOvMcpEnabled === null) {
+    delete merged.ovMcpEnabled;
+  } else if (typeof incomingOvMcpEnabled === 'boolean') {
+    merged.ovMcpEnabled = incomingOvMcpEnabled;
   }
 
   // openvikingMode: clamp to known values; default unchanged.
@@ -4478,6 +4508,7 @@ async function startAgentOnDaemon(id, config) {
     daemonConfig.envVars = config.envVars;
   }
   if (daemonOv) daemonConfig.openviking = daemonOv;
+  if (isOvMcpEnabledForAgent(config)) daemonConfig.ovMcpEnabled = true;
   if (config.customLauncher) daemonConfig.customLauncher = config.customLauncher;
 
   // Send agent:start to daemon — read from config (source of truth),
@@ -4513,6 +4544,9 @@ async function startAgentOnDaemon(id, config) {
     if (config.customLauncher) persisted.customLauncher = config.customLauncher;
     if (typeof config.openvikingEnabled === 'boolean') {
       persisted.openvikingEnabled = config.openvikingEnabled;
+    }
+    if (typeof config.ovMcpEnabled === 'boolean') {
+      persisted.ovMcpEnabled = config.ovMcpEnabled;
     }
     if (config.openvikingUseAgentNameAsUser === true) {
       persisted.openvikingUseAgentNameAsUser = true;

@@ -712,8 +712,8 @@ async function saveAgentConfig(config) {
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
          openviking_user_id, openviking_api_key, openviking_url,
          openviking_mode, openviking_custom_url, openviking_custom_api_key,
-         openviking_enabled, openviking_use_agent_name_as_user
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+         openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
        ON CONFLICT (id) DO UPDATE SET
          workspace_id                 = EXCLUDED.workspace_id,
          name                       = EXCLUDED.name,
@@ -738,7 +738,8 @@ async function saveAgentConfig(config) {
          openviking_custom_url      = EXCLUDED.openviking_custom_url,
          openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key,
          openviking_enabled         = EXCLUDED.openviking_enabled,
-         openviking_use_agent_name_as_user = EXCLUDED.openviking_use_agent_name_as_user`,
+         openviking_use_agent_name_as_user = EXCLUDED.openviking_use_agent_name_as_user,
+         ov_mcp_enabled             = EXCLUDED.ov_mcp_enabled`,
       [
         config.id,
         config.workspaceId || DEFAULT_WORKSPACE_ID,
@@ -767,6 +768,7 @@ async function saveAgentConfig(config) {
         // null = follow runtime default; boolean = explicit override.
         typeof config.openvikingEnabled === 'boolean' ? config.openvikingEnabled : null,
         config.openvikingUseAgentNameAsUser === true,
+        typeof config.ovMcpEnabled === 'boolean' ? config.ovMcpEnabled : null,
       ]
     );
   } catch (e) {
@@ -793,7 +795,7 @@ async function loadAgentConfigs() {
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
               openviking_user_id, openviking_api_key, openviking_url,
               openviking_mode, openviking_custom_url, openviking_custom_api_key,
-              openviking_enabled, openviking_use_agent_name_as_user
+              openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled
          FROM agent_configs
          ORDER BY name ASC`
     );
@@ -826,6 +828,7 @@ async function loadAgentConfigs() {
       // default; boolean → explicit override.
       openvikingEnabled: typeof row.openviking_enabled === 'boolean' ? row.openviking_enabled : undefined,
       openvikingUseAgentNameAsUser: row.openviking_use_agent_name_as_user === true,
+      ovMcpEnabled: typeof row.ov_mcp_enabled === 'boolean' ? row.ov_mcp_enabled : undefined,
     }));
   } catch (e) {
     console.error('[db] loadAgentConfigs error:', e.message);

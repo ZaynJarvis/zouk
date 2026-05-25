@@ -50,6 +50,10 @@ export default function AgentConfigForm({
   const persistedOvEnabledResolved = typeof agent.ovEnabled === 'boolean' ? agent.ovEnabled : false;
   const persistedOvIsDefault = agent.ovEnabledIsDefault !== false;
   const persistedOvDefault = !!agent.ovDefault;
+  const persistedOvMcpEnabledRaw = savedConfig?.ovMcpEnabled;
+  const persistedOvMcpEnabledResolved = typeof agent.ovMcpEnabled === 'boolean' ? agent.ovMcpEnabled : false;
+  const persistedOvMcpIsDefault = agent.ovMcpEnabledIsDefault !== false;
+  const persistedOvMcpDefault = !!agent.ovMcpDefault;
   const machine = agent.machineId ? machines?.find((m) => m.id === agent.machineId) : undefined;
   const machineLabel = machine?.alias || machine?.hostname || agent.machineId;
 
@@ -65,6 +69,7 @@ export default function AgentConfigForm({
   const [envVars, setEnvVars] = useState<Record<string, string>>(persistedEnvVars);
   const [visibleChannels, setVisibleChannels] = useState<string[] | null>(agent.channels ?? null);
   const [ovEnabled, setOvEnabled] = useState<boolean>(persistedOvEnabledResolved);
+  const [ovMcpEnabled, setOvMcpEnabled] = useState<boolean>(persistedOvMcpEnabledResolved);
   const [ovMode, setOvMode] = useState<'provisioned' | 'custom'>(persistedOvMode);
   const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState<boolean>(persistedOvUseAgentNameAsUser);
   const [ovCustomUrl, setOvCustomUrl] = useState<string>(persistedOvCustomUrl ?? '');
@@ -146,8 +151,12 @@ export default function AgentConfigForm({
   const ovEnabledDirty = typeof persistedOvEnabledRaw === 'boolean'
     ? ovEnabled !== persistedOvEnabledRaw
     : ovEnabled !== persistedOvDefault;
+  const ovMcpEnabledDirty = typeof persistedOvMcpEnabledRaw === 'boolean'
+    ? ovMcpEnabled !== persistedOvMcpEnabledRaw
+    : ovMcpEnabled !== persistedOvMcpDefault;
   const ovDirty =
     ovEnabledDirty ||
+    ovMcpEnabledDirty ||
     ovUseAgentNameAsUser !== persistedOvUseAgentNameAsUser ||
     ovMode !== persistedOvMode ||
     (ovMode === 'custom' && (ovCustomUrl !== (persistedOvCustomUrl ?? '') || ovCustomApiKeyDirty));
@@ -185,6 +194,9 @@ export default function AgentConfigForm({
     if (ovDirty) {
       if (ovEnabledDirty) {
         payload.openvikingEnabled = ovEnabled;
+      }
+      if (ovMcpEnabledDirty) {
+        payload.ovMcpEnabled = ovMcpEnabled;
       }
       payload.openvikingUseAgentNameAsUser = ovUseAgentNameAsUser;
       payload.openvikingMode = ovMode;
@@ -590,6 +602,40 @@ export default function AgentConfigForm({
                   )}
                 </div>
               )}
+
+              {/* OV_MCP — inject OV MCP server into agent process */}
+              <div className="mt-3">
+                <label className="flex items-center gap-2 text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">
+                  <span>OV_MCP</span>
+                  {persistedOvMcpIsDefault && ovMcpEnabled === persistedOvMcpDefault && (
+                    <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">(default for {agent.runtime || 'this runtime'})</span>
+                  )}
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOvMcpEnabled(true)}
+                    className={`px-2.5 py-1.5 border font-bold text-xs font-mono ${
+                      ovMcpEnabled
+                        ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                        : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                    }`}
+                  >
+                    INJECT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOvMcpEnabled(false)}
+                    className={`px-2.5 py-1.5 border font-bold text-xs font-mono ${
+                      !ovMcpEnabled
+                        ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
+                        : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
+                    }`}
+                  >
+                    SKIP
+                  </button>
+                </div>
+              </div>
             </>
           )}
         </div>
