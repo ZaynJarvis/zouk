@@ -138,7 +138,7 @@ function isOvEnabledForAgent(cfg) {
 }
 // Runtimes that get OV MCP server injected by default. Claude/Codex excluded
 // because the OV plugin handles it; VikingBot excluded (no MCP support).
-const OV_MCP_RUNTIME_WHITELIST = (process.env.OV_MCP_RUNTIME_WHITELIST || "hermes,coco,opencode,kimi")
+const OV_MCP_RUNTIME_WHITELIST = (process.env.OV_MCP_RUNTIME_WHITELIST || "hermes,coco,opencode,kimi,copilot,cursor")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
