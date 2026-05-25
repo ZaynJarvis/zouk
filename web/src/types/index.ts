@@ -70,6 +70,9 @@ export interface ServerAgent {
   ovEnabled?: boolean;
   ovEnabledIsDefault?: boolean;
   ovDefault?: boolean;
+  ovMcpEnabled?: boolean;
+  ovMcpEnabledIsDefault?: boolean;
+  ovMcpDefault?: boolean;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   openvikingCustomConfigured?: boolean;
@@ -234,6 +237,11 @@ export interface AgentConfig {
   ovEnabled?: boolean;
   ovEnabledIsDefault?: boolean;
   ovDefault?: boolean;
+  // Per-agent override for OV MCP server injection. Same tri-state as
+  // openvikingEnabled: undefined = follow runtime default, boolean = explicit.
+  ovMcpEnabled?: boolean | null;
+  ovMcpEnabledIsDefault?: boolean;
+  ovMcpDefault?: boolean;
   // Per-agent override of the daemon driver's default binary command (e.g.
   // "/usr/local/bin/codex" or "env LANG=C claude"). Daemon whitespace-splits this into argv.
   // Empty/null = use the runtime default. Not supported for vikingbot.

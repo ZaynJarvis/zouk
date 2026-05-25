@@ -149,6 +149,9 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_enabled BOOLEAN;
 -- True: derive the OV user id from agent.name so cloned agents can intentionally
 -- share one OV namespace (`alice[1]` -> `zouk-alice`).
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_use_agent_name_as_user BOOLEAN NOT NULL DEFAULT false;
+-- NULL means "follow the runtime default (OV_MCP_RUNTIME_WHITELIST)"; boolean
+-- is an explicit per-agent override for OV MCP server injection.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS ov_mcp_enabled BOOLEAN;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,
