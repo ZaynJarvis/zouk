@@ -10,7 +10,6 @@ import { formatRuntime } from '../../lib/runtimeLabels';
 import { resizeAndEncode } from '../../lib/imageEncode';
 import AgentSettingsFields from './AgentSettingsFields';
 import { fetchRuntimeModels, fetchAgentChannels, type RuntimeModel } from '../../lib/api';
-import { ncStyle } from '../../lib/themeUtils';
 
 export default function AgentConfigForm({
   agent,
