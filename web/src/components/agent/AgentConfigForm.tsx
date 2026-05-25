@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Save, Square, Play, Trash2, Camera, Server,
-  Copy, Check,
+  Save, Square, Play, Trash2, Camera,
+  Copy, Check, Cpu, Zap,
 } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../../types';
 import { useApp } from '../../store/AppContext';
-import ScanlineTear from '../glitch/ScanlineTear';
 import { formatRuntime } from '../../lib/runtimeLabels';
 import { resizeAndEncode } from '../../lib/imageEncode';
 import AgentSettingsFields from './AgentSettingsFields';
 import { fetchRuntimeModels, fetchAgentChannels, type RuntimeModel } from '../../lib/api';
+import ZkField from '../zk/ZkField';
+import ZkCallout from '../zk/ZkCallout';
 
 export default function AgentConfigForm({
   agent,
@@ -42,10 +43,6 @@ export default function AgentConfigForm({
   const persistedOvUseAgentNameAsUser = savedConfig?.openvikingUseAgentNameAsUser === true;
   const persistedOvCustomUrl = savedConfig?.openvikingCustomUrl ?? '';
   const persistedOvCustomConfigured = !!savedConfig?.openvikingCustomConfigured;
-  // Per-agent OV on/off — `openvikingEnabled` is the raw user override
-  // (boolean | undefined). `agent.ovEnabled` is the server-resolved effective
-  // value honoring the runtime default; we seed local state from that so the
-  // UI starts in sync regardless of whether the user has ever flipped it.
   const persistedOvEnabledRaw = savedConfig?.openvikingEnabled;
   const persistedOvEnabledResolved = typeof agent.ovEnabled === 'boolean' ? agent.ovEnabled : false;
   const persistedOvIsDefault = agent.ovEnabledIsDefault !== false;
@@ -73,9 +70,6 @@ export default function AgentConfigForm({
   const [ovMode, setOvMode] = useState<'provisioned' | 'custom'>(persistedOvMode);
   const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState<boolean>(persistedOvUseAgentNameAsUser);
   const [ovCustomUrl, setOvCustomUrl] = useState<string>(persistedOvCustomUrl ?? '');
-  // We never receive the actual API key from the server, only a "configured"
-  // boolean. Empty input + dirty=false = "leave saved value alone". User
-  // typing into the field flips dirty=true and we send the new value on save.
   const [ovCustomApiKey, setOvCustomApiKey] = useState<string>('');
   const [ovCustomApiKeyDirty, setOvCustomApiKeyDirty] = useState(false);
   const persistedCustomLauncher = savedConfig?.customLauncher ?? '';
@@ -107,9 +101,6 @@ export default function AgentConfigForm({
 
   useEffect(() => refreshModels(), [refreshModels]);
 
-  // Custom launcher overrides the runtime binary, so the daemon's static
-  // model alias list almost certainly doesn't apply — force the free-form
-  // input so the user types the exact ID their launcher expects.
   const launcherActive = customLauncher.trim().length > 0;
   useEffect(() => {
     if (launcherActive) setCustomModel(true);
@@ -146,8 +137,6 @@ export default function AgentConfigForm({
   }, [agent.id, updateAgentConfig]);
 
   const envVarsDirty = JSON.stringify(envVars) !== JSON.stringify(persistedEnvVars);
-  // ovEnabledDirty: toggle moved off either the persisted explicit value or
-  // the resolved default (when nothing was persisted yet).
   const ovEnabledDirty = typeof persistedOvEnabledRaw === 'boolean'
     ? ovEnabled !== persistedOvEnabledRaw
     : ovEnabled !== persistedOvDefault;
@@ -160,8 +149,6 @@ export default function AgentConfigForm({
     ovUseAgentNameAsUser !== persistedOvUseAgentNameAsUser ||
     ovMode !== persistedOvMode ||
     (ovMode === 'custom' && (ovCustomUrl !== (persistedOvCustomUrl ?? '') || ovCustomApiKeyDirty));
-  // Custom mode requires url + (existing configured key OR a freshly typed one)
-  // — but only matters when OV is actually enabled. Disabled = inert fields.
   const ovCustomValid =
     !ovEnabled ||
     ovMode !== 'custom' ||
@@ -200,12 +187,8 @@ export default function AgentConfigForm({
       }
       payload.openvikingUseAgentNameAsUser = ovUseAgentNameAsUser;
       payload.openvikingMode = ovMode;
-      // Only include url when in custom mode (so toggling back to provisioned
-      // doesn't overwrite stored values unintentionally).
       if (ovMode === 'custom') {
         payload.openvikingCustomUrl = ovCustomUrl.trim();
-        // Empty / not-dirty = server keeps old value; only send a fresh value
-        // when the user actually typed in the password field.
         if (ovCustomApiKeyDirty && ovCustomApiKey.length > 0) {
           payload.openvikingCustomApiKey = ovCustomApiKey;
         }
@@ -213,267 +196,254 @@ export default function AgentConfigForm({
     }
     updateAgentConfig(agent.id, payload);
     if (ovCustomApiKeyDirty) {
-      // Reset the input so the placeholder reappears and we don't re-send on next save.
       setOvCustomApiKey('');
       setOvCustomApiKeyDirty(false);
     }
   };
 
-  const p = compact ? 'p-4' : 'p-5';
-  const space = compact ? 'space-y-4' : 'space-y-5';
-  const avatarSize = compact ? 'w-14 h-14' : 'w-16 h-16';
-  const avatarFontSize = compact ? 'text-lg' : 'text-xl';
-  const presetSize = compact ? 'w-9 h-9' : 'w-10 h-10';
-  const btnPx = compact ? 'px-3 py-1.5' : 'px-4 py-2';
-  const btnText = compact ? 'text-xs' : 'text-sm';
+  const avatarSize = compact ? 56 : 64;
+  const avatarFont = compact ? 18 : 20;
+  const presetSize = compact ? 36 : 40;
+
+  const card: React.CSSProperties = {
+    padding: '12px 14px',
+    background: 'var(--zk-bg-2)',
+    border: '1px solid var(--zk-line)',
+    borderRadius: 'var(--zk-r-lg)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  };
+  const secTitle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 6,
+    fontSize: 12, fontWeight: 600, fontFamily: 'var(--zk-font-sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em', color: 'var(--zk-ink-dim)',
+    borderBottom: '1px solid var(--zk-line)', paddingBottom: 8, marginBottom: 2,
+  };
 
   return (
-    <div className={`flex-1 flex flex-col ${p} overflow-y-auto scrollbar-thin safe-bottom-fill`}>
-      <div className={`max-w-lg ${space}`}>
-        {/* PROFILE_PICTURE */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">PROFILE_PICTURE</label>
-          <div className="flex items-center gap-4">
+    <div
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: compact ? 16 : 20, overflowY: 'auto' }}
+      className="zk-scroll"
+    >
+      <div style={{ maxWidth: 520, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* ── Identity ── */}
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+          {/* Avatar */}
+          <div
+            style={{
+              position: 'relative', width: avatarSize, height: avatarSize, flexShrink: 0,
+              borderRadius: 'var(--zk-r-lg)', border: '1px solid var(--zk-ember-line)',
+              background: 'var(--zk-ember-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', overflow: 'hidden', fontFamily: 'var(--zk-font-display)',
+              fontWeight: 600, fontSize: avatarFont, color: 'var(--zk-ember)',
+            }}
+            onClick={() => pictureInputRef.current?.click()}
+          >
+            {picture ? (
+              <img src={picture} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              (agent.displayName || agent.name).charAt(0).toUpperCase()
+            )}
             <div
-              className={`relative ${avatarSize} border border-nc-cyan/30 bg-nc-cyan/10 flex items-center justify-center cursor-pointer group overflow-hidden font-display font-bold ${avatarFontSize} text-nc-cyan`}
-              onClick={() => pictureInputRef.current?.click()}
+              style={{
+                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                opacity: 0, transition: 'opacity 160ms',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0')}
             >
-              {picture ? (
-                <img src={picture} alt="" className="w-full h-full object-cover" />
-              ) : (
-                (agent.displayName || agent.name).charAt(0).toUpperCase()
-              )}
-              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Camera size={compact ? 16 : 18} className="text-white" />
-              </div>
-              <input
-                ref={pictureInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handlePictureUpload}
-              />
+              <Camera size={compact ? 16 : 18} color="white" />
+            </div>
+            <input ref={pictureInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePictureUpload} />
+          </div>
+
+          {/* Name + ID column */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <ZkField label="Display name">
+              <input className="zk-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+            </ZkField>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--zk-font-mono)', color: 'var(--zk-ink-mute)' }}>
+              <span>ID: {agent.id}</span>
+              <button
+                type="button" onClick={handleCopyId}
+                className="zk-link"
+                title="Copy ID"
+              >
+                {idCopied ? <Check size={12} style={{ color: 'var(--zk-ok)' }} /> : <Copy size={12} />}
+              </button>
             </div>
           </div>
-          {profilePresets.length > 0 && (
-            <div className="mt-3">
-              <p className="text-2xs text-nc-muted font-mono mb-1.5 tracking-wider">OR_PICK_A_PRESET</p>
-              <div className="flex flex-wrap gap-1.5">
-                {profilePresets.map((pres) => {
-                  const active = picture === pres.image;
-                  return (
-                    <button
-                      key={pres.id}
-                      type="button"
-                      onClick={() => handlePresetSelect(pres.image)}
-                      className={`${presetSize} border overflow-hidden transition-all ${
-                        active
-                          ? 'border-nc-cyan shadow-nc-cyan'
-                          : 'border-nc-border hover:border-nc-cyan/60'
-                      }`}
-                      title="Apply preset"
-                    >
-                      <img src={pres.image} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
+        {agent.status === 'active' && displayName !== persistedDisplayName && (
+          <ZkCallout type="warn">
+            Name updates the UI immediately, but the agent process keeps its old self-name until restarted.
+          </ZkCallout>
+        )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* DISPLAY_NAME */}
-          <div className="min-w-0">
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">DISPLAY_NAME</label>
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-            />
-            {agent.status === 'active' && displayName !== persistedDisplayName && (
-              <p className="text-2xs text-nc-yellow mt-1 font-mono">
-                Renaming a running agent updates the UI immediately, but the agent
-                process keeps its old self-name until you stop and restart it.
-              </p>
+        {/* Presets */}
+        {profilePresets.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {profilePresets.map((pres) => {
+              const active = picture === pres.image;
+              return (
+                <button key={pres.id} type="button" onClick={() => handlePresetSelect(pres.image)}
+                  style={{
+                    width: presetSize, height: presetSize, borderRadius: 'var(--zk-r-md)',
+                    border: `1px solid ${active ? 'var(--zk-ember)' : 'var(--zk-line)'}`,
+                    overflow: 'hidden', cursor: 'pointer', padding: 0, background: 'transparent',
+                    boxShadow: active ? 'var(--zk-shadow-glow)' : 'none', transition: 'border-color 160ms, box-shadow 160ms',
+                  }}
+                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--zk-ember-line)'; }}
+                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.borderColor = 'var(--zk-line)'; }}
+                >
+                  <img src={pres.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Description */}
+        <ZkField label="Description">
+          <textarea className="zk-input zk-input--textarea" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="What does this agent do?" />
+        </ZkField>
+
+        {/* ── Infrastructure ── */}
+        <div style={card}>
+          <div style={secTitle}>
+            <Cpu size={12} style={{ color: 'var(--zk-ember)' }} />
+            Infrastructure
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: agent.machineId ? '1fr 1fr' : '1fr', gap: 10, alignItems: 'end' }}>
+            <ZkField label="Runtime">
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                background: 'var(--zk-bg-3)', border: '1px solid var(--zk-line)', borderRadius: 'var(--zk-r-md)', minHeight: 34,
+              }}>
+                <span className="zk-mono" style={{ fontWeight: 600, fontSize: 12, color: 'var(--zk-ink)' }}>
+                  {formatRuntime(agent.runtime) || 'Unknown'}
+                </span>
+              </div>
+            </ZkField>
+            {agent.machineId && (
+              <ZkField label="Machine">
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px',
+                  background: 'var(--zk-bg-3)', border: '1px solid var(--zk-line)', borderRadius: 'var(--zk-r-md)', minHeight: 34,
+                }}>
+                  <span className="zk-dot zk-dot--online" />
+                  <span className="zk-mono" style={{ fontWeight: 600, fontSize: 12, color: 'var(--zk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {machineLabel}
+                  </span>
+                  {machine?.hostname && machine.alias && (
+                    <span className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-mute)' }}>{machine.hostname}</span>
+                  )}
+                </div>
+              </ZkField>
             )}
           </div>
-
-          {/* AGENT_ID */}
-          <div className="min-w-0">
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">AGENT_ID</label>
-            <button
-              type="button"
-              onClick={handleCopyId}
-              className="w-full flex items-center justify-between gap-2 px-3 py-2 border border-nc-border bg-nc-elevated hover:bg-nc-panel transition-colors group"
-            >
-              <span className="text-xs font-mono text-nc-muted truncate">{agent.id}</span>
-              <span className="shrink-0 text-nc-muted group-hover:text-nc-cyan transition-colors">
-                {idCopied ? <Check size={12} className="text-nc-green" /> : <Copy size={12} />}
-              </span>
-            </button>
-          </div>
         </div>
 
-        {/* DESCRIPTION */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">DESCRIPTION</label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright font-mono resize-none focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-            rows={2}
-            placeholder="What does this agent do?"
+        {/* ── Settings ── */}
+        <div style={card}>
+          <div style={secTitle}>
+            <Zap size={12} style={{ color: 'var(--zk-ember)' }} />
+            Settings
+          </div>
+          <AgentSettingsFields
+            mode="config"
+            runtime={agent.runtime || ''}
+            lifecycle={lifecycle}
+            onLifecycleChange={setLifecycle}
+            model={model}
+            onModelChange={setModel}
+            modelOptions={modelOptions}
+            modelsLoading={modelsLoading}
+            customModel={customModel}
+            onCustomModelChange={setCustomModel}
+            customLauncher={customLauncher}
+            onCustomLauncherChange={setCustomLauncher}
+            onCustomLauncherBlur={refreshModels}
+            envVars={envVars}
+            onEnvVarsChange={setEnvVars}
+            ov={{
+              mode: 'config',
+              runtime: agent.runtime || '',
+              ovDefaultForRuntime: persistedOvDefault,
+              ovMcpDefaultForRuntime: persistedOvMcpDefault,
+              ovEnabled,
+              onOvEnabledChange: setOvEnabled,
+              isOvDefault: persistedOvIsDefault && ovEnabled === persistedOvDefault,
+              ovMcpEnabled,
+              onOvMcpEnabledChange: setOvMcpEnabled,
+              isOvMcpDefault: persistedOvMcpIsDefault && ovMcpEnabled === persistedOvMcpDefault,
+              ovUseAgentNameAsUser,
+              onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
+              isProvisioned: !!savedConfig?.openvikingProvisioned,
+              ovMode,
+              onOvModeChange: setOvMode,
+              ovCustomUrl,
+              onOvCustomUrlChange: setOvCustomUrl,
+              ovCustomApiKey,
+              onOvCustomApiKeyChange: (v) => { setOvCustomApiKey(v); setOvCustomApiKeyDirty(true); },
+              ovCustomConfigured: persistedOvCustomConfigured,
+              ovUserId: savedConfig?.openvikingUserId,
+              ovCustomValid,
+            }}
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* RUNTIME */}
-          <div className="min-w-0">
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">RUNTIME</label>
-            <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated min-h-[42px]">
-              <span className="font-bold text-sm text-nc-text-bright font-mono truncate">
-                {formatRuntime(agent.runtime) || 'Unknown'}
-              </span>
-            </div>
-          </div>
-
-          {/* MACHINE */}
-          {agent.machineId && (
-            <div className="min-w-0">
-              <label className="flex items-center gap-1.5 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
-                <Server size={12} className="text-nc-green" /> MACHINE
-              </label>
-              <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated min-h-[42px]">
-                <span className="w-2 h-2 bg-nc-green shrink-0" />
-                <span className="font-bold text-sm text-nc-text-bright font-mono truncate">
-                  {machineLabel}
-                </span>
-                {machine?.hostname && machine.alias && (
-                  <span className="text-xs text-nc-muted font-mono truncate">
-                    {machine.hostname}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <AgentSettingsFields
-          mode="config"
-          runtime={agent.runtime || ''}
-          lifecycle={lifecycle}
-          onLifecycleChange={setLifecycle}
-          model={model}
-          onModelChange={setModel}
-          modelOptions={modelOptions}
-          modelsLoading={modelsLoading}
-          customModel={customModel}
-          onCustomModelChange={setCustomModel}
-          customLauncher={customLauncher}
-          onCustomLauncherChange={setCustomLauncher}
-          onCustomLauncherBlur={refreshModels}
-          envVars={envVars}
-          onEnvVarsChange={setEnvVars}
-          ov={{
-            mode: 'config',
-            runtime: agent.runtime || '',
-            ovDefaultForRuntime: persistedOvDefault,
-            ovMcpDefaultForRuntime: persistedOvMcpDefault,
-            ovEnabled,
-            onOvEnabledChange: setOvEnabled,
-            isOvDefault: persistedOvIsDefault && ovEnabled === persistedOvDefault,
-            ovMcpEnabled,
-            onOvMcpEnabledChange: setOvMcpEnabled,
-            isOvMcpDefault: persistedOvMcpIsDefault && ovMcpEnabled === persistedOvMcpDefault,
-            ovUseAgentNameAsUser,
-            onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
-            isProvisioned: !!savedConfig?.openvikingProvisioned,
-            ovMode,
-            onOvModeChange: setOvMode,
-            ovCustomUrl,
-            onOvCustomUrlChange: setOvCustomUrl,
-            ovCustomApiKey,
-            onOvCustomApiKeyChange: (v) => { setOvCustomApiKey(v); setOvCustomApiKeyDirty(true); },
-            ovCustomConfigured: persistedOvCustomConfigured,
-            ovUserId: savedConfig?.openvikingUserId,
-            ovCustomValid,
-          }}
-        />
-
-        {/* CHANNEL_ACCESS */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CHANNEL_ACCESS</label>
+        {/* Channel access */}
+        <ZkField label="Channel access">
           {visibleChannels === null ? (
-            <div className="p-3 border border-nc-border bg-nc-elevated text-xs text-nc-muted font-mono">
-              LOADING…
+            <div style={{ padding: '6px 10px', fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-sans)' }}>
+              Loading...
             </div>
           ) : visibleChannels.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {visibleChannels.map((ch) => (
-                <span
-                  key={ch}
-                  className="px-2.5 py-1 border border-nc-cyan/30 bg-nc-cyan/10 text-xs font-bold text-nc-cyan font-mono"
-                >
-                  #{ch}
-                </span>
+                <span key={ch} className="zk-pill zk-pill--ember">#{ch}</span>
               ))}
             </div>
           ) : (
-            <div className="p-3 border border-nc-border bg-nc-elevated text-xs text-nc-muted font-mono">
-              NO_CHANNELS
+            <div style={{ padding: '6px 10px', fontSize: 12, color: 'var(--zk-ink-mute)', fontFamily: 'var(--zk-font-sans)' }}>
+              No channels
             </div>
           )}
-        </div>
+        </ZkField>
 
         {/* Action buttons */}
         {!isGuest && (
-          <div className="flex items-center gap-3 pt-3 border-t border-nc-border flex-wrap">
-            {isDirty && (
-              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  onClick={handleSave}
-                  className={`cyber-btn flex items-center gap-1 ${btnPx} border border-nc-cyan bg-nc-cyan/10 ${btnText} font-bold text-nc-cyan hover:bg-nc-cyan/20 hover:shadow-nc-cyan font-mono`}
-                >
-                  <Save size={12} /> SAVE
+          <>
+            <hr className="zk-hr" style={{ margin: '8px 0' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {isDirty && (
+                <button onClick={handleSave} className="zk-btn zk-btn--primary">
+                  <Save size={12} /> Save
                 </button>
-              </ScanlineTear>
-            )}
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                onClick={onDelete}
-                className={`cyber-btn flex items-center gap-1 ${btnPx} border border-nc-red bg-nc-red/10 ${btnText} font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono`}
-              >
-                <Trash2 size={12} /> DELETE_AGENT
+              )}
+              <button onClick={onDelete} className="zk-btn zk-btn--danger">
+                <Trash2 size={12} /> Delete agent
               </button>
-            </ScanlineTear>
-            {agent.status === 'active' ? (
-              <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  onClick={onStop}
-                  className={`cyber-btn flex items-center gap-1 ${btnPx} border border-nc-red bg-nc-red/10 ${btnText} font-bold text-nc-red hover:bg-nc-red/20 hover:shadow-nc-red font-mono`}
-                >
-                  <Square size={12} /> STOP_AGENT
+              {agent.status === 'active' ? (
+                <button onClick={onStop} className="zk-btn zk-btn--danger" style={{ marginLeft: 'auto' }}>
+                  <Square size={12} /> Stop
                 </button>
-              </ScanlineTear>
-            ) : (
-              <ScanlineTear className="ml-auto" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  onClick={() => startAgent({
-                    id: agent.id,
-                    name: agent.name,
-                    displayName: agent.displayName,
-                    description: agent.description,
-                    runtime: agent.runtime ?? 'claude',
-                    model: agent.model,
-                  })}
-                  className={`cyber-btn flex items-center gap-1 ${btnPx} border border-nc-green bg-nc-green/10 ${btnText} font-bold text-nc-green hover:bg-nc-green/20 hover:shadow-nc-green font-mono`}
+              ) : (
+                <button onClick={() => startAgent({
+                    id: agent.id, name: agent.name, displayName: agent.displayName,
+                    description: agent.description, runtime: agent.runtime ?? 'claude', model: agent.model,
+                  })} className="zk-btn"
+                  style={{ marginLeft: 'auto', color: 'var(--zk-ok)', borderColor: 'rgba(111,182,151,0.25)' }}
                 >
-                  <Play size={12} /> START_AGENT
+                  <Play size={12} /> Start
                 </button>
-              </ScanlineTear>
-            )}
-          </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -1,3 +1,6 @@
+import ZkField from '../zk/ZkField';
+import ZkSegmentedControl from '../zk/ZkSegmentedControl';
+
 export interface OvSectionProps {
   runtime: string;
   ovDefaultForRuntime: boolean;
@@ -28,68 +31,34 @@ export interface OvSectionProps {
   mode: 'create' | 'config';
 }
 
-function ToggleRow({ label, hint, value, onChange, trueLabel, falseLabel, small }: {
-  label: string;
-  hint?: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-  trueLabel: string;
-  falseLabel: string;
-  small?: boolean;
-}) {
-  const py = small ? 'py-1.5' : 'py-2';
-  return (
-    <div>
-      <label className="flex items-center gap-2 text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">
-        <span>{label}</span>
-        {hint && <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">{hint}</span>}
-      </label>
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => onChange(true)}
-          className={`px-2.5 ${py} border font-bold text-xs font-mono ${
-            value
-              ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-              : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-          }`}
-        >
-          {trueLabel}
-        </button>
-        <button
-          type="button"
-          onClick={() => onChange(false)}
-          className={`px-2.5 ${py} border font-bold text-xs font-mono ${
-            !value
-              ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-              : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-          }`}
-        >
-          {falseLabel}
-        </button>
-      </div>
-    </div>
-  );
-}
+
 
 export function OvBasicToggle(props: Pick<OvSectionProps, 'ovEnabled' | 'onOvEnabledChange' | 'isOvDefault' | 'runtime'>) {
-  const hint = props.isOvDefault ? `(default for ${props.runtime})` : undefined;
+  const defaultHint = props.isOvDefault ? ` (default for ${props.runtime})` : '';
   return (
-    <div>
-      <ToggleRow
-        label="OPENVIKING"
-        hint={hint}
-        value={props.ovEnabled}
-        onChange={props.onOvEnabledChange}
-        trueLabel="ENABLED"
-        falseLabel="DISABLED"
+    <ZkField
+      label="OpenViking"
+      hint={`Memory integration. Provisions dedicated OV credentials for this agent.${defaultHint}`}
+    >
+      <ZkSegmentedControl
+        value={props.ovEnabled ? 'enabled' : 'disabled'}
+        onChange={(v) => props.onOvEnabledChange(v === 'enabled')}
+        options={[
+          { value: 'enabled', label: 'Enabled' },
+          { value: 'disabled', label: 'Disabled' }
+        ]}
       />
       {!props.ovEnabled && (
-        <p className="text-2xs text-nc-muted mt-1.5 font-mono">
-          OV creds are not delivered to the daemon. Toggle ENABLED to turn on.
+        <p style={{
+          fontSize: 11,
+          color: 'var(--zk-ink-low)',
+          fontFamily: 'var(--zk-font-sans)',
+          margin: '4px 0 0',
+        }}>
+          OV credentials are not delivered to the daemon when disabled.
         </p>
       )}
-    </div>
+    </ZkField>
   );
 }
 
@@ -107,85 +76,134 @@ export function OvAdvancedSection(props: OvSectionProps) {
 
   if (!ovEnabled) return null;
 
-  const mcpHint = isOvMcpDefault ? `(default for ${runtime})` : undefined;
+  const mcpDefaultHint = isOvMcpDefault ? ` (default for ${runtime})` : '';
 
   return (
-    <div className="space-y-3">
-      <ToggleRow
-        label="OV_MCP"
-        hint={mcpHint}
-        value={ovMcpEnabled}
-        onChange={onOvMcpEnabledChange}
-        trueLabel="INJECT"
-        falseLabel="SKIP"
-        small
-      />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <ZkField
+        label="OV MCP"
+        hint={`Injects OpenViking as an MCP server so the agent can call memory tools directly.${mcpDefaultHint}`}
+      >
+        <ZkSegmentedControl
+          value={ovMcpEnabled ? 'inject' : 'skip'}
+          onChange={(v) => onOvMcpEnabledChange(v === 'inject')}
+          options={[
+            { value: 'inject', label: 'Inject' },
+            { value: 'skip', label: 'Skip' }
+          ]}
+        />
+      </ZkField>
 
       {mode === 'config' && onOvModeChange && (
         <>
-          <ToggleRow
-            label="OV_MODE"
-            value={ovMode === 'provisioned'}
-            onChange={(v) => onOvModeChange(v ? 'provisioned' : 'custom')}
-            trueLabel="PROVISIONED"
-            falseLabel="CUSTOM"
-            small
-          />
+          <ZkField
+            label="OV mode"
+            hint="Provisioned uses server-managed credentials. Custom lets you specify your own endpoint."
+          >
+            <ZkSegmentedControl
+              value={ovMode === 'provisioned' ? 'provisioned' : 'custom'}
+              onChange={(v) => onOvModeChange(v as 'provisioned' | 'custom')}
+              options={[
+                { value: 'provisioned', label: 'Provisioned' },
+                { value: 'custom', label: 'Custom' }
+              ]}
+            />
+          </ZkField>
+
           {ovMode === 'provisioned' ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 p-2.5 border border-nc-border bg-nc-elevated">
-                <span className={`w-2 h-2 shrink-0 ${isProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
-                <span className="font-bold text-xs text-nc-text-bright font-mono">
-                  {isProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 10px',
+                background: 'var(--zk-bg-2)',
+                border: '1px solid var(--zk-line)',
+                borderRadius: 'var(--zk-r-md)',
+              }}
+            >
+              <span
+                className={`zk-dot ${isProvisioned ? 'zk-dot--online' : 'zk-dot--offline'}`}
+              />
+              <span className="zk-mono" style={{ fontSize: 12, fontWeight: 600, color: 'var(--zk-ink)' }}>
+                {isProvisioned ? 'Provisioned' : 'Not provisioned'}
+              </span>
+              {ovUserId && (
+                <span
+                  className="zk-mono"
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--zk-ink-mute)',
+                    marginLeft: 'auto',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {ovUserId}
                 </span>
-                {ovUserId && (
-                  <span className="text-2xs text-nc-muted font-mono ml-auto truncate">{ovUserId}</span>
-                )}
-              </div>
+              )}
             </div>
           ) : (
-            <div className="space-y-2">
-              <div>
-                <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">URL</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <ZkField label="URL">
                 <input
                   type="text"
+                  className="zk-input"
                   value={ovCustomUrl || ''}
                   onChange={(e) => onOvCustomUrlChange?.(e.target.value)}
                   placeholder="https://your-openviking.example.com"
-                  className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
                 />
-              </div>
-              <div>
-                <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">API_KEY</label>
+              </ZkField>
+              <ZkField label="API key">
                 <input
                   type="password"
+                  className="zk-input"
                   value={ovCustomApiKey || ''}
                   onChange={(e) => onOvCustomApiKeyChange?.(e.target.value)}
-                  placeholder={ovCustomConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key'}
-                  className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
+                  placeholder={ovCustomConfigured ? '•••••••••• (configured — leave blank to keep)' : 'Paste API key'}
                 />
-              </div>
+              </ZkField>
               {ovCustomValid === false && (
-                <p className="text-2xs text-nc-red font-mono">URL and API key are required for custom mode.</p>
+                <p style={{ fontSize: 11, color: 'var(--zk-err)', fontFamily: 'var(--zk-font-sans)' }}>
+                  URL and API key are required for custom mode.
+                </p>
               )}
             </div>
           )}
         </>
       )}
 
-      <label className={`flex items-center gap-2 text-xs font-mono ${isProvisioned ? 'text-nc-muted/50' : 'text-nc-muted'}`}>
-        <input
-          type="checkbox"
-          checked={ovUseAgentNameAsUser}
-          onChange={(e) => onOvUseAgentNameAsUserChange(e.target.checked)}
-          disabled={!!isProvisioned}
-          className="accent-nc-cyan"
-        />
-        <span>Share OV namespace by agent name</span>
-        {isProvisioned && (
-          <span className="ml-auto text-2xs text-nc-muted/50">locked after provision</span>
-        )}
-      </label>
+      {(() => {
+        const locked = mode === 'config';
+        return (
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
+              fontFamily: 'var(--zk-font-sans)',
+              color: locked ? 'var(--zk-ink-low)' : 'var(--zk-ink-mute)',
+              cursor: locked ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={ovUseAgentNameAsUser}
+              onChange={(e) => onOvUseAgentNameAsUserChange(e.target.checked)}
+              disabled={locked}
+              style={{ accentColor: 'var(--zk-ember)' }}
+            />
+            <span>Share OV namespace by agent name</span>
+            {locked && (
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)' }}>
+                set at creation
+              </span>
+            )}
+          </label>
+        );
+      })()}
     </div>
   );
 }
