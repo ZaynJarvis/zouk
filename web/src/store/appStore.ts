@@ -182,6 +182,7 @@ export function useAppStore() {
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
   const [agentProfileId, setAgentProfileId] = useState<string | null>(null);
   const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'config'>('profile');
+  const [memoryFocusAgentId, setMemoryFocusAgentId] = useState<string | null>(null);
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -229,6 +230,7 @@ export function useAppStore() {
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
   const [feishuEnabled, setFeishuEnabled] = useState(false);
   const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
+  const [ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist] = useState<string[]>(['hermes', 'coco', 'opencode', 'kimi', 'copilot', 'cursor']);
   // Bumps whenever we see a task-bearing system message arrive. TasksView
   // watches this as a "something changed, refetch" signal so the kanban stays
   // live without dedicated polling.
@@ -1209,6 +1211,7 @@ export function useAppStore() {
     runtime: string; model?: string; machineId?: string; channels?: string[];
     lifecycle?: 'persistent' | 'ephemeral';
     openvikingEnabled?: boolean;
+    openvikingUseAgentNameAsUser?: boolean;
     customLauncher?: string;
   }) => {
     try {
@@ -1510,6 +1513,7 @@ export function useAppStore() {
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
     agentProfileId, setAgentProfileId, agentProfileTab, setAgentProfileTab, openAgentProfile, openAgentSettings,
+    memoryFocusAgentId, setMemoryFocusAgentId,
     channelSettingsId, openChannelSettings, closeChannelSettings,
     activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,
@@ -1548,6 +1552,7 @@ export function useAppStore() {
     supabaseConfig, setSupabaseConfig, hasMagicLinkAuth: !!supabaseConfig,
     feishuEnabled, setFeishuEnabled,
     ovRuntimeWhitelist, setOvRuntimeWhitelist,
+    ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
     loginWithAuthResponse: completeAuthenticatedLogin,

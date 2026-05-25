@@ -136,6 +136,19 @@ function isOvEnabledForAgent(cfg) {
   if (cfg && typeof cfg.openvikingEnabled === "boolean") return cfg.openvikingEnabled;
   return ovDefaultForRuntime(cfg && cfg.runtime);
 }
+// Runtimes that get OV MCP server injected by default. Claude/Codex excluded
+// because the OV plugin handles it; VikingBot excluded (no MCP support).
+const OV_MCP_RUNTIME_WHITELIST = (process.env.OV_MCP_RUNTIME_WHITELIST || "hermes,coco,opencode,kimi,copilot,cursor")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+function ovMcpDefaultForRuntime(runtime) {
+  return !!runtime && OV_MCP_RUNTIME_WHITELIST.includes(runtime);
+}
+function isOvMcpEnabledForAgent(cfg) {
+  if (cfg && typeof cfg.ovMcpEnabled === "boolean") return cfg.ovMcpEnabled;
+  return ovMcpDefaultForRuntime(cfg && cfg.runtime);
+}
 // Normalize / validate a customLauncher update payload. Returns
 // `{ ok: true, value: <trimmed-string-or-null> }` on success (null = clear),
 // or `{ ok: false, err: <reason> }` on validation failure.
@@ -216,11 +229,12 @@ function resolveProvisioningCreds(workspaceId) {
   return null;
 }
 
-// Derive a stable OpenViking user_id from an agent's NAME (with id fallback).
-// Convention: `name[suffix]` collapses to `name` so clones share memory with
-// their root (e.g. `alice[1]` reuses `alice`'s OV namespace). Persisted into
-// agent_configs.openviking_user_id on first provision and frozen thereafter —
-// renaming the agent does NOT move OV memory.
+// Optional OpenViking user_id strategy: when enabled for an agent, derive from
+// agent.name. Convention: `name[suffix]` collapses to `name` so clones share
+// memory with their root (e.g. `alice[1]` reuses `alice`'s OV namespace).
+// The resulting user_id is persisted into agent_configs.openviking_user_id on
+// first provision and frozen thereafter — renaming the agent does NOT move OV
+// memory.
 function deriveOvUserIdFromName(name, fallbackId) {
   const raw = typeof name === "string" ? name : "";
   const root = raw.split("[")[0].trim().toLowerCase();
@@ -228,6 +242,12 @@ function deriveOvUserIdFromName(name, fallbackId) {
   const safe = root.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
   if (safe) return `zouk-${safe}`;
   return deriveOvUserId(fallbackId || "");
+}
+
+function resolveInitialOvUserId(config, agentId) {
+  return config?.openvikingUseAgentNameAsUser === true
+    ? deriveOvUserIdFromName(config.name, agentId)
+    : deriveOvUserId(agentId);
 }
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -519,6 +539,9 @@ function agentPayload(agentId) {
       ovEnabled: ovDefaultForRuntime(runtime),
       ovEnabledIsDefault: true,
       ovDefault: ovDefaultForRuntime(runtime),
+      ovMcpEnabled: ovMcpDefaultForRuntime(runtime),
+      ovMcpEnabledIsDefault: true,
+      ovMcpDefault: ovMcpDefaultForRuntime(runtime),
     };
   }
   return {
@@ -535,9 +558,13 @@ function agentPayload(agentId) {
     openvikingProvisioned: !!cfg.openvikingApiKey,
     openvikingMode: cfg.openvikingMode === 'custom' ? 'custom' : 'provisioned',
     openvikingCustomConfigured: !!cfg.openvikingCustomApiKey,
+    openvikingUseAgentNameAsUser: cfg.openvikingUseAgentNameAsUser === true,
     ovEnabled: isOvEnabledForAgent(cfg),
     ovEnabledIsDefault: typeof cfg.openvikingEnabled !== 'boolean',
     ovDefault: ovDefaultForRuntime(cfg.runtime || a.runtime),
+    ovMcpEnabled: isOvMcpEnabledForAgent(cfg),
+    ovMcpEnabledIsDefault: typeof cfg.ovMcpEnabled !== 'boolean',
+    ovMcpDefault: ovMcpDefaultForRuntime(cfg.runtime || a.runtime),
   };
 }
 
@@ -554,6 +581,9 @@ function sanitizedAgentConfigs() {
     ovEnabled: isOvEnabledForAgent(rest),
     ovEnabledIsDefault: typeof rest.openvikingEnabled !== 'boolean',
     ovDefault: ovDefaultForRuntime(rest.runtime),
+    ovMcpEnabled: isOvMcpEnabledForAgent(rest),
+    ovMcpEnabledIsDefault: typeof rest.ovMcpEnabled !== 'boolean',
+    ovMcpDefault: ovMcpDefaultForRuntime(rest.runtime),
   }));
 }
 
@@ -4064,6 +4094,9 @@ app.post("/api/agent-configs", requireAuth, (req, res) => {
     config.customLauncher = r.value; // null = drop the field on disk
     if (r.value === null) delete config.customLauncher;
   }
+  if (config.openvikingUseAgentNameAsUser !== undefined) {
+    config.openvikingUseAgentNameAsUser = config.openvikingUseAgentNameAsUser === true;
+  }
   if (existing >= 0) {
     // machineId is immutable — never let the payload overwrite the stored value.
     const { machineId: _ignored, ...rest } = config;
@@ -4122,6 +4155,8 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     openvikingCustomApiKey: incomingCustomApiKey,
     openvikingMode: incomingMode,
     openvikingEnabled: incomingEnabled,
+    openvikingUseAgentNameAsUser: incomingUseAgentNameAsUser,
+    ovMcpEnabled: incomingOvMcpEnabled,
     customLauncher: incomingLauncher,
     ...rest
   } = updates;
@@ -4144,6 +4179,16 @@ app.put("/api/agents/:id/config", requireAuth, (req, res) => {
     delete merged.openvikingEnabled;
   } else if (typeof incomingEnabled === 'boolean') {
     merged.openvikingEnabled = incomingEnabled;
+  }
+  if (incomingUseAgentNameAsUser !== undefined) {
+    merged.openvikingUseAgentNameAsUser = incomingUseAgentNameAsUser === true;
+  }
+
+  // ovMcpEnabled: same tri-state as openvikingEnabled.
+  if (incomingOvMcpEnabled === null) {
+    delete merged.ovMcpEnabled;
+  } else if (typeof incomingOvMcpEnabled === 'boolean') {
+    merged.ovMcpEnabled = incomingOvMcpEnabled;
   }
 
   // openvikingEnabled: boolean = explicit override; null = clear to follow
@@ -4422,10 +4467,10 @@ async function startAgentOnDaemon(id, config) {
   const ovEnabled = isOvEnabledForAgent({ openvikingEnabled: config.openvikingEnabled, runtime });
   const ovMode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
   // Derive user_id: existing rows keep whatever's already on disk (cannot move
-  // OV memory of a previously-provisioned agent). New rows use the name-based
-  // derivation so clones `alice[N]` reuse `alice`'s namespace; falls back to
-  // the agent-id derivation when name is empty or non-conforming.
-  let ovUserId = config.openvikingUserId || deriveOvUserIdFromName(config.name, id);
+  // OV memory of a previously-provisioned agent). New rows default to the
+  // immutable Zouk agent id. The explicit openvikingUseAgentNameAsUser option
+  // switches new provisioned rows to the name-based clone-sharing namespace.
+  let ovUserId = config.openvikingUserId || resolveInitialOvUserId(config, id);
   let ovApiKey = config.openvikingApiKey || null;
   // URL pinning: existing rows keep whatever they're already on (pre-PR keys
   // have openvikingUrl=null → fall back to env so they never silently migrate
@@ -4506,6 +4551,7 @@ async function startAgentOnDaemon(id, config) {
     daemonConfig.envVars = config.envVars;
   }
   if (daemonOv) daemonConfig.openviking = daemonOv;
+  if (isOvMcpEnabledForAgent(config)) daemonConfig.ovMcpEnabled = true;
   if (config.customLauncher) daemonConfig.customLauncher = config.customLauncher;
 
   // Send agent:start to daemon — read from config (source of truth),
@@ -4541,6 +4587,12 @@ async function startAgentOnDaemon(id, config) {
     if (config.customLauncher) persisted.customLauncher = config.customLauncher;
     if (typeof config.openvikingEnabled === 'boolean') {
       persisted.openvikingEnabled = config.openvikingEnabled;
+    }
+    if (typeof config.ovMcpEnabled === 'boolean') {
+      persisted.ovMcpEnabled = config.ovMcpEnabled;
+    }
+    if (config.openvikingUseAgentNameAsUser === true) {
+      persisted.openvikingUseAgentNameAsUser = true;
     }
     if (ovApiKey) {
       persisted.openvikingUserId = ovUserId;
@@ -4885,9 +4937,37 @@ function broadcastAgentStatus(agentId, status, workspaceId = null) {
   }
 }
 
+function reconcileAgentLifecycleHealth(ws, msg) {
+  const { agentId, reason } = msg || {};
+  if (!agentId || !reason) return;
+  const agent = store.agents[agentId];
+  if (!agent) return;
+  const ownerWs = daemonSockets.get(agentId);
+  if (ownerWs && ownerWs !== ws) {
+    console.warn(`[agent:${agentId}] Ignoring lifecycle health reason=${reason} from stale connection machine=${ws._machineId}`);
+    return;
+  }
+  if (agent.status !== "active") return;
+
+  if (reason === "agent_idle" && agent.activity !== "online") {
+    const prev = agent.activity || "?";
+    agent.activity = "online";
+    agent.activityDetail = "Idle";
+    console.log(`[agent:${agentId}] Lifecycle health reconciled activity: ${prev} -> online`);
+    broadcastToWeb({
+      type: "agent_activity",
+      workspaceId: workspaceIdFromAgent(agentId),
+      agentId,
+      activity: "online",
+      detail: "Idle",
+    });
+  }
+}
+
 function handleDaemonMessage(ws, msg, connectedAgents) {
   switch (msg.type) {
     case "daemon:health": {
+      reconcileAgentLifecycleHealth(ws, msg);
       if (ws.readyState === 1) {
         ws.send(JSON.stringify({
           type: "daemon:health:ack",
@@ -6082,6 +6162,7 @@ app.get("/api/auth/config", (req, res) => {
     supabaseAnonKey: SUPABASE_ANON_KEY || null,
     feishuEnabled,
     ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,
+    ovMcpRuntimeWhitelist: OV_MCP_RUNTIME_WHITELIST,
   });
 });
 

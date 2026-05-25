@@ -415,6 +415,55 @@ html.visual-viewport-active body {
   height: 100%;
 }
 
+.image-lightbox {
+  padding: calc(env(safe-area-inset-top, 0px) + 4rem)
+    calc(env(safe-area-inset-right, 0px) + 0.75rem)
+    calc(env(safe-area-inset-bottom, 0px) + 0.75rem)
+    calc(env(safe-area-inset-left, 0px) + 0.75rem);
+}
+
+.image-lightbox__image {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.image-lightbox__chrome {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1001;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  padding: calc(env(safe-area-inset-top, 0px) + 0.75rem)
+    calc(env(safe-area-inset-right, 0px) + 0.75rem) 0
+    calc(env(safe-area-inset-left, 0px) + 0.75rem);
+}
+
+.image-lightbox__chrome > button {
+  pointer-events: auto;
+}
+
+@media (min-width: 1024px) {
+  .image-lightbox {
+    padding: 0;
+  }
+
+  .image-lightbox__image {
+    max-width: 90vw;
+    max-height: 90vh;
+  }
+
+  .image-lightbox__chrome {
+    top: auto;
+    bottom: 0;
+    padding: 0 calc(env(safe-area-inset-right, 0px) + 1rem)
+      calc(env(safe-area-inset-bottom, 0px) + 1rem)
+      calc(env(safe-area-inset-left, 0px) + 1rem);
+  }
+}
+
 /* Phone/tablet composer surface: compact vertical padding lives in
    MessageComposer.tsx. This radius caps to a pill on single-line mobile
    surfaces and stays gently rounded once the composer grows multi-line. */
