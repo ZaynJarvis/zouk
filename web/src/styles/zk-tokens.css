@@ -170,7 +170,7 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 .zk-seg {
   display: inline-flex; gap: 1px; padding: 2px;
   background: var(--zk-bg-2); border: 1px solid var(--zk-line);
-  border-radius: 7px;
+  border-radius: 7px; width: fit-content;
 }
 .zk-seg button {
   padding: 4px 10px; font-size: 11px;
@@ -306,6 +306,22 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 .zk-btn--icon { padding: 5px; justify-content: center; }
 
 /* ──────────────────────────────────────────────────────────────────────
+   Inputs
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-input {
+  width: 100%; padding: 6px 10px;
+  background: var(--zk-bg-2); border: 1px solid var(--zk-line);
+  border-radius: var(--zk-r-md); color: var(--zk-ink);
+  font-family: var(--zk-font-mono); font-size: 13px;
+  outline: none;
+  transition: border-color 160ms var(--zk-ease-out), box-shadow 160ms var(--zk-ease-out);
+}
+.zk-input::placeholder { color: var(--zk-ink-low); }
+.zk-input:focus { border-color: var(--zk-ember-line); box-shadow: var(--zk-shadow-glow); }
+.zk-input--textarea { resize: none; }
+
+/* ──────────────────────────────────────────────────────────────────────
    Panels / dividers
    ────────────────────────────────────────────────────────────────────── */
 
@@ -395,4 +411,62 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 
 .zk-ov-glow {
   background: radial-gradient(ellipse at top, rgba(217,119,87,0.08) 0%, transparent 60%);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   New Utilities (UI Optimization)
+   ────────────────────────────────────────────────────────────────────── */
+
+.zk-btn--danger {
+  color: var(--zk-err);
+  border-color: rgba(210,116,116,0.25);
+}
+.zk-btn--danger:hover {
+  background: var(--zk-err-soft);
+}
+
+.zk-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--zk-font-sans);
+  color: var(--zk-ink-mute);
+  transition: color 160ms var(--zk-ease-out);
+}
+.zk-link:hover {
+  color: var(--zk-ember);
+}
+.zk-link--underline {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.zk-link--danger:hover {
+  color: var(--zk-err);
+}
+
+.zk-callout {
+  padding: 10px 12px;
+  border-radius: var(--zk-r-md);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-family: var(--zk-font-sans);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.zk-callout--info {
+  background: var(--zk-info-soft);
+  border: 1px solid rgba(122,163,206,0.18);
+  color: var(--zk-info);
+}
+.zk-callout--warn {
+  background: var(--zk-warn-soft);
+  border: 1px solid rgba(210,177,112,0.25);
+  color: var(--zk-warn);
+}
+.zk-callout--err {
+  background: var(--zk-err-soft);
+  border: 1px solid rgba(210,116,116,0.25);
+  color: var(--zk-err);
 }

@@ -182,6 +182,7 @@ export function useAppStore() {
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
   const [agentProfileId, setAgentProfileId] = useState<string | null>(null);
   const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'config'>('profile');
+  const [memoryFocusAgentId, setMemoryFocusAgentId] = useState<string | null>(null);
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1511,6 +1512,7 @@ export function useAppStore() {
     selectedAgentId, setSelectedAgentId,
     agentSettingsId, setAgentSettingsId,
     agentProfileId, setAgentProfileId, agentProfileTab, setAgentProfileTab, openAgentProfile, openAgentSettings,
+    memoryFocusAgentId, setMemoryFocusAgentId,
     channelSettingsId, openChannelSettings, closeChannelSettings,
     activeThreadMessage, openThread, closeRightPanel, closeAgentProfileRail,
     settingsOpen, setSettingsOpen,
