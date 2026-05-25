@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, Plus, ChevronDown, Server, AlertTriangle, Loader as Loader2, Copy, Check, Star } from 'lucide-react';
+import { X, Plus, ChevronDown, Server, AlertTriangle, Copy, Check, Star } from 'lucide-react';
 import type { ServerMachine } from '../types';
 import ScanlineTear from './glitch/ScanlineTear';
 import { ncStyle } from '../lib/themeUtils';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 import { fetchRuntimeModels, type RuntimeModel } from '../lib/api';
 import { useApp } from '../store/AppContext';
+import AgentSettingsFields from './agent/AgentSettingsFields';
 
 export interface CreateAgentConfig {
   name: string;
@@ -14,13 +15,11 @@ export interface CreateAgentConfig {
   model: string;
   machineId?: string;
   lifecycle: 'persistent' | 'ephemeral';
-  // Omitted = follow server-side runtime default (OV_RUNTIME_WHITELIST).
-  // Explicit boolean = user-set override that persists on the agent.
   openvikingEnabled?: boolean;
   openvikingUseAgentNameAsUser?: boolean;
-  // Optional override of the daemon driver's default binary (e.g.
-  // "/usr/local/bin/codex" or "env LANG=C claude"). Whitespace-split on daemon.
+  ovMcpEnabled?: boolean;
   customLauncher?: string;
+  envVars?: Record<string, string>;
 }
 
 export default function CreateAgentDialog({
@@ -51,13 +50,15 @@ export default function CreateAgentDialog({
   // we omit it from the submit payload. Once the user clicks one of the two
   // buttons, it locks to that boolean and we include it explicitly.
   const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
+  const [ovMcpEnabledOverride, setOvMcpEnabledOverride] = useState<boolean | null>(null);
   const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState(false);
   const [customLauncher, setCustomLauncher] = useState('');
+  const [envVars, setEnvVars] = useState<Record<string, string>>({});
 
   // Server is the source of truth for the OV-recommended runtime list. We use
   // it to surface a "★ OV" badge + one-liner installer below the runtime row
   // when one of these is picked.
-  const { ovRuntimeWhitelist } = useApp();
+  const { ovRuntimeWhitelist, ovMcpRuntimeWhitelist } = useApp();
   // Per-runtime install URL: each plugin lives under
   // examples/<plugin-name>/setup-helper/install.sh in the OpenViking repo.
   const OV_INSTALL_COMMANDS: Record<string, string> = {
@@ -137,7 +138,9 @@ export default function CreateAgentDialog({
   // mirror the server-side runtime default. Recomputed when runtime changes
   // so the visible state matches what would happen on submit.
   const ovDefaultForRuntime = !!runtime && ovRuntimeWhitelist.includes(runtime);
+  const ovMcpDefaultForRuntime = !!runtime && ovMcpRuntimeWhitelist.includes(runtime);
   const effectiveOvEnabled = ovEnabledOverride === null ? ovDefaultForRuntime : ovEnabledOverride;
+  const effectiveOvMcpEnabled = ovMcpEnabledOverride === null ? ovMcpDefaultForRuntime : ovMcpEnabledOverride;
   const handleSubmit = () => {
     if (!canSubmit) return;
     const agentName = name.trim().toLowerCase();
@@ -148,12 +151,11 @@ export default function CreateAgentDialog({
       model: model.trim(),
       machineId: selectedMachine?.id,
       lifecycle,
-      // Only forward when the user touched it. Server applies runtime default
-      // when this field is absent, so the new agent stays untouched DB-wise
-      // for users who don't care about OV.
       ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
+      ...(ovMcpEnabledOverride === null ? {} : { ovMcpEnabled: ovMcpEnabledOverride }),
       ...(effectiveOvEnabled && ovUseAgentNameAsUser ? { openvikingUseAgentNameAsUser: true } : {}),
       ...(customLauncher.trim() ? { customLauncher: customLauncher.trim() } : {}),
+      ...(Object.keys(envVars).length > 0 ? { envVars } : {}),
     });
   };
 
@@ -343,178 +345,37 @@ export default function CreateAgentDialog({
             )}
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">LIFECYCLE</label>
-            <div className="grid grid-cols-2 gap-3">
-              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  type="button"
-                  onClick={() => setLifecycle('persistent')}
-                  className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
-                    lifecycle === 'persistent'
-                      ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                      : 'border-nc-border hover:bg-nc-elevated'
-                  }`}
-                >
-                  <div>
-                    <div className="font-bold text-sm text-nc-text-bright">PERSISTENT</div>
-                    <div className="text-xs text-nc-muted font-mono">Keeps session across idle</div>
-                  </div>
-                </button>
-              </ScanlineTear>
-              <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                <button
-                  type="button"
-                  onClick={() => setLifecycle('ephemeral')}
-                  className={`cyber-btn flex items-center gap-2 border px-3 py-2.5 text-left ${
-                    lifecycle === 'ephemeral'
-                      ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                      : 'border-nc-border hover:bg-nc-elevated'
-                  }`}
-                >
-                  <div>
-                    <div className="font-bold text-sm text-nc-text-bright">EPHEMERAL</div>
-                    <div className="text-xs text-nc-muted font-mono">Fresh session after idle</div>
-                  </div>
-                </button>
-              </ScanlineTear>
-            </div>
-          </div>
-
-          {runtime && (
-            <div>
-              <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
-                <span>MODEL</span>
-                {modelsLoading && <Loader2 size={10} className="animate-spin text-nc-cyan" />}
-              </label>
-              {launcherActive && (
-                <p className="text-2xs text-nc-yellow mb-1.5 font-mono">
-                  Custom launcher is set — the suggested model list may not apply. Type the exact model identifier your launcher expects.
-                </p>
-              )}
-              {!launcherActive && modelOptions.length > 0 && !customModel ? (
-                <>
-                  <div className="flex gap-2 flex-wrap">
-                    {modelOptions.map((m) => (
-                      <ScanlineTear key={m.id} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                        <button
-                          type="button"
-                          onClick={() => setModel(m.id)}
-                          className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
-                            model === m.id
-                              ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
-                              : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                          }`}
-                          title={m.id}
-                        >
-                          {m.label}
-                        </button>
-                      </ScanlineTear>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setCustomModel(true); setModel(''); }}
-                    className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
-                  >
-                    Use custom model ID
-                  </button>
-                </>
-              ) : (
-                <>
-                  <input
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder="Optional model identifier (leave blank for runtime default)"
-                    className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-                  />
-                  {modelOptions.length > 0 && customModel && (
-                    <button
-                      type="button"
-                      onClick={() => { setCustomModel(false); setModel(modelOptions[0].id); }}
-                      className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
-                    >
-                      Back to suggested models
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {runtime && runtime !== 'vikingbot' && (
-            <div>
-              <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CUSTOM_LAUNCHER</label>
-              <input
-                value={customLauncher}
-                onChange={(e) => setCustomLauncher(e.target.value)}
-                onBlur={refreshModels}
-                placeholder={`e.g. /path/to/${runtime} or env LANG=C ${runtime}`}
-                className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-              />
-              <p className="text-2xs text-nc-muted mt-1 font-mono">
-                Override the default <span className="text-nc-cyan">{runtime}</span> binary. Leave blank for the runtime default. Split on whitespace into argv.
-              </p>
-            </div>
-          )}
-
-          {runtime && (
-            <div>
-              <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
-                <span>OPENVIKING</span>
-                {ovEnabledOverride === null && (
-                  <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">(default for {formatRuntime(runtime)})</span>
-                )}
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOvEnabledOverride(true)}
-                  className={`cyber-btn px-2.5 py-2 border font-bold text-xs font-mono ${
-                    effectiveOvEnabled
-                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                  }`}
-                >
-                  ENABLED
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setOvEnabledOverride(false)}
-                  className={`cyber-btn px-2.5 py-2 border font-bold text-xs font-mono ${
-                    !effectiveOvEnabled
-                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                  }`}
-                >
-                  DISABLED
-                </button>
-              </div>
-              <p className="text-2xs text-nc-muted mt-1.5 font-mono">
-                {effectiveOvEnabled
-                  ? 'OV creds will be delivered to the daemon. Configure PROVISIONED / CUSTOM in agent settings after creation.'
-                  : 'OV creds will not be delivered. You can enable later in agent settings.'}
-              </p>
-              {effectiveOvEnabled && (
-                <label className="mt-2 flex items-center gap-2 text-xs text-nc-muted font-mono">
-                  <input
-                    type="checkbox"
-                    checked={ovUseAgentNameAsUser}
-                    onChange={(e) => setOvUseAgentNameAsUser(e.target.checked)}
-                    className="accent-nc-cyan"
-                  />
-                  <span>USE_AGENT_NAME_AS_OV_USER</span>
-                </label>
-              )}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">WORK_DIR</label>
-            <div className="px-3 py-2 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-green" style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}>
-              DETECTED_FROM_DAEMON
-            </div>
-          </div>
+          <AgentSettingsFields
+            mode="create"
+            runtime={runtime}
+            lifecycle={lifecycle}
+            onLifecycleChange={setLifecycle}
+            model={model}
+            onModelChange={setModel}
+            modelOptions={modelOptions}
+            modelsLoading={modelsLoading}
+            customModel={customModel}
+            onCustomModelChange={setCustomModel}
+            customLauncher={customLauncher}
+            onCustomLauncherChange={setCustomLauncher}
+            onCustomLauncherBlur={refreshModels}
+            envVars={envVars}
+            onEnvVarsChange={setEnvVars}
+            ov={{
+              mode: 'create',
+              runtime,
+              ovDefaultForRuntime,
+              ovMcpDefaultForRuntime,
+              ovEnabled: effectiveOvEnabled,
+              onOvEnabledChange: (v) => setOvEnabledOverride(v),
+              isOvDefault: ovEnabledOverride === null,
+              ovMcpEnabled: effectiveOvMcpEnabled,
+              onOvMcpEnabledChange: (v) => setOvMcpEnabledOverride(v),
+              isOvMcpDefault: ovMcpEnabledOverride === null,
+              ovUseAgentNameAsUser,
+              onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
+            }}
+          />
 
           <div className="flex gap-3 pt-3 border-t border-nc-border">
             <ScanlineTear className="flex-1" config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>

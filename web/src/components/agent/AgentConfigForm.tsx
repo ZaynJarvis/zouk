@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Save, Square, Play, Trash2, Camera, Server,
-  Copy, Check, Plus, Minus, Loader2,
+  Copy, Check,
 } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../../types';
 import { useApp } from '../../store/AppContext';
 import ScanlineTear from '../glitch/ScanlineTear';
 import { formatRuntime } from '../../lib/runtimeLabels';
 import { resizeAndEncode } from '../../lib/imageEncode';
+import AgentSettingsFields from './AgentSettingsFields';
 import { fetchRuntimeModels, fetchAgentChannels, type RuntimeModel } from '../../lib/api';
-import { ncStyle } from '../../lib/themeUtils';
 
 export default function AgentConfigForm({
   agent,
@@ -327,48 +327,6 @@ export default function AgentConfigForm({
           />
         </div>
 
-        {/* LIFECYCLE */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">LIFECYCLE</label>
-          <div className="grid grid-cols-2 gap-3">
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                type="button"
-                onClick={() => setLifecycle('persistent')}
-                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
-                  lifecycle === 'persistent'
-                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                    : 'border-nc-border hover:bg-nc-elevated'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm text-nc-text-bright">PERSISTENT</div>
-                  <div className="text-xs text-nc-muted font-mono">Keeps CLI session across idle</div>
-                </div>
-              </button>
-            </ScanlineTear>
-            <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-              <button
-                type="button"
-                onClick={() => setLifecycle('ephemeral')}
-                className={`cyber-btn w-full flex items-center gap-2 border px-3 py-2.5 text-left ${
-                  lifecycle === 'ephemeral'
-                    ? 'border-nc-cyan bg-nc-cyan/10 shadow-nc-cyan'
-                    : 'border-nc-border hover:bg-nc-elevated'
-                }`}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm text-nc-text-bright">EPHEMERAL</div>
-                  <div className="text-xs text-nc-muted font-mono">Fresh session after idle</div>
-                </div>
-              </button>
-            </ScanlineTear>
-          </div>
-          <div className="mt-1.5 text-xs text-nc-muted font-mono">
-            Takes effect on next agent restart.
-          </div>
-        </div>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* RUNTIME */}
           <div className="min-w-0">
@@ -401,244 +359,47 @@ export default function AgentConfigForm({
           )}
         </div>
 
-        {/* MODEL */}
-        <div>
-          <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
-            <span>MODEL</span>
-            {modelsLoading && <Loader2 size={10} className="animate-spin text-nc-cyan" />}
-          </label>
-          {launcherActive && (
-            <p className="text-2xs text-nc-yellow mb-1.5 font-mono">
-              Custom launcher is set — the suggested model list may not apply. Type the exact model identifier your launcher expects.
-            </p>
-          )}
-          {!launcherActive && modelOptions.length > 0 && !customModel ? (
-            <>
-              <div className="flex gap-2 flex-wrap">
-                {modelOptions.map((m) => (
-                  <ScanlineTear key={m.id} config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
-                    <button
-                      type="button"
-                      onClick={() => setModel(m.id)}
-                      className={`cyber-btn px-3 py-1.5 border text-sm font-bold font-mono ${
-                        model === m.id
-                          ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan shadow-nc-cyan'
-                          : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                      }`}
-                      title={m.id}
-                    >
-                      {m.label}
-                    </button>
-                  </ScanlineTear>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => setCustomModel(true)}
-                className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
-              >
-                Use custom model ID
-              </button>
-            </>
-          ) : (
-            <>
-              <input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="Model identifier (leave blank for runtime default)"
-                className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-              />
-              {modelOptions.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setCustomModel(false); setModel(modelOptions[0].id); }}
-                  className="mt-2 text-2xs font-mono text-nc-muted hover:text-nc-cyan underline underline-offset-2"
-                >
-                  Back to suggested models
-                </button>
-              )}
-            </>
-          )}
-          {agent.status === 'active' && model !== persistedModel && (
-            <p className="text-2xs text-nc-yellow mt-1 font-mono">
-              Saving applies on next agent start — restart the agent to use the new model.
-            </p>
-          )}
-        </div>
-
-        {/* CUSTOM_LAUNCHER */}
-        {agent.runtime !== 'vikingbot' && (
-          <div>
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">CUSTOM_LAUNCHER</label>
-            <input
-              value={customLauncher}
-              onChange={(e) => setCustomLauncher(e.target.value)}
-              onBlur={refreshModels}
-              placeholder={`e.g. /path/to/${agent.runtime || 'binary'} or env LANG=C ${agent.runtime || 'binary'}`}
-              className="w-full px-3 py-2 border border-nc-border bg-nc-panel text-sm text-nc-text-bright placeholder:text-nc-muted font-mono focus:outline-none focus:border-nc-cyan focus:shadow-nc-cyan transition-all"
-            />
-            <p className="text-2xs text-nc-muted mt-1 font-mono">
-              Override the default <span className="text-nc-cyan">{agent.runtime || ''}</span> binary. Leave blank for the runtime default. Split on whitespace into argv.
-            </p>
-            {agent.status === 'active' && customLauncherDirty && (
-              <p className="text-2xs text-nc-yellow mt-1 font-mono">
-                Saving applies on next agent start — restart the agent to use the new launcher.
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* OPENVIKING */}
-        <div>
-          <label className="flex items-center gap-2 text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">
-            <span>OPENVIKING</span>
-            {persistedOvIsDefault && ovEnabled === persistedOvDefault && (
-              <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">(default for {agent.runtime || 'this runtime'})</span>
-            )}
-          </label>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <button
-              type="button"
-              onClick={() => setOvEnabled(true)}
-              className={`px-2.5 py-2 border font-bold text-xs font-mono ${
-                ovEnabled
-                  ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                  : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-              }`}
-            >
-              ENABLED
-            </button>
-            <button
-              type="button"
-              onClick={() => setOvEnabled(false)}
-              className={`px-2.5 py-2 border font-bold text-xs font-mono ${
-                !ovEnabled
-                  ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                  : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-              }`}
-            >
-              DISABLED
-            </button>
-          </div>
-          {!ovEnabled ? (
-            <div className="p-3 border border-nc-border bg-nc-elevated text-xs text-nc-muted font-mono">
-              OV creds are not delivered to the daemon and Memory browsing is disabled for this agent. Toggle ENABLED above to turn on.
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <button
-                  type="button"
-                  onClick={() => setOvMode('provisioned')}
-                  className={`px-2.5 py-2 border font-bold text-xs font-mono ${
-                    ovMode === 'provisioned'
-                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                  }`}
-                >
-                  PROVISIONED
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setOvMode('custom')}
-                  className={`px-2.5 py-2 border font-bold text-xs font-mono ${
-                    ovMode === 'custom'
-                      ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                      : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                  }`}
-                >
-                  CUSTOM
-                </button>
-              </div>
-              {ovMode === 'provisioned' ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 p-3 border border-nc-border bg-nc-elevated">
-                    <span className={`w-2 h-2 shrink-0 ${savedConfig?.openvikingProvisioned ? 'bg-nc-green' : 'bg-nc-muted'}`} />
-                    <span className="font-bold text-sm text-nc-text-bright font-mono">
-                      {savedConfig?.openvikingProvisioned ? 'PROVISIONED' : 'NOT_PROVISIONED'}
-                    </span>
-                    {savedConfig?.openvikingUserId && (
-                      <span className="text-xs text-nc-muted font-mono ml-auto truncate">{savedConfig.openvikingUserId}</span>
-                    )}
-                  </div>
-                  <label className="flex items-center gap-2 text-xs text-nc-muted font-mono">
-                    <input
-                      type="checkbox"
-                      checked={ovUseAgentNameAsUser}
-                      onChange={(e) => setOvUseAgentNameAsUser(e.target.checked)}
-                      disabled={!!savedConfig?.openvikingProvisioned}
-                      className="accent-nc-cyan"
-                    />
-                    <span>USE_AGENT_NAME_AS_OV_USER</span>
-                    {savedConfig?.openvikingProvisioned && (
-                      <span className="ml-auto text-2xs text-nc-muted/70">LOCKED_AFTER_PROVISION</span>
-                    )}
-                  </label>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">URL</label>
-                    <input
-                      type="text"
-                      value={ovCustomUrl}
-                      onChange={(e) => setOvCustomUrl(e.target.value)}
-                      placeholder="https://your-openviking.example.com"
-                      className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">API_KEY</label>
-                    <input
-                      type="password"
-                      value={ovCustomApiKey}
-                      onChange={(e) => { setOvCustomApiKey(e.target.value); setOvCustomApiKeyDirty(true); }}
-                      placeholder={persistedOvCustomConfigured ? '•••••••••• (configured — leave blank to keep)' : 'paste new-format key'}
-                      className="w-full px-2 py-1.5 border border-nc-border bg-nc-elevated text-sm font-mono text-nc-text-bright focus:outline-none focus:border-nc-cyan"
-                    />
-                  </div>
-                  {!ovCustomValid && (
-                    <p className="text-2xs text-nc-red font-mono">URL and API key are required for custom mode.</p>
-                  )}
-                </div>
-              )}
-
-              {/* OV_MCP — inject OV MCP server into agent process */}
-              <div className="mt-3">
-                <label className="flex items-center gap-2 text-2xs font-bold text-nc-muted mb-1 font-mono tracking-wider">
-                  <span>OV_MCP</span>
-                  {persistedOvMcpIsDefault && ovMcpEnabled === persistedOvMcpDefault && (
-                    <span className="text-2xs text-nc-muted/70 normal-case tracking-normal">(default for {agent.runtime || 'this runtime'})</span>
-                  )}
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setOvMcpEnabled(true)}
-                    className={`px-2.5 py-1.5 border font-bold text-xs font-mono ${
-                      ovMcpEnabled
-                        ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                        : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                    }`}
-                  >
-                    INJECT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOvMcpEnabled(false)}
-                    className={`px-2.5 py-1.5 border font-bold text-xs font-mono ${
-                      !ovMcpEnabled
-                        ? 'border-nc-cyan bg-nc-cyan/10 text-nc-cyan'
-                        : 'border-nc-border text-nc-muted hover:bg-nc-elevated'
-                    }`}
-                  >
-                    SKIP
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        <AgentSettingsFields
+          mode="config"
+          runtime={agent.runtime || ''}
+          lifecycle={lifecycle}
+          onLifecycleChange={setLifecycle}
+          model={model}
+          onModelChange={setModel}
+          modelOptions={modelOptions}
+          modelsLoading={modelsLoading}
+          customModel={customModel}
+          onCustomModelChange={setCustomModel}
+          customLauncher={customLauncher}
+          onCustomLauncherChange={setCustomLauncher}
+          onCustomLauncherBlur={refreshModels}
+          envVars={envVars}
+          onEnvVarsChange={setEnvVars}
+          ov={{
+            mode: 'config',
+            runtime: agent.runtime || '',
+            ovDefaultForRuntime: persistedOvDefault,
+            ovMcpDefaultForRuntime: persistedOvMcpDefault,
+            ovEnabled,
+            onOvEnabledChange: setOvEnabled,
+            isOvDefault: persistedOvIsDefault && ovEnabled === persistedOvDefault,
+            ovMcpEnabled,
+            onOvMcpEnabledChange: setOvMcpEnabled,
+            isOvMcpDefault: persistedOvMcpIsDefault && ovMcpEnabled === persistedOvMcpDefault,
+            ovUseAgentNameAsUser,
+            onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
+            isProvisioned: !!savedConfig?.openvikingProvisioned,
+            ovMode,
+            onOvModeChange: setOvMode,
+            ovCustomUrl,
+            onOvCustomUrlChange: setOvCustomUrl,
+            ovCustomApiKey,
+            onOvCustomApiKeyChange: (v) => { setOvCustomApiKey(v); setOvCustomApiKeyDirty(true); },
+            ovCustomConfigured: persistedOvCustomConfigured,
+            ovUserId: savedConfig?.openvikingUserId,
+            ovCustomValid,
+          }}
+        />
 
         {/* CHANNEL_ACCESS */}
         <div>
@@ -662,66 +423,6 @@ export default function AgentConfigForm({
             <div className="p-3 border border-nc-border bg-nc-elevated text-xs text-nc-muted font-mono">
               NO_CHANNELS
             </div>
-          )}
-        </div>
-
-        {/* WORK_DIR */}
-        {agent.workDir && (
-          <div>
-            <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">WORK_DIR</label>
-            <div
-              className="p-3 border border-nc-border bg-nc-elevated text-xs font-mono text-nc-green"
-              style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
-            >
-              {agent.workDir}
-            </div>
-          </div>
-        )}
-
-        {/* ENV_VARS */}
-        <div>
-          <label className="block text-xs font-bold text-nc-muted mb-1.5 font-mono tracking-wider">ENV_VARS</label>
-          <div className="space-y-1.5">
-            {Object.entries(envVars).map(([key, value]) => (
-              <div key={key} className="flex items-center gap-1.5">
-                <input
-                  value={key}
-                  readOnly
-                  className="w-[40%] px-2 py-1.5 border border-nc-border bg-nc-elevated text-xs text-nc-text-bright font-mono focus:outline-none truncate"
-                  title={key}
-                />
-                <input
-                  value={value}
-                  onChange={(e) => setEnvVars((prev) => ({ ...prev, [key]: e.target.value }))}
-                  className="flex-1 px-2 py-1.5 border border-nc-border bg-nc-panel text-xs text-nc-text-bright font-mono focus:outline-none focus:border-nc-cyan transition-all truncate"
-                  title={value}
-                />
-                <button
-                  type="button"
-                  onClick={() => setEnvVars((prev) => { const next = { ...prev }; delete next[key]; return next; })}
-                  className="shrink-0 p-1 border border-nc-border text-nc-muted hover:text-nc-red hover:border-nc-red transition-colors"
-                >
-                  <Minus size={12} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const key = prompt('Variable name:');
-              if (key && key.trim() && !(key.trim() in envVars)) {
-                setEnvVars((prev) => ({ ...prev, [key.trim()]: '' }));
-              }
-            }}
-            className="mt-2 flex items-center gap-1 text-2xs font-mono text-nc-muted hover:text-nc-cyan transition-colors"
-          >
-            <Plus size={10} /> ADD_VARIABLE
-          </button>
-          {envVarsDirty && (
-            <p className="text-2xs text-nc-yellow mt-1 font-mono">
-              Env var changes take effect on next agent start.
-            </p>
           )}
         </div>
 

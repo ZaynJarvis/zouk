@@ -228,6 +228,7 @@ export function useAppStore() {
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
   const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
+  const [ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist] = useState<string[]>(['hermes', 'coco', 'opencode', 'kimi', 'copilot', 'cursor']);
   // Bumps whenever we see a task-bearing system message arrive. TasksView
   // watches this as a "something changed, refetch" signal so the kanban stays
   // live without dedicated polling.
@@ -1547,6 +1548,7 @@ export function useAppStore() {
     allowlistActive, setAllowlistActive,
     supabaseConfig, setSupabaseConfig, hasMagicLinkAuth: !!supabaseConfig,
     ovRuntimeWhitelist, setOvRuntimeWhitelist,
+    ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
     loginWithAuthResponse: completeAuthenticatedLogin,

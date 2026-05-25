@@ -45,9 +45,10 @@ function SupabaseConfigSync({ config }: { config: { url: string; anonKey: string
   return null;
 }
 
-function OvWhitelistSync({ whitelist }: { whitelist: string[] }) {
-  const { setOvRuntimeWhitelist } = useApp();
+function OvWhitelistSync({ whitelist, mcpWhitelist }: { whitelist: string[]; mcpWhitelist: string[] }) {
+  const { setOvRuntimeWhitelist, setOvMcpRuntimeWhitelist } = useApp();
   useEffect(() => { setOvRuntimeWhitelist(whitelist); }, [whitelist, setOvRuntimeWhitelist]);
+  useEffect(() => { setOvMcpRuntimeWhitelist(mcpWhitelist); }, [mcpWhitelist, setOvMcpRuntimeWhitelist]);
   return null;
 }
 
@@ -278,6 +279,7 @@ function AppWithAuth() {
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
+  const [ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -288,6 +290,9 @@ function AppWithAuth() {
         setAllowlistActive(!!config.allowlistActive);
         if (Array.isArray(config.ovRuntimeWhitelist)) {
           setOvRuntimeWhitelist(config.ovRuntimeWhitelist);
+        }
+        if (Array.isArray(config.ovMcpRuntimeWhitelist)) {
+          setOvMcpRuntimeWhitelist(config.ovMcpRuntimeWhitelist);
         }
 
         if (config.supabaseUrl && config.supabaseAnonKey) {
@@ -367,7 +372,7 @@ function AppWithAuth() {
     <>
       <AllowlistSync active={allowlistActive} />
       {supabaseConfig && <SupabaseConfigSync config={supabaseConfig} />}
-      <OvWhitelistSync whitelist={ovRuntimeWhitelist} />
+      <OvWhitelistSync whitelist={ovRuntimeWhitelist} mcpWhitelist={ovMcpRuntimeWhitelist} />
     </>
   );
 

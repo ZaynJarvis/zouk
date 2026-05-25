@@ -233,6 +233,7 @@ export async function startAgent(config: {
   lifecycle?: 'persistent' | 'ephemeral';
   openvikingEnabled?: boolean;
   openvikingUseAgentNameAsUser?: boolean;
+  ovMcpEnabled?: boolean;
   customLauncher?: string;
 }): Promise<{ agent: { id: string; name: string } }> {
   const url = `${getBaseUrl()}/api/agents/start`;
@@ -353,6 +354,7 @@ export async function getAuthConfig(): Promise<{
   supabaseUrl?: string | null;
   supabaseAnonKey?: string | null;
   ovRuntimeWhitelist?: string[];
+  ovMcpRuntimeWhitelist?: string[];
 }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/config`, { headers: getWorkspaceHeaders() });
   if (!res.ok) throw new Error('Failed to fetch auth config');
