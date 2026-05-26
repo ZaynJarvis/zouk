@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 ENV_FILE=".env"
 OV_DIR="./data/openviking"
@@ -42,7 +42,7 @@ if [ ! -f "$OV_CONF" ]; then
 
   python3 -c "
 import json
-with open('docker/ov.conf.example') as f: c = json.load(f)
+with open('ov.conf.example') as f: c = json.load(f)
 c['embedding']['dense']['api_key'] = '$EMB_KEY'
 c['vlm']['api_key'] = '$VLM_KEY'
 c['server']['auth_mode'] = 'api_key'

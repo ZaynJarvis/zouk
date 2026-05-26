@@ -1,4 +1,4 @@
-# First time:  bash docker/setup.sh [--emb-key <key>] [--vlm-key <key>]
+# First time:  bash setup.sh [--emb-key <key>] [--vlm-key <key>]
 # After that:  docker compose up -d
 
 services:
