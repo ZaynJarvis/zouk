@@ -9,6 +9,9 @@ const COMMIT_TOKEN_THRESHOLD = 20000;
 const RECALL_LIMIT = 6;
 const RECALL_SCORE_THRESHOLD = 0.35;
 const RECALL_TOKEN_BUDGET = 2000;
+const STARTUP_PROFILE_BUDGET = 3000;
+const STARTUP_LISTING_BUDGET = 2000;
+const STARTUP_ARCHIVE_BUDGET = 4000;
 
 function stripInjectedBlocks(text) {
   if (!text) return text;
@@ -21,6 +24,14 @@ function stripInjectedBlocks(text) {
 
 function deriveSessionId(agentId, channelId) {
   return `zouk-${agentId}-${(channelId || "default").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
+function estimateTokens(text) {
+  let count = 0;
+  for (const ch of text) {
+    count += ch.codePointAt(0) >= 0x3000 ? 1.5 : 0.25;
+  }
+  return Math.ceil(count);
 }
 
 function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
@@ -142,6 +153,61 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
         }
       }
       return `<session-archive>\n${parts.join("\n")}\n</session-archive>`;
+    },
+
+    // Startup context: profile + available memories + session archive.
+    // Mirrors the CC plugin's SessionStart injection for managed agents.
+    async getStartupContext(agentId, channelId) {
+      const parts = [];
+
+      // 1. User profile
+      const profile = await ovFetch(agentId, `/api/v1/content/read?uri=viking://user/memories/profile.md&level=l2`, { timeout: 8000 });
+      if (profile?.result?.content) {
+        const profileText = profile.result.content;
+        const tokens = estimateTokens(profileText);
+        if (tokens <= STARTUP_PROFILE_BUDGET) {
+          parts.push(`<user-profile uri="${profile.result.uri || "viking://user/memories/profile.md"}">\n${profileText}\n</user-profile>`);
+        } else {
+          const lines = profileText.split("\n");
+          const head = lines.slice(0, 8).join("\n");
+          parts.push(`<user-profile uri="${profile.result.uri || "viking://user/memories/profile.md"}">\n${head}\n... [profile truncated]\n</user-profile>`);
+        }
+      }
+
+      // 2. Available memories listing
+      let budget = STARTUP_LISTING_BUDGET;
+      const listingLines = [];
+      for (const dir of ["preferences", "entities"]) {
+        if (budget <= 0) break;
+        const listing = await ovFetch(agentId, `/api/v1/fs/ls?uri=viking://user/memories/${dir}/&recursive=true`, { timeout: 8000 });
+        if (!listing?.result?.entries?.length) continue;
+        const dirLine = `  viking://user/memories/${dir}/`;
+        listingLines.push(dirLine);
+        budget -= estimateTokens(dirLine);
+        let shown = 0;
+        for (const entry of listing.result.entries) {
+          if (budget <= 0) {
+            const remaining = listing.result.entries.length - shown;
+            if (remaining > 0) listingLines.push(`    ... +${remaining} more`);
+            break;
+          }
+          const abstract = entry.abstract ? ` — ${entry.abstract.slice(0, 200)}` : "";
+          const line = `    - ${entry.name || entry.uri}${abstract}`;
+          budget -= estimateTokens(line);
+          listingLines.push(line);
+          shown++;
+        }
+      }
+      if (listingLines.length > 0) {
+        parts.push(`<available-memories>\n${listingLines.join("\n")}\n</available-memories>`);
+      }
+
+      // 3. Session archive
+      const archiveBlock = await this.getSessionContext(agentId, channelId, STARTUP_ARCHIVE_BUDGET);
+      if (archiveBlock) parts.push(archiveBlock);
+
+      if (parts.length === 0) return null;
+      return `<openviking-context source="startup">\n${parts.join("\n")}\n</openviking-context>`;
     },
 
     // Commit all active sessions for an agent (on stop/idle).

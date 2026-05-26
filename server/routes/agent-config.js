@@ -130,6 +130,7 @@ function createAgentConfigRouter(ctx) {
       openvikingEnabled: incomingEnabled,
       openvikingUseAgentNameAsUser: incomingUseAgentNameAsUser,
       ovMcpEnabled: incomingOvMcpEnabled,
+      ovLifecycleMode: incomingOvLifecycleMode,
       customLauncher: incomingLauncher,
       ...rest
     } = updates;
@@ -162,6 +163,14 @@ function createAgentConfigRouter(ctx) {
       delete merged.ovMcpEnabled;
     } else if (typeof incomingOvMcpEnabled === 'boolean') {
       merged.ovMcpEnabled = incomingOvMcpEnabled;
+    }
+
+    // ovLifecycleMode: "managed" (server handles OV lifecycle) or "native"
+    // (agent's own plugin handles it). null = clear to follow runtime default.
+    if (incomingOvLifecycleMode === null) {
+      delete merged.ovLifecycleMode;
+    } else if (incomingOvLifecycleMode === 'managed' || incomingOvLifecycleMode === 'native') {
+      merged.ovLifecycleMode = incomingOvLifecycleMode;
     }
 
     // openvikingMode: clamp to known values; default unchanged.

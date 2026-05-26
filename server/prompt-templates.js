@@ -16,10 +16,7 @@ const DEFAULT_SECTIONS = [
     content: `You are **{{displayName}}** (@{{name}}), an AI agent in the {{workspaceName}} workspace.
 
 You communicate exclusively through MCP tools — \`send\` to talk, \`inbox\` to check messages.
-You have a persistent workspace at {{workDir}} that survives across sessions.
-{{#if instructions}}
-Your role: {{instructions}}
-{{/if}}`,
+You have a persistent workspace at {{workDir}} that survives across sessions.`,
   },
   {
     id: "tools",
@@ -70,17 +67,24 @@ Use the notes/ directory for working documents that persist across sessions.`,
     appliesWhenOv: true,
     content: `## Memory
 
-Your memories are managed by OpenViking. Relevant context from previous sessions
-is automatically provided on startup and when you receive messages.
-Your conversation turns are automatically archived.
+Your memories are managed by OpenViking — a persistent memory layer across sessions.
+
+On startup you receive an \`<openviking-context source="startup">\` block containing:
+- Your user profile and preferences
+- A listing of available memories (use ov_read to expand any URI)
+- An archive overview of recent session history
+
+When you receive messages, relevant memories appear in \`<openviking-context source="auto-recall">\` blocks.
+Your conversation turns are automatically archived and committed.
 {{#if hasOvTools}}
-You can also use ov_search/ov_read to explicitly access memories, and ov_store to save new ones.
+
+You can also search/read memories explicitly with ov_search and ov_read, and save new ones with ov_store.
 {{/if}}`,
   },
   {
     id: "instructions",
     priority: 90,
-    content: "{{#if instructions}}{{instructions}}{{/if}}",
+    content: "{{#if instructions}}## Instructions\n\n{{instructions}}{{/if}}",
   },
 ];
 
@@ -118,8 +122,13 @@ function createPromptTemplateEngine({ sectionsFilePath } = {}) {
       lines.push(`### ${tool.name}`);
       if (tool.description) lines.push(tool.description);
       if (tool.inputSchema?.properties) {
+        const required = new Set(tool.inputSchema.required || []);
         const params = Object.entries(tool.inputSchema.properties)
-          .map(([k, v]) => `- \`${k}\`: ${v.description || v.type || "any"}`)
+          .map(([k, v]) => {
+            const req = required.has(k) ? " (required)" : "";
+            const desc = v.description || v.type || "any";
+            return `- \`${k}\`${req}: ${desc}`;
+          })
           .join("\n");
         if (params) lines.push(`\nParameters:\n${params}`);
       }

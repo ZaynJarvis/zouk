@@ -12,7 +12,7 @@ function createAuthModule(ctx) {
     db, store, SESSIONS_FILE,
     GOOGLE_CLIENT_ID, googleClient,
     SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
-    OV_RUNTIME_WHITELIST, OV_MCP_RUNTIME_WHITELIST,
+    OV_RUNTIME_WHITELIST, OV_MCP_RUNTIME_WHITELIST, OV_NATIVE_RUNTIME_WHITELIST,
     DEFAULT_WORKSPACE_ID,
     gravatarUrl, isReservedName, normalizeEmailInput,
     isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
@@ -417,6 +417,7 @@ function createAuthModule(ctx) {
       supabaseAnonKey: SUPABASE_ANON_KEY || null,
       ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,
       ovMcpRuntimeWhitelist: OV_MCP_RUNTIME_WHITELIST,
+      ovNativeRuntimeWhitelist: OV_NATIVE_RUNTIME_WHITELIST,
     });
   });
 

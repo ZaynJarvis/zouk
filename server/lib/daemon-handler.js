@@ -489,9 +489,9 @@ function createDaemonHandler(ctx) {
             pendingContextResets.delete(agentId);
             resolver();
           }
-          // OV auto-commit on agent stop/idle (fire-and-forget)
+          // OV managed auto-commit on agent stop (skip for native agents)
           const agentCfg = agentConfigs.find((c) => c.id === agentId);
-          if (agentCfg?.openvikingApiKey) {
+          if (agentCfg?.openvikingApiKey && !ctx.isOvNativeForAgent(agentCfg)) {
             const agentChannels = visibleChannelIdsForAgent(agentId);
             ctx.ovLifecycle.commitAllSessions(agentId, agentChannels).catch(() => {});
           }

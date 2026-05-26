@@ -24,7 +24,7 @@ function createAgentLifecycle(ctx) {
       daemonConnections, daemonSockets,
       normalizeWorkspaceId, DEFAULT_WORKSPACE_ID,
       validateCustomLauncher, decodeOvKey,
-      isOvEnabledForAgent, isOvMcpEnabledForAgent,
+      isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvNativeForAgent,
       resolveProvisioningCreds, resolveInitialOvUserId,
       OPENVIKING_URL, OPENVIKING_ACCOUNT,
       provisionAgentKey,
@@ -35,6 +35,7 @@ function createAgentLifecycle(ctx) {
       promptEngine, generateToolDefinitions,
       profilePresets, seedAgentIntoRegularChannels,
       pendingContextResets,
+      ovLifecycle,
       machines,
     } = ctx;
 
@@ -204,6 +205,22 @@ function createAgentLifecycle(ctx) {
       hasOvTools: hasOv && toolDefs.some((t) => t.name.startsWith("ov_")),
     });
 
+    // OV startup context injection for managed agents (best-effort, non-blocking start)
+    let ovStartupBlock = null;
+    if (hasOv && !isOvNativeForAgent(config) && ovLifecycle) {
+      try {
+        ovStartupBlock = await ovLifecycle.getStartupContext(id, null);
+      } catch (err) {
+        console.warn(`[ov] startup context failed for ${id}: ${err.message}`);
+      }
+    }
+    if (ovStartupBlock) {
+      promptSections.push({ id: "ov_context", content: ovStartupBlock, priority: 85 });
+    }
+    const finalAssembled = ovStartupBlock
+      ? systemPromptV2 + "\n\n---\n\n" + ovStartupBlock
+      : systemPromptV2;
+
     // Send agent:start to daemon with v2 fields alongside v1 fields for compat.
     targetWs.send(JSON.stringify({
       type: "agent:start",
@@ -211,7 +228,7 @@ function createAgentLifecycle(ctx) {
       launchId: uuidv4(),
       config: daemonConfig,
       // v2 fields — daemon can use these if it supports them
-      prompt: { sections: promptSections, assembled: systemPromptV2 },
+      prompt: { sections: promptSections, assembled: finalAssembled },
       toolDefinitions: toolDefs,
     }));
 

@@ -57,8 +57,9 @@ function createAgentInternalRouter(ctx) {
     ctx.deliverToAllAgents(msg, agentId);
     ctx.broadcastToWeb({ type: "message", workspaceId, message: ctx.formatMessageForClient(msg) });
 
-    // OV auto-capture: log agent's response to OV session (fire-and-forget)
-    if (ctx.ovLifecycle) {
+    // OV managed auto-capture: log agent's response (skip for native agents)
+    const agentCfg = ctx.agentConfigs.find((c) => c.id === agentId);
+    if (ctx.ovLifecycle && agentCfg?.openvikingApiKey && !ctx.isOvNativeForAgent(agentCfg)) {
       ctx.ovLifecycle.autoCapture(agentId, msg.channelId, null, content).catch(() => {});
     }
 
