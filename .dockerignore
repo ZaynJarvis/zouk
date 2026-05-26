@@ -1,0 +1,10 @@
+node_modules
+server/node_modules
+web/node_modules
+web/dist
+.git
+.env*
+*.log
+docker/
+uploads/
+server/data/

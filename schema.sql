@@ -239,3 +239,15 @@ CREATE INDEX IF NOT EXISTS channel_agents_agent_idx
   ON channel_agents (agent_id);
 CREATE INDEX IF NOT EXISTS channel_agents_workspace_agent_idx
   ON channel_agents (workspace_id, agent_id);
+
+-- Per-agent opaque auth tokens. Lifetime tied to agent existence — no clock
+-- TTL. Revoked on agent delete or explicit revoke. Used by chat-bridge for
+-- REST calls and as OV proxy auth (server maps token → per-agent OV key).
+CREATE TABLE IF NOT EXISTS agent_tokens (
+  token        TEXT PRIMARY KEY,
+  agent_id     TEXT NOT NULL REFERENCES agent_configs(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS agent_tokens_agent_idx ON agent_tokens (agent_id);
