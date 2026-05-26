@@ -26,12 +26,38 @@ npm run build      # build frontend bundle
 
 - [Agent delivery notification routing](docs/agent-delivery-routing.md)
 
-## Deployment
+## Docker Deployment
+
+One-command setup with PostgreSQL + [OpenViking](https://github.com/volcengine/OpenViking) memory:
+
+```bash
+bash setup.sh                           # auto-detects keys from ~/.openviking/ov.conf
+# or
+bash setup.sh --emb-key <volcengine-key>  # explicit key
+```
+
+This creates `data/` (PG + OV persistence), generates an OV root API key, and starts all services. After setup:
+
+```bash
+docker compose up -d                    # start
+docker compose down                     # stop (data preserved)
+docker compose down -v                  # stop + wipe data
+```
+
+Connect a daemon:
+
+```bash
+zouk-daemon --server-url http://localhost:7777 --api-key test
+```
+
+Configuration in `.env` — see `.env.example` for all options (Google OAuth, email allowlist, custom image tag, etc.).
+
+### Cloud / Railway
 
 Deployed on [Railway](https://railway.app). Required services:
 
 - **PostgreSQL** — persistent message and agent storage
-- **Mounted volume** (optional) — for attachment/image persistence; skip if you don't need uploads to survive redeploys
+- **Mounted volume** (optional) — for attachment/image persistence
 
 Set your public domain so agents call back to the right URL:
 

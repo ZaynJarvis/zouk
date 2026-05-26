@@ -5,6 +5,5 @@ web/dist
 .git
 .env*
 *.log
-docker/
 uploads/
 server/data/
