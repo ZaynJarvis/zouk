@@ -16,7 +16,7 @@ function createAgentConfigRouter(ctx) {
     DEFAULT_WORKSPACE_ID,
     agentPayload, broadcastToWeb, sanitizedAgentConfigs,
     saveAgentConfigs, saveMachineKeys,
-    workspaceIdFromAgent, sendAgentStop,
+    workspaceIdFromAgent,
     agentAuth, purgeAgentMemberships, purgeUnknownAgentState,
     validateCustomLauncher, isOvEnabledForAgent, isPersistentMachineId,
     profilePresets, PROFILE_PRESET_MAX,
@@ -229,7 +229,7 @@ function createAgentConfigRouter(ctx) {
     const { id } = req.params;
     const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
     if (workspaceIdFromAgent(id) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
-    sendAgentStop(id);
+    ctx.sendAgentStop(id);
     const idx = agentConfigs.findIndex((c) => c.id === id);
     if (idx >= 0) {
       agentConfigs.splice(idx, 1);
