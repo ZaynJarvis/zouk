@@ -44,8 +44,8 @@ export function OvBasicToggle(props: Pick<OvSectionProps, 'ovEnabled' | 'onOvEna
         value={props.ovEnabled ? 'enabled' : 'disabled'}
         onChange={(v) => props.onOvEnabledChange(v === 'enabled')}
         options={[
-          { value: 'enabled', label: 'Enabled' },
-          { value: 'disabled', label: 'Disabled' }
+          { value: 'enabled', label: 'Enabled', tone: 'ok' },
+          { value: 'disabled', label: 'Disabled', tone: 'neutral' }
         ]}
       />
       {!props.ovEnabled && (
@@ -88,8 +88,8 @@ export function OvAdvancedSection(props: OvSectionProps) {
           value={ovMcpEnabled ? 'inject' : 'skip'}
           onChange={(v) => onOvMcpEnabledChange(v === 'inject')}
           options={[
-            { value: 'inject', label: 'Inject' },
-            { value: 'skip', label: 'Skip' }
+            { value: 'inject', label: 'Inject', tone: 'ok' },
+            { value: 'skip', label: 'Skip', tone: 'neutral' }
           ]}
         />
       </ZkField>
@@ -104,7 +104,7 @@ export function OvAdvancedSection(props: OvSectionProps) {
               value={ovMode === 'provisioned' ? 'provisioned' : 'custom'}
               onChange={(v) => onOvModeChange(v as 'provisioned' | 'custom')}
               options={[
-                { value: 'provisioned', label: 'Provisioned' },
+                { value: 'provisioned', label: 'Provisioned', tone: 'ok' },
                 { value: 'custom', label: 'Custom' }
               ]}
             />
