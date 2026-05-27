@@ -94,57 +94,33 @@ function createOvMemoryRouter(ctx) {
     } catch { return false; }
   }
 
-  const ovMcpSessions = new Map();
-
-  async function ovMcpCall(creds, toolName, args) {
-    const mcpUrl = `${creds.url}/mcp`;
-    const headers = {
-      "Content-Type": "application/json",
-      "Accept": "application/json, text/event-stream",
-      "Authorization": `Bearer ${creds.apiKey}`,
-      "X-OpenViking-Account": creds.account,
-      "X-OpenViking-User": creds.user,
-      "X-OpenViking-Agent": creds.agentId,
-    };
-
-    let sessionId = ovMcpSessions.get(creds.url + ":" + creds.user);
-    if (!sessionId) {
-      const initRes = await fetch(mcpUrl, {
-        method: "POST", headers,
-        body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "zouk-server", version: "1.0" } }, id: 1 }),
-      });
-      sessionId = initRes.headers.get("mcp-session-id");
-      if (sessionId) ovMcpSessions.set(creds.url + ":" + creds.user, sessionId);
-    }
-
-    if (sessionId) headers["Mcp-Session-Id"] = sessionId;
-    const res = await fetch(mcpUrl, {
-      method: "POST", headers,
-      body: JSON.stringify({ jsonrpc: "2.0", method: "tools/call", params: { name: toolName, arguments: args }, id: Date.now() }),
-    });
-    const text = await res.text();
-    const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
-    if (!dataLine) throw new Error("No data in MCP response");
-    const parsed = JSON.parse(dataLine.slice(6));
-    if (parsed.error) throw new Error(parsed.error.message || "MCP error");
-    const content = parsed.result?.content;
-    if (parsed.result?.isError) throw new Error(content?.[0]?.text || "OV tool error");
-    return content?.[0]?.text || parsed.result?.structuredContent?.result || "";
-  }
-
-  // HTTP fallback for level-aware content reads.
-  // MCP `read` tool returns L2 only; OV's REST exposes /api/v1/content/{abstract|overview|read}
-  // for L0/L1/L2 respectively. Mirrors atlas-fs's openviking-adapter.read().
-  async function ovHttpReadContent(creds, uri, level) {
-    const endpoint = level === "l0" ? "abstract" : level === "l1" ? "overview" : "read";
-    const headers = {
+  function ovHeaders(creds) {
+    return {
       "Accept": "application/json",
       "X-API-Key": creds.apiKey,
       "X-OpenViking-Account": creds.account,
       "X-OpenViking-User": creds.user,
     };
+  }
+
+  async function ovHttpList(creds, uri, recursive = false) {
+    const params = new URLSearchParams({ uri });
+    if (recursive) params.set("recursive", "true");
+    const res = await fetch(`${creds.url}/api/v1/fs/ls?${params}`, {
+      headers: ovHeaders(creds),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+    }
+    return await res.json();
+  }
+
+  async function ovHttpReadContent(creds, uri, level) {
+    const endpoint = level === "l0" ? "abstract" : level === "l1" ? "overview" : "read";
     const res = await fetch(`${creds.url}/api/v1/content/${endpoint}?uri=${encodeURIComponent(uri)}`, {
-      headers,
+      headers: ovHeaders(creds),
       cache: "no-store",
     });
     if (!res.ok) {
@@ -218,10 +194,15 @@ function createOvMemoryRouter(ctx) {
     if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
     const uri = req.query.uri || `viking://user/${creds.user || creds.agentId}/`;
     try {
-      const raw = await ovMcpCall(creds, "list", { uri });
-      res.json({ entries: parseOvListResult(raw, uri) });
+      const data = await ovHttpList(creds, uri);
+      const raw = data?.result?.entries ?? data?.entries ?? [];
+      const entries = raw.map((e) => ({
+        uri: e.uri || e.name,
+        isDir: !!e.is_dir || !!e.isDir,
+        abstract: e.abstract,
+      }));
+      res.json({ entries });
     } catch (e) {
-      ovMcpSessions.delete(creds.url + ":" + creds.user);
       res.status(500).json({ error: e.message });
     }
   });
@@ -240,10 +221,9 @@ function createOvMemoryRouter(ctx) {
     const uri = req.query.uri;
     if (!uri) return res.status(400).json({ error: "uri parameter required" });
     try {
-      const content = await ovMcpCall(creds, "read", { uris: uri });
+      const content = await ovHttpReadContent(creds, uri, "l2");
       res.json({ content });
     } catch (e) {
-      ovMcpSessions.delete(creds.url + ":" + creds.user);
       res.status(500).json({ error: e.message });
     }
   });
@@ -253,8 +233,7 @@ function createOvMemoryRouter(ctx) {
     // Expose helpers so other modules (daemon-handler) can access them
     resolveOvCredentials,
     isLocalUrl,
-    ovMcpCall,
-    ovMcpSessions,
+    ovHttpList,
     parseOvListResult,
     ovHttpReadContent,
   };

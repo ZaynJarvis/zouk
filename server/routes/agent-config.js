@@ -165,11 +165,11 @@ function createAgentConfigRouter(ctx) {
       merged.ovMcpEnabled = incomingOvMcpEnabled;
     }
 
-    // ovLifecycleMode: "managed" (server handles OV lifecycle) or "native"
+    // ovLifecycleMode: "managed" (server handles OV lifecycle) or "plugin"
     // (agent's own plugin handles it). null = clear to follow runtime default.
     if (incomingOvLifecycleMode === null) {
       delete merged.ovLifecycleMode;
-    } else if (incomingOvLifecycleMode === 'managed' || incomingOvLifecycleMode === 'native') {
+    } else if (incomingOvLifecycleMode === 'managed' || incomingOvLifecycleMode === 'plugin') {
       merged.ovLifecycleMode = incomingOvLifecycleMode;
     }
 

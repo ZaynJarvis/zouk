@@ -169,16 +169,16 @@ function isOvMcpEnabledForAgent(cfg) {
 }
 // Runtimes where the agent's own plugin handles OV lifecycle (auto-recall,
 // auto-capture, auto-commit). Server skips its managed operations for these.
-const OV_NATIVE_RUNTIME_WHITELIST = (process.env.OV_NATIVE_RUNTIME_WHITELIST || "claude,codex")
+const OV_PLUGIN_RUNTIME_WHITELIST = (process.env.OV_PLUGIN_RUNTIME_WHITELIST || "claude,codex")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-function ovNativeDefaultForRuntime(runtime) {
-  return !!runtime && OV_NATIVE_RUNTIME_WHITELIST.includes(runtime);
+function ovPluginDefaultForRuntime(runtime) {
+  return !!runtime && OV_PLUGIN_RUNTIME_WHITELIST.includes(runtime);
 }
-function isOvNativeForAgent(cfg) {
-  if (cfg && typeof cfg.ovLifecycleMode === "string") return cfg.ovLifecycleMode === "native";
-  return ovNativeDefaultForRuntime(cfg && cfg.runtime);
+function isOvPluginForAgent(cfg) {
+  if (cfg && typeof cfg.ovLifecycleMode === "string") return cfg.ovLifecycleMode === "plugin";
+  return ovPluginDefaultForRuntime(cfg && cfg.runtime);
 }
 // Normalize / validate a customLauncher update payload. Returns
 // `{ ok: true, value: <trimmed-string-or-null> }` on success (null = clear),
@@ -2024,14 +2024,14 @@ function deliverToAgent(agentId, message) {
 
     // OV managed lifecycle: auto-recall + user message capture (skip for native agents)
     const agentCfg = agentConfigs.find((c) => c.id === agentId);
-    if (agentCfg?.openvikingApiKey && message.content && !isOvNativeForAgent(agentCfg)) {
+    if (agentCfg?.openvikingApiKey && message.content && !isOvPluginForAgent(agentCfg)) {
       ovLifecycle.autoRecall(agentId, message.content).then((ovContext) => {
         if (!ovContext) return;
         try {
           ws.send(JSON.stringify({ type: "agent:deliver:context", agentId, seq, ovContext }));
         } catch { /* best-effort */ }
       }).catch(() => {});
-      ovLifecycle.autoCapture(agentId, message.channelId, message.content, null).catch(() => {});
+      ovLifecycle.autoCapture(agentId, message.content, null).catch(() => {});
     }
 
     let payload;
@@ -2253,7 +2253,7 @@ app.use("/internal/agent", createAgentInternalRouter({
   visibleChannelIdsForAgent, withTaskMutationLock,
   workspaceIdFromAgent, isReservedName,
   messagesById, messagesByShortId,
-  ovLifecycle, isOvNativeForAgent, agentConfigs,
+  ovLifecycle, isOvPluginForAgent, agentConfigs,
 }));
 
 // view_file (attachment download)
@@ -2471,8 +2471,8 @@ const ovMemory = createOvMemoryRouter({
   OPENVIKING_URL, OPENVIKING_ACCOUNT,
 });
 const {
-  resolveOvCredentials, isLocalUrl, ovMcpCall,
-  ovMcpSessions, parseOvListResult, ovHttpReadContent,
+  resolveOvCredentials, isLocalUrl, ovHttpList,
+  parseOvListResult, ovHttpReadContent,
 } = ovMemory;
 app.use("/api", ovMemory.router);
 
@@ -2488,7 +2488,7 @@ const agentConfigModule = createAgentConfigRouter({
   workspaceIdFromAgent,
   get sendAgentStop() { return sendAgentStop; },
   agentAuth, purgeAgentMemberships, purgeUnknownAgentState,
-  validateCustomLauncher, isOvEnabledForAgent, isOvNativeForAgent, isPersistentMachineId,
+  validateCustomLauncher, isOvEnabledForAgent, isOvPluginForAgent, isPersistentMachineId,
   profilePresets, PROFILE_PRESET_MAX,
   generateApiKey, now,
 });
@@ -2502,7 +2502,7 @@ const agentLifecycle = createAgentLifecycle({
   daemonConnections, daemonSockets, machines,
   normalizeWorkspaceId, DEFAULT_WORKSPACE_ID,
   validateCustomLauncher, decodeOvKey,
-  isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvNativeForAgent,
+  isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvPluginForAgent,
   resolveProvisioningCreds, resolveInitialOvUserId,
   OPENVIKING_URL, OPENVIKING_ACCOUNT,
   provisionAgentKey,
@@ -2528,7 +2528,7 @@ const authModule = createAuthModule({
   db, store, SESSIONS_FILE,
   GOOGLE_CLIENT_ID, googleClient,
   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
-  OV_RUNTIME_WHITELIST, OV_MCP_RUNTIME_WHITELIST, OV_NATIVE_RUNTIME_WHITELIST,
+  OV_RUNTIME_WHITELIST, OV_MCP_RUNTIME_WHITELIST, OV_PLUGIN_RUNTIME_WHITELIST,
   DEFAULT_WORKSPACE_ID,
   gravatarUrl, isReservedName, normalizeEmailInput,
   isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
@@ -2619,9 +2619,8 @@ const daemonHandler = createDaemonHandler({
   hasWorkspaceFsCapability,
   now,
   recordWsConnectAttempt, recordInvalidTokenAttempt, recordWsDisconnect,
-  visibleChannelIdsForAgent,
   PUBLIC_URL,
-  ovLifecycle, isOvNativeForAgent,
+  ovLifecycle, isOvPluginForAgent,
   // Late-bound auth functions (assigned by auth module wiring above)
   get hasAuthSession() { return hasAuthSession; },
   get getAuthSession() { return getAuthSession; },
@@ -2642,8 +2641,7 @@ const daemonHandler = createDaemonHandler({
   get removeHumanPresence() { return removeHumanPresence; },
   get resolveOvCredentials() { return resolveOvCredentials; },
   get isLocalUrl() { return isLocalUrl; },
-  get ovMcpCall() { return ovMcpCall; },
-  get ovMcpSessions() { return ovMcpSessions; },
+  get ovHttpList() { return ovHttpList; },
   get parseOvListResult() { return parseOvListResult; },
   get ovHttpReadContent() { return ovHttpReadContent; },
   get autoStartAgents() { return autoStartAgents; },

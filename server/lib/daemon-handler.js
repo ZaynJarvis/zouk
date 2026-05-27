@@ -28,7 +28,6 @@ function createDaemonHandler(ctx) {
     hasWorkspaceFsCapability,
     now,
     recordWsConnectAttempt, recordInvalidTokenAttempt, recordWsDisconnect,
-    visibleChannelIdsForAgent,
     PUBLIC_URL,
   } = ctx;
 
@@ -489,11 +488,10 @@ function createDaemonHandler(ctx) {
             pendingContextResets.delete(agentId);
             resolver();
           }
-          // OV managed auto-commit on agent stop (skip for native agents)
+          // OV managed auto-commit on agent stop (skip for plugin agents)
           const agentCfg = agentConfigs.find((c) => c.id === agentId);
-          if (agentCfg?.openvikingApiKey && !ctx.isOvNativeForAgent(agentCfg)) {
-            const agentChannels = visibleChannelIdsForAgent(agentId);
-            ctx.ovLifecycle.commitAllSessions(agentId, agentChannels).catch(() => {});
+          if (agentCfg?.openvikingApiKey && !ctx.isOvPluginForAgent(agentCfg)) {
+            ctx.ovLifecycle.commitSession(agentId).catch(() => {});
           }
         }
         console.log(`[agent:${agentId}] Status: ${status} machine=${ws._machineId}`);
@@ -854,12 +852,17 @@ function createDaemonHandler(ctx) {
         const ovCreds = ctx.resolveOvCredentials(request.agentId);
         if (ovCreds && !ctx.isLocalUrl(ovCreds.url)) {
           const uri = msg.uri || "viking://";
-          ctx.ovMcpCall(ovCreds, "list", { uri })
-            .then((raw) => {
-              broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries: ctx.parseOvListResult(raw, uri) });
+          ctx.ovHttpList(ovCreds, uri)
+            .then((data) => {
+              const raw = data?.result?.entries ?? data?.entries ?? [];
+              const entries = raw.map((e) => ({
+                uri: e.uri || e.name,
+                isDir: !!e.is_dir || !!e.isDir,
+                abstract: e.abstract,
+              }));
+              broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries });
             })
             .catch((e) => {
-              ctx.ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
               broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries: [], error: e.message });
             });
         } else {
@@ -883,15 +886,11 @@ function createDaemonHandler(ctx) {
             uri = uri + "/";
           }
           const requestId = msg.requestId || uuidv4();
-          const op = level
-            ? ctx.ovHttpReadContent(ovCreds, uri, level)
-            : ctx.ovMcpCall(ovCreds, "read", { uris: uri });
-          op
+          ctx.ovHttpReadContent(ovCreds, uri, level || "l2")
             .then((content) => {
               broadcastToWeb({ type: "memory:content", workspaceId: request.workspaceId, agentId: request.agentId, requestId, uri: msg.uri, level, content, error: null });
             })
             .catch((e) => {
-              if (!level) ctx.ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
               broadcastToWeb({ type: "memory:content", workspaceId: request.workspaceId, agentId: request.agentId, requestId, uri: msg.uri, level, content: null, error: e.message });
             });
         } else {

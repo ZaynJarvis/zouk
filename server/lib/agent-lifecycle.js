@@ -24,7 +24,7 @@ function createAgentLifecycle(ctx) {
       daemonConnections, daemonSockets,
       normalizeWorkspaceId, DEFAULT_WORKSPACE_ID,
       validateCustomLauncher, decodeOvKey,
-      isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvNativeForAgent,
+      isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvPluginForAgent,
       resolveProvisioningCreds, resolveInitialOvUserId,
       OPENVIKING_URL, OPENVIKING_ACCOUNT,
       provisionAgentKey,
@@ -209,9 +209,9 @@ function createAgentLifecycle(ctx) {
 
     // OV startup context injection for managed agents (best-effort, non-blocking start)
     let ovStartupBlock = null;
-    if (hasOv && !isOvNativeForAgent(config) && ovLifecycle) {
+    if (hasOv && !isOvPluginForAgent(config) && ovLifecycle) {
       try {
-        ovStartupBlock = await ovLifecycle.getStartupContext(id, null);
+        ovStartupBlock = await ovLifecycle.getStartupContext(id);
       } catch (err) {
         console.warn(`[ov] startup context failed for ${id}: ${err.message}`);
       }

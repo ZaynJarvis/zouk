@@ -1,7 +1,7 @@
 // OpenViking lifecycle manager for zouk-managed agents.
 //
 // Handles auto-recall, auto-capture, auto-commit for agents that don't have
-// native OV plugin support. Server-side orchestration — agents are unaware.
+// their own OV plugin support. Server-side orchestration — agents are unaware.
 //
 // Dependencies: OV API (via zouk's transparent proxy or direct).
 
@@ -22,8 +22,8 @@ function stripInjectedBlocks(text) {
     .trim();
 }
 
-function deriveSessionId(agentId, channelId) {
-  return `zouk-${agentId}-${(channelId || "default").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+function deriveSessionId(agentId) {
+  return `zouk-${agentId}`;
 }
 
 function estimateTokens(text) {
@@ -99,8 +99,8 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     },
 
     // Auto-capture: log a conversation turn to OV session.
-    async autoCapture(agentId, channelId, userMessage, agentResponse) {
-      const sessionId = deriveSessionId(agentId, channelId);
+    async autoCapture(agentId, userMessage, agentResponse) {
+      const sessionId = deriveSessionId(agentId);
       const cleanUser = stripInjectedBlocks(userMessage);
       const cleanAgent = stripInjectedBlocks(agentResponse);
 
@@ -121,8 +121,8 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     },
 
     // Auto-commit: commit OV session if pending tokens exceed threshold.
-    async autoCommit(agentId, channelId) {
-      const sessionId = deriveSessionId(agentId, channelId);
+    async autoCommit(agentId) {
+      const sessionId = deriveSessionId(agentId);
       const meta = await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}?auto_create=true`);
       if (!meta?.result) return;
       const pending = meta.result.pending_tokens || 0;
@@ -137,8 +137,8 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     },
 
     // Session context: fetch archive overview for prompt injection on agent start.
-    async getSessionContext(agentId, channelId, tokenBudget = 4000) {
-      const sessionId = deriveSessionId(agentId, channelId);
+    async getSessionContext(agentId, tokenBudget = 4000) {
+      const sessionId = deriveSessionId(agentId);
       const result = await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/context?token_budget=${tokenBudget}`);
       if (!result?.result) return null;
 
@@ -157,7 +157,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
 
     // Startup context: profile + available memories + session archive.
     // Mirrors the CC plugin's SessionStart injection for managed agents.
-    async getStartupContext(agentId, channelId) {
+    async getStartupContext(agentId) {
       const parts = [];
 
       // 1. User profile
@@ -203,21 +203,19 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       }
 
       // 3. Session archive
-      const archiveBlock = await this.getSessionContext(agentId, channelId, STARTUP_ARCHIVE_BUDGET);
+      const archiveBlock = await this.getSessionContext(agentId, STARTUP_ARCHIVE_BUDGET);
       if (archiveBlock) parts.push(archiveBlock);
 
       if (parts.length === 0) return null;
       return `<openviking-context source="startup">\n${parts.join("\n")}\n</openviking-context>`;
     },
 
-    // Commit all active sessions for an agent (on stop/idle).
-    async commitAllSessions(agentId, channelIds) {
-      for (const channelId of channelIds || []) {
-        try {
-          await this.autoCommit(agentId, channelId);
-        } catch (err) {
-          console.warn(`[ov-lifecycle] commitAllSessions ${agentId}/${channelId}: ${err.message}`);
-        }
+    // Commit the agent's session (on stop/idle).
+    async commitSession(agentId) {
+      try {
+        await this.autoCommit(agentId);
+      } catch (err) {
+        console.warn(`[ov-lifecycle] commitSession ${agentId}: ${err.message}`);
       }
     },
 
