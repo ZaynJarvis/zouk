@@ -692,7 +692,7 @@ function createWorkspaceRouter(ctx) {
     // blocked from write operations (sending messages, etc.).
     if (!GOOGLE_CLIENT_ID) {
       const token = crypto.randomBytes(24).toString("hex");
-      const user = { name: trimmed, email: null, picture: null, guest: true };
+      const user = { name: trimmed, email: `guest_${token.slice(0, 8)}@local`, picture: null, guest: true };
       authSessions.set(token, user);
       await persistSession(token, user);
       return res.json({ ok: true, name: trimmed, token, user });

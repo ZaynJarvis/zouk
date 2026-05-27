@@ -167,8 +167,10 @@ function createAgentLifecycle(ctx) {
       }
     }
 
-    // Issue a stable per-agent token (persisted, survives restarts).
-    const agentToken = await agentAuth.issue(id, workspaceId);
+    // Issue a stable per-agent token. For new agents, DB persistence is
+    // deferred until after saveAgentConfig to satisfy the FK constraint.
+    const isNewAgent = !agentConfigs.some((c) => c.id === id);
+    const agentToken = await agentAuth.issue(id, workspaceId, { skipDb: isNewAgent });
 
     const daemonConfig = {
       runtime,
@@ -274,6 +276,7 @@ function createAgentLifecycle(ctx) {
       agentConfigs.push(persisted);
       saveAgentConfigs(agentConfigs);
       db.saveAgentConfig(persisted);
+      agentAuth.persistToken(id).catch((e) => console.warn(`[auth] persistToken ${id}: ${e.message}`));
       // New agent → subscribe to every regular (non-DM) channel so the legacy
       // "visible everywhere by default" behavior is preserved. Humans can
       // unsubscribe via the /subscriptions API.

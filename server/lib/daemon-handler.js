@@ -820,7 +820,7 @@ function createDaemonHandler(ctx) {
         if (!request) break;
         const agentWs = request.agentWs;
         if (agentWs && agentWs.readyState === 1) {
-          const payload = { agentId: request.agentId, dirPath: msg.dirPath || null };
+          const payload = { agentId: request.agentId, dirPath: msg.dirPath || "" };
           if (hasWorkspaceFsCapability(agentWs)) {
             agentWs.send(JSON.stringify({ type: "workspace:list", ...payload }));
           } else {

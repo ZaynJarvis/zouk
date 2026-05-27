@@ -29,17 +29,25 @@ function createAgentAuthStore({ db }) {
       }
     },
 
-    async issue(agentId, workspaceId) {
+    async issue(agentId, workspaceId, { skipDb = false } = {}) {
       const existing = agentIndex.get(agentId);
       if (existing) return existing;
 
       const token = generateToken();
       tokenIndex.set(token, { agentId, workspaceId });
       agentIndex.set(agentId, token);
-      if (db?.saveAgentToken) {
+      if (!skipDb && db?.saveAgentToken) {
         await db.saveAgentToken({ token, agentId, workspaceId });
       }
       return token;
+    },
+
+    async persistToken(agentId) {
+      const token = agentIndex.get(agentId);
+      if (!token || !db?.saveAgentToken) return;
+      const record = tokenIndex.get(token);
+      if (!record) return;
+      await db.saveAgentToken({ token, agentId: record.agentId, workspaceId: record.workspaceId });
     },
 
     resolve(token) {
