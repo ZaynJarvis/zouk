@@ -84,6 +84,7 @@ export function formatContextUsageTitle(
 ): string {
   if (!snapshot) return '';
   const display = pickDisplayContextUsage(snapshot, preferredModel) ?? snapshot.summary;
+  if (!display) return '';
   const total = display.contextWindow?.toLocaleString() || 'unknown';
   const percent = formatContextPercent(display.percent);
   const cost = typeof snapshot.totalCostUSD === 'number' ? ` · $${snapshot.totalCostUSD.toFixed(4)}` : '';
