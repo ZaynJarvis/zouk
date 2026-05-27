@@ -271,7 +271,7 @@ export default function CreateAgentDialog({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         {formatRuntime(rt)}
                         {ovRuntimeWhitelist.includes(rt) && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--zk-warn)', fontSize: 9 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--zk-ok)', fontSize: 9 }}>
                             <Star size={9} fill="currentColor" /> OV
                           </span>
                         )}
@@ -288,9 +288,9 @@ export default function CreateAgentDialog({
 
             {/* OV install hint */}
             {ovRuntimeWhitelist.includes(runtime) && installCommand && (
-              <ZkCallout type="warn">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-                  <span>{formatRuntime(runtime)} supports OpenViking memory plugin.</span>
+              <ZkCallout type="ok" title="Install OpenViking memory plugin">
+                <div style={{ fontSize: 11 }}>
+                  {formatRuntime(runtime)} supports OpenViking memory. Run this on the daemon host:
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                   <code style={{
@@ -301,7 +301,11 @@ export default function CreateAgentDialog({
                     {installCommand}
                   </code>
                   <button type="button" onClick={() => { navigator.clipboard.writeText(installCommand); setOvInstallCopied(true); setTimeout(() => setOvInstallCopied(false), 2000); }}
-                    className="zk-btn zk-btn--ghost zk-btn--icon" style={{ flexShrink: 0 }} title="Copy">
+                    className="zk-btn zk-btn--ok zk-btn--icon"
+                    style={{ flexShrink: 0, width: 32, height: 32 }}
+                    title={ovInstallCopied ? 'Copied' : 'Copy install command'}
+                    aria-label={ovInstallCopied ? 'Install command copied' : 'Copy install command'}
+                  >
                     {ovInstallCopied ? <Check size={12} style={{ color: 'var(--zk-ok)' }} /> : <Copy size={12} />}
                   </button>
                 </div>

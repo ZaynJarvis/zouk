@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Info, AlertTriangle, XCircle } from 'lucide-react';
+import { CheckCircle2, Info, AlertTriangle, XCircle } from 'lucide-react';
 
 export interface ZkCalloutProps {
-  type: 'info' | 'warn' | 'err';
+  type: 'info' | 'ok' | 'warn' | 'err';
   title?: string;
   children: ReactNode;
   className?: string;
@@ -11,6 +11,7 @@ export interface ZkCalloutProps {
 
 const icons = {
   info: Info,
+  ok: CheckCircle2,
   warn: AlertTriangle,
   err: XCircle,
 };
