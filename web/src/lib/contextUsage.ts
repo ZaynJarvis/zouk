@@ -62,6 +62,7 @@ export function pickDisplayContextUsage(
 ): AgentContextUsageModel | undefined {
   if (!snapshot) return undefined;
   const { models, summary } = snapshot;
+  if (!models) return summary;
   if (preferredModel) {
     const exact = models.find(m => m.model === preferredModel);
     if (exact) return exact;

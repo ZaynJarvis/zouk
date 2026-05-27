@@ -78,10 +78,12 @@ function renderStructuredEntry(entry: AgentEntry) {
     return (
       <div className="space-y-1">
         {renderHeader(entry, 'Context usage')}
-        <div className="text-[11px] text-nc-text-bright">
-          {snapshot.summary.model} · {formatContextUsageLine(snapshot.summary)}
-        </div>
-        {snapshot.models.length > 1 && (
+        {snapshot.summary && (
+          <div className="text-[11px] text-nc-text-bright">
+            {snapshot.summary.model} · {formatContextUsageLine(snapshot.summary)}
+          </div>
+        )}
+        {snapshot.models && snapshot.models.length > 1 && (
           <div className="space-y-0.5 text-[10px] opacity-80">
             {snapshot.models.slice(1, 4).map((model) => (
               <div key={model.model}>
