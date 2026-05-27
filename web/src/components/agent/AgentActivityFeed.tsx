@@ -153,6 +153,14 @@ function isStructuredEntry(entry: AgentEntry) {
     || !!entry.level;
 }
 
+function hasVisibleContent(entry: AgentEntry) {
+  if (entry.kind === 'context_usage' && entry.contextUsage) return true;
+  if (entry.kind === 'tool' || entry.kind === 'tool_start') return !!entry.toolName;
+  if (entry.content || entry.text || entry.detail || entry.title) return true;
+  if (entry.kind === 'status' && entry.activity && entry.activity !== 'online') return true;
+  return false;
+}
+
 export function AgentActivityFeed({
   entries,
   className,
@@ -161,13 +169,14 @@ export function AgentActivityFeed({
   className?: string;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const visible = entries.filter(hasVisibleContent);
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' });
-  }, [entries.length]);
+  }, [visible.length]);
 
   return (
     <div className={className}>
-      {entries.map((entry, index) => (
+      {visible.map((entry, index) => (
         <div
           key={index}
           className={`text-xs font-mono px-3 py-2 border ${getEntryClassName(entry)}`}
