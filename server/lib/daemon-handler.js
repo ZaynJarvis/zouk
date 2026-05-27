@@ -542,13 +542,18 @@ function createDaemonHandler(ctx) {
               console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
             }
           }
+          const visibleEntries = Array.isArray(entries)
+            ? entries.filter((e) => e.content || e.text || e.detail || e.title || e.toolName
+              || (e.kind === 'context_usage' && e.contextUsage)
+              || (e.kind === 'status' && e.activity && e.activity !== 'online'))
+            : entries;
           broadcastToWeb({
             type: "agent_activity",
             workspaceId: workspaceIdFromAgent(agentId),
             agentId,
             activity,
             detail,
-            entries,
+            entries: visibleEntries,
             contextUsage,
           });
         });
