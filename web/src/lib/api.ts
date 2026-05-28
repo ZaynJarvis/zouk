@@ -315,6 +315,21 @@ export async function fetchAgentOvStatus(agentId: string): Promise<AgentOvStatus
   return res.json();
 }
 
+export interface AgentOvCreds {
+  url: string;
+  apiKey: string;
+  account: string;
+  userId: string;
+  source: 'provisioned' | 'custom' | 'env';
+}
+
+export async function fetchAgentOvCreds(agentId: string): Promise<AgentOvCreds> {
+  const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/ov/creds`;
+  const res = await fetch(url, { headers: getAuthHeaders(), cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load OV creds: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchAgentChannels(agentId: string): Promise<string[]> {
   const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/channels`;
   const res = await fetch(url, { headers: getAuthHeaders() });

@@ -99,6 +99,32 @@ function createOvMemoryRouter(ctx) {
     res.json({ enabled: !!creds, user: creds?.user || null, url: creds?.url || null, local: creds ? isLocalUrl(creds.url) : false });
   });
 
+  // Reveal the resolved OV credentials for an agent — used by the config UI's
+  // "eye toggle" to copy the URL + API key into other tools (ovcli, custom
+  // clients). Stripped from the WS broadcast payload so we don't leak the key
+  // to every workspace member; this endpoint requires the explicit fetch.
+  router.get("/agents/:id/ov/creds", requireWorkspaceRead, (req, res) => {
+    if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+      return res.status(404).json({ error: "unknown agent" });
+    }
+    const cfg = lookupAgentCfgForOv(req.params.id);
+    if (!cfg) return res.status(404).json({ error: "unknown agent" });
+    if (!isOvEnabledForAgent(cfg)) {
+      return res.status(404).json({ error: "ov_disabled" });
+    }
+    const resolved = resolveAgentOvCreds(cfg);
+    if (!resolved) {
+      return res.status(404).json({ error: "not_configured" });
+    }
+    res.json({
+      url: resolved.url,
+      apiKey: resolved.apiKey,
+      account: resolved.account,
+      userId: resolved.userId,
+      source: resolved.source,
+    });
+  });
+
   router.get("/agents/:id/ov/ls", requireWorkspaceRead, async (req, res) => {
     const agentId = req.params.id;
     if (workspaceIdFromAgent(agentId) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {

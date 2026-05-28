@@ -402,6 +402,8 @@ export default function AgentConfigForm({
               ovCustomConfigured: persistedOvCustomConfigured,
               ovUserId: savedConfig?.openvikingUserId,
               ovCustomValid,
+              agentId: agent.id,
+              provisionedUrl: savedConfig?.openvikingUrl ?? null,
             }}
           />
         </div>
