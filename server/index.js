@@ -28,6 +28,7 @@ const { createOvProxy } = require("./ov-proxy");
 const { createPromptTemplateEngine } = require("./prompt-templates");
 const { generateToolDefinitions } = require("./tool-definitions");
 const { createOvLifecycleManager } = require("./ov-lifecycle");
+const { fetchOvTools, callOvTool, invalidateSession: invalidateOvMcpSession } = require("./ov-mcp-proxy");
 const { AgentDeliveryRouter } = require("./notifications/agentDeliveryRouter");
 const { DEFAULT_WORKSPACE_ID, allocateWorkspaceId, normalizeWorkspaceId } = require("./workspaceIds");
 const {
@@ -2277,7 +2278,7 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 // For now this endpoint is a stub — it will delegate to the existing internal
 // routes or handle tools directly as Phase 2 progresses.
 
-app.post("/api/agent/:agentId/tool/:toolName", (req, res) => {
+app.post("/api/agent/:agentId/tool/:toolName", async (req, res) => {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: "Missing agent token" });
@@ -2287,16 +2288,30 @@ app.post("/api/agent/:agentId/tool/:toolName", (req, res) => {
     return res.status(403).json({ error: "Token does not match agent" });
   }
 
-  const { toolName } = req.params;
+  const { agentId, toolName } = req.params;
   const { input } = req.body || {};
 
-  // TODO: Phase 2 — implement tool dispatch. For now return not-implemented
-  // so daemon development can proceed against the endpoint contract.
-  res.status(501).json({
-    error: "Tool proxy not yet implemented",
-    tool: toolName,
-    hint: "This endpoint will handle tool calls from the daemon's MCP proxy. Use /internal/agent/:agentId/* endpoints for now.",
-  });
+  // Forward to OV /mcp tools/call with the agent's OV creds.
+  const cfg = agentConfigs.find((c) => c.id === agentId);
+  if (!cfg?.openvikingApiKey) {
+    return res.status(404).json({ error: "OV not configured for this agent" });
+  }
+  const creds = {
+    url: cfg.openvikingUrl || OPENVIKING_URL,
+    apiKey: cfg.openvikingApiKey,
+    account: decodeOvKey(cfg.openvikingApiKey).account || OPENVIKING_ACCOUNT || "",
+    user: cfg.openvikingUserId || "",
+    agentId,
+  };
+  if (!creds.url) return res.status(500).json({ error: "OV URL not configured" });
+
+  try {
+    const result = await callOvTool(creds, toolName, input || {});
+    res.json(result);
+  } catch (err) {
+    invalidateOvMcpSession(creds);
+    res.status(500).json({ error: err.message, content: [{ type: "text", text: `Error: ${err.message}` }] });
+  }
 });
 
 // ─── Web API: for the frontend ────────────────────────────────────
@@ -2510,7 +2525,7 @@ const agentLifecycle = createAgentLifecycle({
   broadcastToWeb, workspaceIdFromAgent,
   saveAgentConfigs,
   PUBLIC_URL,
-  promptEngine, generateToolDefinitions,
+  promptEngine, generateToolDefinitions, fetchOvTools,
   profilePresets, seedAgentIntoRegularChannels,
   pendingContextResets,
   ovLifecycle,

@@ -102,16 +102,9 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
     },
   ];
 
-  // OV tools (optional, for agents with explicit OV access)
-  if (hasOv) {
-    allTools.push(
-      { name: "ov_search", description: "Search memories and knowledge by semantic query.", inputSchema: { type: "object", properties: { query: { type: "string" }, scope: { type: "string", description: "user, agent, or resources" } }, required: ["query"] } },
-      { name: "ov_read", description: "Read the full content of a memory by URI.", inputSchema: { type: "object", properties: { uri: { type: "string", description: "viking:// URI" } }, required: ["uri"] } },
-      { name: "ov_list", description: "List entries in a memory directory.", inputSchema: { type: "object", properties: { uri: { type: "string" }, recursive: { type: "boolean" } }, required: ["uri"] } },
-      { name: "ov_store", description: "Store a new memory entry.", inputSchema: { type: "object", properties: { role: { type: "string" }, content: { type: "string" } }, required: ["content"] } },
-      { name: "ov_forget", description: "Delete a memory entry.", inputSchema: { type: "object", properties: { uri: { type: "string" } }, required: ["uri"] } },
-    );
-  }
+  // OV tools are injected by the caller (server/index.js) from OV's /mcp
+  // tools/list — not hard-coded here, so the agent sees OV's full native tool
+  // set (find/search/read/list/remember/etc.) instead of zouk-specific stubs.
 
   // Filter to requested tool names if specified
   if (tools) {

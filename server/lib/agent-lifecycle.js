@@ -32,7 +32,7 @@ function createAgentLifecycle(ctx) {
       broadcastToWeb, workspaceIdFromAgent,
       saveAgentConfigs,
       PUBLIC_URL,
-      promptEngine, generateToolDefinitions,
+      promptEngine, generateToolDefinitions, fetchOvTools,
       profilePresets, seedAgentIntoRegularChannels,
       pendingContextResets,
       ovLifecycle,
@@ -193,9 +193,19 @@ function createAgentLifecycle(ctx) {
     if (isOvMcpEnabledForAgent(config)) daemonConfig.ovMcpEnabled = true;
     if (config.customLauncher) daemonConfig.customLauncher = config.customLauncher;
 
-    // v2: generate tool definitions and assembled prompt for daemon
+    // v2: generate tool definitions (chat tools) + inject OV tools from /mcp
     const hasOv = !!daemonOv;
     const toolDefs = generateToolDefinitions({ tools: null, hasOv });
+    if (hasOv && fetchOvTools) {
+      try {
+        const ovTools = await fetchOvTools(daemonOv);
+        for (const t of ovTools) {
+          if (!toolDefs.some((existing) => existing.name === t.name)) toolDefs.push(t);
+        }
+      } catch (err) {
+        console.warn(`[ov-mcp] fetchOvTools failed for ${id}: ${err.message}`);
+      }
+    }
     const { assembled: systemPromptV2, sections: promptSections } = promptEngine.assemble({
       name: daemonConfig.name,
       displayName: daemonConfig.displayName,
@@ -204,7 +214,7 @@ function createAgentLifecycle(ctx) {
       instructions: config.description || config.systemPrompt || "",
       toolDefinitions: toolDefs.filter((t) => !t.local),
       hasOv,
-      hasOvTools: hasOv && toolDefs.some((t) => t.name.startsWith("ov_")),
+      hasOvTools: hasOv,
     });
 
     // OV startup context injection for managed agents (best-effort, non-blocking start)
