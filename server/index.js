@@ -2305,8 +2305,11 @@ app.post("/api/agent/:agentId/tool/:toolName", async (req, res) => {
   };
   if (!creds.url) return res.status(500).json({ error: "OV URL not configured" });
 
+  // Strip the `openviking_` namespace prefix before forwarding to OV /mcp.
+  const ovToolName = toolName.startsWith("openviking_") ? toolName.slice("openviking_".length) : toolName;
+
   try {
-    const result = await callOvTool(creds, toolName, input || {});
+    const result = await callOvTool(creds, ovToolName, input || {});
     res.json(result);
   } catch (err) {
     invalidateOvMcpSession(creds);

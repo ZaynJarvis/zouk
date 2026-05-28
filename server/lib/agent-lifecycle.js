@@ -200,7 +200,10 @@ function createAgentLifecycle(ctx) {
       try {
         const ovTools = await fetchOvTools(daemonOv);
         for (const t of ovTools) {
-          if (!toolDefs.some((existing) => existing.name === t.name)) toolDefs.push(t);
+          // Namespace OV tools to avoid collisions with chat tools and to make
+          // the source obvious in the agent's tool list.
+          const prefixed = { ...t, name: `openviking_${t.name}` };
+          if (!toolDefs.some((existing) => existing.name === prefixed.name)) toolDefs.push(prefixed);
         }
       } catch (err) {
         console.warn(`[ov-mcp] fetchOvTools failed for ${id}: ${err.message}`);
