@@ -58,7 +58,6 @@ Update status as you progress. Mark done only when fully complete.`,
     content: `## Workspace
 
 You have a persistent workspace directory that survives across sessions.
-Read MEMORY.md on startup for context from previous sessions.
 Use the notes/ directory for working documents that persist across sessions.`,
   },
   {
