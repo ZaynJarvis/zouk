@@ -148,6 +148,9 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
           timeout: 15000,
         });
       }
+      // After every capture, fire-and-forget a threshold-gated commit so
+      // long conversations archive incrementally without waiting for stop.
+      this.autoCommit(agentId).catch(() => {});
     },
 
     // Auto-commit: commit OV session if pending tokens exceed threshold.
@@ -247,10 +250,19 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       return `<openviking-context source="startup">\n${parts.join("\n")}\n</openviking-context>`;
     },
 
-    // Commit the agent's session (on stop/idle).
+    // Force-commit the agent's session (on stop/idle). Unlike autoCommit
+    // which gates on a token threshold for high-frequency writes, this
+    // bypasses the threshold so a stopping agent always flushes pending
+    // turns to an archive.
     async commitSession(agentId) {
+      const sessionId = deriveSessionId(agentId);
       try {
-        await this.autoCommit(agentId);
+        const res = await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
+          method: "POST",
+          body: JSON.stringify({}),
+          timeout: 30000,
+        });
+        if (res) console.log(`[ov-lifecycle] force-committed session ${sessionId} for ${agentId}`);
       } catch (err) {
         console.warn(`[ov-lifecycle] commitSession ${agentId}: ${err.message}`);
       }
