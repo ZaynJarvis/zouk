@@ -2017,22 +2017,28 @@ function setWebPresence(ws, msg = {}) {
   ws._human = human;
 }
 
-function deliverToAgent(agentId, message) {
+async function deliverToAgent(agentId, message) {
   const ws = daemonSockets.get(agentId);
   if (ws && ws.readyState === 1) {
     const seq = nextSeq();
     const formatted = formatMessageForAgent(message, agentId);
 
-    // OV managed lifecycle: auto-recall + user message capture (skip for native agents)
+    // OV managed lifecycle: send auto-recall context BEFORE agent:deliver so
+    // daemon's pendingDeliveries already has it. Race-free even if daemon's
+    // wait window is short. Capped at 1.5s — beyond that, deliver without
+    // context rather than blocking the message.
     const agentCfg = agentConfigs.find((c) => c.id === agentId);
     if (agentCfg?.openvikingApiKey && message.content && !isOvPluginForAgent(agentCfg)) {
-      ovLifecycle.autoRecall(agentId, message.content).then((ovContext) => {
-        if (!ovContext) return;
-        try {
-          ws.send(JSON.stringify({ type: "agent:deliver:context", agentId, seq, ovContext }));
-        } catch { /* best-effort */ }
-      }).catch(() => {});
       ovLifecycle.autoCapture(agentId, message.content, null).catch(() => {});
+      try {
+        const ovContext = await Promise.race([
+          ovLifecycle.autoRecall(agentId, message.content),
+          new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+        ]);
+        if (ovContext && ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "agent:deliver:context", agentId, seq, ovContext }));
+        }
+      } catch { /* best-effort */ }
     }
 
     let payload;

@@ -38,9 +38,15 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
 
   async function ovFetch(agentId, path, opts = {}) {
     const creds = getAgentOvCreds(agentId);
-    if (!creds?.apiKey) return null;
+    if (!creds?.apiKey) {
+      console.warn(`[ov-lifecycle] ${agentId} skip ${path}: no apiKey`);
+      return null;
+    }
     const baseUrl = (creds.url || resolveOvUrl(agentId))?.replace(/\/+$/, "");
-    if (!baseUrl) return null;
+    if (!baseUrl) {
+      console.warn(`[ov-lifecycle] ${agentId} skip ${path}: no baseUrl`);
+      return null;
+    }
 
     const url = `${baseUrl}${path}`;
     const headers = {
@@ -54,7 +60,11 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
 
     try {
       const res = await fetch(url, { method: opts.method || "GET", headers, body: opts.body, signal: AbortSignal.timeout(opts.timeout || 10000) });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.warn(`[ov-lifecycle] ${agentId} ${path} → ${res.status}: ${body.slice(0, 200)}`);
+        return null;
+      }
       return await res.json();
     } catch (err) {
       console.warn(`[ov-lifecycle] ${agentId} ${path}: ${err.message}`);

@@ -182,15 +182,20 @@ function createOvMemoryRouter(ctx) {
   });
 
   router.get("/agents/:id/ov/ls", requireWorkspaceRead, async (req, res) => {
-    if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
+    const agentId = req.params.id;
+    if (workspaceIdFromAgent(agentId) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
       return res.status(404).json({ error: "unknown agent" });
     }
-    const cfg = lookupAgentCfgForOv(req.params.id);
+    const cfg = lookupAgentCfgForOv(agentId);
     if (cfg && !isOvEnabledForAgent(cfg)) {
-      return res.status(403).json({ error: "ov_disabled", agentId: req.params.id });
+      console.warn(`[ov/ls] ${agentId} ov_disabled (no env creds + no per-agent override)`);
+      return res.status(403).json({ error: "ov_disabled", agentId });
     }
-    const creds = resolveOvCredentials(req.params.id);
-    if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
+    const creds = resolveOvCredentials(agentId);
+    if (!creds) {
+      console.warn(`[ov/ls] ${agentId} no creds (openvikingApiKey=${cfg?.openvikingApiKey ? "set" : "missing"}, openvikingUrl=${cfg?.openvikingUrl || "missing"})`);
+      return res.status(404).json({ error: "OV not configured for this agent" });
+    }
     if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
     const uri = req.query.uri || `viking://user/${creds.user || creds.agentId}/`;
     try {
@@ -201,8 +206,10 @@ function createOvMemoryRouter(ctx) {
         isDir: !!e.is_dir || !!e.isDir,
         abstract: e.abstract,
       }));
+      console.log(`[ov/ls] ${agentId} uri=${uri} → ${entries.length} entries`);
       res.json({ entries });
     } catch (e) {
+      console.warn(`[ov/ls] ${agentId} uri=${uri} failed: ${e.message}`);
       res.status(500).json({ error: e.message });
     }
   });

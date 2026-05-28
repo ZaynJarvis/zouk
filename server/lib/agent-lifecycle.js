@@ -148,9 +148,12 @@ function createAgentLifecycle(ctx) {
           ovApiKey = res.user_key;
           ovUserId = res.user_id;
           ovUrl = provCreds.url; // pin the URL this key was minted under.
+          console.log(`[ov] provisioned key for ${id} (user=${ovUserId}, source=${provCreds.source})`);
         } catch (err) {
           console.warn(`[ov] provisioning failed for ${id} (source=${provCreds.source}): ${err.message}`);
         }
+      } else if (!provCreds) {
+        console.warn(`[ov] no provisioning creds for ${id} (workspace=${workspaceId})`);
       }
       const effectiveUrl = ovUrl || provCreds?.url || null;
       if (ovApiKey && effectiveUrl) {
@@ -164,6 +167,9 @@ function createAgentLifecycle(ctx) {
           apiKey: ovApiKey,
         };
         ovUrl = effectiveUrl; // make sure it gets persisted below.
+        console.log(`[ov] daemon creds ready for ${id} (url=${effectiveUrl}, user=${ovUserId})`);
+      } else {
+        console.warn(`[ov] no daemon creds for ${id} (ovApiKey=${ovApiKey ? "set" : "missing"}, url=${effectiveUrl || "missing"})`);
       }
     }
 
