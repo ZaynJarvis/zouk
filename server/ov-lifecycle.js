@@ -93,24 +93,41 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
         return null;
       }
 
+      // OV /api/v1/search/find: body = { query, target_uri?, limit, score_threshold }.
+      // Response = { status, result: { memories, resources, skills, total } } where
+      // each list entry is a MatchedContext { uri, context_type, abstract, score, ... }.
+      // Omitting target_uri lets OV default-scope to the user's own namespace.
       const body = JSON.stringify({
         query: messageContent.slice(0, 500),
-        scope: ["user", "agent"],
         limit: RECALL_LIMIT,
-        threshold: RECALL_SCORE_THRESHOLD,
+        score_threshold: RECALL_SCORE_THRESHOLD,
       });
       const result = await ovFetch(agentId, "/api/v1/search/find", { method: "POST", body });
-      if (!result?.result?.items?.length) {
-        console.log(`[ov-recall] ${agentId} 0 items (API ${result ? "ok" : "fail"})`);
+      if (!result?.result) {
+        console.log(`[ov-recall] ${agentId} 0 items (API ${result ? "ok-empty" : "fail"})`);
         return null;
       }
 
-      const rawCount = result.result.items.length;
-      const items = result.result.items
-        .filter((item) => item.score >= RECALL_SCORE_THRESHOLD)
+      const memories = Array.isArray(result.result.memories) ? result.result.memories : [];
+      const resources = Array.isArray(result.result.resources) ? result.result.resources : [];
+      const skills = Array.isArray(result.result.skills) ? result.result.skills : [];
+      const all = [
+        ...memories.map((m) => ({ ...m, _kind: "memory" })),
+        ...resources.map((r) => ({ ...r, _kind: "resource" })),
+        ...skills.map((s) => ({ ...s, _kind: "skill" })),
+      ];
+      const rawCount = all.length;
+      if (rawCount === 0) {
+        console.log(`[ov-recall] ${agentId} 0 items (API ok, total=${result.result.total || 0})`);
+        return null;
+      }
+
+      const items = all
+        .filter((item) => (item.score ?? 0) >= RECALL_SCORE_THRESHOLD)
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
         .slice(0, RECALL_LIMIT);
       if (items.length === 0) {
-        const topScore = result.result.items[0]?.score?.toFixed(2);
+        const topScore = all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0]?.score?.toFixed(2);
         console.log(`[ov-recall] ${agentId} 0 items above ${RECALL_SCORE_THRESHOLD} (raw=${rawCount}, top=${topScore})`);
         return null;
       }
@@ -119,14 +136,15 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       let tokenBudget = RECALL_TOKEN_BUDGET;
       const lines = [];
       for (const item of items) {
-        const content = item.abstract || item.uri;
+        const content = item.abstract || item.overview || item.uri;
         const tokens = Math.ceil(content.length / 4);
+        const kind = item.context_type || item._kind || "memory";
         if (tokenBudget <= 0) {
-          lines.push(`- [${item.type || "memory"} ${Math.round(item.score * 100)}%] ${item.uri}`);
+          lines.push(`- [${kind} ${Math.round(item.score * 100)}%] ${item.uri}`);
           continue;
         }
         tokenBudget -= tokens;
-        lines.push(`- [${item.type || "memory"} ${Math.round(item.score * 100)}%] ${content}`);
+        lines.push(`- [${kind} ${Math.round(item.score * 100)}%] ${content}`);
       }
 
       return `<openviking-context source="auto-recall">\nRelevant context from OpenViking.\n${lines.join("\n")}\n</openviking-context>`;
