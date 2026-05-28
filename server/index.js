@@ -416,6 +416,7 @@ function agentPayload(agentId) {
     ovMcpEnabled: isOvMcpEnabledForAgent(cfg),
     ovMcpEnabledIsDefault: typeof cfg.ovMcpEnabled !== 'boolean',
     ovMcpDefault: ovMcpDefaultForRuntime(cfg.runtime || a.runtime),
+    disableLocalOvPlugin: cfg.disableLocalOvPlugin !== false,
   };
 }
 
@@ -435,6 +436,7 @@ function sanitizedAgentConfigs() {
     ovMcpEnabled: isOvMcpEnabledForAgent(rest),
     ovMcpEnabledIsDefault: typeof rest.ovMcpEnabled !== 'boolean',
     ovMcpDefault: ovMcpDefaultForRuntime(rest.runtime),
+    disableLocalOvPlugin: rest.disableLocalOvPlugin !== false,
   }));
 }
 

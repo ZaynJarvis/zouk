@@ -51,6 +51,8 @@ export default function AgentConfigForm({
   const persistedOvMcpEnabledResolved = typeof agent.ovMcpEnabled === 'boolean' ? agent.ovMcpEnabled : false;
   const persistedOvMcpIsDefault = agent.ovMcpEnabledIsDefault !== false;
   const persistedOvMcpDefault = !!agent.ovMcpDefault;
+  // Default true (the column default). Only an explicit false counts as opt-out.
+  const persistedDisableLocalOvPlugin = savedConfig?.disableLocalOvPlugin !== false;
   const machine = agent.machineId ? machines?.find((m) => m.id === agent.machineId) : undefined;
   const machineLabel = machine?.alias || machine?.hostname || agent.machineId;
 
@@ -74,6 +76,7 @@ export default function AgentConfigForm({
   const [ovCustomApiKeyDirty, setOvCustomApiKeyDirty] = useState(false);
   const persistedCustomLauncher = savedConfig?.customLauncher ?? '';
   const [customLauncher, setCustomLauncher] = useState<string>(persistedCustomLauncher);
+  const [disableLocalOvPlugin, setDisableLocalOvPlugin] = useState<boolean>(persistedDisableLocalOvPlugin);
   const pictureInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -154,6 +157,7 @@ export default function AgentConfigForm({
     ovMode !== 'custom' ||
     (ovCustomUrl.trim().length > 0 && (persistedOvCustomConfigured || ovCustomApiKey.length > 0));
   const customLauncherDirty = customLauncher.trim() !== (persistedCustomLauncher ?? '').trim();
+  const disableLocalOvPluginDirty = disableLocalOvPlugin !== persistedDisableLocalOvPlugin;
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
@@ -161,7 +165,8 @@ export default function AgentConfigForm({
     model !== persistedModel ||
     envVarsDirty ||
     ovDirty ||
-    customLauncherDirty;
+    customLauncherDirty ||
+    disableLocalOvPluginDirty;
 
   const handleSave = () => {
     if (!ovCustomValid) return;
@@ -177,6 +182,9 @@ export default function AgentConfigForm({
     };
     if (customLauncherDirty) {
       payload.customLauncher = customLauncher.trim() || null;
+    }
+    if (disableLocalOvPluginDirty) {
+      payload.disableLocalOvPlugin = disableLocalOvPlugin;
     }
     if (ovDirty) {
       if (ovEnabledDirty) {
@@ -369,6 +377,8 @@ export default function AgentConfigForm({
             onCustomLauncherBlur={refreshModels}
             envVars={envVars}
             onEnvVarsChange={setEnvVars}
+            disableLocalOvPlugin={disableLocalOvPlugin}
+            onDisableLocalOvPluginChange={setDisableLocalOvPlugin}
             ov={{
               mode: 'config',
               runtime: agent.runtime || '',

@@ -20,6 +20,7 @@ export interface CreateAgentConfig {
   openvikingEnabled?: boolean;
   openvikingUseAgentNameAsUser?: boolean;
   ovMcpEnabled?: boolean;
+  disableLocalOvPlugin?: boolean;
   customLauncher?: string;
   envVars?: Record<string, string>;
 }
@@ -76,6 +77,7 @@ export default function CreateAgentDialog({
   const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState(false);
   const [customLauncher, setCustomLauncher] = useState('');
   const [envVars, setEnvVars] = useState<Record<string, string>>({});
+  const [disableLocalOvPlugin, setDisableLocalOvPlugin] = useState(true);
 
   const { ovRuntimeWhitelist, ovMcpRuntimeWhitelist } = useApp();
   const OV_INSTALL_COMMANDS: Record<string, string> = {
@@ -142,6 +144,10 @@ export default function CreateAgentDialog({
       ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
       ...(ovMcpEnabledOverride === null ? {} : { ovMcpEnabled: ovMcpEnabledOverride }),
       ...(effectiveOvEnabled && ovUseAgentNameAsUser ? { openvikingUseAgentNameAsUser: true } : {}),
+      // Only send the opt-out — server defaults disableLocalOvPlugin=true and
+      // the column matches, so sending true is a no-op that would just clutter
+      // the payload.
+      ...(disableLocalOvPlugin ? {} : { disableLocalOvPlugin: false }),
       ...(customLauncher.trim() ? { customLauncher: customLauncher.trim() } : {}),
       ...(Object.keys(envVars).length > 0 ? { envVars } : {}),
     });
@@ -339,6 +345,8 @@ export default function CreateAgentDialog({
             onCustomLauncherBlur={refreshModels}
             envVars={envVars}
             onEnvVarsChange={setEnvVars}
+            disableLocalOvPlugin={disableLocalOvPlugin}
+            onDisableLocalOvPluginChange={setDisableLocalOvPlugin}
             ov={{
               mode: 'create',
               runtime,

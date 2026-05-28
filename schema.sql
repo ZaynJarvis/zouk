@@ -152,6 +152,11 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_use_agent_name_as_
 -- NULL means "follow the runtime default (OV_MCP_RUNTIME_WHITELIST)"; boolean
 -- is an explicit per-agent override for OV MCP server injection.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS ov_mcp_enabled BOOLEAN;
+-- When true (default), daemon injects env vars that mute any locally-installed
+-- OV plugin in the spawned agent. Prevents the host's personal OV config from
+-- bleeding into managed-agent contexts. Set false on a per-agent basis to let
+-- the local plugin run alongside the server-driven OV integration.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS disable_local_ov_plugin BOOLEAN NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

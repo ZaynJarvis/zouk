@@ -131,6 +131,7 @@ function createAgentConfigRouter(ctx) {
       openvikingUseAgentNameAsUser: incomingUseAgentNameAsUser,
       ovMcpEnabled: incomingOvMcpEnabled,
       ovLifecycleMode: incomingOvLifecycleMode,
+      disableLocalOvPlugin: incomingDisableLocalOvPlugin,
       customLauncher: incomingLauncher,
       ...rest
     } = updates;
@@ -171,6 +172,12 @@ function createAgentConfigRouter(ctx) {
       delete merged.ovLifecycleMode;
     } else if (incomingOvLifecycleMode === 'managed' || incomingOvLifecycleMode === 'plugin') {
       merged.ovLifecycleMode = incomingOvLifecycleMode;
+    }
+
+    // disableLocalOvPlugin: boolean — default true (disable host's plugin).
+    // Anything other than an explicit false is treated as true.
+    if (typeof incomingDisableLocalOvPlugin === 'boolean') {
+      merged.disableLocalOvPlugin = incomingDisableLocalOvPlugin;
     }
 
     // openvikingMode: clamp to known values; default unchanged.

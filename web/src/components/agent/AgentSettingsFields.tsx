@@ -26,6 +26,9 @@ export interface AgentSettingsFieldsProps {
   envVars: Record<string, string>;
   onEnvVarsChange: (v: Record<string, string>) => void;
 
+  disableLocalOvPlugin: boolean;
+  onDisableLocalOvPluginChange: (v: boolean) => void;
+
   ov: OvSectionProps;
 }
 
@@ -36,6 +39,7 @@ export default function AgentSettingsFields(props: AgentSettingsFieldsProps) {
     model, onModelChange, modelOptions, modelsLoading, customModel, onCustomModelChange,
     customLauncher, onCustomLauncherChange, onCustomLauncherBlur,
     envVars, onEnvVarsChange,
+    disableLocalOvPlugin, onDisableLocalOvPluginChange,
     ov,
   } = props;
 
@@ -192,6 +196,21 @@ export default function AgentSettingsFields(props: AgentSettingsFieldsProps) {
                   />
                 </ZkField>
               )}
+
+              {/* Local OV plugin */}
+              <ZkField
+                label="Host OV plugin"
+                hint="The agent's host machine may have a personal OpenViking plugin installed. Disable keeps server-managed OV the single source of truth; allow lets the local plugin run alongside it."
+              >
+                <ZkSegmentedControl
+                  value={disableLocalOvPlugin ? 'disable' : 'allow'}
+                  onChange={(v) => onDisableLocalOvPluginChange(v === 'disable')}
+                  options={[
+                    { value: 'disable', label: 'Disable (default)' },
+                    { value: 'allow', label: 'Allow' }
+                  ]}
+                />
+              </ZkField>
 
               {/* Environment variables */}
               <ZkField

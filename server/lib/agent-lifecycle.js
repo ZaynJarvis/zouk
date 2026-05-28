@@ -217,6 +217,9 @@ function createAgentLifecycle(ctx) {
       };
     }
     if (isOvMcpEnabledForAgent(config)) daemonConfig.ovMcpEnabled = true;
+    // Mute any host-installed OV plugin in the spawned agent process unless
+    // the agent has explicitly opted out of this protection.
+    daemonConfig.disableLocalOvPlugin = config.disableLocalOvPlugin !== false;
     if (config.customLauncher) daemonConfig.customLauncher = config.customLauncher;
 
     // v2: generate tool definitions (chat tools) + inject OV tools from /mcp
@@ -300,6 +303,11 @@ function createAgentLifecycle(ctx) {
       }
       if (typeof config.ovMcpEnabled === 'boolean') {
         persisted.ovMcpEnabled = config.ovMcpEnabled;
+      }
+      // Default true; only persist false (the opt-out) explicitly. true is
+      // already the column default so leaving it off keeps the row compact.
+      if (config.disableLocalOvPlugin === false) {
+        persisted.disableLocalOvPlugin = false;
       }
       if (config.openvikingUseAgentNameAsUser === true) {
         persisted.openvikingUseAgentNameAsUser = true;
