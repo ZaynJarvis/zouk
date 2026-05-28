@@ -169,18 +169,23 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     // Mirrors the CC plugin's SessionStart injection for managed agents.
     async getStartupContext(agentId) {
       const parts = [];
+      // OV URIs are namespaced per user — must include the user_id segment.
+      const userId = getAgentOvCreds(agentId)?.userId;
+      if (!userId) return null;
+      const userBase = `viking://user/${userId}`;
+      const profileUri = `${userBase}/memories/profile.md`;
 
-      // 1. User profile
-      const profile = await ovFetch(agentId, `/api/v1/content/read?uri=viking://user/memories/profile.md&level=l2`, { timeout: 8000 });
-      if (profile?.result?.content) {
-        const profileText = profile.result.content;
+      // 1. User profile — OV REST shape: { status: "ok", result: <string> }
+      const profile = await ovFetch(agentId, `/api/v1/content/read?uri=${encodeURIComponent(profileUri)}`, { timeout: 8000 });
+      const profileText = typeof profile?.result === "string" ? profile.result : "";
+      if (profileText) {
         const tokens = estimateTokens(profileText);
         if (tokens <= STARTUP_PROFILE_BUDGET) {
-          parts.push(`<user-profile uri="${profile.result.uri || "viking://user/memories/profile.md"}">\n${profileText}\n</user-profile>`);
+          parts.push(`<user-profile uri="${profileUri}">\n${profileText}\n</user-profile>`);
         } else {
           const lines = profileText.split("\n");
           const head = lines.slice(0, 8).join("\n");
-          parts.push(`<user-profile uri="${profile.result.uri || "viking://user/memories/profile.md"}">\n${head}\n... [profile truncated]\n</user-profile>`);
+          parts.push(`<user-profile uri="${profileUri}">\n${head}\n... [profile truncated]\n</user-profile>`);
         }
       }
 
@@ -189,20 +194,22 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       const listingLines = [];
       for (const dir of ["preferences", "entities"]) {
         if (budget <= 0) break;
-        const listing = await ovFetch(agentId, `/api/v1/fs/ls?uri=viking://user/memories/${dir}/&recursive=true`, { timeout: 8000 });
-        if (!listing?.result?.entries?.length) continue;
-        const dirLine = `  viking://user/memories/${dir}/`;
+        const dirUri = `${userBase}/memories/${dir}/`;
+        const listing = await ovFetch(agentId, `/api/v1/fs/ls?uri=${encodeURIComponent(dirUri)}&recursive=true`, { timeout: 8000 });
+        const items = Array.isArray(listing?.result) ? listing.result : [];
+        if (items.length === 0) continue;
+        const dirLine = `  ${dirUri}`;
         listingLines.push(dirLine);
         budget -= estimateTokens(dirLine);
         let shown = 0;
-        for (const entry of listing.result.entries) {
+        for (const entry of items) {
           if (budget <= 0) {
-            const remaining = listing.result.entries.length - shown;
+            const remaining = items.length - shown;
             if (remaining > 0) listingLines.push(`    ... +${remaining} more`);
             break;
           }
           const abstract = entry.abstract ? ` — ${entry.abstract.slice(0, 200)}` : "";
-          const line = `    - ${entry.name || entry.uri}${abstract}`;
+          const line = `    - ${entry.uri}${abstract}`;
           budget -= estimateTokens(line);
           listingLines.push(line);
           shown++;

@@ -200,10 +200,12 @@ function createOvMemoryRouter(ctx) {
     const uri = req.query.uri || `viking://user/${creds.user || creds.agentId}/`;
     try {
       const data = await ovHttpList(creds, uri);
-      const raw = data?.result?.entries ?? data?.entries ?? [];
+      // OV REST shape: { status: "ok", result: OvLsEntry[] }
+      // OvLsEntry: { uri, size, isDir, modTime, abstract? }
+      const raw = Array.isArray(data?.result) ? data.result : [];
       const entries = raw.map((e) => ({
-        uri: e.uri || e.name,
-        isDir: !!e.is_dir || !!e.isDir,
+        uri: e.uri,
+        isDir: !!e.isDir,
         abstract: e.abstract,
       }));
       console.log(`[ov/ls] ${agentId} uri=${uri} → ${entries.length} entries`);

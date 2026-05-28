@@ -854,15 +854,17 @@ function createDaemonHandler(ctx) {
           const uri = msg.uri || "viking://";
           ctx.ovHttpList(ovCreds, uri)
             .then((data) => {
-              const raw = data?.result?.entries ?? data?.entries ?? [];
+              const raw = Array.isArray(data?.result) ? data.result : [];
               const entries = raw.map((e) => ({
-                uri: e.uri || e.name,
-                isDir: !!e.is_dir || !!e.isDir,
+                uri: e.uri,
+                isDir: !!e.isDir,
                 abstract: e.abstract,
               }));
+              console.log(`[memory:list] ${request.agentId} uri=${uri} → ${entries.length} entries`);
               broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries });
             })
             .catch((e) => {
+              console.warn(`[memory:list] ${request.agentId} uri=${uri} failed: ${e.message}`);
               broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries: [], error: e.message });
             });
         } else {
