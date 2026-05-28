@@ -2930,6 +2930,18 @@ function reconcileAgentsWithConfigs() {
   seedMessages.sort((a, b) => a.seq - b.seq);
   rebuildDeliveryRoutingWindows(seedMessages);
 
+  // Boot-time OV session sweep: every offline agent that has OV creds gets
+  // a force-commit so any conversation pending from a previous crashed run
+  // (server killed / daemon died / power loss) rolls into an archive
+  // instead of sitting forever in the in-flight buffer.
+  let sweepCount = 0;
+  for (const cfg of agentConfigs) {
+    if (!cfg.openvikingApiKey || isOvPluginForAgent(cfg)) continue;
+    ovLifecycle.commitSession(cfg.id).catch(() => {});
+    sweepCount++;
+  }
+  if (sweepCount > 0) console.log(`[ov] boot sweep: force-commit ${sweepCount} OV session(s)`);
+
   server.listen(PORT, () => {
     console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);
     console.log(`\n  Daemon endpoint:  ws://localhost:${PORT}/daemon/connect?key=test`);

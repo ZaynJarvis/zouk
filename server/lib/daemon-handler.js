@@ -170,6 +170,12 @@ function createDaemonHandler(ctx) {
           clearAgentRuntimeBinding(agentId, ws);
           broadcastAgentStatus(agentId, "inactive", agentWorkspaceId);
         }
+        // Daemon crashed/disconnected without sending agent:status inactive —
+        // force a session commit so pending turns don't sit in OV's buffer.
+        const agentCfg = agentConfigs.find((c) => c.id === agentId);
+        if (agentCfg?.openvikingApiKey && !ctx.isOvPluginForAgent(agentCfg)) {
+          ctx.ovLifecycle.commitSession(agentId).catch(() => {});
+        }
       }
       // Daemon swap on the same machine: another daemon authenticated with the
       // same api key is still online, so reuse the existing autoStart path to

@@ -173,6 +173,15 @@ function createAgentLifecycle(ctx) {
       }
     }
 
+    // Force-commit any leftover pending session from a previous run before
+    // we (re)start this agent. Catches the case where the prior daemon
+    // crashed mid-conversation and never sent inactive — content was sitting
+    // in OV's pending buffer and would only roll into an archive on next
+    // turn's auto-commit threshold.
+    if (daemonOv && !isOvPluginForAgent(config) && ovLifecycle) {
+      ovLifecycle.commitSession(id).catch(() => {});
+    }
+
     // Issue a stable per-agent token. For new agents, DB persistence is
     // deferred until after saveAgentConfig to satisfy the FK constraint.
     const isNewAgent = !agentConfigs.some((c) => c.id === id);
