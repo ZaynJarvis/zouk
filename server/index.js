@@ -2029,7 +2029,12 @@ async function deliverToAgent(agentId, message) {
     // context rather than blocking the message.
     const agentCfg = agentConfigs.find((c) => c.id === agentId);
     if (agentCfg?.openvikingApiKey && message.content && !isOvPluginForAgent(agentCfg)) {
-      ovLifecycle.autoCapture(agentId, message.content, null).catch(() => {});
+      ovLifecycle.autoCapture(agentId, message.content, null, {
+        channelName: message.channelName,
+        channelType: message.channelType,
+        threadId: message.threadId,
+        senderName: message.senderName,
+      }).catch(() => {});
       try {
         const ovContext = await Promise.race([
           ovLifecycle.autoRecall(agentId, message.content),

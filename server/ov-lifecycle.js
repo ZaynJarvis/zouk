@@ -34,6 +34,18 @@ function estimateTokens(text) {
   return Math.ceil(count);
 }
 
+// Format a channel tag for capture content prefix:
+//   channel  → [#engineering]
+//   dm       → [dm:@user-xpwo]
+//   thread   → [#engineering:thr-abc]
+function formatChannelTag(meta) {
+  if (!meta?.channelName) return "";
+  const isDm = meta.channelType === "dm";
+  const base = isDm ? `dm:${meta.channelName.replace(/^dm:/, "")}` : `#${meta.channelName}`;
+  const thread = meta.threadId ? `:${meta.threadId}` : "";
+  return `[${base}${thread}]`;
+}
+
 function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
 
   async function ovFetch(agentId, path, opts = {}) {
@@ -109,22 +121,30 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     },
 
     // Auto-capture: log a conversation turn to OV session.
-    async autoCapture(agentId, userMessage, agentResponse) {
+    // `meta` carries the message context (channel + sender) so the captured
+    // content is self-describing — agent at recall time can tell which
+    // conversation/channel/sender a memory came from.
+    async autoCapture(agentId, userMessage, agentResponse, meta = {}) {
       const sessionId = deriveSessionId(agentId);
       const cleanUser = stripInjectedBlocks(userMessage);
       const cleanAgent = stripInjectedBlocks(agentResponse);
+      const channelTag = formatChannelTag(meta);
 
       if (cleanUser) {
+        const sender = meta.senderName ? `@${meta.senderName}` : "user";
+        const content = `${channelTag} ${sender}: ${cleanUser}`.trim();
         await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
           method: "POST",
-          body: JSON.stringify({ role: "user", content: cleanUser }),
+          body: JSON.stringify({ role: "user", content }),
           timeout: 15000,
         });
       }
       if (cleanAgent) {
+        const sender = meta.agentName ? `@${meta.agentName}` : "assistant";
+        const content = `${channelTag} ${sender}: ${cleanAgent}`.trim();
         await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
           method: "POST",
-          body: JSON.stringify({ role: "assistant", content: cleanAgent }),
+          body: JSON.stringify({ role: "assistant", content }),
           timeout: 15000,
         });
       }
