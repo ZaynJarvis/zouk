@@ -26,6 +26,7 @@ function createAgentLifecycle(ctx) {
       validateCustomLauncher, decodeOvKey,
       isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvPluginForAgent,
       resolveProvisioningCreds, resolveInitialOvUserId,
+      resolveAgentOvCreds,
       OPENVIKING_URL, OPENVIKING_ACCOUNT,
       provisionAgentKey,
       buildRuntimeAgent, agentPayload, sanitizedAgentConfigs,
@@ -117,27 +118,11 @@ function createAgentLifecycle(ctx) {
       console.log(`[ov] skipping creds for ${id} (runtime=${runtime}, openvikingEnabled=false)`);
       // Leave ovApiKey alone — DB-persisted keys for previously-enabled agents
       // remain latent so flipping the toggle back on doesn't require re-provision.
-    } else if (ovMode === 'custom') {
-      // User provides url + api key directly. Account/user are decoded from the
-      // new-format key (or left blank — OV server can derive from key).
-      if (config.openvikingCustomUrl && config.openvikingCustomApiKey) {
-        const decoded = decodeOvKey(config.openvikingCustomApiKey);
-        daemonOv = {
-          url: config.openvikingCustomUrl,
-          account: decoded.account || '',
-          userId: decoded.user || ovUserId,
-          apiKey: config.openvikingCustomApiKey,
-        };
-      }
-      // else: missing creds — daemon falls back to its local ovcli.conf, same as
-      // when provisioning was never enabled.
-    } else {
-      // Provisioned mode: resolve workspace > env creds, then lazily mint a
-      // per-agent key on first start (covers both new agents and existing
-      // keyless ones). Best-effort: if the OV admin call fails the agent
-      // still starts and the daemon falls back to its local ovcli.conf.
+    } else if (ovMode === 'provisioned' && !ovApiKey) {
+      // Provisioned mode without a key yet — mint one. (Custom mode brings its
+      // own URL+key, and existing provisioned agents already have a key.)
       const provCreds = resolveProvisioningCreds(workspaceId);
-      if (!ovApiKey && provCreds) {
+      if (provCreds) {
         try {
           const res = await provisionAgentKey({
             url: provCreds.url,
@@ -152,24 +137,35 @@ function createAgentLifecycle(ctx) {
         } catch (err) {
           console.warn(`[ov] provisioning failed for ${id} (source=${provCreds.source}): ${err.message}`);
         }
-      } else if (!provCreds) {
+      } else {
         console.warn(`[ov] no provisioning creds for ${id} (workspace=${workspaceId})`);
       }
-      const effectiveUrl = ovUrl || provCreds?.url || null;
-      if (ovApiKey && effectiveUrl) {
-        // Prefer the account encoded into the agent's own key (survives admin
-        // key rotation within the same account); fall back to provisioner's.
-        const decodedAccount = decodeOvKey(ovApiKey).account;
+    }
+
+    // Resolve effective creds via the shared mode-aware resolver — same path
+    // the runtime proxy + lifecycle use, so what we hand to the daemon matches
+    // what those will reach for. Pass a synthetic config that reflects any
+    // freshly-minted key (which isn't persisted to `config` yet).
+    if (ovEnabled) {
+      const synthetic = {
+        ...config,
+        id,
+        openvikingApiKey: ovApiKey || config.openvikingApiKey || null,
+        openvikingUrl: ovUrl || config.openvikingUrl || null,
+        openvikingUserId: ovUserId || config.openvikingUserId || null,
+      };
+      const resolved = resolveAgentOvCreds(synthetic);
+      if (resolved) {
         daemonOv = {
-          url: effectiveUrl,
-          account: decodedAccount || provCreds?.account || OPENVIKING_ACCOUNT || '',
-          userId: ovUserId,
-          apiKey: ovApiKey,
+          url: resolved.url,
+          account: resolved.account,
+          userId: resolved.userId,
+          apiKey: resolved.apiKey,
         };
-        ovUrl = effectiveUrl; // make sure it gets persisted below.
-        console.log(`[ov] daemon creds ready for ${id} (url=${effectiveUrl}, user=${ovUserId})`);
+        ovUrl = resolved.url; // make sure it gets persisted below.
+        console.log(`[ov] daemon creds ready for ${id} (source=${resolved.source}, url=${resolved.url}, user=${resolved.userId})`);
       } else {
-        console.warn(`[ov] no daemon creds for ${id} (ovApiKey=${ovApiKey ? "set" : "missing"}, url=${effectiveUrl || "missing"})`);
+        console.warn(`[ov] no daemon creds for ${id} (mode=${ovMode}, hasKey=${!!ovApiKey})`);
       }
     }
 

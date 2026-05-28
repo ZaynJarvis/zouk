@@ -4,7 +4,6 @@
 // object passed to createOvMemoryRouter(). No implicit closure captures.
 
 const { Router } = require("express");
-const fs = require("fs");
 const ovApi = require("../ov-api");
 
 function createOvMemoryRouter(ctx) {
@@ -15,76 +14,27 @@ function createOvMemoryRouter(ctx) {
     agentConfigs, store,
     DEFAULT_WORKSPACE_ID,
     workspaceIdFromAgent,
-    isOvEnabledForAgent, decodeOvKey, deriveOvUserId,
-    OPENVIKING_URL, OPENVIKING_ACCOUNT,
+    isOvEnabledForAgent,
+    resolveAgentOvCreds,
   } = ctx;
 
   // ─── Helpers ──────────────────────────────────────────────────────
 
+  // Adapter over the shared mode-aware resolver. ov-memory's routes historically
+  // returned `user` (not `userId`) and exposed an `agentId` field — keep that
+  // shape for daemon-handler consumers that still read it.
   function resolveOvCredentials(agentId) {
-    const config = agentConfigs.find((c) => c.id === agentId);
-    if (!config) return null;
-
-    const mode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
-    const agentName = config.name || agentId;
-
-    if (mode === 'custom' && config.openvikingCustomUrl && config.openvikingCustomApiKey) {
-      const decoded = decodeOvKey(config.openvikingCustomApiKey);
-      return {
-        url: config.openvikingCustomUrl.replace(/\/+$/, ""),
-        apiKey: config.openvikingCustomApiKey,
-        user: decoded.user || config.openvikingUserId || deriveOvUserId(agentId),
-        account: decoded.account || "",
-        agentId: agentName,
-      };
-    }
-
-    if (mode === 'provisioned' && config.openvikingApiKey) {
-      // URL pinning: keys live on the URL they were minted under. Order:
-      //   1. config.openvikingUrl — set at provision time post this PR.
-      //   2. OPENVIKING_URL env — legacy fallback for keys minted before
-      //      per-agent pinning existed (all pre-PR data lands here).
-      // Account: decoded from the agent's own key so a previously-minted key
-      // remains readable even if a workspace's admin key rotates within the
-      // same account.
-      const pinnedUrl = config.openvikingUrl || OPENVIKING_URL;
-      if (pinnedUrl) {
-        const decodedAccount = decodeOvKey(config.openvikingApiKey).account;
-        return {
-          url: pinnedUrl.replace(/\/+$/, ""),
-          apiKey: config.openvikingApiKey,
-          user: config.openvikingUserId || deriveOvUserId(agentId),
-          account: decodedAccount || OPENVIKING_ACCOUNT || "",
-          agentId: agentName,
-        };
-      }
-    }
-
-    // Fallback: check envVars (agents with explicit OPENVIKING_* env vars)
-    const ev = config.envVars;
-    if (!ev) return null;
-    let url = ev.OPENVIKING_URL;
-    let apiKey = ev.OPENVIKING_API_KEY;
-    let user = ev.OPENVIKING_USER || "";
-    let account = ev.OPENVIKING_ACCOUNT || "";
-    let agentIdVal = ev.OPENVIKING_AGENT_ID || "";
-
-    if (!url || !apiKey) {
-      if (ev.OPENVIKING_CLI_CONFIG_FILE) {
-        try {
-          const raw = JSON.parse(fs.readFileSync(ev.OPENVIKING_CLI_CONFIG_FILE, "utf8"));
-          if (raw.url && raw.api_key) {
-            url = url || raw.url;
-            apiKey = apiKey || raw.api_key;
-            user = user || raw.user || "";
-            account = account || raw.account || "";
-            agentIdVal = agentIdVal || raw.agent_id || "";
-          }
-        } catch { /* config file not accessible from server */ }
-      }
-    }
-    if (!url || !apiKey) return null;
-    return { url: url.replace(/\/+$/, ""), apiKey, user, account, agentId: agentIdVal };
+    const cfg = agentConfigs.find((c) => c.id === agentId);
+    if (!cfg) return null;
+    const resolved = resolveAgentOvCreds(cfg);
+    if (!resolved) return null;
+    return {
+      url: resolved.url,
+      apiKey: resolved.apiKey,
+      user: resolved.userId,
+      account: resolved.account,
+      agentId: cfg.name || agentId,
+    };
   }
 
   function isLocalUrl(urlStr) {

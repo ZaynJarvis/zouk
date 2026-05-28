@@ -28,6 +28,7 @@ const { createOvProxy } = require("./ov-proxy");
 const { createPromptTemplateEngine } = require("./prompt-templates");
 const { generateToolDefinitions } = require("./tool-definitions");
 const { createOvLifecycleManager } = require("./ov-lifecycle");
+const { makeResolveAgentOvCreds } = require("./ov-creds");
 const { fetchOvTools, callOvTool, invalidateSession: invalidateOvMcpSession } = require("./ov-mcp-proxy");
 const { AgentDeliveryRouter } = require("./notifications/agentDeliveryRouter");
 const { DEFAULT_WORKSPACE_ID, allocateWorkspaceId, normalizeWorkspaceId } = require("./workspaceIds");
@@ -1702,11 +1703,20 @@ const agentAuth = createAgentAuthStore({ db });
 const promptEngine = createPromptTemplateEngine({
   sectionsFilePath: path.join(__dirname, "..", "data", "prompt-sections.json"),
 });
+// Single mode-aware resolver: returns the agent's effective OV creds whether
+// it's in 'custom' (user-supplied URL+key) or 'provisioned' (server-minted)
+// mode. All runtime paths that hit OV must go through this — the proxy, the
+// lifecycle manager, the tool endpoint, and the memory panel.
+const resolveAgentOvCreds = makeResolveAgentOvCreds({
+  decodeOvKey, deriveOvUserId, OPENVIKING_URL, OPENVIKING_ACCOUNT,
+});
+function getAgentOvCredsById(agentId) {
+  return resolveAgentOvCreds(agentConfigs.find((c) => c.id === agentId));
+}
+
 const ovLifecycle = createOvLifecycleManager({
   getAgentOvCreds(agentId) {
-    const cfg = agentConfigs.find((c) => c.id === agentId);
-    if (!cfg) return null;
-    return { apiKey: cfg.openvikingApiKey || null, url: cfg.openvikingUrl || null, account: cfg.openvikingApiKey ? (decodeOvKey(cfg.openvikingApiKey).account || OPENVIKING_ACCOUNT || "") : "", userId: cfg.openvikingUserId || "" };
+    return getAgentOvCredsById(agentId);
   },
   resolveOvUrl(agentId) {
     const cfg = agentConfigs.find((c) => c.id === agentId);
@@ -2216,14 +2226,7 @@ app.get("/health", (req, res) => {
 app.use("/ov", createOvProxy({
   agentAuth,
   getAgentOvCreds(agentId) {
-    const cfg = agentConfigs.find((c) => c.id === agentId);
-    if (!cfg) return null;
-    return {
-      apiKey: cfg.openvikingApiKey || null,
-      url: cfg.openvikingUrl || null,
-      account: cfg.openvikingApiKey ? (decodeOvKey(cfg.openvikingApiKey).account || OPENVIKING_ACCOUNT || "") : "",
-      userId: cfg.openvikingUserId || "",
-    };
+    return getAgentOvCredsById(agentId);
   },
   resolveOvUrl(workspaceId) {
     const creds = resolveProvisioningCreds(workspaceId);
@@ -2315,16 +2318,17 @@ app.post("/api/agent/:agentId/tool/:toolName", async (req, res) => {
   const { agentId, toolName } = req.params;
   const { input } = req.body || {};
 
-  // Forward to OV /mcp tools/call with the agent's OV creds.
-  const cfg = agentConfigs.find((c) => c.id === agentId);
-  if (!cfg?.openvikingApiKey) {
+  // Forward to OV /mcp tools/call with the agent's OV creds. Mode-aware:
+  // custom-mode agents bring their own URL+key, provisioned use server-minted.
+  const resolved = getAgentOvCredsById(agentId);
+  if (!resolved?.apiKey || !resolved?.url) {
     return res.status(404).json({ error: "OV not configured for this agent" });
   }
   const creds = {
-    url: cfg.openvikingUrl || OPENVIKING_URL,
-    apiKey: cfg.openvikingApiKey,
-    account: decodeOvKey(cfg.openvikingApiKey).account || OPENVIKING_ACCOUNT || "",
-    user: cfg.openvikingUserId || "",
+    url: resolved.url,
+    apiKey: resolved.apiKey,
+    account: resolved.account,
+    user: resolved.userId,
     agentId,
   };
   if (!creds.url) return res.status(500).json({ error: "OV URL not configured" });
@@ -2509,8 +2513,8 @@ const ovMemory = createOvMemoryRouter({
   agentConfigs, store,
   DEFAULT_WORKSPACE_ID,
   workspaceIdFromAgent,
-  isOvEnabledForAgent, decodeOvKey, deriveOvUserId,
-  OPENVIKING_URL, OPENVIKING_ACCOUNT,
+  isOvEnabledForAgent,
+  resolveAgentOvCreds,
 });
 const {
   resolveOvCredentials, isLocalUrl, ovHttpList,
@@ -2547,6 +2551,7 @@ const agentLifecycle = createAgentLifecycle({
   validateCustomLauncher, decodeOvKey,
   isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvPluginForAgent,
   resolveProvisioningCreds, resolveInitialOvUserId,
+  resolveAgentOvCreds,
   OPENVIKING_URL, OPENVIKING_ACCOUNT,
   provisionAgentKey,
   buildRuntimeAgent, agentPayload, sanitizedAgentConfigs,
