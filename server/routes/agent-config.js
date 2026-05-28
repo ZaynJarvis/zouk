@@ -229,6 +229,13 @@ function createAgentConfigRouter(ctx) {
     const { id } = req.params;
     const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
     if (workspaceIdFromAgent(id) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
+    // Commit before deleting the config — otherwise the daemon's later
+    // inactive event arrives at a config-less agent and the commit is
+    // skipped, losing the last conversation segment.
+    const dyingCfg = agentConfigs.find((c) => c.id === id);
+    if (ctx.ovLifecycle && dyingCfg?.openvikingApiKey) {
+      ctx.ovLifecycle.commitSession(id).catch(() => {});
+    }
     ctx.sendAgentStop(id);
     const idx = agentConfigs.findIndex((c) => c.id === id);
     if (idx >= 0) {

@@ -36,6 +36,15 @@ function createDaemonHandler(ctx) {
 
   process.on("SIGTERM", async () => {
     console.log("[server] SIGTERM received — shutting down gracefully");
+    // Force-commit OV sessions for all OV-enabled agents so in-flight
+    // turns don't sit in the pending buffer until next boot.
+    try {
+      const targets = agentConfigs.filter((c) => c.openvikingApiKey && !ctx.isOvPluginForAgent(c));
+      if (targets.length > 0) {
+        console.log(`[ov] shutdown sweep: force-commit ${targets.length} OV session(s)`);
+        await Promise.allSettled(targets.map((c) => ctx.ovLifecycle.commitSession(c.id)));
+      }
+    } catch { /* best-effort */ }
     server.close(async () => {
       await db.closePool();
       process.exit(0);

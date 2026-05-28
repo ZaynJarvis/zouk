@@ -2520,6 +2520,7 @@ const agentConfigModule = createAgentConfigRouter({
   validateCustomLauncher, isOvEnabledForAgent, isOvPluginForAgent, isPersistentMachineId,
   profilePresets, PROFILE_PRESET_MAX,
   generateApiKey, now,
+  ovLifecycle,
 });
 const { syncRuntimeAgentFromConfig } = agentConfigModule;
 app.use("/api", agentConfigModule.router);
