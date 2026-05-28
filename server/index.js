@@ -2034,6 +2034,9 @@ async function deliverToAgent(agentId, message) {
         channelType: message.channelType,
         threadId: message.threadId,
         senderName: message.senderName,
+        senderType: message.senderType || "human",
+        messageId: message.id,
+        timestamp: message.createdAt,
       }).catch(() => {});
       try {
         const recallStart = Date.now();

@@ -34,16 +34,26 @@ function estimateTokens(text) {
   return Math.ceil(count);
 }
 
-// Format a channel tag for capture content prefix:
-//   channel  → [#engineering]
-//   dm       → [dm:@user-xpwo]
-//   thread   → [#engineering:thr-abc]
-function formatChannelTag(meta) {
-  if (!meta?.channelName) return "";
-  const isDm = meta.channelType === "dm";
-  const base = isDm ? `dm:${meta.channelName.replace(/^dm:/, "")}` : `#${meta.channelName}`;
-  const thread = meta.threadId ? `:${meta.threadId}` : "";
-  return `[${base}${thread}]`;
+// Format the message header for the OV capture content. Mirrors the
+// daemon's per-message prefix so that recalled memories read like the
+// agent's own conversation log:
+//   [target=#engineering msg=abcd1234 time=2026-05-20T15:49:20Z type=human]
+//   [target=dm:@user-xpwo:thr-abc msg=... time=... type=agent]
+function formatMessageHeader(meta) {
+  if (!meta) return "";
+  const fields = [];
+
+  if (meta.channelName) {
+    const isDm = meta.channelType === "dm";
+    const base = isDm ? `dm:${meta.channelName.replace(/^dm:/, "")}` : `#${meta.channelName}`;
+    const thread = meta.threadId ? `:${meta.threadId}` : "";
+    fields.push(`target=${base}${thread}`);
+  }
+  if (meta.messageId) fields.push(`msg=${String(meta.messageId).slice(0, 8)}`);
+  if (meta.timestamp) fields.push(`time=${meta.timestamp}`);
+  if (meta.senderType) fields.push(`type=${meta.senderType}`);
+
+  return fields.length ? `[${fields.join(" ")}]` : "";
 }
 
 const ovApi = require("./ov-api");
@@ -150,18 +160,19 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       const sessionId = deriveSessionId(agentId);
       const cleanUser = stripInjectedBlocks(userMessage);
       const cleanAgent = stripInjectedBlocks(agentResponse);
-      const channelTag = formatChannelTag(meta);
 
       if (cleanUser) {
+        const header = formatMessageHeader({ ...meta, senderType: meta.senderType || "human" });
         const sender = meta.senderName ? `@${meta.senderName}` : "user";
-        const content = `${channelTag} ${sender}: ${cleanUser}`.trim();
+        const content = `${header} ${sender}: ${cleanUser}`.trim();
         await safeCall(agentId, "append user msg", () =>
           ovApi.appendSessionMessage(creds, sessionId, { role: "user", content, timeout: 15000 })
         );
       }
       if (cleanAgent) {
+        const header = formatMessageHeader({ ...meta, senderType: meta.senderType || "agent" });
         const sender = meta.agentName ? `@${meta.agentName}` : "assistant";
-        const content = `${channelTag} ${sender}: ${cleanAgent}`.trim();
+        const content = `${header} ${sender}: ${cleanAgent}`.trim();
         await safeCall(agentId, "append assistant msg", () =>
           ovApi.appendSessionMessage(creds, sessionId, { role: "assistant", content, timeout: 15000 })
         );

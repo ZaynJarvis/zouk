@@ -65,6 +65,9 @@ function createAgentInternalRouter(ctx) {
         channelType: msg.channelType,
         threadId: msg.threadId,
         agentName: senderName,
+        senderType: "agent",
+        messageId: msg.id,
+        timestamp: msg.createdAt,
       }).catch(() => {});
     }
 
