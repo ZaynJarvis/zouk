@@ -34,7 +34,8 @@ function getEntryClassName(entry: AgentEntry) {
     if (entry.activity === 'error') return 'bg-nc-red/10 text-nc-red border-nc-red/30';
     if (entry.activity === 'thinking') return 'bg-nc-yellow/10 text-nc-yellow border-nc-yellow/30';
     if (entry.activity === 'working') return 'bg-nc-green/10 text-nc-green border-nc-green/30';
-    if (entry.activity === 'online') return 'bg-nc-cyan/10 text-nc-cyan border-nc-cyan/30';
+    if (entry.activity === 'online' || entry.activity === 'idle') return 'bg-nc-green/10 text-nc-green border-nc-green/30';
+    if (entry.activity === 'sleep') return 'bg-nc-muted/10 text-nc-muted border-nc-muted/30';
   }
   if (entry.kind === 'tool' || entry.kind === 'tool_start') {
     return 'bg-nc-green/10 text-nc-green border-nc-green/30';
@@ -159,7 +160,7 @@ function hasVisibleContent(entry: AgentEntry) {
   if (entry.kind === 'context_usage' && entry.contextUsage) return true;
   if (entry.kind === 'tool' || entry.kind === 'tool_start') return !!entry.toolName;
   if (entry.content || entry.text || entry.detail || entry.title) return true;
-  if (entry.kind === 'status' && entry.activity && entry.activity !== 'online') return true;
+  if (entry.kind === 'status' && entry.activity && entry.activity !== 'online' && entry.activity !== 'idle') return true;
   return false;
 }
 

@@ -543,7 +543,7 @@ function createDaemonHandler(ctx) {
           const visibleEntries = Array.isArray(entries)
             ? entries.filter((e) => e.content || e.text || e.detail || e.title || e.toolName
               || (e.kind === 'context_usage' && e.contextUsage)
-              || (e.kind === 'status' && e.activity && e.activity !== 'online'))
+              || (e.kind === 'status' && e.activity && e.activity !== 'online' && e.activity !== 'idle'))
             : entries;
           broadcastToWeb({
             type: "agent_activity",

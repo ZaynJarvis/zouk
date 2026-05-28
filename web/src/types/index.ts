@@ -137,7 +137,7 @@ export interface RuntimeConfig {
   envVars?: Record<string, string>;
 }
 
-export type AgentActivity = 'thinking' | 'working' | 'online' | 'offline' | 'error';
+export type AgentActivity = 'thinking' | 'working' | 'online' | 'idle' | 'sleep' | 'offline' | 'error';
 export type AgentLifecycleStatus = 'active' | 'inactive' | 'stopping';
 
 export interface AgentContextUsageModel {
