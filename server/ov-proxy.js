@@ -41,12 +41,14 @@ function createOvProxy({ agentAuth, getAgentOvCreds, resolveOvUrl }) {
   async function proxyRequest(req, res) {
     const agent = resolveAgent(req);
     if (!agent) {
+      console.warn(`[ov-proxy] ${req.method} ${req.originalUrl} → 401 (no agent for token)`);
       return res.status(401).json({ error: "Cannot resolve OV credentials for this agent" });
     }
 
     // Build target URL: strip /ov prefix, forward to OV server
     const ovPath = req.originalUrl.replace(/^\/ov/, "");
     const targetUrl = `${agent.ovUrl}${ovPath}`;
+    console.log(`[ov-proxy] ${agent.agentId} ${req.method} ${ovPath} → ${agent.ovUrl}`);
 
     const headers = { ...req.headers };
     // Replace auth headers
@@ -70,6 +72,9 @@ function createOvProxy({ agentAuth, getAgentOvCreds, resolveOvUrl }) {
       }
 
       const upstream = await fetch(targetUrl, fetchOpts);
+      if (upstream.status >= 400) {
+        console.warn(`[ov-proxy] ${agent.agentId} ${req.method} ${ovPath} ← ${upstream.status}`);
+      }
 
       // Forward status + content-type
       res.status(upstream.status);

@@ -88,7 +88,10 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     // Auto-recall: search OV for context relevant to an incoming message.
     // Returns formatted context block or null.
     async autoRecall(agentId, messageContent) {
-      if (!messageContent || messageContent.length < 3) return null;
+      if (!messageContent || messageContent.length < 3) {
+        console.log(`[ov-recall] ${agentId} skip (content len=${messageContent?.length || 0})`);
+        return null;
+      }
 
       const body = JSON.stringify({
         query: messageContent.slice(0, 500),
@@ -97,12 +100,21 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
         threshold: RECALL_SCORE_THRESHOLD,
       });
       const result = await ovFetch(agentId, "/api/v1/search/find", { method: "POST", body });
-      if (!result?.result?.items?.length) return null;
+      if (!result?.result?.items?.length) {
+        console.log(`[ov-recall] ${agentId} 0 items (API ${result ? "ok" : "fail"})`);
+        return null;
+      }
 
+      const rawCount = result.result.items.length;
       const items = result.result.items
         .filter((item) => item.score >= RECALL_SCORE_THRESHOLD)
         .slice(0, RECALL_LIMIT);
-      if (items.length === 0) return null;
+      if (items.length === 0) {
+        const topScore = result.result.items[0]?.score?.toFixed(2);
+        console.log(`[ov-recall] ${agentId} 0 items above ${RECALL_SCORE_THRESHOLD} (raw=${rawCount}, top=${topScore})`);
+        return null;
+      }
+      console.log(`[ov-recall] ${agentId} ${items.length} items (raw=${rawCount}, top=${items[0].score.toFixed(2)})`);
 
       let tokenBudget = RECALL_TOKEN_BUDGET;
       const lines = [];

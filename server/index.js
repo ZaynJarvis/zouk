@@ -2036,14 +2036,22 @@ async function deliverToAgent(agentId, message) {
         senderName: message.senderName,
       }).catch(() => {});
       try {
+        const recallStart = Date.now();
+        let timedOut = false;
         const ovContext = await Promise.race([
           ovLifecycle.autoRecall(agentId, message.content),
-          new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+          new Promise((resolve) => setTimeout(() => { timedOut = true; resolve(null); }, 1500)),
         ]);
+        const dur = Date.now() - recallStart;
         if (ovContext && ws.readyState === 1) {
           ws.send(JSON.stringify({ type: "agent:deliver:context", agentId, seq, ovContext }));
+          console.log(`[ov-deliver] ${agentId} seq=${seq} context sent (${dur}ms)`);
+        } else if (timedOut) {
+          console.warn(`[ov-deliver] ${agentId} seq=${seq} autoRecall timed out (>1500ms)`);
         }
-      } catch { /* best-effort */ }
+      } catch (err) {
+        console.warn(`[ov-deliver] ${agentId} seq=${seq} autoRecall error: ${err?.message || err}`);
+      }
     }
 
     let payload;

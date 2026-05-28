@@ -204,7 +204,18 @@ function createAgentLifecycle(ctx) {
     if (config.envVars && typeof config.envVars === 'object') {
       daemonConfig.envVars = config.envVars;
     }
-    if (daemonOv) daemonConfig.openviking = daemonOv;
+    // Route daemon-side OV traffic through zouk-server's /ov proxy:
+    // daemon authenticates with its agent token, server swaps in the real OV
+    // creds. Daemon never needs to reach OV directly (in Docker deployments
+    // the OV container is internal-network-only).
+    if (daemonOv) {
+      daemonConfig.openviking = {
+        url: `${PUBLIC_URL.replace(/\/+$/, "")}/ov`,
+        account: daemonOv.account,
+        userId: daemonOv.userId,
+        apiKey: agentToken,
+      };
+    }
     if (isOvMcpEnabledForAgent(config)) daemonConfig.ovMcpEnabled = true;
     if (config.customLauncher) daemonConfig.customLauncher = config.customLauncher;
 
