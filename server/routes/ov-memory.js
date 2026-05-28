@@ -5,6 +5,7 @@
 
 const { Router } = require("express");
 const fs = require("fs");
+const ovApi = require("../ov-api");
 
 function createOvMemoryRouter(ctx) {
   const router = Router();
@@ -94,50 +95,17 @@ function createOvMemoryRouter(ctx) {
     } catch { return false; }
   }
 
-  function ovHeaders(creds) {
-    return {
-      "Accept": "application/json",
-      "X-API-Key": creds.apiKey,
-      "X-OpenViking-Account": creds.account,
-      "X-OpenViking-User": creds.user,
-    };
-  }
-
+  // ov-api expects a `user` field; resolveOvCredentials already emits that
+  // shape — these thin wrappers exist so existing consumers
+  // (daemon-handler) keep their familiar names without each one needing to
+  // know the new module.
   async function ovHttpList(creds, uri, recursive = false) {
-    const params = new URLSearchParams({ uri });
-    if (recursive) params.set("recursive", "true");
-    const res = await fetch(`${creds.url}/api/v1/fs/ls?${params}`, {
-      headers: ovHeaders(creds),
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
-    }
-    return await res.json();
+    const entries = await ovApi.lsDir(creds, uri, { recursive });
+    return { status: "ok", result: entries };
   }
 
   async function ovHttpReadContent(creds, uri, level) {
-    const endpoint = level === "l0" ? "abstract" : level === "l1" ? "overview" : "read";
-    const res = await fetch(`${creds.url}/api/v1/content/${endpoint}?uri=${encodeURIComponent(uri)}`, {
-      headers: ovHeaders(creds),
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
-    }
-    const ct = res.headers.get("content-type") || "";
-    if (ct.includes("application/json")) {
-      const data = await res.json();
-      const r = data.result;
-      if (typeof r === "string") return r;
-      if (r && typeof r === "object") {
-        return r.content ?? r.text ?? r.markdown ?? r.abstract ?? r.overview ?? r.summary ?? JSON.stringify(r, null, 2);
-      }
-      return data.content ?? data.text ?? data.markdown ?? data.abstract ?? data.overview ?? data.summary ?? "";
-    }
-    return await res.text();
+    return ovApi.readContent(creds, uri, level);
   }
 
   function parseOvListResult(text, parentUri) {

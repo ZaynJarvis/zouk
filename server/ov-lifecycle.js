@@ -46,40 +46,34 @@ function formatChannelTag(meta) {
   return `[${base}${thread}]`;
 }
 
+const ovApi = require("./ov-api");
+
 function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
 
-  async function ovFetch(agentId, path, opts = {}) {
-    const creds = getAgentOvCreds(agentId);
-    if (!creds?.apiKey) {
-      console.warn(`[ov-lifecycle] ${agentId} skip ${path}: no apiKey`);
+  // Resolve agent creds in the shape ov-api expects, or null if the agent
+  // isn't ready (no api key, no url). All lifecycle methods are best-effort
+  // and silently return null/early on failure — they run inside the message
+  // delivery hot path and must not throw upstream.
+  function resolveCreds(agentId) {
+    const c = getAgentOvCreds(agentId);
+    if (!c?.apiKey) {
+      console.warn(`[ov-lifecycle] ${agentId} skip: no apiKey`);
       return null;
     }
-    const baseUrl = (creds.url || resolveOvUrl(agentId))?.replace(/\/+$/, "");
-    if (!baseUrl) {
-      console.warn(`[ov-lifecycle] ${agentId} skip ${path}: no baseUrl`);
+    const url = c.url || resolveOvUrl(agentId);
+    if (!url) {
+      console.warn(`[ov-lifecycle] ${agentId} skip: no url`);
       return null;
     }
+    return { url, apiKey: c.apiKey, account: c.account, user: c.userId, agent: agentId };
+  }
 
-    const url = `${baseUrl}${path}`;
-    const headers = {
-      "Authorization": `Bearer ${creds.apiKey}`,
-      "X-OpenViking-Account": creds.account || "",
-      "X-OpenViking-User": creds.userId || "",
-      "X-OpenViking-Agent": agentId,
-      "Content-Type": "application/json",
-      ...opts.headers,
-    };
-
+  async function safeCall(agentId, label, fn) {
     try {
-      const res = await fetch(url, { method: opts.method || "GET", headers, body: opts.body, signal: AbortSignal.timeout(opts.timeout || 10000) });
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        console.warn(`[ov-lifecycle] ${agentId} ${path} → ${res.status}: ${body.slice(0, 200)}`);
-        return null;
-      }
-      return await res.json();
+      return await fn();
     } catch (err) {
-      console.warn(`[ov-lifecycle] ${agentId} ${path}: ${err.message}`);
+      const status = err?.status ? ` (${err.status})` : "";
+      console.warn(`[ov-lifecycle] ${agentId} ${label}${status}: ${err.message}`);
       return null;
     }
   }
@@ -92,43 +86,39 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
         console.log(`[ov-recall] ${agentId} skip (content len=${messageContent?.length || 0})`);
         return null;
       }
+      const creds = resolveCreds(agentId);
+      if (!creds) return null;
 
-      // OV /api/v1/search/find: body = { query, target_uri?, limit, score_threshold }.
-      // Response = { status, result: { memories, resources, skills, total } } where
-      // each list entry is a MatchedContext { uri, context_type, abstract, score, ... }.
-      // Omitting target_uri lets OV default-scope to the user's own namespace.
-      const body = JSON.stringify({
-        query: messageContent.slice(0, 500),
-        limit: RECALL_LIMIT,
-        score_threshold: RECALL_SCORE_THRESHOLD,
-      });
-      const result = await ovFetch(agentId, "/api/v1/search/find", { method: "POST", body });
-      if (!result?.result) {
-        console.log(`[ov-recall] ${agentId} 0 items (API ${result ? "ok-empty" : "fail"})`);
+      const result = await safeCall(agentId, "search/find", () =>
+        ovApi.searchFind(creds, {
+          query: messageContent.slice(0, 500),
+          limit: RECALL_LIMIT,
+          scoreThreshold: RECALL_SCORE_THRESHOLD,
+          timeout: 10000,
+        })
+      );
+      if (!result) {
+        console.log(`[ov-recall] ${agentId} 0 items (API fail)`);
         return null;
       }
 
-      const memories = Array.isArray(result.result.memories) ? result.result.memories : [];
-      const resources = Array.isArray(result.result.resources) ? result.result.resources : [];
-      const skills = Array.isArray(result.result.skills) ? result.result.skills : [];
       const all = [
-        ...memories.map((m) => ({ ...m, _kind: "memory" })),
-        ...resources.map((r) => ({ ...r, _kind: "resource" })),
-        ...skills.map((s) => ({ ...s, _kind: "skill" })),
+        ...result.memories.map((m) => ({ ...m, _kind: "memory" })),
+        ...result.resources.map((r) => ({ ...r, _kind: "resource" })),
+        ...result.skills.map((s) => ({ ...s, _kind: "skill" })),
       ];
       const rawCount = all.length;
       if (rawCount === 0) {
-        console.log(`[ov-recall] ${agentId} 0 items (API ok, total=${result.result.total || 0})`);
+        console.log(`[ov-recall] ${agentId} 0 items (API ok, total=${result.total})`);
         return null;
       }
 
+      all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
       const items = all
         .filter((item) => (item.score ?? 0) >= RECALL_SCORE_THRESHOLD)
-        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
         .slice(0, RECALL_LIMIT);
       if (items.length === 0) {
-        const topScore = all.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0]?.score?.toFixed(2);
-        console.log(`[ov-recall] ${agentId} 0 items above ${RECALL_SCORE_THRESHOLD} (raw=${rawCount}, top=${topScore})`);
+        console.log(`[ov-recall] ${agentId} 0 items above ${RECALL_SCORE_THRESHOLD} (raw=${rawCount}, top=${all[0]?.score?.toFixed(2)})`);
         return null;
       }
       console.log(`[ov-recall] ${agentId} ${items.length} items (raw=${rawCount}, top=${items[0].score.toFixed(2)})`);
@@ -155,6 +145,8 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     // content is self-describing — agent at recall time can tell which
     // conversation/channel/sender a memory came from.
     async autoCapture(agentId, userMessage, agentResponse, meta = {}) {
+      const creds = resolveCreds(agentId);
+      if (!creds) return;
       const sessionId = deriveSessionId(agentId);
       const cleanUser = stripInjectedBlocks(userMessage);
       const cleanAgent = stripInjectedBlocks(agentResponse);
@@ -163,20 +155,16 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       if (cleanUser) {
         const sender = meta.senderName ? `@${meta.senderName}` : "user";
         const content = `${channelTag} ${sender}: ${cleanUser}`.trim();
-        await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
-          method: "POST",
-          body: JSON.stringify({ role: "user", content }),
-          timeout: 15000,
-        });
+        await safeCall(agentId, "append user msg", () =>
+          ovApi.appendSessionMessage(creds, sessionId, { role: "user", content, timeout: 15000 })
+        );
       }
       if (cleanAgent) {
         const sender = meta.agentName ? `@${meta.agentName}` : "assistant";
         const content = `${channelTag} ${sender}: ${cleanAgent}`.trim();
-        await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
-          method: "POST",
-          body: JSON.stringify({ role: "assistant", content }),
-          timeout: 15000,
-        });
+        await safeCall(agentId, "append assistant msg", () =>
+          ovApi.appendSessionMessage(creds, sessionId, { role: "assistant", content, timeout: 15000 })
+        );
       }
       // After every capture, fire-and-forget a threshold-gated commit so
       // long conversations archive incrementally without waiting for stop.
@@ -185,27 +173,33 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
 
     // Auto-commit: commit OV session if pending tokens exceed threshold.
     async autoCommit(agentId) {
+      const creds = resolveCreds(agentId);
+      if (!creds) return;
       const sessionId = deriveSessionId(agentId);
-      const meta = await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}?auto_create=true`);
-      if (!meta?.result) return;
-      const pending = meta.result.pending_tokens || 0;
+      const session = await safeCall(agentId, "get session", () =>
+        ovApi.getSession(creds, sessionId, { autoCreate: true, timeout: 10000 })
+      );
+      if (!session) return;
+      const pending = session.pending_tokens || 0;
       if (pending < COMMIT_TOKEN_THRESHOLD) return;
 
       console.log(`[ov-lifecycle] Committing session ${sessionId} for ${agentId} (${pending} pending tokens)`);
-      await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
-        method: "POST",
-        body: JSON.stringify({}),
-        timeout: 30000,
-      });
+      await safeCall(agentId, "commit (threshold)", () =>
+        ovApi.commitSession(creds, sessionId, { timeout: 30000 })
+      );
     },
 
     // Session context: fetch archive overview for prompt injection on agent start.
     async getSessionContext(agentId, tokenBudget = 4000) {
+      const creds = resolveCreds(agentId);
+      if (!creds) return null;
       const sessionId = deriveSessionId(agentId);
-      const result = await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/context?token_budget=${tokenBudget}`);
-      if (!result?.result) return null;
+      const ctx = await safeCall(agentId, "session context", () =>
+        ovApi.getSessionContext(creds, sessionId, tokenBudget, { timeout: 10000 })
+      );
+      if (!ctx) return null;
 
-      const { latest_archive_overview, pre_archive_abstracts } = result.result;
+      const { latest_archive_overview, pre_archive_abstracts } = ctx;
       if (!latest_archive_overview && (!pre_archive_abstracts || pre_archive_abstracts.length === 0)) return null;
 
       const parts = [];
@@ -221,16 +215,18 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     // Startup context: profile + available memories + session archive.
     // Mirrors the CC plugin's SessionStart injection for managed agents.
     async getStartupContext(agentId) {
-      const parts = [];
-      // OV URIs are namespaced per user — must include the user_id segment.
-      const userId = getAgentOvCreds(agentId)?.userId;
+      const creds = resolveCreds(agentId);
+      if (!creds) return null;
+      const userId = creds.user;
       if (!userId) return null;
+      const parts = [];
       const userBase = `viking://user/${userId}`;
       const profileUri = `${userBase}/memories/profile.md`;
 
-      // 1. User profile — OV REST shape: { status: "ok", result: <string> }
-      const profile = await ovFetch(agentId, `/api/v1/content/read?uri=${encodeURIComponent(profileUri)}`, { timeout: 8000 });
-      const profileText = typeof profile?.result === "string" ? profile.result : "";
+      // 1. User profile
+      const profileText = await safeCall(agentId, "read profile", () =>
+        ovApi.readContent(creds, profileUri, "l2", { timeout: 8000 })
+      );
       if (profileText) {
         const tokens = estimateTokens(profileText);
         if (tokens <= STARTUP_PROFILE_BUDGET) {
@@ -248,9 +244,10 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       for (const dir of ["preferences", "entities"]) {
         if (budget <= 0) break;
         const dirUri = `${userBase}/memories/${dir}/`;
-        const listing = await ovFetch(agentId, `/api/v1/fs/ls?uri=${encodeURIComponent(dirUri)}&recursive=true`, { timeout: 8000 });
-        const items = Array.isArray(listing?.result) ? listing.result : [];
-        if (items.length === 0) continue;
+        const items = await safeCall(agentId, `ls ${dir}`, () =>
+          ovApi.lsDir(creds, dirUri, { recursive: true, timeout: 8000 })
+        );
+        if (!items?.length) continue;
         const dirLine = `  ${dirUri}`;
         listingLines.push(dirLine);
         budget -= estimateTokens(dirLine);
@@ -285,17 +282,14 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     // bypasses the threshold so a stopping agent always flushes pending
     // turns to an archive.
     async commitSession(agentId) {
+      const creds = resolveCreds(agentId);
+      if (!creds) return;
       const sessionId = deriveSessionId(agentId);
-      try {
-        const res = await ovFetch(agentId, `/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
-          method: "POST",
-          body: JSON.stringify({}),
-          timeout: 30000,
-        });
-        if (res) console.log(`[ov-lifecycle] force-committed session ${sessionId} for ${agentId}`);
-      } catch (err) {
-        console.warn(`[ov-lifecycle] commitSession ${agentId}: ${err.message}`);
-      }
+      const ok = await safeCall(agentId, "force commit", async () => {
+        await ovApi.commitSession(creds, sessionId, { timeout: 30000 });
+        return true;
+      });
+      if (ok) console.log(`[ov-lifecycle] force-committed session ${sessionId} for ${agentId}`);
     },
 
     stripInjectedBlocks,
