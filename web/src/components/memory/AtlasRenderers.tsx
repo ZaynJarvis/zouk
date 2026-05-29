@@ -390,7 +390,11 @@ function getJsonlMessage(record: JsonlRecord): JsonlMessage {
   const p = parsed as Record<string, unknown>;
   const role = String(p.role || 'message');
   const parts = Array.isArray(p.parts) ? p.parts : [];
-  const text = parts.length ? parts.map(formatJsonlPart).join('\n\n') : JSON.stringify(parsed, null, 2);
+  const text = parts.length
+    ? parts.map(formatJsonlPart).join('\n\n')
+    : typeof p.content === 'string'
+      ? p.content
+      : JSON.stringify(parsed, null, 2);
   const toolCall = text.match(/^\[tool:\s*([^\]]+)\]/);
   const toolResult = /^\[tool result\]/.test(text);
   const kind = toolResult ? 'tool-result' : role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'other';
@@ -477,6 +481,61 @@ function JsonlRow({ record, line, index }: JsonlRowProps): React.JSX.Element {
   );
 }
 
+// The zouk OV capture prefixes each message with a self-describing header:
+//   [target=#all msg=a4493c31 time=2026-05-28T10:52:28Z type=agent] @opencode: <body>
+// or, for archived tool calls: `[tool: <name>] <input>` (possibly several
+// lines). Pull the header/sender out so it can render as compact chips and the
+// remaining body can render as markdown instead of raw preformatted text.
+interface CapturedHeader {
+  target?: string;
+  senderType?: string;
+  msgId?: string;
+  time?: string;
+  sender?: string;
+}
+
+interface ParsedCapture {
+  header: CapturedHeader | null;
+  isToolCalls: boolean;
+  body: string;
+}
+
+function parseCapturedMessage(text: string): ParsedCapture {
+  const lead = text.trimStart();
+  if (/^\[tool:/i.test(lead)) {
+    return { header: null, isToolCalls: true, body: text };
+  }
+  const m = lead.match(/^\[([^\]]*)\]([\s\S]*)$/);
+  if (!m) return { header: null, isToolCalls: false, body: text };
+
+  const fields: Record<string, string> = {};
+  for (const pair of m[1].trim().split(/\s+/)) {
+    const eq = pair.indexOf('=');
+    if (eq > 0) fields[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  // Only treat as a capture header if it carries our known keys; otherwise the
+  // bracket is part of the content and we leave the body untouched.
+  if (!('target' in fields) && !('type' in fields) && !('msg' in fields)) {
+    return { header: null, isToolCalls: false, body: text };
+  }
+
+  const header: CapturedHeader = {
+    target: fields.target,
+    senderType: fields.type,
+    msgId: fields.msg,
+    time: fields.time,
+  };
+  let rest = m[2];
+  const sm = rest.match(/^\s*(@[^\s:]+):\s*([\s\S]*)$/);
+  if (sm) {
+    header.sender = sm[1];
+    rest = sm[2];
+  } else {
+    rest = rest.replace(/^\s+/, '');
+  }
+  return { header, isToolCalls: false, body: rest };
+}
+
 interface JsonlConversationMessageProps {
   record: JsonlRecord;
 }
@@ -484,20 +543,29 @@ interface JsonlConversationMessageProps {
 function JsonlConversationMessage({ record }: JsonlConversationMessageProps): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const msg = useMemo(() => getJsonlMessage(record), [record]);
-  const needsExpand = msg.text.length > JSONL_MESSAGE_PREVIEW_LIMIT;
+  const cap = useMemo(() => parseCapturedMessage(msg.text), [msg.text]);
+
+  const needsExpand = cap.body.length > JSONL_MESSAGE_PREVIEW_LIMIT;
   const body = expanded || !needsExpand
-    ? msg.text
-    : msg.text.slice(0, JSONL_MESSAGE_PREVIEW_LIMIT).trimEnd() + '…';
+    ? cap.body
+    : cap.body.slice(0, JSONL_MESSAGE_PREVIEW_LIMIT).trimEnd() + '…';
+
+  const rendered = !cap.isToolCalls ? renderMarkdown(body) : null;
 
   return (
     <article className="jsonl-msg" data-kind={msg.kind}>
       <div className="jsonl-msg-head">
         <span className="jsonl-msg-role">{msg.label}</span>
-        {msg.roleId && <span className="jsonl-msg-role-id">{msg.roleId}</span>}
+        {cap.header?.sender && <span className="jsonl-msg-sender">{cap.header.sender}</span>}
+        {cap.header?.target && <span className="jsonl-msg-chan">{cap.header.target}</span>}
+        {!cap.header?.sender && msg.roleId && <span className="jsonl-msg-role-id">{msg.roleId}</span>}
         {msg.toolName && <span className="jsonl-msg-tool">{msg.toolName}</span>}
+        {cap.isToolCalls && !msg.toolName && <span className="jsonl-msg-tool">tool calls</span>}
         <span className="jsonl-msg-line">#{msg.lineNo}</span>
       </div>
-      <pre className="jsonl-msg-text">{body || 'Empty message'}</pre>
+      {cap.isToolCalls || !rendered
+        ? <pre className="jsonl-msg-text">{body || 'Empty message'}</pre>
+        : <div className="jsonl-msg-md atlas-preview-md">{rendered}</div>}
       <div className="jsonl-msg-foot">
         {msg.time && <time dateTime={msg.time}>{formatJsonlTime(msg.time)}</time>}
         {msg.id && <span className="jsonl-msg-id">{msg.id}</span>}
