@@ -32,6 +32,17 @@ function createDaemonHandler(ctx) {
   } = ctx;
 
   const server = http.createServer(app);
+  // Node's default keepAliveTimeout (5s) is shorter than the idle-reuse window
+  // of pooled HTTP clients (undici in the daemon's chat-bridge) and any upstream
+  // proxy. When the server closes an idle keep-alive socket the client still
+  // believes is reusable, the client's next request writes onto a half-closed
+  // socket and gets an RST → surfaces as a transport-layer "fetch failed" on the
+  // first chat tool call, which then "self-heals" once the dead socket is
+  // evicted. Raise the window above any client/proxy idle timeout so the server
+  // never closes a connection out from under a peer that still wants it.
+  // headersTimeout must stay greater than keepAliveTimeout (Node requirement).
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
   const wss = new WebSocketServer({ noServer: true });
 
   process.on("SIGTERM", async () => {
