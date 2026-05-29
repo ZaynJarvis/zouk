@@ -138,16 +138,15 @@ function normalizeWorkspaceIconInput(raw, fallback = DEFAULT_WORKSPACE_ICON) {
 const OPENVIKING_URL = (process.env.OPENVIKING_URL || "").replace(/\/+$/, "") || null;
 const OPENVIKING_ROOT_KEY = process.env.OPENVIKING_ROOT_KEY || null;
 
-// Runtimes that ship a first-class OV memory plugin — used as the default
-// value of each agent's `openvikingEnabled` toggle. Users can override per
-// agent via Agent Config; this list only controls the default at creation
-// time and the `★ OV` recommendation badge in the create dialog.
-const OV_RUNTIME_WHITELIST = (process.env.OV_RUNTIME_WHITELIST || "claude,codex")
+// OV is enabled by default for EVERY runtime — no runtime gets preferential
+// treatment. Set OV_RUNTIME_DENYLIST (comma-separated) to opt specific runtimes
+// out of the default; users can still override per agent via Agent Config.
+const OV_RUNTIME_DENYLIST = (process.env.OV_RUNTIME_DENYLIST || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 function ovDefaultForRuntime(runtime) {
-  return !!runtime && OV_RUNTIME_WHITELIST.includes(runtime);
+  return !!runtime && !OV_RUNTIME_DENYLIST.includes(runtime);
 }
 // Resolves the effective ON/OFF for a given agent config. `openvikingEnabled`
 // undefined / non-boolean means "follow the runtime default" — so existing
@@ -156,22 +155,27 @@ function isOvEnabledForAgent(cfg) {
   if (cfg && typeof cfg.openvikingEnabled === "boolean") return cfg.openvikingEnabled;
   return ovDefaultForRuntime(cfg && cfg.runtime);
 }
-// Runtimes that get OV MCP server injected by default. Claude/Codex excluded
-// because the OV plugin handles it; VikingBot excluded (no MCP support).
-const OV_MCP_RUNTIME_WHITELIST = (process.env.OV_MCP_RUNTIME_WHITELIST || "hermes,coco,opencode,kimi,copilot,cursor")
+// OV MCP server is injected by default for EVERY runtime too — every agent gets
+// the active mcp__openviking__* tools, not just the server-managed lifecycle.
+// Set OV_MCP_RUNTIME_DENYLIST to opt specific runtimes out.
+const OV_MCP_RUNTIME_DENYLIST = (process.env.OV_MCP_RUNTIME_DENYLIST || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 function ovMcpDefaultForRuntime(runtime) {
-  return !!runtime && OV_MCP_RUNTIME_WHITELIST.includes(runtime);
+  return !!runtime && !OV_MCP_RUNTIME_DENYLIST.includes(runtime);
 }
 function isOvMcpEnabledForAgent(cfg) {
   if (cfg && typeof cfg.ovMcpEnabled === "boolean") return cfg.ovMcpEnabled;
   return ovMcpDefaultForRuntime(cfg && cfg.runtime);
 }
-// Runtimes where the agent's own plugin handles OV lifecycle (auto-recall,
-// auto-capture, auto-commit). Server skips its managed operations for these.
-const OV_PLUGIN_RUNTIME_WHITELIST = (process.env.OV_PLUGIN_RUNTIME_WHITELIST || "claude,codex")
+// Runtimes where the agent's own in-process plugin owns the OV lifecycle
+// (auto-recall/-capture/-commit) by default. Empty by default: the zouk server
+// manages the lifecycle for every runtime. Only consulted when a user has
+// explicitly left the local plugin enabled (disableLocalOvPlugin === false)
+// without pinning ovLifecycleMode. Set OV_PLUGIN_RUNTIME_WHITELIST to opt
+// specific runtimes back into plugin-ownership for that opt-in case.
+const OV_PLUGIN_RUNTIME_WHITELIST = (process.env.OV_PLUGIN_RUNTIME_WHITELIST || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -2618,7 +2622,7 @@ const authModule = createAuthModule({
   db, store, SESSIONS_FILE,
   GOOGLE_CLIENT_ID, googleClient,
   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
-  OV_RUNTIME_WHITELIST, OV_MCP_RUNTIME_WHITELIST, OV_PLUGIN_RUNTIME_WHITELIST,
+  OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
   DEFAULT_WORKSPACE_ID,
   gravatarUrl, isReservedName, normalizeEmailInput,
   isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,

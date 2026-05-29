@@ -228,8 +228,10 @@ export function useAppStore() {
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
-  const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
-  const [ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist] = useState<string[]>(['hermes', 'coco', 'opencode', 'kimi', 'copilot', 'cursor']);
+  // Denylist semantics: OV + MCP injection default ON for every runtime; these
+  // hold the runtimes (if any) the server has opted out of the default.
+  const [ovRuntimeDenylist, setOvRuntimeDenylist] = useState<string[]>([]);
+  const [ovMcpRuntimeDenylist, setOvMcpRuntimeDenylist] = useState<string[]>([]);
   // Bumps whenever we see a task-bearing system message arrive. TasksView
   // watches this as a "something changed, refetch" signal so the kanban stays
   // live without dedicated polling.
@@ -1548,8 +1550,8 @@ export function useAppStore() {
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
     allowlistActive, setAllowlistActive,
     supabaseConfig, setSupabaseConfig, hasMagicLinkAuth: !!supabaseConfig,
-    ovRuntimeWhitelist, setOvRuntimeWhitelist,
-    ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist,
+    ovRuntimeDenylist, setOvRuntimeDenylist,
+    ovMcpRuntimeDenylist, setOvMcpRuntimeDenylist,
     isGuest: isLoggedIn && !authUser,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
     loginWithAuthResponse: completeAuthenticatedLogin,

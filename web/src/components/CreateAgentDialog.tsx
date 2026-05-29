@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Plus, Copy, Check, Star, Cpu, Zap } from 'lucide-react';
+import { Plus, Cpu, Zap } from 'lucide-react';
 import type { ServerMachine } from '../types';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 import { fetchRuntimeModels, type RuntimeModel } from '../lib/api';
@@ -70,7 +70,6 @@ export default function CreateAgentDialog({
   const [modelOptions, setModelOptions] = useState<RuntimeModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [customModel, setCustomModel] = useState(false);
-  const [ovInstallCopied, setOvInstallCopied] = useState(false);
   const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
   const [ovMcpEnabledOverride, setOvMcpEnabledOverride] = useState<boolean | null>(null);
   const [customLauncher, setCustomLauncher] = useState('');
@@ -79,12 +78,7 @@ export default function CreateAgentDialog({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const { ovRuntimeWhitelist, ovMcpRuntimeWhitelist } = useApp();
-  const OV_INSTALL_COMMANDS: Record<string, string> = {
-    claude: 'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/claude-code-memory-plugin/setup-helper/install.sh)',
-    codex: 'bash <(curl -fsSL https://raw.githubusercontent.com/volcengine/OpenViking/main/examples/codex-memory-plugin/setup-helper/install.sh)',
-  };
-  const installCommand = OV_INSTALL_COMMANDS[runtime] || '';
+  const { ovRuntimeDenylist, ovMcpRuntimeDenylist } = useApp();
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId);
   const machineRuntimes = useMemo(() => selectedMachine?.runtimes || [], [selectedMachine]);
@@ -132,8 +126,8 @@ export default function CreateAgentDialog({
   const normalizedName = name.trim().toLowerCase();
   const nameInvalid = normalizedName.length > 0 && !/^[a-z0-9][a-z0-9_-]{0,47}$/.test(normalizedName);
   const canSubmit = normalizedName.length > 0 && !nameInvalid && runtime.length > 0 && !submitting;
-  const ovDefaultForRuntime = !!runtime && ovRuntimeWhitelist.includes(runtime);
-  const ovMcpDefaultForRuntime = !!runtime && ovMcpRuntimeWhitelist.includes(runtime);
+  const ovDefaultForRuntime = !!runtime && !ovRuntimeDenylist.includes(runtime);
+  const ovMcpDefaultForRuntime = !!runtime && !ovMcpRuntimeDenylist.includes(runtime);
   const effectiveOvEnabled = ovEnabledOverride === null ? ovDefaultForRuntime : ovEnabledOverride;
   const effectiveOvMcpEnabled = ovMcpEnabledOverride === null ? ovMcpDefaultForRuntime : ovMcpEnabledOverride;
 
@@ -290,16 +284,7 @@ export default function CreateAgentDialog({
                   style={{ flexWrap: 'wrap' }}
                   options={machineRuntimes.map(rt => ({
                     value: rt,
-                    label: (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {formatRuntime(rt)}
-                        {ovRuntimeWhitelist.includes(rt) && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: 'var(--zk-warn)', fontSize: 9 }}>
-                            <Star size={9} fill="currentColor" /> OV
-                          </span>
-                        )}
-                      </div>
-                    )
+                    label: formatRuntime(rt)
                   }))}
                 />
               ) : (
@@ -308,28 +293,6 @@ export default function CreateAgentDialog({
                 </div>
               )}
             </ZkField>
-
-            {/* OV install hint */}
-            {ovRuntimeWhitelist.includes(runtime) && installCommand && (
-              <ZkCallout type="warn">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-                  <span>{formatRuntime(runtime)} supports OpenViking memory plugin.</span>
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <code style={{
-                    flex: 1, padding: '5px 8px', background: 'var(--zk-bg-0)', border: '1px solid var(--zk-line)',
-                    borderRadius: 'var(--zk-r-sm)', fontSize: 10, fontFamily: 'var(--zk-font-mono)',
-                    color: 'var(--zk-ok)', wordBreak: 'break-all', userSelect: 'all',
-                  }}>
-                    {installCommand}
-                  </code>
-                  <button type="button" onClick={() => { navigator.clipboard.writeText(installCommand); setOvInstallCopied(true); setTimeout(() => setOvInstallCopied(false), 2000); }}
-                    className="zk-btn zk-btn--ghost zk-btn--icon" style={{ flexShrink: 0 }} title="Copy">
-                    {ovInstallCopied ? <Check size={12} style={{ color: 'var(--zk-ok)' }} /> : <Copy size={12} />}
-                  </button>
-                </div>
-              </ZkCallout>
-            )}
 
             {/* Runtime availability notice */}
             {runtime && (
