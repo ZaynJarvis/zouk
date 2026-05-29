@@ -337,6 +337,43 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
+// Feishu / Lark Open Platform OAuth (open.feishu.cn). Auth flow:
+//   1. /api/auth/feishu/start  → 302 to FEISHU_AUTHORIZE_URL with app_id/redirect_uri
+//   2. user approves in Feishu, IdP 302s back to /api/oauth2/feishu/callback?code=…
+//   3. SDK swaps code → user_access_token; response already carries user profile
+//   4. mint zouk session, 302 to `/?auth=feishu&token=…`
+// Internal-only: kept as the sole login provider on the intranet deploy. The
+// route handlers live in server/lib/auth.js (extracted alongside google/supabase).
+const FEISHU_APP_ID = process.env.FEISHU_APP_ID || "";
+const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || "";
+const FEISHU_REDIRECT_URI =
+  process.env.FEISHU_REDIRECT_URI || `${PUBLIC_URL}/api/oauth2/feishu/callback`;
+const FEISHU_AUTHORIZE_URL =
+  process.env.FEISHU_AUTHORIZE_URL || "https://open.feishu.cn/open-apis/authen/v1/index";
+// Scope list must match what's enabled in the open-platform app's permission
+// page; `contact:user.email:readonly` is what gives us the `email` claim used
+// for the allowlist match.
+const FEISHU_SCOPE =
+  process.env.FEISHU_SCOPE ||
+  "contact:user.email:readonly contact:user.employee_id:readonly";
+const feishuEnabled = !!(FEISHU_APP_ID && FEISHU_APP_SECRET);
+let _larkClient = null;
+function getLarkClient() {
+  if (_larkClient) return _larkClient;
+  const lark = require("@larksuiteoapi/node-sdk");
+  _larkClient = new lark.Client({
+    appId: FEISHU_APP_ID,
+    appSecret: FEISHU_APP_SECRET,
+    appType: lark.AppType.SelfBuild,
+    domain: lark.Domain.Feishu,
+    loggerLevel: lark.LoggerLevel.warn,
+  });
+  return _larkClient;
+}
+if (feishuEnabled) {
+  console.log(`[auth] Feishu Open Platform OAuth enabled (app_id=${FEISHU_APP_ID})`);
+}
+
 const {
   ENV_ALLOW_EMAILS, ENV_ALLOW_DOMAINS, dbAllowEmails, GUEST_ELEVATED,
   allowlistKey, allowlistActive, isEmailAllowed, isEmailAllowedAnyWorkspace,
@@ -2622,6 +2659,7 @@ const authModule = createAuthModule({
   db, store, SESSIONS_FILE,
   GOOGLE_CLIENT_ID, googleClient,
   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+  feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
   OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
   DEFAULT_WORKSPACE_ID,
   gravatarUrl, isReservedName, normalizeEmailInput,

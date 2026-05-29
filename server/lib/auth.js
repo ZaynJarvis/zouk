@@ -12,6 +12,7 @@ function createAuthModule(ctx) {
     db, store, SESSIONS_FILE,
     GOOGLE_CLIENT_ID, googleClient,
     SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+    feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
     OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
     DEFAULT_WORKSPACE_ID,
     gravatarUrl, isReservedName, normalizeEmailInput,
@@ -35,6 +36,16 @@ function createAuthModule(ctx) {
   const authSessions = new Map();
   const MAGIC_LOGIN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
   const magicLoginChallenges = new Map();
+
+  // Feishu OAuth redirect state — state token -> { createdAt, returnTo }.
+  const FEISHU_STATE_TTL_MS = 5 * 60 * 1000;
+  const feishuStates = new Map();
+  function gcFeishuStates() {
+    const cutoff = Date.now() - FEISHU_STATE_TTL_MS;
+    for (const [state, info] of feishuStates) {
+      if (info.createdAt < cutoff) feishuStates.delete(state);
+    }
+  }
 
   function isEmbedSessionUser(user) {
     return !!user?.embed?.workspaceId;
@@ -316,6 +327,84 @@ function createAuthModule(ctx) {
     }
   });
 
+  // Feishu / Lark Open Platform OAuth — redirect flow. /start 302s the browser
+  // to Feishu's authorize page; after the user approves, Feishu 302s back to
+  // /callback?code=…&state=…. We swap the code via the official SDK (which
+  // transparently manages app_access_token) and mint a zouk session, reusing
+  // the shared mintSessionForEmail path (allowlist + reserved-name guards).
+  router.get("/api/auth/feishu/start", async (req, res) => {
+    if (!feishuEnabled) {
+      return res.status(501).send("Feishu OAuth not configured (set FEISHU_APP_ID / FEISHU_APP_SECRET)");
+    }
+    gcFeishuStates();
+    const state = crypto.randomBytes(24).toString("hex");
+    const rawReturn = typeof req.query.return_to === "string" ? req.query.return_to : "/";
+    const returnTo = rawReturn.startsWith("/") && !rawReturn.startsWith("//") ? rawReturn : "/";
+    feishuStates.set(state, { createdAt: Date.now(), returnTo });
+    // Note Feishu's quirk: query param is `redirect_uri`, not `redirect_url`.
+    const u = new URL(FEISHU_AUTHORIZE_URL);
+    u.searchParams.set("app_id", FEISHU_APP_ID);
+    u.searchParams.set("redirect_uri", FEISHU_REDIRECT_URI);
+    u.searchParams.set("scope", FEISHU_SCOPE);
+    u.searchParams.set("state", state);
+    res.redirect(u.toString());
+  });
+
+  router.get("/api/oauth2/feishu/callback", async (req, res) => {
+    if (!feishuEnabled) {
+      return res.status(501).send("Feishu OAuth not configured");
+    }
+    const { code, state, error: errParam, error_description } = req.query;
+    if (errParam) {
+      return res.status(400).send(`Feishu auth error: ${errParam} ${error_description || ""}`);
+    }
+    if (typeof code !== "string" || typeof state !== "string") {
+      return res.status(400).send("Missing code or state");
+    }
+    const stateInfo = feishuStates.get(state);
+    if (!stateInfo || Date.now() - stateInfo.createdAt > FEISHU_STATE_TTL_MS) {
+      feishuStates.delete(state);
+      return res.status(400).send("Invalid or expired state");
+    }
+    feishuStates.delete(state);
+
+    try {
+      const client = getLarkClient();
+      // v1/access_token response carries the user profile (name/email/avatar_url
+      // /open_id/user_id) alongside the access_token, so we don't need a
+      // separate authen.userInfo.get round-trip.
+      const tokenRes = await client.authen.accessToken.create({
+        data: { grant_type: "authorization_code", code },
+      });
+      if (tokenRes?.code !== 0) {
+        console.error("[auth/feishu] token exchange returned non-zero:", tokenRes?.code, tokenRes?.msg);
+        return res.status(502).send(`Feishu token exchange failed: ${tokenRes?.msg || "unknown"}`);
+      }
+      const profile = tokenRes.data || {};
+      const email = (profile.enterprise_email || profile.email || "").trim().toLowerCase();
+      if (!email) {
+        return res
+          .status(401)
+          .send("Feishu did not return an email (check scope contact:user.email:readonly).");
+      }
+      const result = await mintSessionForEmail(email, {
+        picture:
+          typeof profile.avatar_url === "string" && profile.avatar_url
+            ? profile.avatar_url
+            : null,
+      });
+      const sep = stateInfo.returnTo.includes("?") ? "&" : "?";
+      res.redirect(`${stateInfo.returnTo}${sep}auth=feishu&token=${result.token}`);
+    } catch (err) {
+      if (err.statusCode) {
+        if (err.statusCode === 403) console.log(`[auth/feishu] rejected: ${err.message}`);
+        return res.status(err.statusCode).send(err.message);
+      }
+      console.error("[auth/feishu] callback failed:", err?.message || err);
+      res.status(500).send("Feishu auth callback failed: " + (err?.message || "unknown"));
+    }
+  });
+
   router.get("/api/auth/me", (req, res) => {
     const token = req.headers.authorization?.replace("Bearer ", "");
     const user = token ? getAuthSession(token) : null;
@@ -415,6 +504,7 @@ function createAuthModule(ctx) {
       allowlistActive: allowlistActiveAnywhere(),
       supabaseUrl: SUPABASE_URL || null,
       supabaseAnonKey: SUPABASE_ANON_KEY || null,
+      feishuEnabled: !!feishuEnabled,
       // Denylist semantics: OV + MCP injection default ON for every runtime;
       // these list the runtimes (if any) opted out of the default.
       ovRuntimeDenylist: OV_RUNTIME_DENYLIST,

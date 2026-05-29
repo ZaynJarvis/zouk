@@ -228,6 +228,7 @@ export function useAppStore() {
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
+  const [feishuEnabled, setFeishuEnabled] = useState(false);
   // Denylist semantics: OV + MCP injection default ON for every runtime; these
   // hold the runtimes (if any) the server has opted out of the default.
   const [ovRuntimeDenylist, setOvRuntimeDenylist] = useState<string[]>([]);
@@ -1550,6 +1551,7 @@ export function useAppStore() {
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
     allowlistActive, setAllowlistActive,
     supabaseConfig, setSupabaseConfig, hasMagicLinkAuth: !!supabaseConfig,
+    feishuEnabled, setFeishuEnabled,
     ovRuntimeDenylist, setOvRuntimeDenylist,
     ovMcpRuntimeDenylist, setOvMcpRuntimeDenylist,
     isGuest: isLoggedIn && !authUser,
