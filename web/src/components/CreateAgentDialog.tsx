@@ -18,7 +18,6 @@ export interface CreateAgentConfig {
   machineId?: string;
   lifecycle: 'persistent' | 'ephemeral';
   openvikingEnabled?: boolean;
-  openvikingUseAgentNameAsUser?: boolean;
   ovMcpEnabled?: boolean;
   disableLocalOvPlugin?: boolean;
   customLauncher?: string;
@@ -74,7 +73,6 @@ export default function CreateAgentDialog({
   const [ovInstallCopied, setOvInstallCopied] = useState(false);
   const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
   const [ovMcpEnabledOverride, setOvMcpEnabledOverride] = useState<boolean | null>(null);
-  const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState(false);
   const [customLauncher, setCustomLauncher] = useState('');
   const [envVars, setEnvVars] = useState<Record<string, string>>({});
   const [disableLocalOvPlugin, setDisableLocalOvPlugin] = useState(true);
@@ -153,7 +151,6 @@ export default function CreateAgentDialog({
         lifecycle,
         ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
         ...(ovMcpEnabledOverride === null ? {} : { ovMcpEnabled: ovMcpEnabledOverride }),
-        ...(effectiveOvEnabled && ovUseAgentNameAsUser ? { openvikingUseAgentNameAsUser: true } : {}),
         // Only send the opt-out — server defaults disableLocalOvPlugin=true and
         // the column matches, so sending true is a no-op that would just clutter
         // the payload.
@@ -378,8 +375,6 @@ export default function CreateAgentDialog({
               ovMcpEnabled: effectiveOvMcpEnabled,
               onOvMcpEnabledChange: (v) => setOvMcpEnabledOverride(v),
               isOvMcpDefault: ovMcpEnabledOverride === null,
-              ovUseAgentNameAsUser,
-              onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
             }}
           />
         </div>

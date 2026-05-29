@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { provisionAgentKey, revokeAgentKey } = require('./openviking-admin.js');
+const { provisionAgentKey, fetchExistingAgentKey, revokeAgentKey } = require('./openviking-admin.js');
 
 const realFetch = globalThis.fetch;
 let calls = [];
@@ -75,6 +75,54 @@ test('provisionAgentKey: throws on non-2xx with body excerpt', async () => {
   await assert.rejects(
     () => provisionAgentKey({ url: 'https://ov', account: 'a', rootApiKey: 'k', agentId: 'u' }),
     /OV admin 409/,
+  );
+});
+
+test('provisionAgentKey: error carries HTTP status so callers can detect 409', async () => {
+  mockErr(409, '{"error":{"code":"ALREADY_EXISTS"}}');
+  await assert.rejects(
+    () => provisionAgentKey({ url: 'https://ov', account: 'a', rootApiKey: 'k', agentId: 'u' }),
+    (err) => err.status === 409,
+  );
+});
+
+test('fetchExistingAgentKey: lists users and returns matching key (api_key)', async () => {
+  mockOk({ status: 'ok', result: [
+    { user_id: 'other', role: 'user', api_key: 'k_other' },
+    { user_id: 'sonnet', role: 'user', api_key: 'k_sonnet' },
+  ] });
+
+  const key = await fetchExistingAgentKey({
+    url: 'https://ov.example.com',
+    account: 'acct1',
+    rootApiKey: 'root_key',
+    agentId: 'sonnet',
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://ov.example.com/api/v1/admin/accounts/acct1/users');
+  assert.equal(calls[0].init.method, 'GET');
+  assert.equal(calls[0].init.headers['Authorization'], 'Bearer root_key');
+  assert.equal(key, 'k_sonnet');
+});
+
+test('fetchExistingAgentKey: falls back to user_key field if api_key absent', async () => {
+  mockOk({ status: 'ok', result: [{ user_id: 'u', role: 'user', user_key: 'k_fallback' }] });
+  const key = await fetchExistingAgentKey({ url: 'https://ov', account: 'a', rootApiKey: 'k', agentId: 'u' });
+  assert.equal(key, 'k_fallback');
+});
+
+test('fetchExistingAgentKey: returns null when no user matches', async () => {
+  mockOk({ status: 'ok', result: [{ user_id: 'other', api_key: 'k' }] });
+  const key = await fetchExistingAgentKey({ url: 'https://ov', account: 'a', rootApiKey: 'k', agentId: 'missing' });
+  assert.equal(key, null);
+});
+
+test('fetchExistingAgentKey: throws on non-2xx listing', async () => {
+  mockErr(401, 'unauthorized');
+  await assert.rejects(
+    () => fetchExistingAgentKey({ url: 'https://ov', account: 'a', rootApiKey: 'k', agentId: 'u' }),
+    /OV admin list 401/,
   );
 });
 

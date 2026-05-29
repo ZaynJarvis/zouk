@@ -68,9 +68,6 @@ function createAgentConfigRouter(ctx) {
       config.customLauncher = r.value; // null = drop the field on disk
       if (r.value === null) delete config.customLauncher;
     }
-    if (config.openvikingUseAgentNameAsUser !== undefined) {
-      config.openvikingUseAgentNameAsUser = config.openvikingUseAgentNameAsUser === true;
-    }
     if (existing >= 0) {
       // machineId and name are immutable — never let the payload overwrite the
       // stored values (name backs the agent's OV namespace, frozen at creation).
@@ -145,7 +142,6 @@ function createAgentConfigRouter(ctx) {
       openvikingCustomApiKey: incomingCustomApiKey,
       openvikingMode: incomingMode,
       openvikingEnabled: incomingEnabled,
-      openvikingUseAgentNameAsUser: incomingUseAgentNameAsUser,
       ovMcpEnabled: incomingOvMcpEnabled,
       ovLifecycleMode: incomingOvLifecycleMode,
       disableLocalOvPlugin: incomingDisableLocalOvPlugin,
@@ -172,10 +168,6 @@ function createAgentConfigRouter(ctx) {
     } else if (typeof incomingEnabled === 'boolean') {
       merged.openvikingEnabled = incomingEnabled;
     }
-    if (incomingUseAgentNameAsUser !== undefined) {
-      merged.openvikingUseAgentNameAsUser = incomingUseAgentNameAsUser === true;
-    }
-
     // ovMcpEnabled: same tri-state as openvikingEnabled.
     if (incomingOvMcpEnabled === null) {
       delete merged.ovMcpEnabled;

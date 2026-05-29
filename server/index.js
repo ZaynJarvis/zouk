@@ -21,7 +21,7 @@ const {
 } = require("./embedSessions");
 const { createStorage } = require("./storage");
 const mockData = require("./mockData");
-const { provisionAgentKey } = require("./openviking-admin");
+const { provisionAgentKey, fetchExistingAgentKey } = require("./openviking-admin");
 const { createWorkspaceOpenvikingSettingsStore } = require("./workspaceOpenvikingSettings");
 const { createAgentAuthStore } = require("./agent-auth");
 const { createOvProxy } = require("./ov-proxy");
@@ -179,8 +179,17 @@ function ovPluginDefaultForRuntime(runtime) {
   return !!runtime && OV_PLUGIN_RUNTIME_WHITELIST.includes(runtime);
 }
 function isOvPluginForAgent(cfg) {
-  if (cfg && typeof cfg.ovLifecycleMode === "string") return cfg.ovLifecycleMode === "plugin";
-  return ovPluginDefaultForRuntime(cfg && cfg.runtime);
+  // The agent's own OV plugin can only own the lifecycle (auto-recall /
+  // -capture / -commit) when it actually runs inside the spawned process. The
+  // daemon mutes that plugin whenever disableLocalOvPlugin is on (the default),
+  // so in that case the server MUST take over — regardless of runtime default
+  // or an explicit ovLifecycleMode. Only when the local plugin is explicitly
+  // left enabled (disableLocalOvPlugin === false) does plugin-ownership apply.
+  // This is what makes claude/codex behave like every other runtime: by default
+  // their plugin is disabled, so the server-managed lifecycle handles them.
+  if (!cfg || cfg.disableLocalOvPlugin !== false) return false;
+  if (typeof cfg.ovLifecycleMode === "string") return cfg.ovLifecycleMode === "plugin";
+  return ovPluginDefaultForRuntime(cfg.runtime);
 }
 // Normalize / validate a customLauncher update payload. Returns
 // `{ ok: true, value: <trimmed-string-or-null> }` on success (null = clear),
@@ -442,7 +451,6 @@ function agentPayload(agentId) {
     openvikingProvisioned: !!cfg.openvikingApiKey,
     openvikingMode: cfg.openvikingMode === 'custom' ? 'custom' : 'provisioned',
     openvikingCustomConfigured: !!cfg.openvikingCustomApiKey,
-    openvikingUseAgentNameAsUser: cfg.openvikingUseAgentNameAsUser === true,
     ovEnabled: isOvEnabledForAgent(cfg),
     ovEnabledIsDefault: typeof cfg.openvikingEnabled !== 'boolean',
     ovDefault: ovDefaultForRuntime(cfg.runtime || a.runtime),
@@ -2587,7 +2595,7 @@ const agentLifecycle = createAgentLifecycle({
   resolveAgentOvCreds,
   isValidAgentHandle, isAgentNameTaken, isReservedName,
   OPENVIKING_URL, OPENVIKING_ACCOUNT,
-  provisionAgentKey,
+  provisionAgentKey, fetchExistingAgentKey,
   buildRuntimeAgent, agentPayload, sanitizedAgentConfigs,
   broadcastToWeb, workspaceIdFromAgent,
   saveAgentConfigs,

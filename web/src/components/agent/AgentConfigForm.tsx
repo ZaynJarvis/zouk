@@ -40,7 +40,6 @@ export default function AgentConfigForm({
   const persistedEnvVars = savedConfig?.envVars ?? {};
   const persistedOvMode: 'provisioned' | 'custom' =
     savedConfig?.openvikingMode === 'custom' ? 'custom' : 'provisioned';
-  const persistedOvUseAgentNameAsUser = savedConfig?.openvikingUseAgentNameAsUser === true;
   const persistedOvCustomUrl = savedConfig?.openvikingCustomUrl ?? '';
   const persistedOvCustomConfigured = !!savedConfig?.openvikingCustomConfigured;
   const persistedOvEnabledRaw = savedConfig?.openvikingEnabled;
@@ -70,7 +69,6 @@ export default function AgentConfigForm({
   const [ovEnabled, setOvEnabled] = useState<boolean>(persistedOvEnabledResolved);
   const [ovMcpEnabled, setOvMcpEnabled] = useState<boolean>(persistedOvMcpEnabledResolved);
   const [ovMode, setOvMode] = useState<'provisioned' | 'custom'>(persistedOvMode);
-  const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState<boolean>(persistedOvUseAgentNameAsUser);
   const [ovCustomUrl, setOvCustomUrl] = useState<string>(persistedOvCustomUrl ?? '');
   const [ovCustomApiKey, setOvCustomApiKey] = useState<string>('');
   const [ovCustomApiKeyDirty, setOvCustomApiKeyDirty] = useState(false);
@@ -149,7 +147,6 @@ export default function AgentConfigForm({
   const ovDirty =
     ovEnabledDirty ||
     ovMcpEnabledDirty ||
-    ovUseAgentNameAsUser !== persistedOvUseAgentNameAsUser ||
     ovMode !== persistedOvMode ||
     (ovMode === 'custom' && (ovCustomUrl !== (persistedOvCustomUrl ?? '') || ovCustomApiKeyDirty));
   const ovCustomValid =
@@ -193,7 +190,6 @@ export default function AgentConfigForm({
       if (ovMcpEnabledDirty) {
         payload.ovMcpEnabled = ovMcpEnabled;
       }
-      payload.openvikingUseAgentNameAsUser = ovUseAgentNameAsUser;
       payload.openvikingMode = ovMode;
       if (ovMode === 'custom') {
         payload.openvikingCustomUrl = ovCustomUrl.trim();
@@ -393,8 +389,6 @@ export default function AgentConfigForm({
               ovMcpEnabled,
               onOvMcpEnabledChange: setOvMcpEnabled,
               isOvMcpDefault: persistedOvMcpIsDefault && ovMcpEnabled === persistedOvMcpDefault,
-              ovUseAgentNameAsUser,
-              onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
               isProvisioned: !!savedConfig?.openvikingProvisioned,
               ovMode,
               onOvModeChange: setOvMode,

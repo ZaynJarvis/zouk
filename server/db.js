@@ -601,9 +601,9 @@ async function saveAgentConfig(config) {
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
          openviking_user_id, openviking_api_key, openviking_url,
          openviking_mode, openviking_custom_url, openviking_custom_api_key,
-         openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled,
+         openviking_enabled, ov_mcp_enabled,
          disable_local_ov_plugin, openviking_session_id
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        ON CONFLICT (id) DO UPDATE SET
          workspace_id                 = EXCLUDED.workspace_id,
          name                       = EXCLUDED.name,
@@ -628,7 +628,6 @@ async function saveAgentConfig(config) {
          openviking_custom_url      = EXCLUDED.openviking_custom_url,
          openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key,
          openviking_enabled         = EXCLUDED.openviking_enabled,
-         openviking_use_agent_name_as_user = EXCLUDED.openviking_use_agent_name_as_user,
          ov_mcp_enabled             = EXCLUDED.ov_mcp_enabled,
          disable_local_ov_plugin    = EXCLUDED.disable_local_ov_plugin,
          openviking_session_id      = EXCLUDED.openviking_session_id`,
@@ -659,7 +658,6 @@ async function saveAgentConfig(config) {
         config.openvikingCustomApiKey || null,
         // null = follow runtime default; boolean = explicit override.
         typeof config.openvikingEnabled === 'boolean' ? config.openvikingEnabled : null,
-        config.openvikingUseAgentNameAsUser === true,
         typeof config.ovMcpEnabled === 'boolean' ? config.ovMcpEnabled : null,
         // Default true (disable local plugin) — only persisted as false when
         // the user explicitly opts in to letting the host's plugin run.
@@ -686,7 +684,7 @@ async function loadAgentConfigs() {
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
               openviking_user_id, openviking_api_key, openviking_url,
               openviking_mode, openviking_custom_url, openviking_custom_api_key,
-              openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled,
+              openviking_enabled, ov_mcp_enabled,
               disable_local_ov_plugin, openviking_session_id
          FROM agent_configs
          ORDER BY name ASC`
@@ -720,7 +718,6 @@ async function loadAgentConfigs() {
       // SQL NULL → undefined so isOvEnabledForAgent falls back to the runtime
       // default; boolean → explicit override.
       openvikingEnabled: typeof row.openviking_enabled === 'boolean' ? row.openviking_enabled : undefined,
-      openvikingUseAgentNameAsUser: row.openviking_use_agent_name_as_user === true,
       ovMcpEnabled: typeof row.ov_mcp_enabled === 'boolean' ? row.ov_mcp_enabled : undefined,
       // Column is NOT NULL with default true, but cope with older rows that
       // may have been backfilled to NULL during partial migrations.

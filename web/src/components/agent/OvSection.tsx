@@ -17,8 +17,6 @@ export interface OvSectionProps {
   onOvMcpEnabledChange: (v: boolean) => void;
   isOvMcpDefault?: boolean;
 
-  ovUseAgentNameAsUser: boolean;
-  onOvUseAgentNameAsUserChange: (v: boolean) => void;
   isProvisioned?: boolean;
 
   ovMode?: 'provisioned' | 'custom';
@@ -207,7 +205,7 @@ export function OvAdvancedSection(props: OvSectionProps) {
   const {
     runtime, ovEnabled,
     ovMcpEnabled, onOvMcpEnabledChange, isOvMcpDefault,
-    ovUseAgentNameAsUser, onOvUseAgentNameAsUserChange, isProvisioned,
+    isProvisioned,
     ovMode, onOvModeChange,
     ovCustomUrl, onOvCustomUrlChange,
     ovCustomApiKey, onOvCustomApiKeyChange,
@@ -311,37 +309,6 @@ export function OvAdvancedSection(props: OvSectionProps) {
           )}
         </>
       )}
-
-      {(() => {
-        const locked = mode === 'config';
-        return (
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 12,
-              fontFamily: 'var(--zk-font-sans)',
-              color: locked ? 'var(--zk-ink-low)' : 'var(--zk-ink-mute)',
-              cursor: locked ? 'not-allowed' : 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={ovUseAgentNameAsUser}
-              onChange={(e) => onOvUseAgentNameAsUserChange(e.target.checked)}
-              disabled={locked}
-              style={{ accentColor: 'var(--zk-ember)' }}
-            />
-            <span>Share OV namespace by agent name</span>
-            {locked && (
-              <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)' }}>
-                set at creation
-              </span>
-            )}
-          </label>
-        );
-      })()}
     </div>
   );
 }

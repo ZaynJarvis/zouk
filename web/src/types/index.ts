@@ -79,7 +79,6 @@ export interface ServerAgent {
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   openvikingCustomConfigured?: boolean;
-  openvikingUseAgentNameAsUser?: boolean;
 }
 
 export interface AgentSkill {
@@ -224,9 +223,6 @@ export interface AgentConfig {
   openvikingUrl?: string | null;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
-  // False/default = provision by immutable Zouk agent id. True = derive the
-  // OV user from agent.name so clones can intentionally share a namespace.
-  openvikingUseAgentNameAsUser?: boolean;
   // Per-agent on/off override. `undefined` = follow the runtime default
   // (server's OV_RUNTIME_WHITELIST). `true`/`false` = user-set explicit value.
   openvikingEnabled?: boolean | null;

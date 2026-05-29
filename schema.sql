@@ -127,6 +127,10 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   openviking_custom_url    TEXT,
   openviking_custom_api_key TEXT,
   openviking_enabled       BOOLEAN,
+  -- DEAD COLUMN. Once gated name-vs-id derivation; since every new agent uses
+  -- its bare canonical handle as the OV user_id unconditionally, this no longer
+  -- drives anything. Kept (not dropped) only to avoid a destructive migration;
+  -- the application no longer reads or writes it.
   openviking_use_agent_name_as_user BOOLEAN NOT NULL DEFAULT false
 );
 -- Migration for existing deployments — server runs schema.sql on every boot

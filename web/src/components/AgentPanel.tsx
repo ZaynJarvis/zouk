@@ -195,7 +195,6 @@ export default function AgentsView() {
     machineId?: string;
     lifecycle?: 'persistent' | 'ephemeral';
     openvikingEnabled?: boolean;
-    openvikingUseAgentNameAsUser?: boolean;
     customLauncher?: string;
   }) => {
     await startAgent({
@@ -206,7 +205,6 @@ export default function AgentsView() {
       machineId: config.machineId,
       lifecycle: config.lifecycle,
       openvikingEnabled: config.openvikingEnabled,
-      openvikingUseAgentNameAsUser: config.openvikingUseAgentNameAsUser,
       customLauncher: config.customLauncher,
     });
     setShowCreate(false);

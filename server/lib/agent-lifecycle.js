@@ -19,7 +19,7 @@ function createAgentLifecycle(ctx) {
       resolveProvisioningCreds, resolveInitialOvUserId,
       resolveAgentOvCreds,
       OPENVIKING_URL, OPENVIKING_ACCOUNT,
-      provisionAgentKey,
+      provisionAgentKey, fetchExistingAgentKey,
       buildRuntimeAgent, agentPayload, sanitizedAgentConfigs,
       broadcastToWeb, workspaceIdFromAgent,
       saveAgentConfigs,
@@ -93,9 +93,8 @@ function createAgentLifecycle(ctx) {
     const ovEnabled = isOvEnabledForAgent({ openvikingEnabled: config.openvikingEnabled, runtime });
     const ovMode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
     // Derive user_id: existing rows keep whatever's already on disk (cannot move
-    // OV memory of a previously-provisioned agent). New rows default to the
-    // immutable Zouk agent id. The explicit openvikingUseAgentNameAsUser option
-    // switches new provisioned rows to the name-based clone-sharing namespace.
+    // OV memory of a previously-provisioned agent). New rows use the bare
+    // canonical handle (agent name) as the OV user_id — see resolveInitialOvUserId.
     let ovUserId = config.openvikingUserId || resolveInitialOvUserId(config, id);
     let ovApiKey = config.openvikingApiKey || null;
     // URL pinning: existing rows keep whatever they're already on (pre-PR keys
@@ -126,7 +125,32 @@ function createAgentLifecycle(ctx) {
           ovUrl = provCreds.url; // pin the URL this key was minted under.
           console.log(`[ov] provisioned key for ${id} (user=${ovUserId}, source=${provCreds.source})`);
         } catch (err) {
-          console.warn(`[ov] provisioning failed for ${id} (source=${provCreds.source}): ${err.message}`);
+          // 409 = an OV user with this id already exists. This happens when an
+          // agent is recreated under a name a prior agent used (OV users aren't
+          // deleted on agent delete). Reuse the existing user's key so the new
+          // agent inherits the prior namespace's memory instead of running
+          // keyless. Any other error is a hard failure — log and leave keyless.
+          if (err.status === 409 && fetchExistingAgentKey) {
+            try {
+              const existingKey = await fetchExistingAgentKey({
+                url: provCreds.url,
+                account: provCreds.account,
+                rootApiKey: provCreds.rootApiKey,
+                agentId: ovUserId,
+              });
+              if (existingKey) {
+                ovApiKey = existingKey;
+                ovUrl = provCreds.url;
+                console.log(`[ov] reused existing OV user key for ${id} (user=${ovUserId}, source=${provCreds.source}) — inherits prior memory`);
+              } else {
+                console.warn(`[ov] 409 for ${id} but no matching OV user '${ovUserId}' in account listing — leaving keyless`);
+              }
+            } catch (lookupErr) {
+              console.warn(`[ov] 409 recovery failed for ${id} (user=${ovUserId}): ${lookupErr.message}`);
+            }
+          } else {
+            console.warn(`[ov] provisioning failed for ${id} (source=${provCreds.source}): ${err.message}`);
+          }
         }
       } else {
         console.warn(`[ov] no provisioning creds for ${id} (workspace=${workspaceId})`);
@@ -295,9 +319,6 @@ function createAgentLifecycle(ctx) {
       // already the column default so leaving it off keeps the row compact.
       if (config.disableLocalOvPlugin === false) {
         persisted.disableLocalOvPlugin = false;
-      }
-      if (config.openvikingUseAgentNameAsUser === true) {
-        persisted.openvikingUseAgentNameAsUser = true;
       }
       if (ovApiKey) {
         persisted.openvikingApiKey = ovApiKey;
