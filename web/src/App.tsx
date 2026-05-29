@@ -45,13 +45,18 @@ function SupabaseConfigSync({ config }: { config: { url: string; anonKey: string
   return null;
 }
 
+function FeishuAuthSync({ enabled }: { enabled: boolean }) {
+  const { setFeishuEnabled } = useApp();
+  useEffect(() => { setFeishuEnabled(enabled); }, [enabled, setFeishuEnabled]);
+  return null;
+}
+
 function OvWhitelistSync({ whitelist, mcpWhitelist }: { whitelist: string[]; mcpWhitelist: string[] }) {
   const { setOvRuntimeWhitelist, setOvMcpRuntimeWhitelist } = useApp();
   useEffect(() => { setOvRuntimeWhitelist(whitelist); }, [whitelist, setOvRuntimeWhitelist]);
   useEffect(() => { setOvMcpRuntimeWhitelist(mcpWhitelist); }, [mcpWhitelist, setOvMcpRuntimeWhitelist]);
   return null;
 }
-
 
 function AppShell() {
   const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId } = useApp();
@@ -278,16 +283,36 @@ function AppWithAuth() {
   const [clientId, setClientId] = useState<string | null>(null);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
   const [allowlistActive, setAllowlistActive] = useState(false);
+  const [feishuEnabled, setFeishuEnabled] = useState(false);
   const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
   const [ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
+      // Feishu OIDC redirect lands here as `/?auth=feishu&token=…`. Adopt the
+      // session before fetching auth config so the store boots already-logged-in.
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('auth') === 'feishu' && urlParams.get('token')) {
+          const token = urlParams.get('token')!;
+          urlParams.delete('auth');
+          urlParams.delete('token');
+          const qs = urlParams.toString();
+          window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+          const user = await api.fetchAuthMe(token);
+          setStoredAuth(token, user);
+          setStoredCurrentUser(user.name);
+        }
+      } catch (e) {
+        console.error('[auth] Feishu session adoption failed:', e);
+      }
+
       try {
         const config = await api.getAuthConfig();
         setClientId(config.googleClientId || null);
         setAllowlistActive(!!config.allowlistActive);
+        setFeishuEnabled(!!config.feishuEnabled);
         if (Array.isArray(config.ovRuntimeWhitelist)) {
           setOvRuntimeWhitelist(config.ovRuntimeWhitelist);
         }
@@ -372,6 +397,7 @@ function AppWithAuth() {
     <>
       <AllowlistSync active={allowlistActive} />
       {supabaseConfig && <SupabaseConfigSync config={supabaseConfig} />}
+      <FeishuAuthSync enabled={feishuEnabled} />
       <OvWhitelistSync whitelist={ovRuntimeWhitelist} mcpWhitelist={ovMcpRuntimeWhitelist} />
     </>
   );
