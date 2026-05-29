@@ -27,14 +27,19 @@ function deriveSessionId(agentId) {
 }
 
 // The chat send tool surfaces under several names depending on the driver's
-// MCP prefix: `mcp__chat__send_message` (claude/codex/coco/…) or bare
-// `send_message` (copilot). Normalize to the base name (last `__` segment)
-// and match it — used to skip it during tool-call capture since its content
-// is already recorded via the /send route.
-const SEND_TOOL_BASENAMES = new Set(["send_message"]);
+// MCP prefix and naming style, e.g. `mcp__chat__send`, `mcp__chat__send_message`,
+// bare `send_message`, or the hyphenated activity-log form `chat-send`. We skip
+// it during tool-call capture because its payload (the posted message) is
+// already recorded with full content + channel tag via the /send route's
+// autoCapture — re-recording the truncated tool input would just duplicate it.
+//
+// Normalize by taking the segment after the last `__` or `-` separator, then
+// match the known send-tool basenames. (Both `mcp__chat__send` → "send" and
+// `chat-send` → "send" collapse to the same basename.)
+const SEND_TOOL_BASENAMES = new Set(["send", "send_message"]);
 function isSendTool(toolName) {
   if (!toolName) return false;
-  const base = String(toolName).split("__").pop();
+  const base = String(toolName).split(/__|-/).pop();
   return SEND_TOOL_BASENAMES.has(base);
 }
 
