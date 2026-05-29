@@ -73,6 +73,7 @@ export default function LoginScreen() {
     hasMagicLinkAuth,
     supabaseConfig,
     allowlistActive,
+    feishuEnabled,
   } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,9 +254,16 @@ export default function LoginScreen() {
   const nc = false;
   const isDark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-mode') === 'dark';
 
-  const hasSeparator = hasGoogleAuth || hasMagicLinkAuth;
+  const hasSeparator = hasGoogleAuth || hasMagicLinkAuth || feishuEnabled;
   const showGuestDivider = hasSeparator && !allowlistActive;
   const magicLinkTimeLeft = magicLinkExpiresAt ? Math.max(0, magicLinkExpiresAt - magicLinkNow) : 0;
+
+  const handleFeishuLogin = useCallback(() => {
+    // Server-driven OIDC: bounce to /api/auth/feishu/start, which 302s into
+    // anycross.feishu.cn and eventually redirects back to `/` with a token.
+    const returnTo = encodeURIComponent(window.location.pathname || '/');
+    window.location.href = `/api/auth/feishu/start?return_to=${returnTo}`;
+  }, []);
 
   return (
     <div className="login-shell flex items-center justify-center bg-nc-black font-body cyber-scanlines">
@@ -287,6 +295,25 @@ export default function LoginScreen() {
             <div className="mb-4 p-3 border border-nc-red/50 bg-nc-red/10 text-xs font-mono text-nc-red">
               {error}
             </div>
+          )}
+
+          {feishuEnabled && (
+            <>
+              <button
+                onClick={handleFeishuLogin}
+                disabled={loading}
+                className="w-full py-2.5 px-4 mb-4 bg-nc-panel border border-nc-border-bright text-nc-text-bright font-bold text-sm hover:bg-nc-yellow disabled:opacity-50"
+              >
+                Sign in with Feishu/Lark
+              </button>
+              {(hasGoogleAuth || hasMagicLinkAuth) && (
+                <div className="flex items-center gap-3 w-full mb-4">
+                  <div className="flex-1 h-px bg-nc-border" />
+                  <span className="text-xs text-nc-muted uppercase tracking-wider">or</span>
+                  <div className="flex-1 h-px bg-nc-border" />
+                </div>
+              )}
+            </>
           )}
 
           {hasGoogleAuth && (

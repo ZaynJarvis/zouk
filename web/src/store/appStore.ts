@@ -228,6 +228,7 @@ export function useAppStore() {
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
+  const [feishuEnabled, setFeishuEnabled] = useState(false);
   const [ovRuntimeWhitelist, setOvRuntimeWhitelist] = useState<string[]>(['claude']);
   const [ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist] = useState<string[]>(['hermes', 'coco', 'opencode', 'kimi', 'copilot', 'cursor']);
   // Bumps whenever we see a task-bearing system message arrive. TasksView
@@ -1548,6 +1549,7 @@ export function useAppStore() {
     authUser, isLoggedIn, hasGoogleAuth, setHasGoogleAuth,
     allowlistActive, setAllowlistActive,
     supabaseConfig, setSupabaseConfig, hasMagicLinkAuth: !!supabaseConfig,
+    feishuEnabled, setFeishuEnabled,
     ovRuntimeWhitelist, setOvRuntimeWhitelist,
     ovMcpRuntimeWhitelist, setOvMcpRuntimeWhitelist,
     isGuest: isLoggedIn && !authUser,
