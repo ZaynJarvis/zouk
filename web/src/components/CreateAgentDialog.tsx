@@ -18,8 +18,8 @@ export interface CreateAgentConfig {
   machineId?: string;
   lifecycle: 'persistent' | 'ephemeral';
   openvikingEnabled?: boolean;
-  openvikingUseAgentNameAsUser?: boolean;
   ovMcpEnabled?: boolean;
+  disableLocalOvPlugin?: boolean;
   customLauncher?: string;
   envVars?: Record<string, string>;
 }
@@ -57,7 +57,7 @@ export default function CreateAgentDialog({
 }: {
   machines: ServerMachine[];
   onClose: () => void;
-  onCreate: (config: CreateAgentConfig) => void;
+  onCreate: (config: CreateAgentConfig) => void | Promise<void>;
   onOpenMachineSetup?: () => void;
 }) {
   const [name, setName] = useState('');
@@ -73,9 +73,11 @@ export default function CreateAgentDialog({
   const [ovInstallCopied, setOvInstallCopied] = useState(false);
   const [ovEnabledOverride, setOvEnabledOverride] = useState<boolean | null>(null);
   const [ovMcpEnabledOverride, setOvMcpEnabledOverride] = useState<boolean | null>(null);
-  const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState(false);
   const [customLauncher, setCustomLauncher] = useState('');
   const [envVars, setEnvVars] = useState<Record<string, string>>({});
+  const [disableLocalOvPlugin, setDisableLocalOvPlugin] = useState(true);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const { ovRuntimeWhitelist, ovMcpRuntimeWhitelist } = useApp();
   const OV_INSTALL_COMMANDS: Record<string, string> = {
@@ -124,27 +126,43 @@ export default function CreateAgentDialog({
 
   useEffect(() => { setModel(''); setCustomModel(false); setModelOptions([]); return refreshModels(); }, [refreshModels]);
 
-  const canSubmit = name.trim().length > 0 && runtime.length > 0;
+  // The handle is the immutable @mention name AND the agent's OV namespace, so
+  // it must be a slug: lowercase, starts alphanumeric, [a-z0-9_-], ≤48 chars.
+  // Mirrors the server-side isValidAgentHandle check.
+  const normalizedName = name.trim().toLowerCase();
+  const nameInvalid = normalizedName.length > 0 && !/^[a-z0-9][a-z0-9_-]{0,47}$/.test(normalizedName);
+  const canSubmit = normalizedName.length > 0 && !nameInvalid && runtime.length > 0 && !submitting;
   const ovDefaultForRuntime = !!runtime && ovRuntimeWhitelist.includes(runtime);
   const ovMcpDefaultForRuntime = !!runtime && ovMcpRuntimeWhitelist.includes(runtime);
   const effectiveOvEnabled = ovEnabledOverride === null ? ovDefaultForRuntime : ovEnabledOverride;
   const effectiveOvMcpEnabled = ovMcpEnabledOverride === null ? ovMcpDefaultForRuntime : ovMcpEnabledOverride;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!canSubmit) return;
-    onCreate({
-      name: name.trim().toLowerCase(),
-      description: description.trim(),
-      runtime,
-      model: model.trim(),
-      machineId: selectedMachine?.id,
-      lifecycle,
-      ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
-      ...(ovMcpEnabledOverride === null ? {} : { ovMcpEnabled: ovMcpEnabledOverride }),
-      ...(effectiveOvEnabled && ovUseAgentNameAsUser ? { openvikingUseAgentNameAsUser: true } : {}),
-      ...(customLauncher.trim() ? { customLauncher: customLauncher.trim() } : {}),
-      ...(Object.keys(envVars).length > 0 ? { envVars } : {}),
-    });
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      await onCreate({
+        name: normalizedName,
+        description: description.trim(),
+        runtime,
+        model: model.trim(),
+        machineId: selectedMachine?.id,
+        lifecycle,
+        ...(ovEnabledOverride === null ? {} : { openvikingEnabled: ovEnabledOverride }),
+        ...(ovMcpEnabledOverride === null ? {} : { ovMcpEnabled: ovMcpEnabledOverride }),
+        // Only send the opt-out — server defaults disableLocalOvPlugin=true and
+        // the column matches, so sending true is a no-op that would just clutter
+        // the payload.
+        ...(disableLocalOvPlugin ? {} : { disableLocalOvPlugin: false }),
+        ...(customLauncher.trim() ? { customLauncher: customLauncher.trim() } : {}),
+        ...(Object.keys(envVars).length > 0 ? { envVars } : {}),
+      });
+      // On success the parent closes the dialog; nothing more to do here.
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to create agent');
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -172,8 +190,13 @@ export default function CreateAgentDialog({
 
         {/* ── Identity ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <ZkField label="Name" hint="Used in @mentions and DM channels. Lowercase only.">
-            <input className="zk-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. bob" autoFocus />
+          <ZkField label="Name" hint="Permanent @mention handle and memory namespace — can't be changed later. Lowercase letters, digits, - or _.">
+            <input className="zk-input" value={name} onChange={(e) => { setName(e.target.value); setSubmitError(null); }} placeholder="e.g. bob" autoFocus />
+            {nameInvalid && (
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--zk-err)' }}>
+                Use 1-48 chars: lowercase letters, digits, - or _, starting with a letter or digit.
+              </div>
+            )}
           </ZkField>
           <ZkField label="Description">
             <textarea className="zk-input zk-input--textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this agent do?" rows={2} />
@@ -339,6 +362,8 @@ export default function CreateAgentDialog({
             onCustomLauncherBlur={refreshModels}
             envVars={envVars}
             onEnvVarsChange={setEnvVars}
+            disableLocalOvPlugin={disableLocalOvPlugin}
+            onDisableLocalOvPluginChange={setDisableLocalOvPlugin}
             ov={{
               mode: 'create',
               runtime,
@@ -350,13 +375,14 @@ export default function CreateAgentDialog({
               ovMcpEnabled: effectiveOvMcpEnabled,
               onOvMcpEnabledChange: (v) => setOvMcpEnabledOverride(v),
               isOvMcpDefault: ovMcpEnabledOverride === null,
-              ovUseAgentNameAsUser,
-              onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
             }}
           />
         </div>
 
         {/* ── Footer ── */}
+        {submitError && (
+          <div style={{ fontSize: 12, color: 'var(--zk-err)' }}>{submitError}</div>
+        )}
         <div style={{ display: 'flex', gap: 10, paddingTop: 16, borderTop: '1px solid var(--zk-line)' }}>
           <button onClick={handleSubmit} disabled={!canSubmit} className="zk-btn zk-btn--primary" style={{ flex: 1 }}>
             <Plus size={14} /> Create and start

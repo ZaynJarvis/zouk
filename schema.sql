@@ -127,6 +127,10 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   openviking_custom_url    TEXT,
   openviking_custom_api_key TEXT,
   openviking_enabled       BOOLEAN,
+  -- DEAD COLUMN. Once gated name-vs-id derivation; since every new agent uses
+  -- its bare canonical handle as the OV user_id unconditionally, this no longer
+  -- drives anything. Kept (not dropped) only to avoid a destructive migration;
+  -- the application no longer reads or writes it.
   openviking_use_agent_name_as_user BOOLEAN NOT NULL DEFAULT false
 );
 -- Migration for existing deployments — server runs schema.sql on every boot
@@ -145,13 +149,23 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEX
 -- NULL means "follow the runtime default (OV_RUNTIME_WHITELIST)"; boolean is
 -- an explicit per-agent override.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_enabled BOOLEAN;
--- False/default: provision a distinct OV user from the immutable Zouk agent id.
--- True: derive the OV user id from agent.name so cloned agents can intentionally
--- share one OV namespace (`alice[1]` -> `zouk-alice`).
+-- Legacy flag. New agents now always use the bare canonical handle as their OV
+-- user id (see openviking_session_id below), so this no longer drives
+-- derivation; kept for backward compat with existing rows.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_use_agent_name_as_user BOOLEAN NOT NULL DEFAULT false;
 -- NULL means "follow the runtime default (OV_MCP_RUNTIME_WHITELIST)"; boolean
 -- is an explicit per-agent override for OV MCP server injection.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS ov_mcp_enabled BOOLEAN;
+-- When true (default), daemon injects env vars that mute any locally-installed
+-- OV plugin in the spawned agent. Prevents the host's personal OV config from
+-- bleeding into managed-agent contexts. Set false on a per-agent basis to let
+-- the local plugin run alongside the server-driven OV integration.
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS disable_local_ov_plugin BOOLEAN NOT NULL DEFAULT true;
+-- OV session id for server-managed agents. New agents persist their bare
+-- canonical handle here so the OV session archive is human-readable. NULL on
+-- legacy rows → fall back to the derived zouk-<agentId> session id (their
+-- existing OV memory is never orphaned).
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_session_id TEXT;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,
@@ -239,3 +253,15 @@ CREATE INDEX IF NOT EXISTS channel_agents_agent_idx
   ON channel_agents (agent_id);
 CREATE INDEX IF NOT EXISTS channel_agents_workspace_agent_idx
   ON channel_agents (workspace_id, agent_id);
+
+-- Per-agent opaque auth tokens. Lifetime tied to agent existence — no clock
+-- TTL. Revoked on agent delete or explicit revoke. Used by chat-bridge for
+-- REST calls and as OV proxy auth (server maps token → per-agent OV key).
+CREATE TABLE IF NOT EXISTS agent_tokens (
+  token        TEXT PRIMARY KEY,
+  agent_id     TEXT NOT NULL REFERENCES agent_configs(id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS agent_tokens_agent_idx ON agent_tokens (agent_id);

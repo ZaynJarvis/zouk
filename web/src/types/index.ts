@@ -73,10 +73,12 @@ export interface ServerAgent {
   ovMcpEnabled?: boolean;
   ovMcpEnabledIsDefault?: boolean;
   ovMcpDefault?: boolean;
+  // When true (default), daemon mutes any host-installed OV plugin in the
+  // spawned agent process. Users opt out by toggling this false.
+  disableLocalOvPlugin?: boolean;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   openvikingCustomConfigured?: boolean;
-  openvikingUseAgentNameAsUser?: boolean;
 }
 
 export interface AgentSkill {
@@ -137,7 +139,7 @@ export interface RuntimeConfig {
   envVars?: Record<string, string>;
 }
 
-export type AgentActivity = 'thinking' | 'working' | 'online' | 'offline' | 'error';
+export type AgentActivity = 'thinking' | 'working' | 'online' | 'idle' | 'sleep' | 'offline' | 'error';
 export type AgentLifecycleStatus = 'active' | 'inactive' | 'stopping';
 
 export interface AgentContextUsageModel {
@@ -221,9 +223,6 @@ export interface AgentConfig {
   openvikingUrl?: string | null;
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
-  // False/default = provision by immutable Zouk agent id. True = derive the
-  // OV user from agent.name so clones can intentionally share a namespace.
-  openvikingUseAgentNameAsUser?: boolean;
   // Per-agent on/off override. `undefined` = follow the runtime default
   // (server's OV_RUNTIME_WHITELIST). `true`/`false` = user-set explicit value.
   openvikingEnabled?: boolean | null;
@@ -242,6 +241,10 @@ export interface AgentConfig {
   ovMcpEnabled?: boolean | null;
   ovMcpEnabledIsDefault?: boolean;
   ovMcpDefault?: boolean;
+  // When true (default), daemon mutes any host-installed OV plugin in the
+  // agent process. Persisted as false only when the user explicitly opts in
+  // to letting the local plugin run.
+  disableLocalOvPlugin?: boolean;
   // Per-agent override of the daemon driver's default binary command (e.g.
   // "/usr/local/bin/codex" or "env LANG=C claude"). Daemon whitespace-splits this into argv.
   // Empty/null = use the runtime default. Not supported for vikingbot.

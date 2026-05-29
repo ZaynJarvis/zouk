@@ -88,11 +88,9 @@ export default function MachineSetupDialog({
     }
   };
 
-  // INTERNAL: bnpm install + run shown separately; upstream merges them into one daemonCommand — keep the split display on merge
-  const apiKeyPart = generatedKey || '<api_key>';
-  const installCommand =
-    'npm install -g @bnpm-viking/zouk-daemon --registry=https://bnpm.byted.org';
-  const runCommand = `zouk-daemon --server-url ${serverUrl} --api-key ${apiKeyPart}`;
+  const daemonCommand = generatedKey
+    ? `npx @openviking/zouk-daemon@latest --server-url ${serverUrl} --api-key ${generatedKey}`
+    : `npx @openviking/zouk-daemon@latest --server-url ${serverUrl} --api-key <api_key>`;
 
   return (
     <ZkDialog
@@ -107,51 +105,26 @@ export default function MachineSetupDialog({
           label="Daemon command"
           hint="Run this on any machine to connect it as a daemon to this server."
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div>
-              <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-mute)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>install (once per machine)</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <code
-                  style={{
-                    flex: 1,
-                    padding: '8px 10px',
-                    background: 'var(--zk-bg-0)',
-                    border: '1px solid var(--zk-line)',
-                    borderRadius: 'var(--zk-r-md)',
-                    fontSize: 11,
-                    fontFamily: 'var(--zk-font-mono)',
-                    color: 'var(--zk-ok)',
-                    wordBreak: 'break-all',
-                    userSelect: 'all',
-                  }}
-                >
-                  {installCommand}
-                </code>
-                <CopyButton text={installCommand} />
-              </div>
-            </div>
-            <div>
-              <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-mute)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>run</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <code
-                  style={{
-                    flex: 1,
-                    padding: '8px 10px',
-                    background: 'var(--zk-bg-0)',
-                    border: '1px solid var(--zk-line)',
-                    borderRadius: 'var(--zk-r-md)',
-                    fontSize: 11,
-                    fontFamily: 'var(--zk-font-mono)',
-                    color: 'var(--zk-ok)',
-                    wordBreak: 'break-all',
-                    userSelect: 'all',
-                  }}
-                >
-                  {runCommand}
-                </code>
-                <CopyButton text={runCommand} />
-              </div>
-            </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <code
+              style={{
+                flex: 1,
+                padding: '8px 10px',
+                background: 'var(--zk-bg-0)',
+                border: '1px solid var(--zk-line)',
+                borderRadius: 'var(--zk-r-md)',
+                fontSize: 11,
+                fontFamily: 'var(--zk-font-mono)',
+                color: 'var(--zk-ok)',
+                wordBreak: 'break-all',
+                userSelect: 'all',
+                whiteSpace: 'pre-line',
+                lineHeight: 1.5,
+              }}
+            >
+              {daemonCommand}
+            </code>
+            <CopyButton text={daemonCommand} />
           </div>
         </ZkField>
 

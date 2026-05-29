@@ -43,6 +43,18 @@ const COLUMN_W = 220;
 
 const rootFor = (s: Source) => (s === 'memory' ? MEMORY_ROOT : FILES_ROOT);
 
+// Hide dot-prefixed entries (.ov, .git, .DS_Store, .cache, ...) from the Files
+// view. They're agent-internal scaffolding, not content the user wants to
+// browse here. Memory view never receives a leading-dot URI segment, so this
+// only affects 'files' source.
+function visibleEntries(entries: MemoryEntry[], source: Source): MemoryEntry[] {
+  if (source !== 'files') return entries;
+  return entries.filter((e) => {
+    const name = uriBasename(e.uri, source);
+    return !name.startsWith('.');
+  });
+}
+
 /* ---- URI / path helpers --------------------------------------------- */
 
 function uriBasename(uri: string, source: Source): string {
@@ -464,7 +476,7 @@ const TreeNode = memo(function TreeNode({
 }) {
   const { uri, isDir } = entry;
   const isExpanded = isDir && expanded.has(uri);
-  const children = isDir ? treeCache[uri] : undefined;
+  const children = isDir ? (treeCache[uri] ? visibleEntries(treeCache[uri], source) : undefined) : undefined;
   const name = uriBasename(uri, source);
   const isSelected = !isDir && uri === selectedUri;
 
@@ -552,7 +564,10 @@ function TreeView({
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const root = rootFor(source);
-  const rootEntries = treeCache[root] || (source === 'memory' ? (treeCache['viking:///'] || []) : []);
+  const rootEntries = visibleEntries(
+    treeCache[root] || (source === 'memory' ? (treeCache['viking:///'] || []) : []),
+    source,
+  );
 
   useEffect(() => {
     if (!treeCache[root] && !(source === 'memory' && treeCache['viking:///'])) {
@@ -920,7 +935,8 @@ export default function MemoryView() {
 
   const columns = useMemo(() => {
     return trail.map((uri, i) => {
-      const entries = agentCache[uri] || (uri === root && source === 'memory' ? agentCache['viking:///'] || [] : []);
+      const raw = agentCache[uri] || (uri === root && source === 'memory' ? agentCache['viking:///'] || [] : []);
+      const entries = visibleEntries(raw, source);
       const childTrailUri = trail[i + 1] ?? null;
       const childUri = childTrailUri ?? (i === trail.length - 1 ? selectedFile : null);
       const loaded = !!agentCache[uri] || (uri === root && source === 'memory' && !!agentCache['viking:///']);

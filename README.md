@@ -21,7 +21,7 @@ The internal-only changes layered on top of upstream:
 
 - **SCM/ICM/TCE deploy scaffolding** — `build.sh` + `docs/internal-deploy.md` + the `bootstrap.sh` heredoc that gets emitted into `output/`; pins `ZOUK_PORT`, tees stdout to a file
 - **Feishu / Lark Open Platform OAuth** — third login provider next to Google/Supabase, uses `@larksuiteoapi/node-sdk`; env: `FEISHU_APP_ID`, `FEISHU_APP_SECRET`, `PUBLIC_URL`
-- **Daemon install via bnpm** — `MachineSetupDialog` and server boot banner reference `@bnpm-viking/zouk-daemon` (internal npm scope)
+- **Daemon setup** — `MachineSetupDialog` and the server boot banner reference the published `@openviking/zouk-daemon` npm package (upstream parity)
 
 Other improvements are general-purpose and have been (or are being) upstreamed via PRs against `ZaynJarvis/zouk`.
 
@@ -47,7 +47,33 @@ npm run build      # build frontend bundle
 
 - [Agent delivery notification routing](docs/agent-delivery-routing.md)
 
-## Deployment
+## Docker Deployment
+
+One-command setup with PostgreSQL + [OpenViking](https://github.com/volcengine/OpenViking) memory:
+
+```bash
+bash setup.sh                           # auto-detects keys from ~/.openviking/ov.conf
+# or
+bash setup.sh --emb-key <volcengine-key>  # explicit key
+```
+
+This creates `data/` (PG + OV persistence), generates an OV root API key, and starts all services. After setup:
+
+```bash
+docker compose up -d                    # start
+docker compose down                     # stop (data preserved)
+docker compose down -v                  # stop + wipe data
+```
+
+Connect a daemon:
+
+```bash
+zouk-daemon --server-url http://localhost:7777 --api-key test
+```
+
+Configuration in `.env` — see `.env.example` for all options (Google OAuth, email allowlist, custom image tag, etc.).
+
+### Cloud / Railway
 
 Internal deployment: ByteDance SCM → ICM → TCE pipeline. See `docs/internal-deploy.md` for env-var reference, RDS/PG wiring, Feishu OAuth app registration, and the build/log/port conventions baked into `build.sh` and the emitted `bootstrap.sh`.
 

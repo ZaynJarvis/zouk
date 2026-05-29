@@ -4,6 +4,8 @@ export const activityColors: Record<AgentActivity, string> = {
   thinking: 'bg-nc-yellow animate-pulse',
   working: 'bg-nc-red animate-pulse',
   online: 'bg-nc-green',
+  idle: 'bg-nc-green',
+  sleep: 'bg-nc-muted/50',
   offline: 'bg-nc-muted/30',
   error: 'bg-nc-red',
 };
@@ -12,6 +14,8 @@ export const activityLabels: Record<AgentActivity, string> = {
   thinking: 'THINKING',
   working: 'WORKING',
   online: 'ONLINE',
+  idle: 'IDLE',
+  sleep: 'SLEEP',
   offline: 'OFFLINE',
   error: 'ERROR',
 };

@@ -21,10 +21,30 @@ const {
 } = require("./embedSessions");
 const { createStorage } = require("./storage");
 const mockData = require("./mockData");
-const { provisionAgentKey } = require("./openviking-admin");
+const { provisionAgentKey, fetchExistingAgentKey } = require("./openviking-admin");
 const { createWorkspaceOpenvikingSettingsStore } = require("./workspaceOpenvikingSettings");
+const { createAgentAuthStore } = require("./agent-auth");
+const { createOvProxy } = require("./ov-proxy");
+const { createPromptTemplateEngine } = require("./prompt-templates");
+const { generateToolDefinitions } = require("./tool-definitions");
+const { createOvLifecycleManager } = require("./ov-lifecycle");
+const { makeResolveAgentOvCreds } = require("./ov-creds");
+const { fetchOvTools, callOvTool, invalidateSession: invalidateOvMcpSession } = require("./ov-mcp-proxy");
 const { AgentDeliveryRouter } = require("./notifications/agentDeliveryRouter");
 const { DEFAULT_WORKSPACE_ID, allocateWorkspaceId, normalizeWorkspaceId } = require("./workspaceIds");
+const {
+  wsTrackers, tokenFingerprint,
+  recordWsConnectAttempt, recordInvalidTokenAttempt,
+  recordWsDisconnect, pruneOldWsTrackers,
+  WS_REVOKE_BLOCK_MS,
+} = require("./lib/ws-tracker");
+const { createAllowlistManager } = require("./lib/auth-allowlist");
+const {
+  dmChannelName, dmChannelParties, canonicalizeDmChannelName, dmPeerFrom,
+  parseTarget, formatTarget, matchesTarget,
+  taskMatchesTarget: _taskMatchesTarget,
+  resolveTargetChannel: _resolveTargetChannel,
+} = require("./lib/dm-channels");
 
 function gravatarUrl(email) {
   if (!email) return null;
@@ -149,6 +169,28 @@ function isOvMcpEnabledForAgent(cfg) {
   if (cfg && typeof cfg.ovMcpEnabled === "boolean") return cfg.ovMcpEnabled;
   return ovMcpDefaultForRuntime(cfg && cfg.runtime);
 }
+// Runtimes where the agent's own plugin handles OV lifecycle (auto-recall,
+// auto-capture, auto-commit). Server skips its managed operations for these.
+const OV_PLUGIN_RUNTIME_WHITELIST = (process.env.OV_PLUGIN_RUNTIME_WHITELIST || "claude,codex")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+function ovPluginDefaultForRuntime(runtime) {
+  return !!runtime && OV_PLUGIN_RUNTIME_WHITELIST.includes(runtime);
+}
+function isOvPluginForAgent(cfg) {
+  // The agent's own OV plugin can only own the lifecycle (auto-recall /
+  // -capture / -commit) when it actually runs inside the spawned process. The
+  // daemon mutes that plugin whenever disableLocalOvPlugin is on (the default),
+  // so in that case the server MUST take over — regardless of runtime default
+  // or an explicit ovLifecycleMode. Only when the local plugin is explicitly
+  // left enabled (disableLocalOvPlugin === false) does plugin-ownership apply.
+  // This is what makes claude/codex behave like every other runtime: by default
+  // their plugin is disabled, so the server-managed lifecycle handles them.
+  if (!cfg || cfg.disableLocalOvPlugin !== false) return false;
+  if (typeof cfg.ovLifecycleMode === "string") return cfg.ovLifecycleMode === "plugin";
+  return ovPluginDefaultForRuntime(cfg.runtime);
+}
 // Normalize / validate a customLauncher update payload. Returns
 // `{ ok: true, value: <trimmed-string-or-null> }` on success (null = clear),
 // or `{ ok: false, err: <reason> }` on validation failure.
@@ -235,19 +277,56 @@ function resolveProvisioningCreds(workspaceId) {
 // The resulting user_id is persisted into agent_configs.openviking_user_id on
 // first provision and frozen thereafter — renaming the agent does NOT move OV
 // memory.
-function deriveOvUserIdFromName(name, fallbackId) {
-  const raw = typeof name === "string" ? name : "";
-  const root = raw.split("[")[0].trim().toLowerCase();
-  // Limit to chars OV accepts in user_id (matches sanitizeEmbedGuestName ethos).
-  const safe = root.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
-  if (safe) return `zouk-${safe}`;
-  return deriveOvUserId(fallbackId || "");
+function deriveOvUserId(agentId) {
+  const short = String(agentId || "").replace(/^agent-/, "");
+  return `zouk-${short}`;
 }
 
+// Canonical agent handle → bare OV id. The handle is a validated slug at
+// creation (see isValidAgentHandle), so this is mostly an identity map; the
+// sanitizer is a safety net for handles created via paths that bypass
+// validation (e.g. daemon adoption). Returns "" when nothing usable remains.
+function canonicalOvId(name) {
+  const raw = typeof name === "string" ? name : "";
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+// Agent handle rules: lowercase slug, starts alphanumeric, 1-48 chars of
+// [a-z0-9_-]. The handle backs the OV user_id/session_id directly, so it must
+// be a path-safe identifier. Enforced at creation only.
+const AGENT_HANDLE_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+function isValidAgentHandle(name) {
+  return typeof name === "string" && AGENT_HANDLE_RE.test(name);
+}
+
+// Whether a handle is already in use by another agent. Case-insensitive and
+// GLOBAL (across all workspaces) because the OV account may be shared, so two
+// same-named agents would collide in OV. Distinct from agentIdByName, which is
+// workspace-scoped and also matches displayName.
+function isAgentNameTaken(name, excludeId = null) {
+  const lowered = String(name || "").trim().toLowerCase();
+  if (!lowered) return false;
+  for (const cfg of agentConfigs) {
+    if (cfg.id === excludeId) continue;
+    if ((cfg.name || "").trim().toLowerCase() === lowered) return true;
+  }
+  for (const [id, a] of Object.entries(store.agents)) {
+    if (id === excludeId) continue;
+    if ((a.name || "").trim().toLowerCase() === lowered) return true;
+  }
+  return false;
+}
+
+// Initial OV user_id for a NEW agent: the bare canonical handle. Existing
+// agents never reach this (their persisted openvikingUserId wins upstream).
+// Falls back to the zouk-<hash> id only when the handle is empty/unusable.
 function resolveInitialOvUserId(config, agentId) {
-  return config?.openvikingUseAgentNameAsUser === true
-    ? deriveOvUserIdFromName(config.name, agentId)
-    : deriveOvUserId(agentId);
+  return canonicalOvId(config?.name) || deriveOvUserId(agentId);
 }
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -259,6 +338,8 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 //   2. user approves in Feishu, IdP 302s back to /api/oauth2/feishu/callback?code=…
 //   3. SDK swaps code → user_access_token; response already carries user profile
 //   4. mint zouk session, 302 to `/?auth=feishu&token=…`
+// Internal-only: kept as the sole login provider on the intranet deploy. The
+// route handlers live in server/lib/auth.js (extracted alongside google/supabase).
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID || "";
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET || "";
 const FEISHU_REDIRECT_URI =
@@ -289,163 +370,12 @@ if (feishuEnabled) {
   console.log(`[auth] Feishu Open Platform OAuth enabled (app_id=${FEISHU_APP_ID})`);
 }
 
-// Email allowlist — union of three sources, all granting equal access:
-//   1. `ALLOW` env, comma-separated. Entries starting with `@` match by
-//      domain (e.g. `@example.com` lets the whole tenant in); bare entries
-//      match by exact address. Immutable without restart.
-//   2. `email_allowlist` DB table (managed via Settings UI, hot-reloaded)
-// When the union is non-empty, only listed addresses can mint sessions and
-// guest mode is disabled. Empty union = unrestricted (default).
-const ENV_ALLOW_EMAILS = new Set();
-const ENV_ALLOW_DOMAINS = new Set();
-for (const raw of (process.env.ALLOW || "").split(",")) {
-  const entry = raw.trim().toLowerCase();
-  if (!entry) continue;
-  if (entry.startsWith("@")) ENV_ALLOW_DOMAINS.add(entry);
-  else ENV_ALLOW_EMAILS.add(entry);
-}
-// `${workspaceId}:${email}` -> { workspaceId, email, addedAt, addedBy }
-// (populated async from DB at startup)
-const dbAllowEmails = new Map();
-
-function allowlistKey(workspaceId, email) {
-  return `${normalizeWorkspaceId(workspaceId)}:${String(email || "").trim().toLowerCase()}`;
-}
-
-// Default workspace gates *only* on ENV (ALLOW env var). Non-default
-// workspaces gate purely on their own workspace-scoped DB rows. So an
-// empty ALLOW env means the default workspace is fully open even when
-// other workspaces have allowlist rows in the DB.
-function allowlistActive(workspaceId = null) {
-  if (!workspaceId) {
-    return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0 || dbAllowEmails.size > 0;
-  }
-  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
-  if (normalizedWorkspaceId === DEFAULT_WORKSPACE_ID) {
-    return ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0;
-  }
-  for (const meta of dbAllowEmails.values()) {
-    if ((meta.workspaceId || DEFAULT_WORKSPACE_ID) === normalizedWorkspaceId) return true;
-  }
-  return false;
-}
-
-function isEmailAllowed(email, workspaceId = DEFAULT_WORKSPACE_ID) {
-  if (!allowlistActive(workspaceId)) return true;
-  if (!email || typeof email !== "string") return false;
-  const norm = email.trim().toLowerCase();
-  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
-  if (normalizedWorkspaceId === DEFAULT_WORKSPACE_ID) {
-    if (ENV_ALLOW_EMAILS.has(norm)) return true;
-    const at = norm.lastIndexOf("@");
-    if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
-    return false;
-  }
-  return dbAllowEmails.has(allowlistKey(normalizedWorkspaceId, norm));
-}
-
-// True if the email can mint a session — i.e. it's allowed in at least one
-// workspace, or the default workspace is open (no ENV allowlist). When the
-// default is open every authenticated user gets `member` in default by default,
-// so we should accept their login even if no subserver allowlist matches.
-function isEmailAllowedAnyWorkspace(email) {
-  if (!email || typeof email !== "string") return false;
-  const norm = email.trim().toLowerCase();
-  // Default workspace is open → anyone with a valid auth can log in (and they
-  // will land in default as a member; subserver access still gated separately).
-  if (!allowlistActive(DEFAULT_WORKSPACE_ID)) return true;
-  if (!isWorkspaceMemberRemoved(DEFAULT_WORKSPACE_ID, norm)) {
-    if (ENV_ALLOW_EMAILS.has(norm)) return true;
-    const at = norm.lastIndexOf("@");
-    if (at >= 0 && ENV_ALLOW_DOMAINS.has(norm.slice(at))) return true;
-  }
-  for (const meta of dbAllowEmails.values()) {
-    if ((meta.email || "").trim().toLowerCase() !== norm) continue;
-    if (isWorkspaceMemberRemoved(meta.workspaceId || DEFAULT_WORKSPACE_ID, norm)) continue;
-    return true;
-  }
-  return false;
-}
-
-// True if any workspace has an active allowlist. Used by /api/auth/config to
-// decide whether the frontend should hide the guest button — if any server in
-// the deployment gates on an allowlist, we shouldn't advertise guest access.
-function allowlistActiveAnywhere() {
-  return (
-    ENV_ALLOW_EMAILS.size > 0 ||
-    ENV_ALLOW_DOMAINS.size > 0 ||
-    dbAllowEmails.size > 0
-  );
-}
-
-function normalizeEmailInput(raw) {
-  if (typeof raw !== "string") return null;
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return null;
-  // Lightweight format check — full RFC validation is a rabbit hole; this
-  // catches typos without false-rejecting real addresses.
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null;
-  if (trimmed.length > 254) return null;
-  return trimmed;
-}
-
-if (ENV_ALLOW_EMAILS.size > 0 || ENV_ALLOW_DOMAINS.size > 0) {
-  console.log(
-    `[auth] Email allowlist seeded from ALLOW env ` +
-    `(${ENV_ALLOW_EMAILS.size} address(es), ${ENV_ALLOW_DOMAINS.size} domain(s))`
-  );
-}
-
-// ZOUK_SUPERUSERS — comma-separated emails that get root access on every
-// workspace (read, admin, member CRUD, see all workspaces in the list).
-// Backend-only; there is no superuser UI yet — these users simply have
-// elevated authority everywhere they hit the API.
-const ENV_SUPERUSERS = new Set();
-for (const raw of (process.env.ZOUK_SUPERUSERS || "").split(",")) {
-  const entry = raw.trim().toLowerCase();
-  if (entry) ENV_SUPERUSERS.add(entry);
-}
-function isSuperuser(email) {
-  if (!email || typeof email !== "string") return false;
-  return ENV_SUPERUSERS.has(email.trim().toLowerCase());
-}
-if (ENV_SUPERUSERS.size > 0) {
-  console.log(`[auth] ${ENV_SUPERUSERS.size} superuser(s) seeded from ZOUK_SUPERUSERS env`);
-}
-
-// Local-dev escape hatch: promote guest sessions (email-less users) to root on
-// the default workspace so they can create/admin workspaces without OAuth. Off
-// by default — never set this in production.
-const GUEST_ELEVATED = (() => {
-  const raw = (process.env.ZOUK_GUEST_ELEVATED || "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
-})();
-if (GUEST_ELEVATED) {
-  console.warn("[auth] ZOUK_GUEST_ELEVATED=1 — guest sessions get root on default workspace (dev only)");
-}
-
-async function loadEmailAllowlistFromDb() {
-  if (!db.enabled) return;
-  try {
-    const rows = await db.loadEmailAllowlist();
-    if (!rows) return;
-    dbAllowEmails.clear();
-    for (const row of rows) {
-      const workspaceId = row.workspaceId || DEFAULT_WORKSPACE_ID;
-      dbAllowEmails.set(allowlistKey(workspaceId, row.email), {
-        workspaceId,
-        email: row.email,
-        addedAt: row.addedAt,
-        addedBy: row.addedBy,
-      });
-    }
-    if (rows.length > 0) {
-      console.log(`[auth] Loaded ${rows.length} allowlist entry(ies) from database`);
-    }
-  } catch (e) {
-    console.warn("[auth] Failed to load email allowlist:", e.message);
-  }
-}
+const {
+  ENV_ALLOW_EMAILS, ENV_ALLOW_DOMAINS, dbAllowEmails, GUEST_ELEVATED,
+  allowlistKey, allowlistActive, isEmailAllowed, isEmailAllowedAnyWorkspace,
+  allowlistActiveAnywhere, normalizeEmailInput, isSuperuser,
+  loadEmailAllowlistFromDb, setIsWorkspaceMemberRemoved: _setIsWorkspaceMemberRemoved,
+} = createAllowlistManager({ db, DEFAULT_WORKSPACE_ID, normalizeWorkspaceId });
 const CONFIG_DIR = process.env.ZOUK_CONFIG_DIR || path.join(__dirname, "..", "data");
 const AGENT_CONFIGS_FILE = path.join(CONFIG_DIR, "agent-configs.json");
 const MACHINE_KEYS_FILE = path.join(CONFIG_DIR, "machine-keys.json");
@@ -558,13 +488,13 @@ function agentPayload(agentId) {
     openvikingProvisioned: !!cfg.openvikingApiKey,
     openvikingMode: cfg.openvikingMode === 'custom' ? 'custom' : 'provisioned',
     openvikingCustomConfigured: !!cfg.openvikingCustomApiKey,
-    openvikingUseAgentNameAsUser: cfg.openvikingUseAgentNameAsUser === true,
     ovEnabled: isOvEnabledForAgent(cfg),
     ovEnabledIsDefault: typeof cfg.openvikingEnabled !== 'boolean',
     ovDefault: ovDefaultForRuntime(cfg.runtime || a.runtime),
     ovMcpEnabled: isOvMcpEnabledForAgent(cfg),
     ovMcpEnabledIsDefault: typeof cfg.ovMcpEnabled !== 'boolean',
     ovMcpDefault: ovMcpDefaultForRuntime(cfg.runtime || a.runtime),
+    disableLocalOvPlugin: cfg.disableLocalOvPlugin !== false,
   };
 }
 
@@ -584,6 +514,7 @@ function sanitizedAgentConfigs() {
     ovMcpEnabled: isOvMcpEnabledForAgent(rest),
     ovMcpEnabledIsDefault: typeof rest.ovMcpEnabled !== 'boolean',
     ovMcpDefault: ovMcpDefaultForRuntime(rest.runtime),
+    disableLocalOvPlugin: rest.disableLocalOvPlugin !== false,
   }));
 }
 
@@ -905,6 +836,7 @@ function isWorkspaceMemberRemoved(workspaceId, email) {
   if (!workspaceMemberRemovalApplies(workspaceId)) return false;
   return removedWorkspaceMembers.has(workspaceMemberRemovalKey(workspaceId, email));
 }
+_setIsWorkspaceMemberRemoved(isWorkspaceMemberRemoved);
 
 function markWorkspaceMemberRemoved(workspaceId, email, removedBy, { persist = true } = {}) {
   if (!email) return null;
@@ -1146,22 +1078,7 @@ async function syncTaskBackingMessage(task) {
 }
 
 function taskMatchesTarget(task, target, agentName) {
-  if (!target) return true;
-  const { channelName, channelType } = parseTarget(target, agentName);
-  const ch = channelForTask(task);
-  const taskChannelName = ch?.name || task.channelName || null;
-  const taskChannelType = ch?.type || (taskChannelName?.startsWith("dm:") ? "dm" : "channel");
-  if (taskChannelType !== channelType) return false;
-  if (taskChannelName === channelName) return true;
-
-  // Compatibility for tasks created by older agent endpoints, which parsed
-  // dm:@peer without the agent name and stored them under single-party
-  // orphan channels such as dm:zaynjarvis.
-  if (channelType === "dm") {
-    const parties = dmChannelParties(channelName) || [];
-    return parties.some((party) => taskChannelName === `dm:${party}`);
-  }
-  return false;
+  return _taskMatchesTarget(task, target, agentName, channelForTask);
 }
 
 function findOrCreateChannel(name, type = "channel", workspaceId = DEFAULT_WORKSPACE_ID) {
@@ -1328,102 +1245,13 @@ function seedAgentIntoRegularChannels(agentId) {
   }
 }
 
-// ─── Canonical DM channel helpers ─────────────────────────────────
-// DMs use a canonical sorted-pair name: "dm:alice,zeus" so each pair
-// of users shares exactly one channel regardless of who initiated.
+// ─── DM channel helpers (see server/lib/dm-channels.js) ──────────
+// Pure helpers: dmChannelName, dmChannelParties, canonicalizeDmChannelName,
+// dmPeerFrom, parseTarget, formatTarget, matchesTarget — imported at top.
+// Store-dependent wrappers below bind store.channels so callers stay unchanged.
 
-function dmChannelName(a, b) {
-  return `dm:${[a, b].sort().join(",")}`;
-}
-
-function dmChannelParties(channelName) {
-  if (!channelName || !channelName.startsWith("dm:")) return null;
-  return channelName.substring(3).split(",");
-}
-
-// Normalize an already-stored DM channel name so parties are sorted. Idempotent.
-// Single-name rows (`dm:alice` — orphan from pre-canonical code) are returned
-// as-is because we can't infer the other party without more context.
-function canonicalizeDmChannelName(channelName) {
-  const parties = dmChannelParties(channelName);
-  if (!parties || parties.length < 2) return channelName;
-  return `dm:${[...parties].sort().join(",")}`;
-}
-
-function dmPeerFrom(channelName, myName) {
-  const parties = dmChannelParties(channelName);
-  if (!parties || parties.length < 2) return channelName;
-  return parties.find((p) => p !== myName) || parties[0];
-}
-
-function parseTarget(target, senderName) {
-  // "#channel", "dm:@user", "#channel:shortid", "dm:@user:shortid",
-  // or pre-canonicalized "dm:alice,zeus" / "dm:alice,zeus:shortid"
-  if (!target) return { channelName: "all", channelType: "channel", threadId: null };
-  if (target.startsWith("dm:")) {
-    const parts = target.substring(3).split(":");
-    const peer = parts[0].replace("@", "");
-    let channelName;
-    if (peer.includes(",")) {
-      // Caller handed us a canonical-looking pair — sort to be safe.
-      channelName = canonicalizeDmChannelName(`dm:${peer}`);
-    } else if (senderName) {
-      channelName = dmChannelName(senderName, peer);
-    } else {
-      channelName = `dm:${peer}`;
-    }
-    return { channelName, channelType: "dm", threadId: parts[1] || null, dmPeer: peer };
-  }
-  const parts = target.substring(1).split(":");
-  return { channelName: parts[0], channelType: "channel", threadId: parts[1] || null };
-}
-
-function formatTarget(channelName, channelType, threadId) {
-  if (channelType === "dm") {
-    const parties = dmChannelParties(channelName);
-    // For agents, format as dm:@peer; fall back to raw name
-    const name = parties ? parties[0] : channelName;
-    let t = `dm:@${name}`;
-    if (threadId) t += `:${threadId}`;
-    return t;
-  }
-  let t = `#${channelName}`;
-  if (threadId) t += `:${threadId}`;
-  return t;
-}
-
-function matchesTarget(msg, target, requesterName, workspaceId = null) {
-  if (workspaceId && normalizeWorkspaceId(msg.workspaceId || DEFAULT_WORKSPACE_ID) !== normalizeWorkspaceId(workspaceId)) {
-    return false;
-  }
-  const { channelName, channelType, threadId } = parseTarget(target, requesterName);
-  // For DM without requesterName, fall back to checking if canonical names overlap
-  if (channelType === "dm" && !requesterName && msg.channelType === "dm") {
-    const targetParts = target.startsWith("dm:") ? [target.substring(3).split(":")[0].replace("@", "")] : [];
-    const msgParties = dmChannelParties(msg.channelName);
-    if (targetParts.length && msgParties) {
-      return msgParties.includes(targetParts[0])
-        && (threadId ? msg.threadId === threadId : !msg.threadId);
-    }
-  }
-  return msg.channelName === channelName
-    && msg.channelType === channelType
-    && (threadId ? msg.threadId === threadId : !msg.threadId);
-}
-
-// Resolve a target string (e.g. "#engineering", "dm:@alice:abc12345") to the
-// concrete channel row + thread filter. Returns null when the channel doesn't
-// exist in the requested workspace — caller should 404 / return empty.
 function resolveTargetChannel(target, requesterName, workspaceId = DEFAULT_WORKSPACE_ID) {
-  const wsId = normalizeWorkspaceId(workspaceId);
-  const { channelName, channelType, threadId } = parseTarget(target, requesterName);
-  const ch = store.channels.find((c) => (
-    (c.workspaceId || DEFAULT_WORKSPACE_ID) === wsId
-    && c.name === channelName
-    && (c.type || "channel") === channelType
-  ));
-  if (!ch) return { channel: null, channelName, channelType, threadId };
-  return { channel: ch, channelName, channelType, threadId };
+  return _resolveTargetChannel(target, requesterName, workspaceId, store.channels);
 }
 
 function embedAllowedChannelIds(user) {
@@ -1465,9 +1293,11 @@ function embedCanAccessAgentEvent(user, event, ws = null) {
 
 function embedApiRouteAllowed(req) {
   const method = String(req.method || "").toUpperCase();
-  const path = req.path || "";
-  if (path === "/api/messages" && (method === "GET" || method === "POST")) return true;
-  if (path === "/api/channels" && method === "GET") return true;
+  // Use originalUrl so the check works both when the middleware runs on
+  // app-level routes and inside sub-routers mounted at /api.
+  const url = (req.originalUrl || req.path || "").split("?")[0];
+  if (url === "/api/messages" && (method === "GET" || method === "POST")) return true;
+  if (url === "/api/channels" && method === "GET") return true;
   return false;
 }
 
@@ -1794,185 +1624,6 @@ function formatMessageForAgent(msg, recipientAgentId) {
   };
 }
 
-// ─── WS connect-storm tracker ─────────────────────────────────────
-// One bad client (stale tab, runaway daemon, buggy reconnect loop) can saturate
-// the single-replica event loop just by re-opening /ws over and over. Each
-// connect runs handleWebConnection which sends a full init payload sync. We
-// observed ~40 conn/s in production → ~12s p50 latency on unrelated HTTP.
-//
-// Defence is two-pronged:
-//   1. Rate-limit /ws upgrades per token (or per IP for guests). Auto-block
-//      sources that exceed WS_RATE_BLOCK_THRESHOLD opens within
-//      WS_RATE_WINDOW_MS for WS_BLOCK_DURATION_MS only when they look like
-//      true churn (nearly no live sockets). Multiple legitimate browser
-//      windows share one token and should not be killed merely for all
-//      reconnecting around the same time after a deploy or visibility event.
-//   2. Defer the init send via setImmediate so a burst is interleaved with
-//      other event-loop work instead of monopolizing one tick.
-//
-// Tracker entries are surfaced via /api/_internal/ws-clients so the operator
-// can see who's misbehaving and revoke the offending session from Settings.
-const WS_RATE_WINDOW_MS = 60_000;
-const WS_RATE_BLOCK_THRESHOLD = Number(process.env.WS_RATE_BLOCK_THRESHOLD || 24);
-const WS_RATE_BLOCK_MAX_OPEN = Number(process.env.WS_RATE_BLOCK_MAX_OPEN || 1);
-const WS_RATE_HARD_BLOCK_THRESHOLD = Number(process.env.WS_RATE_HARD_BLOCK_THRESHOLD || 120);
-const WS_BLOCK_DURATION_MS = 5 * 60_000;
-const WS_TRACKER_TTL_MS = 24 * 60 * 60 * 1000;
-const WS_REVOKE_BLOCK_MS = 24 * 60 * 60 * 1000;
-// Invalid token = client sent ?token=… but it isn't in authSessions. Almost
-// always a stale tab after revoke/logout/deploy. The client's own retry
-// budget will keep firing it; harshly throttle to make it cheap.
-const WS_INVALID_TOKEN_THRESHOLD = Number(process.env.WS_INVALID_TOKEN_THRESHOLD || 10);
-const WS_INVALID_BLOCK_MS = 5 * 60_000;
-
-const wsTrackers = new Map(); // fingerprint -> entry
-
-function tokenFingerprint(token) {
-  return crypto.createHash("sha256").update(String(token)).digest("hex").slice(0, 16);
-}
-
-function pruneRecentConnects(entry, nowMs) {
-  const cutoff = nowMs - WS_RATE_WINDOW_MS;
-  while (entry.recentConnects.length && entry.recentConnects[0] < cutoff) {
-    entry.recentConnects.shift();
-  }
-}
-
-function recordWsConnectAttempt(token, ip) {
-  const nowMs = Date.now();
-  const kind = token ? "token" : "ip";
-  const key = token ? tokenFingerprint(token) : `ip:${ip || "unknown"}`;
-  let entry = wsTrackers.get(key);
-  if (!entry) {
-    entry = {
-      key,
-      kind,
-      token: token || null,
-      ip: ip || null,
-      openCount: 0,
-      totalConnects: 0,
-      totalDisconnects: 0,
-      totalRejections: 0,
-      lastConnectAt: 0,
-      lastDisconnectAt: 0,
-      lastRejectionAt: 0,
-      recentConnects: [],
-      blockedUntil: 0,
-      blockReason: null,
-      manualBlock: false,
-      firstSeenAt: nowMs,
-    };
-    wsTrackers.set(key, entry);
-  }
-  // Hot path: already blocked → return immediately, no prune / no array work.
-  // A storming source can pound on this at >30/s; the original code pruned and
-  // pushed for every attempt even when the answer was already "rejected".
-  if (entry.blockedUntil > nowMs) {
-    entry.totalRejections += 1;
-    entry.lastRejectionAt = nowMs;
-    return { allow: false, entry, reason: entry.blockReason || "blocked" };
-  }
-  // Refresh ip in case the same token now connects from a different network.
-  if (ip) entry.ip = ip;
-  pruneRecentConnects(entry, nowMs);
-  entry.recentConnects.push(nowMs);
-  entry.totalConnects += 1;
-  entry.lastConnectAt = nowMs;
-  const recentCount = entry.recentConnects.length;
-  const hardStorm = recentCount > WS_RATE_HARD_BLOCK_THRESHOLD;
-  const churnStorm = recentCount > WS_RATE_BLOCK_THRESHOLD && entry.openCount <= WS_RATE_BLOCK_MAX_OPEN;
-  if (hardStorm || churnStorm) {
-    entry.blockedUntil = nowMs + WS_BLOCK_DURATION_MS;
-    entry.blockReason = hardStorm
-      ? `auto: ${recentCount} connects in ${WS_RATE_WINDOW_MS / 1000}s (hard limit ${WS_RATE_HARD_BLOCK_THRESHOLD})`
-      : `auto: ${recentCount} connects in ${WS_RATE_WINDOW_MS / 1000}s with ${entry.openCount} open (limit ${WS_RATE_BLOCK_THRESHOLD}, max open ${WS_RATE_BLOCK_MAX_OPEN})`;
-    console.warn(`[ws-tracker] auto-blocked ${entry.kind}=${entry.key} for ${WS_BLOCK_DURATION_MS / 1000}s — ${entry.blockReason}`);
-    entry.totalRejections += 1;
-    entry.lastRejectionAt = nowMs;
-    return { allow: false, entry, reason: entry.blockReason };
-  }
-  entry.openCount += 1;
-  return { allow: true, entry };
-}
-
-// Tracks /ws upgrades that arrived with a token the server doesn't recognize.
-// These are *always* rejected; the tracker exists so we can escalate to a long
-// block once the misbehaving client has burned through WS_INVALID_TOKEN_THRESHOLD
-// strikes — no point letting them keep wasting TLS handshakes for 24h.
-//
-// Hot-path discipline: a buggy client can hammer this at >30/s. Once an entry
-// is already blocked, do the absolute minimum (bump a counter + return) and
-// skip the SHA-window prune, the array push, the blockedUntil reassignment,
-// and the console.warn. The original implementation re-logged + re-set
-// blockedUntil on every rejected attempt — at 30/s that re-introduced the
-// event-loop pressure we were trying to defend against.
-function recordInvalidTokenAttempt(token, ip) {
-  const nowMs = Date.now();
-  const fp = tokenFingerprint(token);
-  const key = `bad:${fp}`;
-  let entry = wsTrackers.get(key);
-  if (!entry) {
-    entry = {
-      key,
-      kind: "invalid_token",
-      token: null,
-      ip: ip || null,
-      openCount: 0,
-      totalConnects: 0,
-      totalDisconnects: 0,
-      totalRejections: 0,
-      lastConnectAt: 0,
-      lastDisconnectAt: 0,
-      lastRejectionAt: 0,
-      recentConnects: [],
-      blockedUntil: 0,
-      blockReason: null,
-      manualBlock: false,
-      firstSeenAt: nowMs,
-    };
-    wsTrackers.set(key, entry);
-  }
-  // Hot path: already blocked → just bump the counter and return. No prune,
-  // no array push, no log, no Date math.
-  if (entry.blockedUntil > nowMs) {
-    entry.totalRejections += 1;
-    entry.lastRejectionAt = nowMs;
-    return entry;
-  }
-  if (ip) entry.ip = ip;
-  pruneRecentConnects(entry, nowMs);
-  entry.recentConnects.push(nowMs);
-  entry.totalRejections += 1;
-  entry.lastRejectionAt = nowMs;
-  // Only fires on the actual transition into blocked state.
-  if (!entry.manualBlock && entry.recentConnects.length > WS_INVALID_TOKEN_THRESHOLD) {
-    entry.blockedUntil = nowMs + WS_INVALID_BLOCK_MS;
-    entry.blockReason = `invalid token: ${entry.recentConnects.length} bad attempts in ${WS_RATE_WINDOW_MS / 1000}s`;
-    console.warn(`[ws-tracker] invalid-token block ${key} for ${WS_INVALID_BLOCK_MS / 1000}s — ${entry.blockReason}`);
-  }
-  return entry;
-}
-
-function recordWsDisconnect(entry) {
-  if (!entry) return;
-  entry.totalDisconnects += 1;
-  entry.lastDisconnectAt = Date.now();
-  if (entry.openCount > 0) entry.openCount -= 1;
-}
-
-function pruneOldWsTrackers(nowMs = Date.now()) {
-  for (const [key, entry] of wsTrackers) {
-    if (entry.openCount > 0) continue;
-    if (entry.blockedUntil > nowMs) continue;
-    if (entry.manualBlock) continue;
-    const lastActivity = Math.max(entry.lastConnectAt, entry.lastDisconnectAt, entry.lastRejectionAt);
-    if (lastActivity && (nowMs - lastActivity) > WS_TRACKER_TTL_MS) {
-      wsTrackers.delete(key);
-    }
-  }
-}
-setInterval(() => pruneOldWsTrackers(), 60 * 60 * 1000).unref?.();
-
 // ─── WebSocket: daemon connections ────────────────────────────────
 
 const daemonSockets = new Map(); // agentId -> ws
@@ -1981,6 +1632,16 @@ const webSockets = new Set(); // web UI connections
 const machines = new Map(); // machineId -> { id, hostname, os, runtimes, capabilities, connectedAt, agentIds }
 const pendingRuntimeModelRequests = new Map(); // requestId -> { resolve, timer }
 const pendingContextResets = new Map(); // agentId -> resolver (fires on daemon agent:status=inactive, for reset-context orchestration)
+
+// Forward references — assigned when createDaemonHandler / createAgentLifecycle
+// are wired up (after all Express routes are mounted). Safe because every call
+// site is inside a function that only executes at runtime.
+let sendAgentStop;
+let normalizeInactiveAgentState;
+let broadcastAgentStatus;
+let startAgentOnDaemon;
+let autoStartAgents;
+
 const onlineHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest, count }
 // Everyone we've ever seen as an authenticated user (seeded from `sessions` table on
 // startup, upserted on OAuth login + profile update). Lets the people list retain
@@ -2012,29 +1673,6 @@ function purgeUnknownAgentState(agentId) {
   }
 }
 
-function sendAgentStop(
-  agentId,
-  preferredWs = null,
-  {
-    broadcast = preferredWs == null,
-    includeCurrentOwner = preferredWs == null,
-  } = {}
-) {
-  const targets = new Set();
-  if (preferredWs?.readyState === 1) targets.add(preferredWs);
-  if (includeCurrentOwner) {
-    const directWs = daemonSockets.get(agentId);
-    if (directWs?.readyState === 1) targets.add(directWs);
-  }
-  if (broadcast) {
-    for (const ws of daemonConnections) {
-      if (ws.readyState === 1) targets.add(ws);
-    }
-  }
-  for (const ws of targets) {
-    ws.send(JSON.stringify({ type: "agent:stop", agentId }));
-  }
-}
 
 function queuePendingDelivery(agentId, message) {
   let queue = pendingDeliveries.get(agentId);
@@ -2138,6 +1776,31 @@ const workspaceOvSettings = createWorkspaceOpenvikingSettingsStore({
   defaultWorkspaceId: DEFAULT_WORKSPACE_ID,
 });
 const embedSessionRateLimiter = createEmbedRateLimiter();
+const agentAuth = createAgentAuthStore({ db });
+const promptEngine = createPromptTemplateEngine({
+  sectionsFilePath: path.join(__dirname, "..", "data", "prompt-sections.json"),
+});
+// Single mode-aware resolver: returns the agent's effective OV creds whether
+// it's in 'custom' (user-supplied URL+key) or 'provisioned' (server-minted)
+// mode. All runtime paths that hit OV must go through this — the proxy, the
+// lifecycle manager, the tool endpoint, and the memory panel.
+const resolveAgentOvCreds = makeResolveAgentOvCreds({
+  decodeOvKey, deriveOvUserId, OPENVIKING_URL, OPENVIKING_ACCOUNT,
+});
+function getAgentOvCredsById(agentId) {
+  return resolveAgentOvCreds(agentConfigs.find((c) => c.id === agentId));
+}
+
+const ovLifecycle = createOvLifecycleManager({
+  getAgentOvCreds(agentId) {
+    return getAgentOvCredsById(agentId);
+  },
+  resolveOvUrl(agentId) {
+    const cfg = agentConfigs.find((c) => c.id === agentId);
+    const creds = resolveProvisioningCreds(cfg?.workspaceId);
+    return creds?.url || null;
+  },
+});
 
 function removeWorkspaceFromMemory(workspaceId) {
   const id = normalizeWorkspaceId(workspaceId);
@@ -2443,18 +2106,49 @@ function setWebPresence(ws, msg = {}) {
   ws._human = human;
 }
 
-function deliverToAgent(agentId, message) {
+async function deliverToAgent(agentId, message) {
   const ws = daemonSockets.get(agentId);
   if (ws && ws.readyState === 1) {
     const seq = nextSeq();
+    const formatted = formatMessageForAgent(message, agentId);
+
+    // OV managed lifecycle: send auto-recall context BEFORE agent:deliver so
+    // daemon's pendingDeliveries already has it. Race-free even if daemon's
+    // wait window is short. Capped at 1.5s — beyond that, deliver without
+    // context rather than blocking the message.
+    const agentCfg = agentConfigs.find((c) => c.id === agentId);
+    if (agentCfg?.openvikingApiKey && message.content && !isOvPluginForAgent(agentCfg)) {
+      ovLifecycle.autoCapture(agentId, message.content, null, {
+        channelName: message.channelName,
+        channelType: message.channelType,
+        threadId: message.threadId,
+        senderName: message.senderName,
+        senderType: message.senderType || "human",
+        messageId: message.id,
+        timestamp: message.createdAt,
+      }).catch(() => {});
+      try {
+        const recallStart = Date.now();
+        let timedOut = false;
+        const ovContext = await Promise.race([
+          ovLifecycle.autoRecall(agentId, message.content),
+          new Promise((resolve) => setTimeout(() => { timedOut = true; resolve(null); }, 1500)),
+        ]);
+        const dur = Date.now() - recallStart;
+        if (ovContext && ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "agent:deliver:context", agentId, seq, ovContext }));
+          console.log(`[ov-deliver] ${agentId} seq=${seq} context sent (${dur}ms)`);
+        } else if (timedOut) {
+          console.warn(`[ov-deliver] ${agentId} seq=${seq} autoRecall timed out (>1500ms)`);
+        }
+      } catch (err) {
+        console.warn(`[ov-deliver] ${agentId} seq=${seq} autoRecall error: ${err?.message || err}`);
+      }
+    }
+
     let payload;
     try {
-      payload = JSON.stringify({
-        type: "agent:deliver",
-        agentId,
-        seq,
-        message: formatMessageForAgent(message, agentId),
-      });
+      payload = JSON.stringify({ type: "agent:deliver", agentId, seq, message: formatted });
     } catch (e) {
       console.error(`[delivery] serialize failed agent=${agentId} message=${message?.id} channel=${message?.channelName}:`, e.message);
       return;
@@ -2596,12 +2290,26 @@ app.use((req, res, next) => {
   return next();
 });
 
-// TCE / k8s readiness probe. Kept above auth so it stays callable when
+// k8s / docker readiness probe. Kept above auth so it stays callable when
 // upstream services (Postgres, OpenViking) are degraded — health here means
 // "process is up", not "dependencies are healthy".
 app.get("/health", (req, res) => {
   res.json({ ok: true, uptime: process.uptime() });
 });
+
+// ─── OV transparent proxy ─────────────────────────────────────────
+// Agents hit /ov/* with their agent token; we substitute per-agent OV creds
+// and forward to the real OV server.
+app.use("/ov", createOvProxy({
+  agentAuth,
+  getAgentOvCreds(agentId) {
+    return getAgentOvCredsById(agentId);
+  },
+  resolveOvUrl(workspaceId) {
+    const creds = resolveProvisioningCreds(workspaceId);
+    return creds?.url || null;
+  },
+}));
 
 const attachmentStorage = createStorage(
   process.env.ZOUK_UPLOADS_DIR || path.join(__dirname, "..", "uploads")
@@ -2628,664 +2336,30 @@ function resolveAttachmentRefs(ids) {
 }
 
 // ─── REST API: MCP tool endpoints ─────────────────────────────────
+// Extracted to routes/agent-internal.js. Mounted here with shared context.
 
-// send_message
-app.post("/internal/agent/:agentId/send", (req, res) => {
-  const { agentId } = req.params;
-  const { target, content, attachmentIds } = req.body;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  // Use config-derived name (agentPayload overlays config on runtime).
-  // store.agents[agentId].name may still be the raw ID for agents that
-  // were already running before configs were loaded/fixed.
-  const senderName = agentPayload(agentId)?.name || agentId;
-  const { channelName, channelType, threadId } = parseTarget(target, senderName);
-  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
-
-  const msg = {
-    id: uuidv4(),
-    seq: nextSeq(),
-    workspaceId,
-    channelId: ch.id,
-    channelName,
-    channelType,
-    threadId: threadId || null,
-    senderName,
-    senderType: "agent",
-    content,
-    createdAt: now(),
-    attachments: resolveAttachmentRefs(attachmentIds),
-  };
-  appendMessage(msg);
-  db.saveMessage(msg);
-
-  // Deliver to other agents
-  deliverToAllAgents(msg, agentId);
-  // Broadcast to web UI
-  broadcastToWeb({ type: "message", workspaceId, message: formatMessageForClient(msg) });
-
-  res.json({ messageId: msg.id, recentUnread: [] });
-});
-
-// check_messages (receive)
-const AGENT_RECEIVE_BATCH_LIMIT = 500;
-app.get("/internal/agent/:agentId/receive", async (req, res) => {
-  const { agentId } = req.params;
-  const lastRead = store.agentReadSeq[agentId] || 0;
-  const selfName = agentPayload(agentId)?.name || agentId;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const channelIds = visibleChannelIdsForAgent(agentId);
-  const rows = channelIds.length > 0
-    ? await readMessagesForAgent({
-        workspaceId, channelIds, sinceSeq: lastRead, limit: AGENT_RECEIVE_BATCH_LIMIT,
-      })
-    : [];
-  // Self-send suppression stays in JS — DM and channel messages can include
-  // ones from the agent itself when posting on its own behalf.
-  const unread = rows
-    .filter((m) => m.senderName !== selfName)
-    .map((m) => formatMessageForAgent(m, agentId));
-  // Advance the read pointer. If we hit the batch limit there are likely
-  // more — only advance to the last seq we actually fetched so the next call
-  // continues from there. Otherwise we've drained everything ≤ store.seq, so
-  // jump to store.seq to skip past any messages this agent can't see.
-  if (rows.length >= AGENT_RECEIVE_BATCH_LIMIT) {
-    store.agentReadSeq[agentId] = rows[rows.length - 1].seq;
-  } else {
-    store.agentReadSeq[agentId] = store.seq;
-  }
-  res.json({ messages: unread });
-});
-
-// list_server
-app.get("/internal/agent/:agentId/server", (req, res) => {
-  const { agentId } = req.params;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const channels = store.channels
-    .filter((ch) => (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId && (ch.type || "channel") === "channel")
-    .map((ch) => {
-      const row = getMembership(ch.id, agentId);
-      return {
-        name: ch.name,
-        description: ch.description || "",
-        joined: !!(row && row.canRead),
-        subscribed: !!(row && row.subscribed),
-      };
-    });
-  const agents = Object.keys(store.agents).map((id) => {
-    const p = agentPayload(id);
-    if ((p?.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) return null;
-    return { name: p?.name || id, status: p?.status || "inactive" };
-  }).filter(Boolean);
-  res.json({ channels, agents, humans: store.humans });
-});
-
-// list the agent's channel memberships (subscriptions)
-app.get("/internal/agent/:agentId/subscriptions", (req, res) => {
-  const { agentId } = req.params;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const out = [];
-  for (const ch of store.channels) {
-    if ((ch.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) continue;
-    const row = getMembership(ch.id, agentId);
-    if (!row) continue;
-    out.push({
-      channelId: ch.id,
-      channelName: ch.name,
-      channelType: ch.type || "channel",
-      canRead: !!row.canRead,
-      subscribed: !!row.subscribed,
-    });
-  }
-  res.json({ subscriptions: out });
-});
-
-// update a single subscription. Body: { channelId?, channelName?, channelType?, canRead?, subscribed? }
-// Either channelId or (channelName[, channelType]) must be provided.
-app.patch("/internal/agent/:agentId/subscriptions", (req, res) => {
-  const { agentId } = req.params;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const { channelId, channelName, channelType = "channel", canRead, subscribed } = req.body || {};
-  let ch;
-  if (channelId) {
-    ch = store.channels.find((c) => c.id === channelId && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-  } else if (channelName) {
-    ch = store.channels.find((c) => (
-      (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-      && c.name === channelName
-      && (c.type || "channel") === channelType
-    ));
-  }
-  if (!ch) return res.status(404).json({ error: "channel_not_found" });
-  const existing = getMembership(ch.id, agentId) || { canRead: true, subscribed: true };
-  const next = {
-    canRead: canRead === undefined ? existing.canRead : !!canRead,
-    subscribed: subscribed === undefined ? existing.subscribed : !!subscribed,
-  };
-  // If both flags end up false, remove the row entirely (not a member).
-  if (!next.canRead && !next.subscribed) {
-    removeMembership(ch.id, agentId);
-    return res.json({ ok: true, membership: null });
-  }
-  setMembership(ch.id, agentId, next);
-  res.json({ ok: true, membership: { channelId: ch.id, channelName: ch.name, ...next } });
-});
-
-// read_history
-app.get("/internal/agent/:agentId/history", async (req, res) => {
-  const { agentId } = req.params;
-  const { channel, limit = 50, before, after, around } = req.query;
-  const agentName = store.agents[agentId]?.name || agentId;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const resolved = resolveTargetChannel(channel, agentName, workspaceId);
-  if (!resolved.channel || !messageVisibleToAgent({
-    workspaceId, channelId: resolved.channel.id,
-    channelName: resolved.channelName, channelType: resolved.channelType,
-  }, agentId)) {
-    return res.json({
-      messages: [], last_read_seq: store.seq,
-      has_more: false, has_older: false, has_newer: false,
-      historyLimited: false, historyLimitMessage: null,
-    });
-  }
-  const channelId = resolved.channel.id;
-  const threadId = resolved.threadId;
-  const limitNum = parseInt(limit);
-
-  let rows;
-  if (around) {
-    // around can be a message id or a numeric seq string.
-    let centerSeq;
-    const aroundNum = parseInt(around);
-    if (Number.isFinite(aroundNum) && String(aroundNum) === String(around)) {
-      centerSeq = aroundNum;
-    } else {
-      const centerMsg = await getMessageByIdAnywhere(around);
-      centerSeq = centerMsg ? centerMsg.seq : null;
-    }
-    rows = centerSeq != null
-      ? await readChannelHistoryAround({ workspaceId, channelId, centerSeq, limit: limitNum })
-      : await readChannelHistory({ workspaceId, channelId, threadId, limit: limitNum });
-  } else {
-    const beforeSeq = before ? parseInt(before) : null;
-    const afterSeq = after ? parseInt(after) : null;
-    rows = await readChannelHistory({
-      workspaceId, channelId, threadId, beforeSeq, afterSeq, limit: limitNum,
-    });
-  }
-
-  res.json({
-    messages: rows.map((m) => formatMessageForAgent(m, agentId)),
-    last_read_seq: store.seq,
-    has_more: false,
-    has_older: false,
-    has_newer: false,
-    historyLimited: false,
-    historyLimitMessage: null,
-  });
-});
-
-// search_messages
-app.get("/internal/agent/:agentId/search", async (req, res) => {
-  const { agentId } = req.params;
-  const agentName = store.agents[agentId]?.name || agentId;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const { q, limit = 10, channel } = req.query;
-  // Pre-scope to channels the agent can read so DM/private-channel content
-  // can't leak via the search path. If a target channel is given, narrow
-  // further to just that channel (if visible).
-  let scopedChannelIds = visibleChannelIdsForAgent(agentId);
-  if (channel) {
-    const resolved = resolveTargetChannel(channel, agentName, workspaceId);
-    if (!resolved.channel || !scopedChannelIds.includes(resolved.channel.id)) {
-      return res.json({ results: [] });
-    }
-    scopedChannelIds = [resolved.channel.id];
-  }
-  const rows = q
-    ? await searchVisibleMessages({ workspaceId, channelIds: scopedChannelIds, keyword: q, limit: parseInt(limit) })
-    : [];
-  // searchMessages returns seq DESC (newest first); flip so the API stays
-  // consistent with the old "slice(-limit)" shape (oldest first within the page).
-  rows.reverse();
-
-  res.json({
-    results: rows.map((m) => ({
-      ...formatMessageForClient(m),
-      seq: m.seq,
-      createdAt: m.createdAt,
-      snippet: m.content.substring(0, 200),
-    })),
-  });
-});
-
-// list_tasks
-app.get("/internal/agent/:agentId/tasks", (req, res) => {
-  const { agentId } = req.params;
-  const { channel, status } = req.query;
-  const agentName = store.agents[agentId]?.name || agentId;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  let tasks = store.tasks.filter((t) => (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-  if (channel) {
-    tasks = tasks.filter((t) => taskMatchesTarget(t, channel, agentName));
-  }
-  if (status && status !== "all") {
-    tasks = tasks.filter((t) => t.status === status);
-  }
-  res.json({
-    tasks: tasks.map((t) => ({
-      taskNumber: t.taskNumber,
-      title: t.title,
-      status: t.status,
-      messageId: t.messageId,
-      claimedByName: t.claimedByName || null,
-      createdByName: t.createdByName,
-      isLegacy: false,
-    })),
-  });
-});
-
-// create_tasks
-app.post("/internal/agent/:agentId/tasks", async (req, res) => {
-  const { agentId } = req.params;
-  const { channel, tasks: taskDefs } = req.body;
-  const agentName = store.agents[agentId]?.name || agentId;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const { channelName, channelType } = parseTarget(channel, agentName);
-  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
-
-  const created = [];
-  for (const td of taskDefs) {
-    const taskNum = nextTaskNum();
-    const msgId = uuidv4();
-    const task = {
-      taskNumber: taskNum,
-      workspaceId,
-      channelId: ch.id,
-      channelName: ch.name,
-      title: td.title,
-      status: "todo",
-      messageId: msgId,
-      claimedByName: null,
-      claimedByType: null,
-      createdByName: agentName,
-    };
-    store.tasks.push(task);
-
-    // Create a system message for the task
-    const msg = {
-      id: msgId,
-      seq: nextSeq(),
-      workspaceId,
-      channelId: ch.id,
-      channelName: ch.name,
-      channelType,
-      threadId: null,
-      senderName: "system",
-      senderType: "system",
-      content: `📋 New task #${taskNum}: ${td.title}`,
-      createdAt: now(),
-      attachments: [],
-      taskNumber: taskNum,
-      taskStatus: "todo",
-    };
-    appendMessage(msg);
-    await db.saveTask(task);
-    await db.saveMessage(msg);
-    broadcastToWeb({ type: "message", workspaceId, message: formatMessageForClient(msg) });
-
-    created.push({ taskNumber: taskNum, messageId: msgId, title: td.title });
-  }
-
-  res.json({ tasks: created });
-});
-
-// claim_tasks
-// Claims existing tasks by task number or by backing message id.
-// If a top-level message has no task yet, atomically convert it into a task
-// and claim it. Thread replies remain discussion context and are not claimable.
-app.post("/internal/agent/:agentId/tasks/claim", async (req, res) => {
-  const { agentId } = req.params;
-  const { channel, task_numbers, message_ids } = req.body;
-  const agentName = store.agents[agentId]?.name || agentId;
-  const workspaceId = workspaceIdFromAgent(agentId);
-
-  const claimTask = async (task) => {
-    const num = task.taskNumber;
-    if (task.claimedByName && task.claimedByName !== agentName) {
-      return { taskNumber: num, messageId: task.messageId, success: false, reason: `already claimed by @${task.claimedByName}` };
-    }
-
-    const alreadyClaimedBySelf = task.claimedByName === agentName && task.status === "in_progress";
-    task.claimedByName = agentName;
-    task.claimedByType = "agent";
-    task.status = "in_progress";
-    await db.saveTask(task);
-    await syncTaskBackingMessage(task);
-
-    if (!alreadyClaimedBySelf) {
-      const chPayload = taskChannelPayload(task);
-      const msg = {
-        id: uuidv4(), seq: nextSeq(),
-        ...chPayload,
-        threadId: null,
-        senderName: "system", senderType: "system",
-        content: `📌 ${agentName} claimed #${num} "${task.title}"`,
-        createdAt: now(), attachments: [], taskNumber: num, taskStatus: "in_progress",
-      };
-      appendMessage(msg);
-      await db.saveMessage(msg);
-      broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || workspaceId, message: formatMessageForClient(msg) });
-    }
-
-    return { taskNumber: num, messageId: task.messageId, success: true, reason: null };
-  };
-
-  const claimMessageId = async (mid) => {
-    const taskResolved = resolveUniqueByIdOrPrefix(
-      store.tasks.filter((t) => (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-      mid,
-      (t) => t.messageId
-    );
-    if (taskResolved.item) {
-      return withTaskMutationLock(`task:${taskResolved.item.taskNumber}`, () => claimTask(taskResolved.item));
-    }
-    if (taskResolved.reason === "ambiguous id prefix") {
-      return { taskNumber: null, messageId: mid, success: false, reason: "ambiguous message id prefix" };
-    }
-
-    // Resolve mid → message via in-memory index first (recent messages), then
-    // DB (exact id, then 8-char prefix). Visibility / channel filtering happen
-    // after the lookup so the caller's policy is enforced uniformly.
-    const channelMatch = (m) => !channel || matchesTarget(m, channel, agentName);
-    const visibleAndOnTarget = (m) => messageVisibleToAgent(m, agentId) && channelMatch(m);
-
-    let message = null;
-    let reason = null;
-    if (typeof mid === "string" && mid.length > 0) {
-      const cachedExact = messagesById.get(mid);
-      if (cachedExact && visibleAndOnTarget(cachedExact)) {
-        message = cachedExact;
-      } else {
-        const dbExact = await db.getMessageById(mid);
-        if (dbExact && visibleAndOnTarget(dbExact)) {
-          message = dbExact;
-        } else if (mid.length >= 8 && mid.length < 36) {
-          // Prefix search — agent notifications header short message IDs as 8 chars.
-          const cachedShort = messagesByShortId.get(mid.slice(0, 8));
-          const candidates = [];
-          if (cachedShort && cachedShort.id.startsWith(mid)) candidates.push(cachedShort);
-          const dbPrefix = await db.findMessagesByIdPrefix({ prefix: mid, workspaceId });
-          for (const m of dbPrefix) {
-            if (!candidates.some((c) => c.id === m.id)) candidates.push(m);
-          }
-          const visible = candidates.filter(visibleAndOnTarget);
-          if (visible.length === 1) {
-            message = visible[0];
-          } else if (visible.length > 1) {
-            reason = "ambiguous message id prefix";
-          }
-        }
-      }
-    }
-    if (!message) {
-      return { taskNumber: null, messageId: mid, success: false, reason: reason || "message not found" };
-    }
-    if (message.threadId) {
-      return { taskNumber: null, messageId: message.id, success: false, reason: "thread messages cannot be claimed as tasks" };
-    }
-
-    return withTaskMutationLock(`message:${message.id}`, async () => {
-      const taskAfterLock = store.tasks.find((t) => (
-        t.messageId === message.id
-        && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-      ));
-      if (taskAfterLock) return claimTask(taskAfterLock);
-
-      const taskNum = nextTaskNum();
-      const task = {
-        taskNumber: taskNum,
-        workspaceId,
-        channelId: message.channelId,
-        channelName: message.channelName,
-        title: taskTitleFromMessage(message),
-        status: "todo",
-        messageId: message.id,
-        claimedByName: null,
-        claimedByType: null,
-        createdByName: message.senderName || agentName,
-      };
-      store.tasks.push(task);
-      await db.saveTask(task);
-      message.taskNumber = taskNum;
-      message.taskStatus = "todo";
-      message.taskAssigneeId = null;
-      message.taskAssigneeType = null;
-      await db.saveMessage(message);
-
-      return claimTask(task);
-    });
-  };
-
-  const results = [];
-  if (task_numbers) {
-    for (const num of task_numbers) {
-      const task = store.tasks.find((t) => t.taskNumber === num && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-      if (!task) {
-        results.push({ taskNumber: num, messageId: null, success: false, reason: "task not found" });
-        continue;
-      }
-      results.push(await withTaskMutationLock(`task:${num}`, () => claimTask(task)));
-    }
-  }
-  if (message_ids) {
-    for (const mid of message_ids) {
-      results.push(await claimMessageId(mid));
-    }
-  }
-
-  res.json({ results });
-});
-
-// unclaim_task
-app.post("/internal/agent/:agentId/tasks/unclaim", async (req, res) => {
-  const { agentId } = req.params;
-  const { task_number } = req.body;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const task = store.tasks.find((t) => (
-    t.taskNumber === task_number
-    && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-  ));
-  if (task) {
-    task.claimedByName = null;
-    task.claimedByType = null;
-    task.status = "todo";
-    await db.saveTask(task);
-    await syncTaskBackingMessage(task);
-  }
-  res.json({ success: true });
-});
-
-// update_task_status
-app.post("/internal/agent/:agentId/tasks/update-status", async (req, res) => {
-  const { agentId } = req.params;
-  const { task_number, status } = req.body;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const task = store.tasks.find((t) => (
-    t.taskNumber === task_number
-    && (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-  ));
-  if (task) {
-    task.status = status;
-    await db.saveTask(task);
-    await syncTaskBackingMessage(task);
-    const agentName = store.agents[agentId]?.name || agentId;
-    const emoji = status === "done" ? "✅" : status === "in_review" ? "👀" : "🔄";
-
-    const chPayload = taskChannelPayload(task);
-    const msg = {
-      id: uuidv4(), seq: nextSeq(),
-      ...chPayload,
-      threadId: null,
-      senderName: "system", senderType: "system",
-      content: `${emoji} ${agentName} moved #${task_number} "${task.title}" to ${status}`,
-      createdAt: now(), attachments: [], taskNumber: task_number, taskStatus: status,
-    };
-    appendMessage(msg);
-    await db.saveMessage(msg);
-    broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || workspaceId, message: formatMessageForClient(msg) });
-  }
-  res.json({ success: true });
-});
-
-// resolve-channel
-app.post("/internal/agent/:agentId/resolve-channel", (req, res) => {
-  const { agentId } = req.params;
-  const agentName = store.agents[agentId]?.name || agentId;
-  const workspaceId = workspaceIdFromAgent(agentId);
-  const { target } = req.body;
-  const { channelName, channelType } = parseTarget(target, agentName);
-  const ch = findOrCreateChannel(channelName, channelType, workspaceId);
-  res.json({ channelId: ch.id });
-});
-
-// upload
-app.post("/internal/agent/:agentId/upload", upload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file" });
-  const id = uuidv4();
-  try {
-    await attachmentStorage.put(id, req.file.buffer, {
-      filename: req.file.originalname,
-      contentType: req.file.mimetype,
-    });
-  } catch (err) {
-    return res.status(500).json({ error: "Failed to persist attachment", detail: err.message });
-  }
-  res.json({ id, filename: req.file.originalname, sizeBytes: req.file.size });
-});
-
-// update_profile: agent-self-edit of own avatar / displayName / description.
-// Mirrors the human-edit PUT /api/agents/:id/config path but with a tightly
-// scoped field whitelist (no machineId, no OV creds, no runtime/model). Server
-// resizes any incoming picture to AGENT_PICTURE_DIM webp so a misbehaving agent
-// can't blow up the JSON config file with a multi-MB data URI.
-//
-// TODO: matches the existing /internal/agent/* auth gap — the path's :agentId
-// is currently trusted without verifying the Bearer token belongs to that agent.
-// Tracked as a follow-up; do not fix here in isolation.
-app.post("/internal/agent/:agentId/profile", upload.single("picture"), async (req, res) => {
-  const { agentId } = req.params;
-  const workspaceId = workspaceIdFromAgent(agentId);
-
-  const rawDisplayName = req.body?.display_name;
-  const rawDescription = req.body?.description;
-  const clearPicture = req.body?.clear_picture === "1" || req.body?.clear_picture === "true";
-  const hasFile = !!req.file;
-  if (!hasFile && !clearPicture && rawDisplayName === undefined && rawDescription === undefined) {
-    return res.status(400).json({ error: "At least one of picture, clear_picture, display_name, description is required" });
-  }
-  if (hasFile && clearPicture) {
-    return res.status(400).json({ error: "picture and clear_picture are mutually exclusive" });
-  }
-
-  let displayName;
-  if (rawDisplayName !== undefined) {
-    if (typeof rawDisplayName !== "string") return res.status(400).json({ error: "display_name must be a string" });
-    const trimmed = rawDisplayName.trim();
-    if (!trimmed) return res.status(400).json({ error: "display_name cannot be empty" });
-    if (trimmed.length > MAX_AGENT_DISPLAYNAME_LEN) {
-      return res.status(400).json({ error: `display_name exceeds ${MAX_AGENT_DISPLAYNAME_LEN} chars` });
-    }
-    if (isReservedName(trimmed)) return res.status(400).json({ error: `display_name "${trimmed}" is reserved` });
-    displayName = trimmed;
-  }
-
-  let description;
-  if (rawDescription !== undefined) {
-    if (typeof rawDescription !== "string") return res.status(400).json({ error: "description must be a string" });
-    if (rawDescription.length > MAX_AGENT_DESCRIPTION_LEN) {
-      return res.status(400).json({ error: `description exceeds ${MAX_AGENT_DESCRIPTION_LEN} chars` });
-    }
-    description = rawDescription;
-  }
-
-  let pictureDataUri;
-  if (hasFile) {
-    if (!AGENT_PICTURE_MIME_RE.test(req.file.mimetype || "")) {
-      return res.status(415).json({ error: "picture must be png/jpeg/webp/gif" });
-    }
-    try {
-      let buf = await sharp(req.file.buffer, { failOn: "error" })
-        .rotate()
-        .resize(AGENT_PICTURE_DIM, AGENT_PICTURE_DIM, { fit: "cover", position: "centre" })
-        .webp({ quality: 80 })
-        .toBuffer();
-      if (buf.byteLength > MAX_AGENT_PICTURE_OUTPUT_BYTES) {
-        buf = await sharp(req.file.buffer)
-          .rotate()
-          .resize(AGENT_PICTURE_DIM, AGENT_PICTURE_DIM, { fit: "cover", position: "centre" })
-          .webp({ quality: 50 })
-          .toBuffer();
-      }
-      if (buf.byteLength > MAX_AGENT_PICTURE_OUTPUT_BYTES) {
-        return res.status(413).json({ error: `picture exceeds ${MAX_AGENT_PICTURE_OUTPUT_BYTES} bytes after resize` });
-      }
-      pictureDataUri = `data:image/webp;base64,${buf.toString("base64")}`;
-    } catch (err) {
-      return res.status(422).json({ error: "Failed to decode picture", detail: err.message });
-    }
-  }
-
-  let idx = agentConfigs.findIndex((c) => c.id === agentId);
-  if (idx >= 0 && (agentConfigs[idx].workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
-    return res.status(404).json({ error: "Agent not found" });
-  }
-  if (idx < 0) {
-    const running = store.agents[agentId];
-    if (!running) return res.status(404).json({ error: "Agent not found" });
-    if (!running.machineId) return res.status(400).json({ error: "Running agent has no machineId" });
-    agentConfigs.push({
-      id: agentId,
-      workspaceId,
-      name: running.name,
-      displayName: running.displayName,
-      runtime: running.runtime,
-      model: running.model,
-      workDir: running.workDir,
-      machineId: running.machineId,
-    });
-    idx = agentConfigs.length - 1;
-  }
-
-  const merged = { ...agentConfigs[idx] };
-  const changed = [];
-  if (displayName !== undefined) { merged.displayName = displayName; changed.push("displayName"); }
-  if (description !== undefined) {
-    merged.description = description;
-    merged.systemPrompt = description; // keep in sync (mirrors PUT /api/agents/:id/config)
-    changed.push("description");
-  }
-  if (pictureDataUri !== undefined) { merged.picture = pictureDataUri; changed.push("picture"); }
-  if (clearPicture) { merged.picture = null; changed.push("picture"); }
-
-  agentConfigs[idx] = merged;
-  saveAgentConfigs(agentConfigs);
-  db.saveAgentConfig(merged);
-  if (syncRuntimeAgentFromConfig(agentId, merged)) {
-    broadcastToWeb({ type: "agent_started", workspaceId, agent: agentPayload(agentId) });
-  }
-  broadcastToWeb({
-    type: "config_updated",
-    workspaceId,
-    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-  });
-
-  res.json({
-    ok: true,
-    updated: changed,
-    pictureBytes: pictureDataUri ? Buffer.byteLength(pictureDataUri, "utf8") : 0,
-    agent: agentPayload(agentId),
-  });
-});
+const { createAgentInternalRouter } = require("./routes/agent-internal");
+app.use("/internal/agent", createAgentInternalRouter({
+  store, agentConfigs, db, agentAuth, attachmentStorage, upload,
+  DEFAULT_WORKSPACE_ID,
+  MAX_AGENT_DISPLAYNAME_LEN, MAX_AGENT_DESCRIPTION_LEN,
+  AGENT_PICTURE_DIM, AGENT_PICTURE_MIME_RE, MAX_AGENT_PICTURE_OUTPUT_BYTES,
+  agentPayload, appendMessage, broadcastToWeb, deliverToAllAgents,
+  findOrCreateChannel, formatMessageForAgent, formatMessageForClient,
+  getMembership, setMembership, removeMembership,
+  getMessageByIdAnywhere, matchesTarget, messageVisibleToAgent,
+  nextSeq, nextTaskNum, now, parseTarget,
+  readChannelHistory, readChannelHistoryAround, readMessagesForAgent,
+  resolveAttachmentRefs, resolveTargetChannel, resolveUniqueByIdOrPrefix,
+  sanitizedAgentConfigs, saveAgentConfigs, searchVisibleMessages,
+  get syncRuntimeAgentFromConfig() { return syncRuntimeAgentFromConfig; },
+  syncTaskBackingMessage,
+  taskChannelPayload, taskMatchesTarget, taskTitleFromMessage,
+  visibleChannelIdsForAgent, withTaskMutationLock,
+  workspaceIdFromAgent, isReservedName,
+  messagesById, messagesByShortId,
+  ovLifecycle, isOvPluginForAgent, agentConfigs,
+}));
 
 // view_file (attachment download)
 app.get("/api/attachments/:attachmentId", (req, res) => {
@@ -3293,12 +2367,59 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
   const meta = attachmentStorage.statSync(id);
   if (!meta || !attachmentStorage.existsSync(id)) {
     return res.status(404).json({ error: "Not found" });
+
   }
   res.set("Content-Type", meta.contentType || "application/octet-stream");
   attachmentStorage.stream(id).on("error", () => {
     if (!res.headersSent) res.status(500).end();
     else res.destroy();
   }).pipe(res);
+});
+
+// ─── Generic tool execution endpoint (v2 MCP proxy target) ──────
+// Daemon's thin MCP proxy forwards tool calls here. The server processes
+// each tool and returns MCP-compatible content blocks.
+// For now this endpoint is a stub — it will delegate to the existing internal
+// routes or handle tools directly as Phase 2 progresses.
+
+app.post("/api/agent/:agentId/tool/:toolName", async (req, res) => {
+  const header = req.headers.authorization;
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: "Missing agent token" });
+  const record = agentAuth.resolve(token);
+  if (!record) return res.status(401).json({ error: "Invalid agent token" });
+  if (req.params.agentId !== record.agentId) {
+    return res.status(403).json({ error: "Token does not match agent" });
+  }
+
+  const { agentId, toolName } = req.params;
+  const { input } = req.body || {};
+
+  // Forward to OV /mcp tools/call with the agent's OV creds. Mode-aware:
+  // custom-mode agents bring their own URL+key, provisioned use server-minted.
+  const resolved = getAgentOvCredsById(agentId);
+  if (!resolved?.apiKey || !resolved?.url) {
+    return res.status(404).json({ error: "OV not configured for this agent" });
+  }
+  const creds = {
+    url: resolved.url,
+    apiKey: resolved.apiKey,
+    account: resolved.account,
+    user: resolved.userId,
+    agentId,
+  };
+  if (!creds.url) return res.status(500).json({ error: "OV URL not configured" });
+
+  // Strip the `openviking_` namespace prefix before forwarding to OV /mcp.
+  const ovToolName = toolName.startsWith("openviking_") ? toolName.slice("openviking_".length) : toolName;
+
+  try {
+    const result = await callOvTool(creds, ovToolName, input || {});
+    res.json(result);
+  } catch (err) {
+    invalidateOvMcpSession(creds);
+    res.status(500).json({ error: err.message, content: [{ type: "text", text: `Error: ${err.message}` }] });
+  }
 });
 
 // ─── Web API: for the frontend ────────────────────────────────────
@@ -3332,7 +2453,7 @@ function requireSessionAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const user = token ? getAuthSession(token) : null;
   if (!user) {
-    return res.status(403).json({ error: "Authentication required. Please sign in to perform this action." });
+    return res.status(403).json({ error: "Authentication required. Sign in with Google to perform this action." });
   }
   if (isEmbedSessionUser(user)) {
     return res.status(403).json({ error: "Full Zouk session required." });
@@ -3411,41 +2532,6 @@ function fanoutUserMessage(msg) {
   broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, message: formatMessageForClient(msg) });
 }
 
-// Send message from web UI (human user)
-app.post("/api/messages", requireAuth, (req, res) => {
-  // Prefer the authenticated user's name over any body field so a stale client
-  // state can't pollute canonical DM channel names (would split PM threads).
-  // Falls back to the legacy body.senderName, then to "local-user" for tooling.
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const authedName = token ? getAuthSession(token)?.name : null;
-  const { target, content, senderName: bodyName, attachmentIds } = req.body;
-  const senderName = authedName || bodyName || "local-user";
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const { channelName, channelType, threadId } = parseTarget(target, senderName);
-  const resolved = resolveTargetChannel(target, senderName, workspaceId);
-  if (isEmbedSessionUser(req.user)) {
-    if (!resolved.channel || !embedCanAccessChannel(req.user, resolved.channel, workspaceId)) {
-      return res.status(403).json({ error: "Embed session is not allowed to write to this channel." });
-    }
-  }
-  const ch = resolved.channel || findOrCreateChannel(channelName, channelType, workspaceId);
-
-  const msg = persistUserMessage({
-    workspaceId,
-    channelId: ch.id,
-    channelName,
-    channelType,
-    threadId,
-    senderName,
-    senderType: "human",
-    content,
-    attachments: resolveAttachmentRefs(attachmentIds),
-  });
-
-  res.json({ messageId: msg.id, message: msg });
-  fanoutUserMessage(msg);
-});
-
 // Auth middleware for the external trigger API — validates the X-API-Key
 // header against the existing machine_keys table, the same store used today
 // for daemon WS connect. Debug keys ("1007"/"test", non-prod only) are
@@ -3472,3472 +2558,157 @@ function requireMachineKey(req, res, next) {
   next();
 }
 
-// POST /api/trigger — let external systems inject a message that behaves
-// exactly like a human-sent one (full deliverToAllAgents + broadcastToWeb
-// fanout, mention parsing, agent wakeup). Public channels only — no DM,
-// no attachments. Sender is hardcoded to "system"; the name is reserved
-// (see RESERVED_USER_NAMES) so it can't collide with a real user.
-app.post("/api/trigger", requireMachineKey, (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
-  const { target, content } = req.body || {};
-  if (typeof target !== "string" || !target.startsWith("#")) {
-    return res.status(400).json({ error: "target must be a public channel like '#general' (DMs not supported)" });
-  }
-  if (typeof content !== "string" || !content.trim()) {
-    return res.status(400).json({ error: "content required" });
-  }
-  const senderName = "system";
-  const { channelName, channelType, threadId } = parseTarget(target, senderName);
-  if (channelType !== "channel") {
-    return res.status(400).json({ error: "trigger only supports public channels (no DMs)" });
-  }
-  // Require channel to already exist — external systems shouldn't spawn new
-  // channels by accident. Caller should create via the web UI first.
-  const ch = store.channels.find((c) => (
-    (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-    && c.name === channelName
-    && (c.type || "channel") === "channel"
-  ));
-  if (!ch) {
-    return res.status(404).json({ error: `channel #${channelName} not found` });
-  }
+// Extracted to routes/web-api.js. Mounted here with shared context.
+// Auth functions (getAuthSession, isEmbedSessionUser, etc.) are late-bound:
+// they're set on webApiCtx after the auth module initializes (below).
+const { createWebApiRouter } = require("./routes/web-api");
+const webApiCtx = {
+  requireAuth, requireWorkspaceRead, requireMachineKey,
+  persistUserMessage, fanoutUserMessage,
+  store, db, machines, daemonConnections, taskTimes,
+  machineKeys, pendingRuntimeModelRequests,
+  attachmentStorage, upload,
+  DEFAULT_WORKSPACE_ID,
+  agentPayload, broadcastToWeb, deliverToAllAgents,
+  findOrCreateChannel, formatMessageForClient,
+  getMembership, setMembership, removeMembership,
+  getMessageByIdAnywhere,
+  parseTarget, resolveTargetChannel, resolveAttachmentRefs,
+  readChannelHistory, fetchThreadRepliesForPage,
+  sanitizedAgentConfigs, agentChannelNames, hasKnownAgentConfig,
+  purgeChannelMemberships,
+  validateApiKey, findMachineKeyRecord, saveMachineKeys,
+  now, workspaceIdFromAgent, workspaceIdFromReq,
+};
+app.use("/api", createWebApiRouter(webApiCtx));
+
+
+// ─── OpenViking memory proxy (extracted) ────────────────────────
+const { createOvMemoryRouter } = require("./routes/ov-memory");
+const ovMemory = createOvMemoryRouter({
+  requireWorkspaceRead,
+  agentConfigs, store,
+  DEFAULT_WORKSPACE_ID,
+  workspaceIdFromAgent,
+  isOvEnabledForAgent,
+  resolveAgentOvCreds,
+});
+const {
+  resolveOvCredentials, isLocalUrl, ovHttpList,
+  parseOvListResult, ovHttpReadContent,
+} = ovMemory;
+app.use("/api", ovMemory.router);
+
+// ─── Agent config CRUD + Profile presets + Machine keys (extracted)
+const { createAgentConfigRouter } = require("./routes/agent-config");
+const agentConfigModule = createAgentConfigRouter({
+  requireAuth, requireWorkspaceRead,
+  store, db, agentConfigs,
+  machineKeys, machines, daemonConnections,
+  DEFAULT_WORKSPACE_ID,
+  agentPayload, broadcastToWeb, sanitizedAgentConfigs,
+  saveAgentConfigs, saveMachineKeys,
+  workspaceIdFromAgent,
+  get sendAgentStop() { return sendAgentStop; },
+  agentAuth, purgeAgentMemberships, purgeUnknownAgentState,
+  validateCustomLauncher, isOvEnabledForAgent, isOvPluginForAgent, isPersistentMachineId,
+  isValidAgentHandle, isAgentNameTaken, isReservedName,
+  profilePresets, PROFILE_PRESET_MAX,
+  generateApiKey, now,
+  ovLifecycle,
+});
+const { syncRuntimeAgentFromConfig } = agentConfigModule;
+app.use("/api", agentConfigModule.router);
+
+// ─── Agent lifecycle (extracted) ─────────────────────────────────
+const { createAgentLifecycle } = require("./lib/agent-lifecycle");
+const agentLifecycle = createAgentLifecycle({
+  store, agentConfigs, db, agentAuth,
+  daemonConnections, daemonSockets, machines,
+  normalizeWorkspaceId, DEFAULT_WORKSPACE_ID,
+  validateCustomLauncher, decodeOvKey,
+  isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvPluginForAgent,
+  resolveProvisioningCreds, resolveInitialOvUserId,
+  resolveAgentOvCreds,
+  isValidAgentHandle, isAgentNameTaken, isReservedName,
+  OPENVIKING_URL, OPENVIKING_ACCOUNT,
+  provisionAgentKey, fetchExistingAgentKey,
+  buildRuntimeAgent, agentPayload, sanitizedAgentConfigs,
+  broadcastToWeb, workspaceIdFromAgent,
+  saveAgentConfigs,
+  PUBLIC_URL,
+  promptEngine, generateToolDefinitions, fetchOvTools,
+  profilePresets, seedAgentIntoRegularChannels,
+  pendingContextResets,
+  ovLifecycle,
+  requireAuth,
+  get normalizeInactiveAgentState() { return normalizeInactiveAgentState; },
+  get broadcastAgentStatus() { return broadcastAgentStatus; },
+});
+startAgentOnDaemon = agentLifecycle.startAgentOnDaemon;
+autoStartAgents = agentLifecycle.autoStartAgents;
+app.use(agentLifecycle.router);
+
+// ─── Auth + workspace routes (extracted) ────────────────────────
+const { createAuthModule } = require("./lib/auth");
+const authModule = createAuthModule({
+  db, store, SESSIONS_FILE,
+  GOOGLE_CLIENT_ID, googleClient,
+  SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+  feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
+  OV_RUNTIME_WHITELIST, OV_MCP_RUNTIME_WHITELIST, OV_PLUGIN_RUNTIME_WHITELIST,
+  DEFAULT_WORKSPACE_ID,
+  gravatarUrl, isReservedName, normalizeEmailInput,
+  isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
+  onlineHumans, allTimeHumans, webSockets,
+  upsertAllTimeHuman, broadcastHumans, broadcastToWeb,
+  humanId, findWorkspace, ensureWorkspace, workspacePayload,
+  removeWorkspaceFromMemory, normalizeWorkspaceIconInput, workspaceIconFallback,
+  workspaceIdFromReq, normalizeWorkspaceId, allocateWorkspaceId,
+  userCanAccessWorkspace, userCanAdminWorkspace, userCanRootWorkspace,
+  visibleWorkspacesForUser, ensureWorkspaceMemberForUser,
+  setWorkspaceMember, dbAllowEmails, allowlistKey, broadcastWorkspaceMembers,
+  findOrCreateChannel, now,
+  requireAuth, requireSessionAuth,
+});
+const {
+  authSessions, getAuthSession, hasAuthSession,
+  isEmbedSessionUser, embedSessionExpired, publicAuthUser,
+  loadAuthSessions, persistSession, removeSession,
+} = authModule;
+app.use(authModule.router);
+// Late-bind auth functions into webApiCtx (web-api router reads these at request time)
+webApiCtx.getAuthSession = getAuthSession;
+webApiCtx.isEmbedSessionUser = isEmbedSessionUser;
+webApiCtx.embedCanAccessChannel = embedCanAccessChannel;
+
+const { createWorkspaceRouter } = require("./routes/workspace");
+app.use(createWorkspaceRouter({
+  db, store,
+  DEFAULT_WORKSPACE_ID,
+  GOOGLE_CLIENT_ID,
+  OV_ENV_PROVISIONING_ENABLED, OPENVIKING_URL, OPENVIKING_ACCOUNT,
+  normalizeWorkspaceId, normalizeEmailInput,
+  isReservedName, isSuperuser, allowlistActive,
+  dbAllowEmails, allowlistKey, ENV_ALLOW_EMAILS,
+  onlineHumans, webSockets, daemonSockets, pendingDeliveries,
+  messagesById, messagesByShortId, repliesByThreadId,
+  CHANNEL_CACHE_TAIL,
+  broadcastToWeb, broadcastHumans, broadcastWorkspaceMembers,
+  getAuthSession, hasAuthSession, authSessions,
+  isEmbedSessionUser, publicAuthUser,
+  persistSession, removeSession,
+  getWorkspaceMember, setWorkspaceMember, listWorkspaceMembers,
+  workspaceMemberPayload, workspaceMembersFor,
+  userWorkspaceRole, removeWorkspaceMember, markWorkspaceMemberRemoved,
+  closeWorkspaceSocketsForEmail, removeAllTimeHumanIfInaccessible,
+  embedSettings, embedSessionRateLimiter,
+  workspaceOvSettings, resolveProvisioningCreds, decodeAccountFromKey,
+  workspaceIdFromReq, findWorkspace,
+  now,
+  requireAuth, requireWorkspaceAdmin,
+}));
 
-  const msg = persistUserMessage({
-    workspaceId,
-    channelId: ch.id,
-    channelName,
-    channelType: "channel",
-    threadId,
-    senderName,
-    senderType: "human",
-    content,
-    attachments: [],
-  });
-
-  res.json({ messageId: msg.id, message: msg });
-  fanoutUserMessage(msg);
-});
-
-// Upload an attachment from the web UI. Shares the same on-disk storage the
-// agent upload path writes to, so the returned id is interchangeable — clients
-// pass it back via POST /api/messages { attachmentIds }.
-app.post("/api/attachments", requireAuth, upload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file" });
-  const id = uuidv4();
-  let meta;
-  try {
-    meta = await attachmentStorage.put(id, req.file.buffer, {
-      filename: req.file.originalname,
-      contentType: req.file.mimetype,
-    });
-  } catch (err) {
-    return res.status(500).json({ error: "Failed to persist attachment", detail: err.message });
-  }
-  const payload = {
-    id,
-    filename: req.file.originalname,
-    contentType: req.file.mimetype,
-    sizeBytes: req.file.size,
-  };
-  if (typeof meta?.width === "number" && typeof meta?.height === "number") {
-    payload.width = meta.width;
-    payload.height = meta.height;
-  }
-  res.json(payload);
-});
-
-// Get messages for a channel
-// The Cloudflare proxy rewrites both query strings AND path segments during
-// its 307 redirect chain, so the primary web client passes the channel target
-// in request headers (X-Channel, X-Limit, X-Sender) which survive untouched.
-// Query-string fallback kept for backward compat (curl, daemon internal API).
-app.get("/api/messages", requireWorkspaceRead, async (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const channel = req.headers["x-channel"] || req.query.channel || "#all";
-  const limit = parseInt(req.headers["x-limit"] || req.query.limit || 100);
-  const sender = req.headers["x-sender"] || req.query.sender || null;
-  const before = req.headers["x-before"] || req.query.before || null;
-  const after = req.headers["x-after"] || req.query.after || null;
-
-  const resolved = resolveTargetChannel(channel, sender, workspaceId);
-  if (!resolved.channel) {
-    return res.json({ messages: [], hasMore: false });
-  }
-  if (isEmbedSessionUser(req.user) && !embedCanAccessChannel(req.user, resolved.channel, workspaceId)) {
-    return res.status(403).json({ error: "Embed session is not allowed to read this channel." });
-  }
-  const channelId = resolved.channel.id;
-  const threadId = resolved.threadId;
-
-  // `before` / `after` are message IDs (not seqs). Resolve to seq via the
-  // in-memory index when possible, else DB lookup.
-  const beforeMsg = before ? await getMessageByIdAnywhere(before) : null;
-  const afterMsg = after ? await getMessageByIdAnywhere(after) : null;
-  const beforeSeq = beforeMsg ? beforeMsg.seq : null;
-  const afterSeq = afterMsg ? afterMsg.seq : null;
-
-  let msgs;
-  let hasMore;
-
-  if (after) {
-    // Catch-up mode: WS reconnect gap-fill. Return everything newer than the
-    // last message the client has, no upper bound — gaps are usually tiny.
-    msgs = afterSeq != null
-      ? await readChannelHistory({ workspaceId, channelId, threadId, afterSeq, limit: 500 })
-      : [];
-    hasMore = false;
-  } else {
-    msgs = await readChannelHistory({ workspaceId, channelId, threadId, beforeSeq, limit });
-    hasMore = msgs.length === limit;
-  }
-
-  // Historical pages need thread reply previews to come from DB since the
-  // in-memory index only covers recent messages.
-  const replyOverride = await fetchThreadRepliesForPage(msgs);
-
-  res.json({
-    messages: msgs.map((m) => formatMessageForClient(m, sender, {
-      includeReplies: true,
-      threadReplyOverride: replyOverride,
-    })),
-    hasMore,
-  });
-});
-
-// Get channels
-app.get("/api/channels", requireWorkspaceRead, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  res.json({
-    channels: store.channels.filter((ch) => (
-      (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-      && (ch.type || "channel") === "channel"
-      && (!isEmbedSessionUser(req.user) || embedCanAccessChannel(req.user, ch, workspaceId))
-    )),
-  });
-});
-
-// Create channel
-app.post("/api/channels", requireAuth, (req, res) => {
-  const { name, description } = req.body;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const ch = findOrCreateChannel(name, "channel", workspaceId);
-  ch.description = description || "";
-  db.saveChannel(ch);
-  broadcastToWeb({ type: "channel_created", workspaceId, channel: ch });
-  res.json({ channel: ch });
-});
-
-app.delete("/api/channels/:id", requireAuth, async (req, res) => {
-  const { id } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const idx = store.channels.findIndex((ch) => (
-    ch.id === id
-    && (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-    && (ch.type || "channel") === "channel"
-  ));
-  if (idx < 0) return res.status(404).json({ error: "Channel not found" });
-
-  const [channel] = store.channels.splice(idx, 1);
-  purgeChannelMemberships(channel.id);
-  await db.deleteChannel(channel.id);
-  broadcastToWeb({ type: "channel_deleted", workspaceId, channelId: channel.id, channelName: channel.name });
-  res.json({ success: true, channel });
-});
-
-// List agents subscribed to a channel. Used by the admin UI.
-app.get("/api/channels/:id/agents", requireAuth, (req, res) => {
-  const { id } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const ch = store.channels.find((c) => c.id === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-  if (!ch) return res.status(404).json({ error: "Channel not found" });
-  const ca = store.channelAgents.get(ch.id);
-  const rows = ca
-    ? [...ca.entries()].map(([agentId, m]) => ({
-        agentId,
-        agentName: agentPayload(agentId)?.name || agentId,
-        canRead: m.canRead,
-        subscribed: m.subscribed,
-      }))
-    : [];
-  res.json({ agents: rows });
-});
-
-// Set (or remove) a single agent's membership on a channel. Admin-facing.
-app.patch("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
-  const { id, agentId } = req.params;
-  const { canRead, subscribed } = req.body || {};
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const ch = store.channels.find((c) => c.id === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-  if (!ch) return res.status(404).json({ error: "Channel not found" });
-  if (workspaceIdFromAgent(agentId) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
-  const existing = getMembership(ch.id, agentId) || { canRead: true, subscribed: true };
-  const next = {
-    canRead: canRead === undefined ? existing.canRead : !!canRead,
-    subscribed: subscribed === undefined ? existing.subscribed : !!subscribed,
-  };
-  if (!next.canRead && !next.subscribed) {
-    removeMembership(ch.id, agentId);
-    return res.json({ ok: true, membership: null });
-  }
-  setMembership(ch.id, agentId, next);
-  res.json({ ok: true, membership: { channelId: ch.id, agentId, ...next } });
-});
-
-app.delete("/api/channels/:id/agents/:agentId", requireAuth, (req, res) => {
-  const { id, agentId } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const ch = store.channels.find((c) => c.id === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-  if (!ch) return res.status(404).json({ error: "Channel not found" });
-  removeMembership(ch.id, agentId);
-  res.json({ ok: true });
-});
-
-// Read-only task list for the frontend kanban. Tasks don't carry their own
-// timestamps in the schema, so we derive createdAt/updatedAt from the system
-// messages stamped with each task_number (create → claim → status updates).
-app.get("/api/tasks", requireWorkspaceRead, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  // taskTimes is maintained incrementally in appendMessage and seeded at boot
-  // from a dedicated DB aggregate — no full-message-table scan here.
-  const tasks = store.tasks
-    .filter((t) => (t.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
-    .map((t) => {
-    const times = taskTimes.get(`${workspaceId}:${t.taskNumber}`) || { createdAt: null, updatedAt: null };
-    return {
-      taskNumber: t.taskNumber,
-      channelId: t.channelId,
-      channelName: store.channels.find((c) => c.id === t.channelId && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)?.name || null,
-      title: t.title,
-      status: t.status,
-      messageId: t.messageId,
-      claimedByName: t.claimedByName,
-      claimedByType: t.claimedByType,
-      createdByName: t.createdByName,
-      createdAt: times.createdAt,
-      updatedAt: times.updatedAt,
-    };
-  });
-
-  res.json({ tasks });
-});
-
-// List connected machines (daemons)
-app.get("/api/machines", requireWorkspaceRead, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const machineList = Array.from(machines.values())
-    .filter((m) => (m.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
-    .map((m) => ({
-      ...m,
-      agents: m.agentIds.map((id) => agentPayload(id)).filter((agent) => agent && (agent.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-    }));
-  res.json({ machines: machineList });
-});
-
-// Ask a daemon to enumerate installed models for a given runtime.
-// Daemons that don't implement the protocol (old zouk-daemon) will stay silent,
-// so we always fall back via the 5s timeout. Clients can treat
-// {models: []} and a timeout identically — both mean "free-form input please".
-app.get("/api/machines/:id/runtimes/:runtime/models", requireWorkspaceRead, (req, res) => {
-  const { id, runtime } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const machine = machines.get(id);
-  if (!machine || (machine.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
-    return res.status(404).json({ error: "machine_not_found" });
-  }
-  let targetWs = null;
-  for (const dws of daemonConnections) {
-    if (dws.readyState === 1 && dws._machineId === id) { targetWs = dws; break; }
-  }
-  if (!targetWs) {
-    return res.status(502).json({ error: "daemon_not_connected" });
-  }
-  const requestId = uuidv4();
-  const timeout = new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      pendingRuntimeModelRequests.delete(requestId);
-      resolve({ models: [], default: null, error: "timeout" });
-    }, 5000);
-    pendingRuntimeModelRequests.set(requestId, {
-      resolve: (value) => resolve(value),
-      timer,
-    });
-  });
-  try {
-    targetWs.send(JSON.stringify({ type: "machine:runtime_models:detect", runtime, requestId }));
-  } catch (e) {
-    const pending = pendingRuntimeModelRequests.get(requestId);
-    if (pending) {
-      clearTimeout(pending.timer);
-      pendingRuntimeModelRequests.delete(requestId);
-    }
-    return res.status(502).json({ error: "send_failed", message: e.message });
-  }
-  timeout.then((result) => {
-    res.json({ models: result.models, default: result.default, error: result.error });
-  });
-});
-
-// Get agents (running + configs)
-app.get("/api/agents", requireWorkspaceRead, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const agents = Object.keys(store.agents)
-    .map((id) => agentPayload(id))
-    .filter((agent) => (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-  const configs = sanitizedAgentConfigs().filter((config) => (
-    (config.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-  ));
-  res.json({ agents, configs });
-});
-
-// Get channel memberships for any agent (running or configured).
-// Used by the agent CONFIG tab to show visible channels even when the agent is offline.
-app.get("/api/agents/:id/channels", requireAuth, (req, res) => {
-  const agentId = req.params.id;
-  if (!hasKnownAgentConfig(agentId)) {
-    return res.status(404).json({ error: "unknown agent" });
-  }
-  if (workspaceIdFromAgent(agentId) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
-    return res.status(404).json({ error: "unknown agent" });
-  }
-  res.json({ channels: agentChannelNames(agentId) });
-});
-
-// Get recent activity entries for an agent (used by the Activity tab).
-app.get("/api/agents/:id/activities", requireWorkspaceRead, async (req, res) => {
-  const agentId = req.params.id;
-  if (!hasKnownAgentConfig(agentId)) {
-    return res.status(404).json({ error: "unknown agent" });
-  }
-  if (workspaceIdFromAgent(agentId) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
-    return res.status(404).json({ error: "unknown agent" });
-  }
-  const rawLimit = parseInt(req.query.limit, 10);
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 100;
-  try {
-    const entries = await db.loadAgentActivities(agentId, limit);
-    res.json({ entries });
-  } catch (e) {
-    console.error(`[api] /api/agents/${agentId}/activities error:`, e.message);
-    res.status(500).json({ error: "failed to load activities" });
-  }
-});
-
-// ─── OpenViking memory proxy ────────────────────────────────────
-
-function resolveOvCredentials(agentId) {
-  const config = agentConfigs.find((c) => c.id === agentId);
-  if (!config) return null;
-
-  const mode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
-  const agentName = config.name || agentId;
-
-  if (mode === 'custom' && config.openvikingCustomUrl && config.openvikingCustomApiKey) {
-    const decoded = decodeOvKey(config.openvikingCustomApiKey);
-    return {
-      url: config.openvikingCustomUrl.replace(/\/+$/, ""),
-      apiKey: config.openvikingCustomApiKey,
-      user: decoded.user || config.openvikingUserId || deriveOvUserId(agentId),
-      account: decoded.account || "",
-      agentId: agentName,
-    };
-  }
-
-  if (mode === 'provisioned' && config.openvikingApiKey) {
-    // URL pinning: keys live on the URL they were minted under. Order:
-    //   1. config.openvikingUrl — set at provision time post this PR.
-    //   2. OPENVIKING_URL env — legacy fallback for keys minted before
-    //      per-agent pinning existed (all pre-PR data lands here).
-    // Account: decoded from the agent's own key so a previously-minted key
-    // remains readable even if a workspace's admin key rotates within the
-    // same account.
-    const pinnedUrl = config.openvikingUrl || OPENVIKING_URL;
-    if (pinnedUrl) {
-      const decodedAccount = decodeOvKey(config.openvikingApiKey).account;
-      return {
-        url: pinnedUrl.replace(/\/+$/, ""),
-        apiKey: config.openvikingApiKey,
-        user: config.openvikingUserId || deriveOvUserId(agentId),
-        account: decodedAccount || OPENVIKING_ACCOUNT || "",
-        agentId: agentName,
-      };
-    }
-  }
-
-  // Fallback: check envVars (agents with explicit OPENVIKING_* env vars)
-  const ev = config.envVars;
-  if (!ev) return null;
-  let url = ev.OPENVIKING_URL;
-  let apiKey = ev.OPENVIKING_API_KEY;
-  let user = ev.OPENVIKING_USER || "";
-  let account = ev.OPENVIKING_ACCOUNT || "";
-  let agentIdVal = ev.OPENVIKING_AGENT_ID || "";
-
-  if (!url || !apiKey) {
-    if (ev.OPENVIKING_CLI_CONFIG_FILE) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(ev.OPENVIKING_CLI_CONFIG_FILE, "utf8"));
-        if (raw.url && raw.api_key) {
-          url = url || raw.url;
-          apiKey = apiKey || raw.api_key;
-          user = user || raw.user || "";
-          account = account || raw.account || "";
-          agentIdVal = agentIdVal || raw.agent_id || "";
-        }
-      } catch { /* config file not accessible from server */ }
-    }
-  }
-  if (!url || !apiKey) return null;
-  return { url: url.replace(/\/+$/, ""), apiKey, user, account, agentId: agentIdVal };
-}
-
-function isLocalUrl(urlStr) {
-  try {
-    const u = new URL(urlStr);
-    const host = u.hostname;
-    return host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1" || host.endsWith(".local");
-  } catch { return false; }
-}
-
-const ovMcpSessions = new Map();
-
-async function ovMcpCall(creds, toolName, args) {
-  const mcpUrl = `${creds.url}/mcp`;
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept": "application/json, text/event-stream",
-    "Authorization": `Bearer ${creds.apiKey}`,
-    "X-OpenViking-Account": creds.account,
-    "X-OpenViking-User": creds.user,
-    "X-OpenViking-Agent": creds.agentId,
-  };
-
-  let sessionId = ovMcpSessions.get(creds.url + ":" + creds.user);
-  if (!sessionId) {
-    const initRes = await fetch(mcpUrl, {
-      method: "POST", headers,
-      body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "zouk-server", version: "1.0" } }, id: 1 }),
-    });
-    sessionId = initRes.headers.get("mcp-session-id");
-    if (sessionId) ovMcpSessions.set(creds.url + ":" + creds.user, sessionId);
-  }
-
-  if (sessionId) headers["Mcp-Session-Id"] = sessionId;
-  const res = await fetch(mcpUrl, {
-    method: "POST", headers,
-    body: JSON.stringify({ jsonrpc: "2.0", method: "tools/call", params: { name: toolName, arguments: args }, id: Date.now() }),
-  });
-  const text = await res.text();
-  const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
-  if (!dataLine) throw new Error("No data in MCP response");
-  const parsed = JSON.parse(dataLine.slice(6));
-  if (parsed.error) throw new Error(parsed.error.message || "MCP error");
-  const content = parsed.result?.content;
-  if (parsed.result?.isError) throw new Error(content?.[0]?.text || "OV tool error");
-  return content?.[0]?.text || parsed.result?.structuredContent?.result || "";
-}
-
-// HTTP fallback for level-aware content reads.
-// MCP `read` tool returns L2 only; OV's REST exposes /api/v1/content/{abstract|overview|read}
-// for L0/L1/L2 respectively. Mirrors atlas-fs's openviking-adapter.read().
-async function ovHttpReadContent(creds, uri, level) {
-  const endpoint = level === "l0" ? "abstract" : level === "l1" ? "overview" : "read";
-  const headers = {
-    "Accept": "application/json",
-    "X-API-Key": creds.apiKey,
-    "X-OpenViking-Account": creds.account,
-    "X-OpenViking-User": creds.user,
-  };
-  const res = await fetch(`${creds.url}/api/v1/content/${endpoint}?uri=${encodeURIComponent(uri)}`, {
-    headers,
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
-  }
-  const ct = res.headers.get("content-type") || "";
-  if (ct.includes("application/json")) {
-    const data = await res.json();
-    const r = data.result;
-    if (typeof r === "string") return r;
-    if (r && typeof r === "object") {
-      return r.content ?? r.text ?? r.markdown ?? r.abstract ?? r.overview ?? r.summary ?? JSON.stringify(r, null, 2);
-    }
-    return data.content ?? data.text ?? data.markdown ?? data.abstract ?? data.overview ?? data.summary ?? "";
-  }
-  return await res.text();
-}
-
-function parseOvListResult(text, parentUri) {
-  let base = "";
-  if (parentUri) {
-    const i = parentUri.indexOf("://");
-    const scheme = i >= 0 ? parentUri.slice(0, i + 3) : "";
-    const path = i >= 0 ? parentUri.slice(i + 3).replace(/\/+$/, "") : parentUri.replace(/\/+$/, "");
-    base = scheme + (path ? path + "/" : "");
-  }
-  return text.split("\n").filter(Boolean).map((line) => {
-    const dirMatch = line.match(/^\[dir\]\s+(.+)/);
-    const fileMatch = line.match(/^\[file\]\s+(.+)/);
-    if (dirMatch) {
-      const name = dirMatch[1].trim();
-      return { uri: name.startsWith("viking://") ? name : base + name, isDir: true };
-    }
-    if (fileMatch) {
-      const name = fileMatch[1].trim();
-      return { uri: name.startsWith("viking://") ? name : base + name, isDir: false };
-    }
-    return null;
-  }).filter(Boolean);
-}
-
-function lookupAgentCfgForOv(agentId) {
-  return agentConfigs.find((c) => c.id === agentId) || store.agents[agentId] || null;
-}
-
-app.get("/api/agents/:id/ov/status", requireWorkspaceRead, (req, res) => {
-  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
-    return res.status(404).json({ error: "unknown agent" });
-  }
-  const cfg = lookupAgentCfgForOv(req.params.id);
-  if (cfg && !isOvEnabledForAgent(cfg)) {
-    return res.json({ enabled: false, reason: "disabled", user: null, url: null, local: false });
-  }
-  const creds = resolveOvCredentials(req.params.id);
-  res.json({ enabled: !!creds, user: creds?.user || null, url: creds?.url || null, local: creds ? isLocalUrl(creds.url) : false });
-});
-
-app.get("/api/agents/:id/ov/ls", requireWorkspaceRead, async (req, res) => {
-  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
-    return res.status(404).json({ error: "unknown agent" });
-  }
-  const cfg = lookupAgentCfgForOv(req.params.id);
-  if (cfg && !isOvEnabledForAgent(cfg)) {
-    return res.status(403).json({ error: "ov_disabled", agentId: req.params.id });
-  }
-  const creds = resolveOvCredentials(req.params.id);
-  if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
-  if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
-  const uri = req.query.uri || `viking://user/${creds.user || creds.agentId}/`;
-  try {
-    const raw = await ovMcpCall(creds, "list", { uri });
-    res.json({ entries: parseOvListResult(raw, uri) });
-  } catch (e) {
-    ovMcpSessions.delete(creds.url + ":" + creds.user);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get("/api/agents/:id/ov/read", requireWorkspaceRead, async (req, res) => {
-  if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
-    return res.status(404).json({ error: "unknown agent" });
-  }
-  const cfg = lookupAgentCfgForOv(req.params.id);
-  if (cfg && !isOvEnabledForAgent(cfg)) {
-    return res.status(403).json({ error: "ov_disabled", agentId: req.params.id });
-  }
-  const creds = resolveOvCredentials(req.params.id);
-  if (!creds) return res.status(404).json({ error: "OV not configured for this agent" });
-  if (isLocalUrl(creds.url)) return res.status(400).json({ error: "local_ov", message: "OV is local — use daemon WS path" });
-  const uri = req.query.uri;
-  if (!uri) return res.status(400).json({ error: "uri parameter required" });
-  try {
-    const content = await ovMcpCall(creds, "read", { uris: uri });
-    res.json({ content });
-  } catch (e) {
-    ovMcpSessions.delete(creds.url + ":" + creds.user);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─── Agent config CRUD ───────────────────────────────────────────
-
-// List all agent configs
-app.get("/api/agent-configs", requireWorkspaceRead, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  res.json({
-    configs: sanitizedAgentConfigs().filter((config) => (
-      (config.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-    )),
-  });
-});
-
-// Mirror config fields that also live on the runtime agent record. Without
-// this, edits land in agentConfigs (and the DB) but the live `store.agents`
-// keeps the old values until the next server restart — so the sidebar / detail
-// header keep showing the pre-rename name even though the user clicked SAVE.
-function syncRuntimeAgentFromConfig(id, config) {
-  const a = store.agents[id];
-  if (!a) return false;
-  let changed = false;
-  if (config.name !== undefined && config.name !== a.name) { a.name = config.name; changed = true; }
-  if (config.displayName !== undefined && config.displayName !== a.displayName) { a.displayName = config.displayName; changed = true; }
-  if (config.runtime !== undefined && config.runtime !== a.runtime) { a.runtime = config.runtime; changed = true; }
-  if (config.model !== undefined && config.model !== a.model) { a.model = config.model; changed = true; }
-  if (config.workDir !== undefined && config.workDir !== a.workDir) { a.workDir = config.workDir; changed = true; }
-  if (config.picture !== undefined && config.picture !== a.picture) { a.picture = config.picture; changed = true; }
-  return changed;
-}
-
-// Create/save agent config
-app.post("/api/agent-configs", requireAuth, (req, res) => {
-  const config = req.body;
-  config.workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  if (!config.id) config.id = `agent-${uuidv4().substring(0, 8)}`;
-  const existing = agentConfigs.findIndex((c) => c.id === config.id);
-  if (existing >= 0 && (agentConfigs[existing].workspaceId || DEFAULT_WORKSPACE_ID) !== config.workspaceId) {
-    return res.status(404).json({ error: "Agent not found" });
-  }
-  if (config.customLauncher !== undefined) {
-    const r = validateCustomLauncher(config.customLauncher, config.runtime);
-    if (!r.ok) return res.status(400).json({ error: r.err });
-    config.customLauncher = r.value; // null = drop the field on disk
-    if (r.value === null) delete config.customLauncher;
-  }
-  if (config.openvikingUseAgentNameAsUser !== undefined) {
-    config.openvikingUseAgentNameAsUser = config.openvikingUseAgentNameAsUser === true;
-  }
-  if (existing >= 0) {
-    // machineId is immutable — never let the payload overwrite the stored value.
-    const { machineId: _ignored, ...rest } = config;
-    agentConfigs[existing] = { ...agentConfigs[existing], ...rest };
-  } else {
-    if (!config.machineId) return res.status(400).json({ error: "machineId is required" });
-    if (!isPersistentMachineId(config.machineId, config.workspaceId)) return res.status(400).json({ error: "machineId does not match any machine key" });
-    agentConfigs.push(config);
-  }
-  const saved = agentConfigs.find((c) => c.id === config.id);
-  saveAgentConfigs(agentConfigs);
-  db.saveAgentConfig(saved);
-  if (syncRuntimeAgentFromConfig(saved.id, saved)) {
-    broadcastToWeb({ type: "agent_started", workspaceId: saved.workspaceId || DEFAULT_WORKSPACE_ID, agent: agentPayload(saved.id) });
-  }
-  broadcastToWeb({
-    type: "config_updated",
-    workspaceId: saved.workspaceId || DEFAULT_WORKSPACE_ID,
-    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === (saved.workspaceId || DEFAULT_WORKSPACE_ID)),
-  });
-  res.json({ config: saved });
-});
-
-// Update agent config (upsert: creates config from running agent if none exists)
-app.put("/api/agents/:id/config", requireAuth, (req, res) => {
-  const { id } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const updates = req.body;
-  let idx = agentConfigs.findIndex((c) => c.id === id);
-  if (idx >= 0 && (agentConfigs[idx].workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
-    return res.status(404).json({ error: "Agent not found" });
-  }
-  if (idx < 0) {
-    const running = store.agents[id];
-    if (!running) return res.status(404).json({ error: "Agent not found" });
-    if (!running.machineId) return res.status(400).json({ error: "Running agent has no machineId" });
-    agentConfigs.push({
-      id,
-      workspaceId,
-      name: running.name,
-      displayName: running.displayName,
-      runtime: running.runtime,
-      model: running.model,
-      workDir: running.workDir,
-      machineId: running.machineId,
-    });
-    idx = agentConfigs.length - 1;
-  }
-  // machineId is immutable. openvikingApiKey / openvikingUserId are
-  // server-managed (provisioned by the agent-start handler); never let the
-  // payload overwrite them.
-  const {
-    machineId: _ignoredMachineId,
-    openvikingApiKey: _ignoredOvApiKey,
-    openvikingUserId: _ignoredOvUserId,
-    openvikingCustomApiKey: incomingCustomApiKey,
-    openvikingMode: incomingMode,
-    openvikingEnabled: incomingEnabled,
-    openvikingUseAgentNameAsUser: incomingUseAgentNameAsUser,
-    ovMcpEnabled: incomingOvMcpEnabled,
-    customLauncher: incomingLauncher,
-    ...rest
-  } = updates;
-
-  const merged = { ...agentConfigs[idx], ...rest };
-  merged.workspaceId = workspaceId;
-
-  // customLauncher: per-agent override of the daemon driver's default binary.
-  // "Leave blank = clear" semantics (it's not a secret, so what-you-see is
-  // what's saved — differs from the OV API key field's "leave blank = keep").
-  if (incomingLauncher !== undefined) {
-    const r = validateCustomLauncher(incomingLauncher, merged.runtime);
-    if (!r.ok) return res.status(400).json({ error: r.err });
-    merged.customLauncher = r.value; // null clears the field, string sets it
-  }
-
-  // openvikingEnabled: boolean = explicit override; null = clear to follow
-  // the runtime default; undefined = leave as-is.
-  if (incomingEnabled === null) {
-    delete merged.openvikingEnabled;
-  } else if (typeof incomingEnabled === 'boolean') {
-    merged.openvikingEnabled = incomingEnabled;
-  }
-  if (incomingUseAgentNameAsUser !== undefined) {
-    merged.openvikingUseAgentNameAsUser = incomingUseAgentNameAsUser === true;
-  }
-
-  // ovMcpEnabled: same tri-state as openvikingEnabled.
-  if (incomingOvMcpEnabled === null) {
-    delete merged.ovMcpEnabled;
-  } else if (typeof incomingOvMcpEnabled === 'boolean') {
-    merged.ovMcpEnabled = incomingOvMcpEnabled;
-  }
-
-  // openvikingEnabled: boolean = explicit override; null = clear to follow
-  // the runtime default; undefined = leave as-is.
-  if (incomingEnabled === null) {
-    delete merged.openvikingEnabled;
-  } else if (typeof incomingEnabled === 'boolean') {
-    merged.openvikingEnabled = incomingEnabled;
-  }
-
-  // openvikingMode: clamp to known values; default unchanged.
-  if (incomingMode !== undefined) {
-    merged.openvikingMode = incomingMode === 'custom' ? 'custom' : 'provisioned';
-  }
-  // openvikingCustomApiKey: empty string / undefined = keep old value (the
-  // password-input "leave blank to keep" pattern). Non-empty string = replace.
-  if (typeof incomingCustomApiKey === 'string' && incomingCustomApiKey.length > 0) {
-    merged.openvikingCustomApiKey = incomingCustomApiKey;
-  } else if (incomingCustomApiKey === null) {
-    // Explicit null = clear the saved value.
-    merged.openvikingCustomApiKey = null;
-  }
-
-  // Reject save if OV is enabled, mode is custom, and url/key aren't set.
-  // When OV is disabled (toggle off), mode fields are inert so no validation
-  // needed — user can stage custom creds without filling everything in.
-  if (isOvEnabledForAgent(merged) && merged.openvikingMode === 'custom') {
-    if (!merged.openvikingCustomUrl || !merged.openvikingCustomApiKey) {
-      return res.status(400).json({
-        error: "Custom OpenViking mode requires both openvikingCustomUrl and openvikingCustomApiKey",
-      });
-    }
-  }
-
-  agentConfigs[idx] = merged;
-  // description is the system prompt — keep them in sync
-  if (updates.description !== undefined && updates.systemPrompt === undefined) {
-    agentConfigs[idx].systemPrompt = updates.description;
-  }
-  saveAgentConfigs(agentConfigs);
-  db.saveAgentConfig(agentConfigs[idx]);
-  if (syncRuntimeAgentFromConfig(id, agentConfigs[idx])) {
-    broadcastToWeb({ type: "agent_started", workspaceId, agent: agentPayload(id) });
-  }
-  broadcastToWeb({
-    type: "config_updated",
-    workspaceId,
-    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-  });
-  // Strip secrets from the response too, so saving doesn't leak the api key
-  // back to the client even though it's the same client that just sent it.
-  const { openvikingApiKey: _stripA, openvikingCustomApiKey: _stripB, ...safeConfig } = agentConfigs[idx];
-  res.json({
-    config: {
-      ...safeConfig,
-      openvikingProvisioned: !!agentConfigs[idx].openvikingApiKey,
-      openvikingCustomConfigured: !!agentConfigs[idx].openvikingCustomApiKey,
-    },
-  });
-});
-
-// Delete agent config
-app.delete("/api/agents/:id", requireAuth, (req, res) => {
-  const { id } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  if (workspaceIdFromAgent(id) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
-  sendAgentStop(id);
-  const idx = agentConfigs.findIndex((c) => c.id === id);
-  if (idx >= 0) {
-    agentConfigs.splice(idx, 1);
-    saveAgentConfigs(agentConfigs);
-    db.deleteAgentConfig(id);
-  }
-  purgeAgentMemberships(id);
-  purgeUnknownAgentState(id);
-  broadcastToWeb({ type: "agent_status", workspaceId, agentId: id, status: "deleted" });
-  broadcastToWeb({
-    type: "config_updated",
-    workspaceId,
-    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-  });
-  res.json({ success: true });
-});
-
-// ─── Profile preset pool ────────────────────────────────────────
-
-app.get("/api/agent-profile-presets", requireWorkspaceRead, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  res.json({ presets: profilePresets.list(workspaceId), count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
-});
-
-app.post("/api/agent-profile-presets", requireAuth, async (req, res) => {
-  const { image } = req.body || {};
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const result = await profilePresets.add(image, workspaceId);
-  if (result.error) return res.status(400).json({ error: result.error });
-  res.json({ preset: result.preset, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
-});
-
-app.delete("/api/agent-profile-presets/:id", requireAuth, async (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const result = await profilePresets.remove(req.params.id, workspaceId);
-  if (result.error) return res.status(404).json({ error: result.error });
-  res.json({ success: true, count: profilePresets.count(workspaceId), max: PROFILE_PRESET_MAX });
-});
-
-// ─── Machine API key management ─────────────────────────────────
-
-// List machine API keys (masked)
-app.get("/api/machine-keys", requireAuth, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const keys = machineKeys
-    .filter((k) => !k.revokedAt && (k.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
-    .map((k) => ({
-      id: k.id,
-      name: k.name,
-      keyPrefix: k.rawKey.substring(0, 18),
-      createdAt: k.createdAt,
-      lastUsedAt: k.lastUsedAt,
-    }));
-  res.json({ keys });
-});
-
-// Generate a new machine API key
-app.post("/api/machine-keys", requireAuth, async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: "Name is required" });
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-
-  const rawKey = generateApiKey();
-  const keyRecord = {
-    id: `mk-${uuidv4().substring(0, 8)}`,
-    workspaceId,
-    name,
-    rawKey,
-    createdAt: now(),
-    lastUsedAt: null,
-    revokedAt: null,
-    boundFingerprint: null,
-  };
-  machineKeys.push(keyRecord);
-  saveMachineKeys(machineKeys);
-  await db.saveMachineKey(keyRecord);
-  console.log(`[keys] Generated machine key "${name}" (${rawKey.substring(0, 18)}...)`);
-
-  res.json({
-    key: {
-      id: keyRecord.id,
-      name: keyRecord.name,
-      keyPrefix: rawKey.substring(0, 18),
-      createdAt: keyRecord.createdAt,
-      lastUsedAt: keyRecord.lastUsedAt,
-    },
-    rawKey,
-  });
-});
-
-// Delete a machine API key — cascades to agent_configs bound to this machine.
-app.delete("/api/machine-keys/:id", requireAuth, async (req, res) => {
-  const { id } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const idx = machineKeys.findIndex((k) => k.id === id && (k.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
-  if (idx < 0) return res.status(404).json({ error: "Key not found" });
-  const key = machineKeys[idx];
-
-  // Cascade: collect agents bound to this machine, stop them, purge state.
-  const orphanedAgentIds = agentConfigs
-    .filter((c) => c.machineId === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
-    .map((c) => c.id);
-  for (const agentId of orphanedAgentIds) {
-    sendAgentStop(agentId);
-    purgeUnknownAgentState(agentId);
-    broadcastToWeb({ type: "agent_status", agentId, status: "deleted" });
-  }
-  for (let i = agentConfigs.length - 1; i >= 0; i--) {
-    if (agentConfigs[i].machineId === id && (agentConfigs[i].workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId) {
-      agentConfigs.splice(i, 1);
-    }
-  }
-  saveAgentConfigs(agentConfigs);
-
-  // Remove the key itself. The DB has ON DELETE CASCADE, so agent_configs
-  // rows in Postgres are removed by the FK — we don't need deleteAgentConfig.
-  machineKeys.splice(idx, 1);
-  saveMachineKeys(machineKeys);
-  await db.deleteMachineKey(id);
-
-  // Drop any live daemon connection authenticated with this key.
-  for (const dws of daemonConnections) {
-    if (dws._machineId === id) {
-      try { dws.close(1008, "machine key deleted"); } catch {}
-    }
-  }
-  machines.delete(id);
-  broadcastToWeb({ type: "machine:disconnected", workspaceId, machineId: id });
-  broadcastToWeb({
-    type: "config_updated",
-    workspaceId,
-    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-  });
-  console.log(`[keys] Deleted machine key "${key.name}" (cascaded ${orphanedAgentIds.length} agent config(s))`);
-  res.json({ success: true });
-});
-
-// ─── Agent lifecycle ─────────────────────────────────────────────
-
-// Derive a stable OpenViking user_id from the zouk agent.id. We strip the
-// `agent-` prefix (already present on auto-generated ids) and namespace with
-// `zouk-` so the user_id is recognisable in shared OV admin views. OV user_ids
-// are permanent — never derive from agent.name (which is mutable).
-function deriveOvUserId(agentId) {
-  const short = String(agentId || "").replace(/^agent-/, "");
-  return `zouk-${short}`;
-}
-
-async function startAgentOnDaemon(id, config) {
-  const runtime = config.runtime || "claude";
-  const workspaceId = normalizeWorkspaceId(config.workspaceId || DEFAULT_WORKSPACE_ID);
-  const requestedMachineId = typeof config.machineId === "string" && config.machineId.trim()
-    ? config.machineId.trim()
-    : undefined;
-  const requestedWorkDir = typeof config.workDir === "string" && config.workDir.trim()
-    ? config.workDir.trim()
-    : undefined;
-
-  // Normalize / validate the launcher override up-front so we never spawn an
-  // agent with an invalid value, and so the persisted row matches what the
-  // daemon receives. Empty / whitespace coerces to no override.
-  if (config.customLauncher !== undefined) {
-    const r = validateCustomLauncher(config.customLauncher, runtime);
-    if (!r.ok) return { error: r.err };
-    if (r.value === null) delete config.customLauncher;
-    else config.customLauncher = r.value;
-  }
-
-  // Never spill a machine-pinned agent onto another host. That switches the
-  // workspace underneath the server's saved config.
-  let targetWs = null;
-  if (requestedMachineId) {
-    for (const ws of daemonConnections) {
-      if (ws.readyState === 1 && ws._machineId === requestedMachineId) {
-        targetWs = ws;
-        break;
-      }
-    }
-    if (!targetWs) {
-      return { error: `Requested machine ${requestedMachineId} is not connected` };
-    }
-    if (!targetWs._runtimes?.includes(runtime)) {
-      return { error: `Requested machine ${requestedMachineId} does not support runtime ${runtime}` };
-    }
-  } else {
-    for (const ws of daemonConnections) {
-      if (ws.readyState === 1 && ws._runtimes?.includes(runtime)) {
-        targetWs = ws;
-        break;
-      }
-    }
-  }
-  if (!targetWs) return { error: "No daemon connected with the requested runtime" };
-
-  // Register agent in store — buildRuntimeAgent reads from agentConfigs first,
-  // then falls back to the request payload for fields not yet persisted.
-  store.agents[id] = buildRuntimeAgent(id, {
-    workspaceId,
-    runtime,
-    model: config.model,
-    workDir: requestedWorkDir,
-    status: "starting",
-    machineId: targetWs._machineId,
-  });
-
-  // OpenViking creds: gated on the per-agent `openvikingEnabled` toggle. When
-  // disabled (default for non-whitelisted runtimes), skip provisioning and
-  // never hand creds to the daemon — even custom-mode creds are withheld.
-  const ovEnabled = isOvEnabledForAgent({ openvikingEnabled: config.openvikingEnabled, runtime });
-  const ovMode = config.openvikingMode === 'custom' ? 'custom' : 'provisioned';
-  // Derive user_id: existing rows keep whatever's already on disk (cannot move
-  // OV memory of a previously-provisioned agent). New rows default to the
-  // immutable Zouk agent id. The explicit openvikingUseAgentNameAsUser option
-  // switches new provisioned rows to the name-based clone-sharing namespace.
-  let ovUserId = config.openvikingUserId || resolveInitialOvUserId(config, id);
-  let ovApiKey = config.openvikingApiKey || null;
-  // URL pinning: existing rows keep whatever they're already on (pre-PR keys
-  // have openvikingUrl=null → fall back to env so they never silently migrate
-  // when a workspace admin enables a different URL). Newly-minted keys below
-  // capture the URL they were minted under.
-  let ovUrl = config.openvikingUrl || (ovApiKey ? OPENVIKING_URL : null);
-  let daemonOv = null;
-
-  if (!ovEnabled) {
-    console.log(`[ov] skipping creds for ${id} (runtime=${runtime}, openvikingEnabled=false)`);
-    // Leave ovApiKey alone — DB-persisted keys for previously-enabled agents
-    // remain latent so flipping the toggle back on doesn't require re-provision.
-  } else if (ovMode === 'custom') {
-    // User provides url + api key directly. Account/user are decoded from the
-    // new-format key (or left blank — OV server can derive from key).
-    if (config.openvikingCustomUrl && config.openvikingCustomApiKey) {
-      const decoded = decodeOvKey(config.openvikingCustomApiKey);
-      daemonOv = {
-        url: config.openvikingCustomUrl,
-        account: decoded.account || '',
-        userId: decoded.user || ovUserId,
-        apiKey: config.openvikingCustomApiKey,
-      };
-    }
-    // else: missing creds — daemon falls back to its local ovcli.conf, same as
-    // when provisioning was never enabled.
-  } else {
-    // Provisioned mode: resolve workspace > env creds, then lazily mint a
-    // per-agent key on first start (covers both new agents and existing
-    // keyless ones). Best-effort: if the OV admin call fails the agent
-    // still starts and the daemon falls back to its local ovcli.conf.
-    const provCreds = resolveProvisioningCreds(workspaceId);
-    if (!ovApiKey && provCreds) {
-      try {
-        const res = await provisionAgentKey({
-          url: provCreds.url,
-          account: provCreds.account,
-          rootApiKey: provCreds.rootApiKey,
-          agentId: ovUserId,
-        });
-        ovApiKey = res.user_key;
-        ovUserId = res.user_id;
-        ovUrl = provCreds.url; // pin the URL this key was minted under.
-      } catch (err) {
-        console.warn(`[ov] provisioning failed for ${id} (source=${provCreds.source}): ${err.message}`);
-      }
-    }
-    const effectiveUrl = ovUrl || provCreds?.url || null;
-    if (ovApiKey && effectiveUrl) {
-      // Prefer the account encoded into the agent's own key (survives admin
-      // key rotation within the same account); fall back to provisioner's.
-      const decodedAccount = decodeOvKey(ovApiKey).account;
-      daemonOv = {
-        url: effectiveUrl,
-        account: decodedAccount || provCreds?.account || OPENVIKING_ACCOUNT || '',
-        userId: ovUserId,
-        apiKey: ovApiKey,
-      };
-      ovUrl = effectiveUrl; // make sure it gets persisted below.
-    }
-  }
-
-  const daemonConfig = {
-    runtime,
-    model: config.model,
-    systemPrompt: config.systemPrompt || config.description || "",
-    serverUrl: PUBLIC_URL,
-    authToken: "test",
-    name: config.name || id,
-    displayName: config.displayName || config.name || id,
-    description: config.description || "",
-    lifecycle: config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
-  };
-  if (requestedWorkDir) daemonConfig.workDir = requestedWorkDir;
-  const cachedSessionId = store.agents[id]?.sessionId;
-  if (cachedSessionId) daemonConfig.sessionId = cachedSessionId;
-  if (config.envVars && typeof config.envVars === 'object') {
-    daemonConfig.envVars = config.envVars;
-  }
-  if (daemonOv) daemonConfig.openviking = daemonOv;
-  if (isOvMcpEnabledForAgent(config)) daemonConfig.ovMcpEnabled = true;
-  if (config.customLauncher) daemonConfig.customLauncher = config.customLauncher;
-
-  // Send agent:start to daemon — read from config (source of truth),
-  // not store.agents (which may have fallback values).
-  targetWs.send(JSON.stringify({
-    type: "agent:start",
-    agentId: id,
-    launchId: uuidv4(),
-    config: daemonConfig,
-  }));
-
-  daemonSockets.set(id, targetWs);
-
-  // Upsert into agentConfigs BEFORE broadcasting so that agentPayload()
-  // can overlay the authoritative config onto the runtime entry.
-  const existingIdx = agentConfigs.findIndex((c) => c.id === id);
-  if (existingIdx < 0) {
-    const persisted = {
-      id,
-      workspaceId,
-      name: config.name || id,
-      displayName: config.displayName || config.name || id,
-      description: config.description || "",
-      systemPrompt: config.systemPrompt || config.description || "",
-      runtime,
-      model: config.model,
-      machineId: targetWs._machineId,
-      autoStart: true,
-      lifecycle: config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
-    };
-    if (requestedWorkDir) persisted.workDir = requestedWorkDir;
-    if (config.envVars && typeof config.envVars === 'object') persisted.envVars = config.envVars;
-    if (config.customLauncher) persisted.customLauncher = config.customLauncher;
-    if (typeof config.openvikingEnabled === 'boolean') {
-      persisted.openvikingEnabled = config.openvikingEnabled;
-    }
-    if (typeof config.ovMcpEnabled === 'boolean') {
-      persisted.ovMcpEnabled = config.ovMcpEnabled;
-    }
-    if (config.openvikingUseAgentNameAsUser === true) {
-      persisted.openvikingUseAgentNameAsUser = true;
-    }
-    if (ovApiKey) {
-      persisted.openvikingUserId = ovUserId;
-      persisted.openvikingApiKey = ovApiKey;
-      if (ovUrl) persisted.openvikingUrl = ovUrl;
-    }
-    const usedImages = new Set(agentConfigs.filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId).map((c) => c.picture).filter(Boolean));
-    const shardedPicture = profilePresets.pickForAgent(id, usedImages, workspaceId);
-    if (shardedPicture) persisted.picture = shardedPicture;
-    agentConfigs.push(persisted);
-    saveAgentConfigs(agentConfigs);
-    db.saveAgentConfig(persisted);
-    // New agent → subscribe to every regular (non-DM) channel so the legacy
-    // "visible everywhere by default" behavior is preserved. Humans can
-    // unsubscribe via the /subscriptions API.
-    seedAgentIntoRegularChannels(id);
-  } else if (ovApiKey && !agentConfigs[existingIdx].openvikingApiKey) {
-    // Backfill an existing keyless agent. machineId is immutable — leave it.
-    agentConfigs[existingIdx].openvikingUserId = ovUserId;
-    agentConfigs[existingIdx].openvikingApiKey = ovApiKey;
-    if (ovUrl) agentConfigs[existingIdx].openvikingUrl = ovUrl;
-    saveAgentConfigs(agentConfigs);
-    db.saveAgentConfig(agentConfigs[existingIdx]);
-  }
-  // Existing configs: machineId is immutable — no rewrite on restart.
-
-  broadcastToWeb({ type: "agent_started", workspaceId, agent: agentPayload(id) });
-  broadcastToWeb({
-    type: "config_updated",
-    workspaceId,
-    configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-  });
-  console.log(`[api] Starting agent ${id} (runtime: ${runtime}) on daemon`);
-  return { agentId: id, status: "starting" };
-}
-
-// Start an agent
-app.post("/api/agents/start", requireAuth, async (req, res) => {
-  const config = req.body;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const id = config.agentId || config.id || `agent-${uuidv4().substring(0, 8)}`;
-
-  // If starting from a saved config, look it up. machineId on a saved config
-  // is immutable, so the request body's machineId is ignored when one exists.
-  const savedConfig = agentConfigs.find((c) => c.id === id);
-  if (savedConfig && (savedConfig.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
-    return res.status(404).json({ error: "Agent not found" });
-  }
-  const mergedConfig = { ...savedConfig, ...config };
-  mergedConfig.workspaceId = workspaceId;
-  if (savedConfig?.machineId) mergedConfig.machineId = savedConfig.machineId;
-
-  if (store.agents[id] && store.agents[id].status === "active") {
-    return res.status(400).json({ error: `Agent ${id} is already running` });
-  }
-
-  const result = await startAgentOnDaemon(id, mergedConfig);
-  if (result.error) return res.status(400).json(result);
-  res.json(result);
-});
-
-// Stop an agent
-app.post("/api/agents/:id/stop", requireAuth, (req, res) => {
-  const { id } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  if (workspaceIdFromAgent(id) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
-  const ws = daemonSockets.get(id);
-  if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
-  }
-  if (store.agents[id]) {
-    normalizeInactiveAgentState(id, "stopping");
-    broadcastAgentStatus(id, "stopping", workspaceId);
-  }
-  console.log(`[api] Stopping agent ${id}`);
-  res.json({ success: true });
-});
-
-// Reset an agent's conversation context: SIGTERM the running process, wait for
-// it to exit, then cold-start with a null session_id. Workspace is preserved.
-app.post("/api/agents/:id/reset-context", requireAuth, async (req, res) => {
-  const { id } = req.params;
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const savedConfig = agentConfigs.find((c) => c.id === id);
-  if (!savedConfig) return res.status(404).json({ error: "agent not found" });
-  if ((savedConfig.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) return res.status(404).json({ error: "agent not found" });
-
-  const ws = daemonSockets.get(id);
-  const isActive = store.agents[id]?.status === "active";
-
-  if (isActive && ws && ws.readyState === 1) {
-    await new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        pendingContextResets.delete(id);
-        resolve();
-      }, 3000);
-      pendingContextResets.set(id, () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
-      if (store.agents[id]) {
-        normalizeInactiveAgentState(id, "stopping");
-        broadcastAgentStatus(id, "stopping", workspaceId);
-      }
-    });
-  }
-
-  const result = await startAgentOnDaemon(id, savedConfig);
-  if (result.error) return res.status(400).json(result);
-  console.log(`[api] Context reset for agent ${id}`);
-  res.json({ success: true });
-});
-
-// Start all auto-start agents (called when daemon connects)
-async function autoStartAgents() {
-  const autoStart = agentConfigs.filter((c) => c.autoStart);
-  for (const config of autoStart) {
-    if (store.agents[config.id]?.status === "active") continue;
-    const result = await startAgentOnDaemon(config.id, config);
-    if (result.error) {
-      const agentName = config.displayName || config.name || config.id;
-      console.log(`[auto-start] Failed to start ${agentName} (${config.id}): ${result.error}`);
-    }
-  }
-}
-
-// ─── HTTP Server + WebSocket ──────────────────────────────────────
-
-const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
-
-process.on("SIGTERM", async () => {
-  console.log("[server] SIGTERM received — shutting down gracefully");
-  server.close(async () => {
-    await db.closePool();
-    process.exit(0);
-  });
-  // Force-exit after 10s if active connections don't drain in time
-  setTimeout(() => process.exit(0), 10_000).unref();
-});
-
-server.on("upgrade", (request, socket, head) => {
-  const parsed = new URL(request.url, `http://${request.headers.host}`);
-
-  if (parsed.pathname === "/daemon/connect") {
-    // Daemon WebSocket connection — validate API key
-    const apiKey = parsed.searchParams.get("key");
-    if (!validateApiKey(apiKey)) {
-      console.log(`[daemon] Rejected connection: invalid API key (${apiKey?.substring(0, 12)}...) from ${request.socket.remoteAddress}:${request.socket.remotePort}`);
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    // Track key usage
-    const keyRecord = machineKeys.find((k) => k.rawKey === apiKey);
-    if (keyRecord) {
-      keyRecord.lastUsedAt = now();
-      saveMachineKeys(machineKeys);
-      db.saveMachineKey(keyRecord);
-    }
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      handleDaemonConnection(ws, apiKey);
-    });
-  } else if (parsed.pathname === "/ws") {
-    // Web UI WebSocket connection — check optional auth token
-    const wsToken = parsed.searchParams.get("token");
-    const remoteIp = (request.headers["x-forwarded-for"] || "").toString().split(",")[0].trim()
-      || request.socket.remoteAddress
-      || null;
-    // Reject upgrades that present a token the server doesn't know. Without
-    // this gate, a stale tab whose session was revoked/logged-out keeps
-    // hammering the server and the upgrade succeeds as a "guest" — same
-    // expensive init payload, just under a different label. Outright reject
-    // and escalate to a 24h block after a few strikes.
-    if (wsToken && !hasAuthSession(wsToken)) {
-      const entry = recordInvalidTokenAttempt(wsToken, remoteIp);
-      const blocked = entry.blockedUntil > Date.now();
-      const reason = (blocked ? entry.blockReason : "invalid or expired token").replace(/[\r\n]/g, " ").slice(0, 120);
-      socket.write(
-        `HTTP/1.1 ${blocked ? "429 Too Many Requests" : "401 Unauthorized"}\r\n` +
-        "Connection: close\r\n" +
-        `X-Block-Reason: ${reason}\r\n` +
-        "Content-Length: 0\r\n\r\n"
-      );
-      socket.destroy();
-      return;
-    }
-    const wsAuthenticated = !!wsToken; // implied: token present AND in authSessions
-    // Defend the event loop: a runaway client (stale tab, buggy reconnect)
-    // can saturate the single replica with init-payload work. Rate-limit by
-    // token; fall back to remote IP for guests.
-    const trackerToken = wsAuthenticated ? wsToken : null;
-    const decision = recordWsConnectAttempt(trackerToken, remoteIp);
-    if (!decision.allow) {
-      const reason = decision.reason.replace(/[\r\n]/g, " ").slice(0, 120);
-      socket.write(
-        "HTTP/1.1 429 Too Many Requests\r\n" +
-        "Connection: close\r\n" +
-        `X-Block-Reason: ${reason}\r\n` +
-        "Content-Length: 0\r\n\r\n"
-      );
-      socket.destroy();
-      return;
-    }
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      ws._trackerEntry = decision.entry;
-      handleWebConnection(ws, wsAuthenticated, wsToken || null, parsed.searchParams.get("workspaceId") || DEFAULT_WORKSPACE_ID);
-    });
-  } else {
-    socket.destroy();
-  }
-});
-
-function handleDaemonConnection(ws, apiKey) {
-  const keyAlias = findMachineKeyRecord(apiKey)?.name || '(unknown)';
-  console.log(`[daemon] Connected: key=${apiKey?.substring(0, 8)}... alias=${keyAlias}`);
-  let connectedAgents = new Set();
-  daemonConnections.add(ws);
-  ws._apiKey = apiKey;
-  ws._runtimes = []; // store runtimes reported by this daemon
-  ws._capabilities = [];
-  const keyRecord = findMachineKeyRecord(apiKey);
-  const machineId = resolveDaemonMachineId(apiKey);
-  const workspaceId = keyRecord?.workspaceId || DEFAULT_WORKSPACE_ID;
-  ws._machineId = machineId;
-  ws._workspaceId = workspaceId;
-  const existingMachine = machines.get(machineId);
-  const machineRecord = {
-    id: machineId,
-    workspaceId,
-    alias: keyRecord?.name || existingMachine?.alias,
-    hostname: existingMachine?.hostname || 'unknown',
-    os: existingMachine?.os || 'unknown',
-    runtimes: existingMachine?.runtimes || [],
-    capabilities: existingMachine?.capabilities || [],
-    connectedAt: now(),
-    agentIds: [],
-  };
-  machines.set(machineId, machineRecord);
-  broadcastToWeb({ type: existingMachine ? 'machine:updated' : 'machine:connected', workspaceId, machine: machineRecord });
-
-  ws.on("message", (data) => {
-    try {
-      const msg = JSON.parse(data);
-      handleDaemonMessage(ws, msg, connectedAgents);
-    } catch (e) {
-      console.error("[daemon] Invalid message:", e.message);
-    }
-  });
-
-  ws.on("close", () => {
-    console.log(`[daemon] Disconnected: machine=${ws._machineId}`);
-    daemonConnections.delete(ws);
-    const replacementConnected = Array.from(daemonConnections).some((otherWs) => (
-      otherWs.readyState === 1 && otherWs._machineId === ws._machineId
-    ));
-    if (!replacementConnected) {
-      machines.delete(ws._machineId);
-      broadcastToWeb({ type: 'machine:disconnected', workspaceId: ws._workspaceId || DEFAULT_WORKSPACE_ID, machineId: ws._machineId });
-    }
-    for (const agentId of connectedAgents) {
-      if (daemonSockets.get(agentId) !== ws) continue;
-      if (store.agents[agentId]) {
-        const agentWorkspaceId = normalizeInactiveAgentState(agentId, "inactive");
-        clearAgentRuntimeBinding(agentId, ws);
-        broadcastAgentStatus(agentId, "inactive", agentWorkspaceId);
-      }
-    }
-    // Daemon swap on the same machine: another daemon authenticated with the
-    // same api key is still online, so reuse the existing autoStart path to
-    // re-bind orphaned agents. autoStartAgents respects per-config autoStart
-    // and startAgentOnDaemon enforces machineId match, so this can only
-    // re-target the surviving same-machine daemon.
-    if (replacementConnected) {
-      setTimeout(() => autoStartAgents(), 500);
-    }
-  });
-
-  // Application-level keepalive. Cellular NAT gateways drop idle TCP mappings
-  // in as little as 30 s, and Cloudflare's WebSocket idle timeout is 100 s.
-  // Without a regular frame the connection goes stale — the client's inbound
-  // watchdog (web/src/lib/ws.ts, INBOUND_WATCHDOG_MS) relies on these pings to
-  // know the socket is still alive. Interval must be < watchdog / 2.
-  const pingInterval = setInterval(() => {
-    if (ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: "ping" }));
-    }
-  }, 30000);
-  ws.on("close", () => clearInterval(pingInterval));
-}
-
-// Per-agent serialization for save-then-broadcast of activity frames.
-// Ensures: (1) the DB write commits before the live WS broadcast, so a client
-// that fetches history via HTTP after receiving the WS event will see that
-// entry in the fetch result; (2) frames from the same agent broadcast in
-// arrival order even when awaits vary.
-const activityChains = new Map();
-function enqueueActivity(agentId, task) {
-  const prev = activityChains.get(agentId) || Promise.resolve();
-  const next = prev.catch(() => {}).then(task);
-  activityChains.set(agentId, next);
-  next.finally(() => {
-    if (activityChains.get(agentId) === next) activityChains.delete(agentId);
-  });
-}
-
-function isBusyActivity(activity) {
-  return activity === "working" || activity === "thinking" || activity === "error";
-}
-
-function clearAgentRuntimeBinding(agentId, ws = null) {
-  if (!ws || daemonSockets.get(agentId) === ws) {
-    daemonSockets.delete(agentId);
-  }
-  for (const machine of machines.values()) {
-    if (Array.isArray(machine.agentIds)) {
-      machine.agentIds = machine.agentIds.filter((id) => id !== agentId);
-    }
-  }
-}
-
-function normalizeInactiveAgentState(agentId, status = "inactive") {
-  const agent = store.agents[agentId];
-  if (!agent) return null;
-  agent.status = status;
-  agent.activity = "offline";
-  agent.activityDetail = undefined;
-  return workspaceIdFromAgent(agentId);
-}
-
-function broadcastAgentStatus(agentId, status, workspaceId = null) {
-  const scopedWorkspaceId = workspaceId || workspaceIdFromAgent(agentId);
-  broadcastToWeb({ type: "agent_status", workspaceId: scopedWorkspaceId, agentId, status });
-  if (status !== "active") {
-    broadcastToWeb({
-      type: "agent_activity",
-      workspaceId: scopedWorkspaceId,
-      agentId,
-      activity: "offline",
-    });
-  }
-}
-
-function reconcileAgentLifecycleHealth(ws, msg) {
-  const { agentId, reason } = msg || {};
-  if (!agentId || !reason) return;
-  const agent = store.agents[agentId];
-  if (!agent) return;
-  const ownerWs = daemonSockets.get(agentId);
-  if (ownerWs && ownerWs !== ws) {
-    console.warn(`[agent:${agentId}] Ignoring lifecycle health reason=${reason} from stale connection machine=${ws._machineId}`);
-    return;
-  }
-  if (agent.status !== "active") return;
-
-  if (reason === "agent_idle" && agent.activity !== "online") {
-    const prev = agent.activity || "?";
-    agent.activity = "online";
-    agent.activityDetail = "Idle";
-    console.log(`[agent:${agentId}] Lifecycle health reconciled activity: ${prev} -> online`);
-    broadcastToWeb({
-      type: "agent_activity",
-      workspaceId: workspaceIdFromAgent(agentId),
-      agentId,
-      activity: "online",
-      detail: "Idle",
-    });
-  }
-}
-
-function handleDaemonMessage(ws, msg, connectedAgents) {
-  switch (msg.type) {
-    case "daemon:health": {
-      reconcileAgentLifecycleHealth(ws, msg);
-      if (ws.readyState === 1) {
-        ws.send(JSON.stringify({
-          type: "daemon:health:ack",
-          seq: msg.seq,
-          reason: msg.reason,
-          agentId: msg.agentId,
-          launchId: msg.launchId,
-          sentAt: msg.sentAt,
-          serverAt: new Date().toISOString(),
-          machineId: ws._machineId,
-        }));
-      }
-      break;
-    }
-    case "ready": {
-      console.log(`[daemon] Ready: machine=${ws._machineId} runtimes=${msg.runtimes?.join(",")} agents=${msg.runningAgents?.join(",") || "none"}`);
-      ws._runtimes = msg.runtimes || [];
-      ws._capabilities = msg.capabilities || [];
-      // Update machine record with real info from daemon
-      const machine = machines.get(ws._machineId);
-      if (machine) {
-        const keyRecord = findMachineKeyRecord(ws._apiKey);
-        if (keyRecord?.name) machine.alias = keyRecord.name;
-        machine.hostname = msg.hostname || 'unknown';
-        machine.os = msg.os || 'unknown';
-        machine.runtimes = msg.runtimes || [];
-        machine.capabilities = msg.capabilities || [];
-        broadcastToWeb({ type: 'machine:updated', machine });
-      }
-      // Machine binding: silently bind or reject based on hostname:os fingerprint
-      if (!isDebugKey(ws._apiKey)) {
-        const keyRecord = findMachineKeyRecord(ws._apiKey);
-        if (keyRecord) {
-          const fingerprint = computeMachineFingerprint(msg.hostname, msg.os);
-          if (!keyRecord.boundFingerprint) {
-            // First-time bind: record the fingerprint
-            keyRecord.boundFingerprint = fingerprint;
-            saveMachineKeys(machineKeys);
-            db.saveMachineKey(keyRecord);
-            console.log(`[daemon] Key "${keyRecord.name}" bound to machine fingerprint ${fingerprint.substring(0, 12)}...`);
-          } else if (keyRecord.boundFingerprint !== fingerprint) {
-            // Fingerprint mismatch: reject silently
-            console.log(`[daemon] Key "${keyRecord.name}" rejected — fingerprint mismatch (expected ${keyRecord.boundFingerprint.substring(0, 12)}..., got ${fingerprint.substring(0, 12)}...)`);
-            ws.close(1008, 'machine binding mismatch');
-            return;
-          }
-        }
-      }
-      // Auto-start configured agents after a short delay
-      setTimeout(() => autoStartAgents(), 1000);
-      // Register any running agents
-      if (msg.runningAgents) {
-        for (const agentId of msg.runningAgents) {
-          if (!hasKnownAgentConfig(agentId)) {
-            purgeUnknownAgentState(agentId);
-            sendAgentStop(agentId, ws, { broadcast: false });
-            continue;
-          }
-          const affinity = evaluateAgentMachineAffinity(agentId, ws);
-          if (!affinity.allowed) {
-            console.log(`[agent:${agentId}] Rejecting daemon adoption from machine ${ws._machineId}; expected ${affinity.expectedMachineId}`);
-            sendAgentStop(agentId, ws, { broadcast: false });
-            continue;
-          }
-          connectedAgents.add(agentId);
-          daemonSockets.set(agentId, ws);
-          const isNew = !store.agents[agentId];
-          if (isNew) {
-            store.agents[agentId] = buildRuntimeAgent(agentId, { status: "active", machineId: ws._machineId });
-          } else {
-            // Refresh config fields on existing agents — they may still
-            // have stale/fallback values from before configs were loaded.
-            const cfg = agentConfigs.find((c) => c.id === agentId);
-            if (cfg) syncRuntimeAgentFromConfig(agentId, cfg);
-          }
-          store.agents[agentId].status = "active";
-          store.agents[agentId].machineId = ws._machineId;
-          // Track agent in machine record (mirrors "agent:status" handler)
-          const readyMachine = machines.get(ws._machineId);
-          if (readyMachine && !readyMachine.agentIds.includes(agentId)) {
-            readyMachine.agentIds.push(agentId);
-          }
-          broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
-          hydrateAgentContextUsage(agentId);
-          replayPendingDeliveries(agentId);
-        }
-      }
-      // Reconcile stale agent state: any agent on this machine that is not
-      // in runningAgents but still shows working/thinking/error activity had its
-      // process die (or its turn_end event was dropped during a reconnect race)
-      // without the server receiving the final activity update. Active agents
-      // are reset to online/idle; inactive or stopping agents stay offline so
-      // lifecycle state and activity never contradict each other.
-      // Running agents are skipped here; the daemon re-broadcasts their current
-      // activity via agent:activity messages that follow immediately after 'ready'.
-      {
-        const runningSet = new Set(msg.runningAgents || []);
-        for (const [agentId, agent] of Object.entries(store.agents)) {
-          if (agent.machineId !== ws._machineId) continue;
-          if (runningSet.has(agentId)) continue;
-          if (isBusyActivity(agent.activity)) {
-            const activity = agent.status === "active" ? "online" : "offline";
-            store.agents[agentId].activity = activity;
-            store.agents[agentId].activityDetail = undefined;
-            broadcastToWeb({
-              type: "agent_activity",
-              workspaceId: workspaceIdFromAgent(agentId),
-              agentId,
-              activity,
-              detail: activity === "online" ? "Idle" : undefined,
-            });
-          }
-        }
-      }
-      break;
-    }
-    case "agent:status": {
-      const { agentId, status } = msg;
-      if (!hasKnownAgentConfig(agentId)) {
-        purgeUnknownAgentState(agentId);
-        sendAgentStop(agentId, ws, { broadcast: false });
-        break;
-      }
-      const affinity = evaluateAgentMachineAffinity(agentId, ws);
-      if (!affinity.allowed) {
-        console.log(`[agent:${agentId}] Ignoring status from machine ${ws._machineId}; expected ${affinity.expectedMachineId}`);
-        sendAgentStop(agentId, ws, { broadcast: false });
-        break;
-      }
-      const isNew = !store.agents[agentId];
-      const wasActive = !isNew && store.agents[agentId].status === "active";
-      if (isNew) {
-        store.agents[agentId] = buildRuntimeAgent(agentId, {
-          status,
-          machineId: ws._machineId,
-        });
-      } else {
-        const cfg = agentConfigs.find((c) => c.id === agentId);
-        if (cfg) syncRuntimeAgentFromConfig(agentId, cfg);
-      }
-      store.agents[agentId].status = status;
-      store.agents[agentId].machineId = ws._machineId;
-      const workDirChanged = updateAgentWorkDir(agentId, msg.workDir);
-      const agentWorkspaceId = status === "active"
-        ? workspaceIdFromAgent(agentId)
-        : normalizeInactiveAgentState(agentId, status);
-      if (status === "active") {
-        connectedAgents.add(agentId);
-        daemonSockets.set(agentId, ws);
-        // Track agent in machine record
-        const machine = machines.get(ws._machineId);
-        if (machine && !machine.agentIds.includes(agentId)) {
-          machine.agentIds.push(agentId);
-        }
-      } else {
-        connectedAgents.delete(agentId);
-        clearAgentRuntimeBinding(agentId, ws);
-      }
-      if (isNew) {
-        broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
-      } else {
-        broadcastAgentStatus(agentId, status, agentWorkspaceId);
-        if (workDirChanged) {
-          broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
-          const workspaceId = workspaceIdFromAgent(agentId);
-          broadcastToWeb({
-            type: "config_updated",
-            workspaceId,
-            configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-          });
-        }
-      }
-      if (status === "active") hydrateAgentContextUsage(agentId);
-      if (status === "active") {
-        replayPendingDeliveries(agentId);
-        if (!wasActive) {
-          db.trimAgentActivities(agentId).catch((e) =>
-            console.error(`[db] trimAgentActivities(${agentId}) failed:`, e.message)
-          );
-        }
-      }
-      if (status === "inactive") {
-        const resolver = pendingContextResets.get(agentId);
-        if (resolver) {
-          pendingContextResets.delete(agentId);
-          resolver();
-        }
-      }
-      console.log(`[agent:${agentId}] Status: ${status} machine=${ws._machineId}`);
-      break;
-    }
-    case "agent:activity": {
-      const { agentId, activity, detail, entries, contextUsage } = msg;
-      if (!hasKnownAgentConfig(agentId)) {
-        purgeUnknownAgentState(agentId);
-        sendAgentStop(agentId, ws, { broadcast: false });
-        break;
-      }
-      const ownerWs = daemonSockets.get(agentId);
-      if (ownerWs && ownerWs !== ws) {
-        console.warn(`[agent:${agentId}] Dropped activity=${activity} from stale connection machine=${ws._machineId} (owner=machine:${ownerWs._machineId})`);
-        break;
-      }
-      enqueueActivity(agentId, async () => {
-        const current = store.agents[agentId];
-        if (current?.status !== "active" && activity !== "offline") {
-          console.warn(`[agent:${agentId}] Dropped activity=${activity} while status=${current?.status || "unknown"}`);
-          if (Array.isArray(entries) && entries.length > 0) {
-            try {
-              await db.saveActivityEntries(agentId, activity, detail, entries);
-            } catch (e) {
-              console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
-            }
-          }
-          return;
-        }
-        const prev = store.agents[agentId]?.activity;
-        if (store.agents[agentId]) {
-          store.agents[agentId].activity = activity;
-          store.agents[agentId].activityDetail = detail;
-          if (contextUsage) {
-            store.agents[agentId].contextUsage = contextUsage;
-          }
-        }
-        if (prev !== activity) {
-          console.log(`[agent:${agentId}] Activity: ${prev ?? '?'} → ${activity}${detail ? ` (${detail})` : ''}`);
-        }
-        if (Array.isArray(entries) && entries.length > 0) {
-          try {
-            await db.saveActivityEntries(agentId, activity, detail, entries);
-          } catch (e) {
-            console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
-          }
-        }
-        broadcastToWeb({
-          type: "agent_activity",
-          workspaceId: workspaceIdFromAgent(agentId),
-          agentId,
-          activity,
-          detail,
-          entries,
-          contextUsage,
-        });
-      });
-      break;
-    }
-    case "agent:session": {
-      const { agentId, sessionId } = msg;
-      if (!hasKnownAgentConfig(agentId)) {
-        purgeUnknownAgentState(agentId);
-        sendAgentStop(agentId, ws, { broadcast: false });
-        break;
-      }
-      const ownerWs = daemonSockets.get(agentId);
-      if (ownerWs && ownerWs !== ws) {
-        console.log(`[agent:${agentId}] Ignoring session update from stale daemon connection on machine ${ws._machineId}`);
-        break;
-      }
-      if (store.agents[agentId]) {
-        store.agents[agentId].sessionId = sessionId;
-      }
-      break;
-    }
-    case "agent:deliver:ack": {
-      // Acknowledged delivery, no-op
-      break;
-    }
-    case "agent:workspace:file_tree": {
-      const ownerWs = daemonSockets.get(msg.agentId);
-      if (ownerWs && ownerWs !== ws) {
-        console.log(`[agent:${msg.agentId}] Ignoring workspace tree from stale daemon connection on machine ${ws._machineId}`);
-        break;
-      }
-      const workDirChanged = updateAgentWorkDir(msg.agentId, msg.workDir);
-      const workspaceId = workspaceIdFromAgent(msg.agentId);
-      // Forward to web UI
-      broadcastToWeb({
-        type: "workspace:file_tree",
-        workspaceId,
-        agentId: msg.agentId,
-        dirPath: msg.dirPath || "",
-        workDir: msg.workDir,
-        files: msg.files,
-      });
-      if (workDirChanged) {
-        broadcastToWeb({ type: "agent_started", agent: agentPayload(msg.agentId) });
-        broadcastToWeb({
-          type: "config_updated",
-          workspaceId,
-          configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId),
-        });
-      }
-      break;
-    }
-    case "agent:workspace:file_content": {
-      const ownerWs = daemonSockets.get(msg.agentId);
-      if (ownerWs && ownerWs !== ws) {
-        console.log(`[agent:${msg.agentId}] Ignoring workspace file content from stale daemon connection on machine ${ws._machineId}`);
-        break;
-      }
-      broadcastToWeb({ type: "workspace:file_content", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, requestId: msg.requestId, content: msg.content });
-      break;
-    }
-    case "agent:memory:list_result": {
-      broadcastToWeb({ type: "memory:list_result", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, uri: msg.uri, entries: msg.entries, error: msg.error });
-      break;
-    }
-    case "agent:memory:content": {
-      broadcastToWeb({ type: "memory:content", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, requestId: msg.requestId, uri: msg.uri, level: msg.level || null, content: msg.content, error: msg.error });
-      break;
-    }
-    case "agent:skills:list_result": {
-      const ownerWs = daemonSockets.get(msg.agentId);
-      if (ownerWs && ownerWs !== ws) {
-        console.log(`[agent:${msg.agentId}] Ignoring skills result from stale daemon connection on machine ${ws._machineId}`);
-        break;
-      }
-      broadcastToWeb({ type: "skills:list_result", workspaceId: workspaceIdFromAgent(msg.agentId), agentId: msg.agentId, global: msg.global, workspace: msg.workspace });
-      break;
-    }
-    case "machine:workspace:scan_result": {
-      broadcastToWeb({ type: "machine:workspace:scan_result", workspaceId: ws._workspaceId || DEFAULT_WORKSPACE_ID, machineId: ws._machineId, directories: msg.directories });
-      break;
-    }
-    case "machine:workspace:delete_result": {
-      broadcastToWeb({ type: "machine:workspace:delete_result", workspaceId: ws._workspaceId || DEFAULT_WORKSPACE_ID, machineId: ws._machineId, directoryName: msg.directoryName, success: msg.success });
-      break;
-    }
-    case "machine:runtime_models:result": {
-      const pending = pendingRuntimeModelRequests.get(msg.requestId);
-      if (pending) {
-        clearTimeout(pending.timer);
-        pendingRuntimeModelRequests.delete(msg.requestId);
-        pending.resolve({
-          models: Array.isArray(msg.models) ? msg.models : [],
-          default: typeof msg.default === "string" ? msg.default : null,
-          error: typeof msg.error === "string" ? msg.error : null,
-        });
-      }
-      break;
-    }
-    case "pong": {
-      // Heartbeat response, no-op
-      break;
-    }
-    default: {
-      console.log(`[daemon] Unknown message type: ${msg.type}`);
-    }
-  }
-}
-
-// WS message types that require authentication (write operations)
-const WS_AUTH_REQUIRED_TYPES = new Set([
-  "agent:start",
-  "agent:stop",
-  "machine:workspace:delete",
-  "machine:workspace:scan",
-]);
-
-function handleWebConnection(ws, authenticated, token = null, workspaceId = DEFAULT_WORKSPACE_ID) {
-  ws._authenticated = !!authenticated;
-  ws._authToken = token;
-  ws._workspaceId = normalizeWorkspaceId(workspaceId);
-  const user = token ? getAuthSession(token) : null;
-  if (user && !isEmbedSessionUser(user) && ws._workspaceId === DEFAULT_WORKSPACE_ID && findWorkspace(ws._workspaceId) && isEmailAllowed(user.email, ws._workspaceId)) {
-    ensureWorkspaceMemberForUser(user, ws._workspaceId);
-  }
-  if ((!user && ws._workspaceId !== DEFAULT_WORKSPACE_ID) || (user && !userCanAccessWorkspace(user, ws._workspaceId)) || !findWorkspace(ws._workspaceId)) {
-    ws._workspaceId = DEFAULT_WORKSPACE_ID;
-  }
-  // Seed from the auth session so DM broadcasts can be filtered immediately;
-  // setWebPresence() will overwrite this with the canonical presence identity.
-  ws._humanName = user?.name || null;
-  ws._human = null;
-  webSockets.add(ws);
-
-  // Defer the init send so a burst of reconnects doesn't monopolize one tick.
-  // The init payload is large (channels + agents + humans + configs + machines
-  // + presets) and JSON.stringify is sync; spreading sends across ticks lets
-  // unrelated HTTP requests interleave instead of queuing behind a burst.
-  setImmediate(() => {
-    if (ws.readyState !== 1) return;
-    const canReadWorkspace = user
-      ? userCanAccessWorkspace(user, ws._workspaceId)
-      : ws._workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(ws._workspaceId);
-    const embedUser = isEmbedSessionUser(user);
-    const embedAgentIds = embedUser ? embedVisibleAgentIds(user) : null;
-    ws._embedAgentIds = embedAgentIds;
-    const visibleChannels = canReadWorkspace ? store.channels.filter((ch) => (
-      (ch.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
-      && (ch.type || "channel") === "channel"
-      && (!embedUser || embedCanAccessChannel(user, ch, ws._workspaceId))
-    )) : [];
-    const visibleAgents = canReadWorkspace ? Object.keys(store.agents)
-      .map((id) => agentPayload(id))
-      .filter((agent) => (
-        (agent?.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId
-        && (!embedAgentIds || embedAgentIds.has(agent.id))
-      )) : [];
-    try {
-      ws.send(JSON.stringify({
-        type: "init",
-        workspaceId: ws._workspaceId,
-        workspaces: visibleWorkspacesForUser(user),
-        workspaceMembers: canReadWorkspace && !embedUser ? listWorkspaceMembers(ws._workspaceId) : [],
-        workspaceAllowlistActive: allowlistActive(ws._workspaceId),
-        viewerRole: user ? userWorkspaceRole(user, ws._workspaceId) : null,
-        isSuperuser: !!(user && isSuperuser(user.email)),
-        channels: visibleChannels,
-        agents: visibleAgents,
-        humans: embedUser ? [] : currentHumans(),
-        configs: canReadWorkspace && !embedUser ? sanitizedAgentConfigs().filter((config) => (config.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
-        machines: canReadWorkspace && !embedUser ? Array.from(machines.values()).filter((machine) => (machine.workspaceId || DEFAULT_WORKSPACE_ID) === ws._workspaceId) : [],
-      }));
-    } catch (e) {
-      console.warn("[web] init send failed:", e.message);
-    }
-  });
-
-  ws.on("message", (data) => {
-    try {
-      const msg = JSON.parse(data);
-      handleWebMessage(ws, msg);
-    } catch (e) {
-      console.error("[web] Invalid message:", e.message);
-    }
-  });
-
-  ws.on("close", () => {
-    if (ws._humanName) removeHumanPresence(ws._humanName);
-    webSockets.delete(ws);
-    recordWsDisconnect(ws._trackerEntry);
-  });
-
-  const pingInterval = setInterval(() => {
-    if (ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: "ping" }));
-    }
-  }, 30000);
-  ws.on("close", () => clearInterval(pingInterval));
-}
-
-function sendWebError(ws, message, extra = {}) {
-  if (ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: "error", message, ...extra }));
-}
-
-function webRequestWorkspaceId(ws, msg) {
-  const socketWorkspaceId = normalizeWorkspaceId(ws._workspaceId || DEFAULT_WORKSPACE_ID);
-  const requestedWorkspaceId = normalizeWorkspaceId(msg.workspaceId || socketWorkspaceId);
-  if (requestedWorkspaceId !== socketWorkspaceId) {
-    sendWebError(ws, "Workspace mismatch. Reconnect the socket for the selected workspace.", {
-      code: "workspace_mismatch",
-      workspaceId: socketWorkspaceId,
-      requestedWorkspaceId,
-    });
-    return null;
-  }
-  const user = ws._authToken ? getAuthSession(ws._authToken) : null;
-  const defaultOpenRead = !user && requestedWorkspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(requestedWorkspaceId);
-  if (!findWorkspace(requestedWorkspaceId) || (!defaultOpenRead && (!user || !userCanAccessWorkspace(user, requestedWorkspaceId)))) {
-    sendWebError(ws, "Not a member of this workspace.", {
-      code: "workspace_forbidden",
-      workspaceId: requestedWorkspaceId,
-    });
-    return null;
-  }
-  return requestedWorkspaceId;
-}
-
-function webAgentRequest(ws, msg) {
-  const workspaceId = webRequestWorkspaceId(ws, msg);
-  if (!workspaceId) return null;
-  const agentId = typeof msg.agentId === "string" ? msg.agentId : "";
-  if (!agentId || workspaceIdFromAgent(agentId) !== workspaceId) {
-    sendWebError(ws, "Agent not found in this workspace.", {
-      code: "agent_not_found",
-      workspaceId,
-      agentId,
-    });
-    return null;
-  }
-  return { workspaceId, agentId, agentWs: daemonSockets.get(agentId) };
-}
-
-function handleWebMessage(ws, msg) {
-  // Block write-type messages from unauthenticated (guest) connections
-  if (WS_AUTH_REQUIRED_TYPES.has(msg.type) && !ws._authenticated) {
-    ws.send(JSON.stringify({ type: "error", message: "Authentication required. Please sign in to perform this action." }));
-    console.log(`[web] Blocked unauthenticated WS message: ${msg.type}`);
-    return;
-  }
-  const user = ws._authToken ? getAuthSession(ws._authToken) : null;
-  if (isEmbedSessionUser(user) && msg.type !== "presence:update" && msg.type !== "presence:clear") {
-    sendWebError(ws, "Embed sessions can only use chat presence over websocket.", { code: "embed_forbidden" });
-    return;
-  }
-
-  switch (msg.type) {
-    case "presence:update": {
-      setWebPresence(ws, msg);
-      break;
-    }
-    case "presence:clear": {
-      setWebPresence(ws, {});
-      break;
-    }
-    case "workspace:list": {
-      const request = webAgentRequest(ws, msg);
-      if (!request) break;
-      const agentWs = request.agentWs;
-      if (agentWs && agentWs.readyState === 1) {
-        const payload = { agentId: request.agentId, dirPath: msg.dirPath || null };
-        if (hasWorkspaceFsCapability(agentWs)) {
-          agentWs.send(JSON.stringify({ type: "workspace:list", ...payload }));
-        } else {
-          agentWs.send(JSON.stringify({ type: "agent:workspace:list", ...payload }));
-        }
-      }
-      break;
-    }
-    case "workspace:read": {
-      const request = webAgentRequest(ws, msg);
-      if (!request) break;
-      const agentWs = request.agentWs;
-      if (agentWs && agentWs.readyState === 1) {
-        const payload = { agentId: request.agentId, requestId: msg.requestId || uuidv4(), path: msg.path };
-        if (hasWorkspaceFsCapability(agentWs)) {
-          agentWs.send(JSON.stringify({ type: "workspace:read", ...payload }));
-        } else {
-          agentWs.send(JSON.stringify({ type: "agent:workspace:read", ...payload }));
-        }
-      }
-      break;
-    }
-    case "memory:list": {
-      const request = webAgentRequest(ws, msg);
-      if (!request) break;
-      const ovCreds = resolveOvCredentials(request.agentId);
-      if (ovCreds && !isLocalUrl(ovCreds.url)) {
-        const uri = msg.uri || "viking://";
-        ovMcpCall(ovCreds, "list", { uri })
-          .then((raw) => {
-            broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries: parseOvListResult(raw, uri) });
-          })
-          .catch((e) => {
-            ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
-            broadcastToWeb({ type: "memory:list_result", workspaceId: request.workspaceId, agentId: request.agentId, uri, entries: [], error: e.message });
-          });
-      } else {
-        const agentWs = request.agentWs;
-        if (agentWs && agentWs.readyState === 1) {
-          agentWs.send(JSON.stringify({ type: "agent:memory:list", agentId: request.agentId, uri: msg.uri || "viking://" }));
-        }
-      }
-      break;
-    }
-    case "memory:read": {
-      const request = webAgentRequest(ws, msg);
-      if (!request) break;
-      const ovCreds = resolveOvCredentials(request.agentId);
-      const level = msg.level === "l0" || msg.level === "l1" || msg.level === "l2" ? msg.level : null;
-      if (ovCreds && !isLocalUrl(ovCreds.url)) {
-        let uri = msg.uri;
-        // L0/L1 are directory-level products; OV expects a trailing slash for dir URIs.
-        // (Mirrors atlas-fs openviking-adapter.read behavior.)
-        if ((level === "l0" || level === "l1") && uri && uri !== "viking://" && !uri.endsWith("/")) {
-          uri = uri + "/";
-        }
-        const requestId = msg.requestId || uuidv4();
-        const op = level
-          ? ovHttpReadContent(ovCreds, uri, level)
-          : ovMcpCall(ovCreds, "read", { uris: uri });
-        op
-          .then((content) => {
-            broadcastToWeb({ type: "memory:content", workspaceId: request.workspaceId, agentId: request.agentId, requestId, uri: msg.uri, level, content, error: null });
-          })
-          .catch((e) => {
-            if (!level) ovMcpSessions.delete(ovCreds.url + ":" + ovCreds.user);
-            broadcastToWeb({ type: "memory:content", workspaceId: request.workspaceId, agentId: request.agentId, requestId, uri: msg.uri, level, content: null, error: e.message });
-          });
-      } else {
-        const agentWs = request.agentWs;
-        if (agentWs && agentWs.readyState === 1) {
-          agentWs.send(JSON.stringify({ type: "agent:memory:read", agentId: request.agentId, requestId: msg.requestId || uuidv4(), uri: msg.uri, level }));
-        }
-      }
-      break;
-    }
-    case "agent:start": {
-      // Trigger agent start via daemon — saved config's machineId is
-      // authoritative. The payload can only pick a machine when no config
-      // exists yet (first-bind for a brand-new agent).
-      const savedCfg = msg.agentId ? agentConfigs.find((c) => c.id === msg.agentId) : null;
-      const requestedMachineId = savedCfg?.machineId
-        || (typeof msg.machineId === "string" && msg.machineId.trim()
-          ? msg.machineId.trim()
-          : (typeof msg.config?.machineId === "string" && msg.config.machineId.trim()
-            ? msg.config.machineId.trim()
-            : null));
-      if (savedCfg && !savedCfg.machineId) {
-        console.log(`[ws] Refusing agent:start for ${msg.agentId}: saved config has no machineId`);
-        break;
-      }
-      let targetWs = null;
-      const existing = msg.agentId ? daemonSockets.get(msg.agentId) : null;
-      if (existing && existing.readyState === 1 && (!requestedMachineId || existing._machineId === requestedMachineId)) {
-        targetWs = existing;
-      }
-      if (!targetWs) {
-        for (const dws of daemonConnections) {
-          if (dws.readyState !== 1) continue;
-          if (requestedMachineId && dws._machineId !== requestedMachineId) continue;
-          targetWs = dws;
-          break;
-        }
-      }
-      if (savedCfg && targetWs && targetWs._machineId !== savedCfg.machineId) {
-        console.log(`[ws] Refusing agent:start for ${msg.agentId}: daemon ${targetWs._machineId} != bound ${savedCfg.machineId}`);
-        break;
-      }
-      if (targetWs && targetWs.readyState === 1) {
-        const agentId = msg.agentId || `agent-${uuidv4().substring(0, 8)}`;
-        daemonSockets.set(agentId, targetWs);
-        const config = {
-          runtime: msg.config?.runtime || "claude",
-          model: msg.config?.model || "sonnet",
-          serverUrl: PUBLIC_URL,
-          authToken: "test",
-          name: agentId,
-          displayName: agentId,
-          ...msg.config,
-        };
-        targetWs.send(JSON.stringify({
-          type: "agent:start",
-          agentId,
-          launchId: uuidv4(),
-          config,
-        }));
-      }
-      break;
-    }
-    case "agent:stop": {
-      const agentWs = daemonSockets.get(msg.agentId);
-      if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:stop", agentId: msg.agentId }));
-      }
-      break;
-    }
-    case "skills:list": {
-      const request = webAgentRequest(ws, msg);
-      if (!request) break;
-      const agentWs = request.agentWs;
-      if (agentWs && agentWs.readyState === 1) {
-        agentWs.send(JSON.stringify({ type: "agent:skills:list", agentId: request.agentId, runtime: msg.runtime || null }));
-      }
-      break;
-    }
-    case "machine:workspace:scan": {
-      const workspaceId = webRequestWorkspaceId(ws, msg);
-      if (!workspaceId) break;
-      // Target a specific machine by machineId, or broadcast to all daemons
-      let sent = false;
-      for (const dws of daemonConnections) {
-        if (
-          dws.readyState === 1
-          && normalizeWorkspaceId(dws._workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-          && (!msg.machineId || dws._machineId === msg.machineId)
-        ) {
-          dws.send(JSON.stringify({ type: "machine:workspace:scan" }));
-          sent = true;
-          if (msg.machineId) break;
-        }
-      }
-      break;
-    }
-    case "machine:workspace:delete": {
-      const workspaceId = webRequestWorkspaceId(ws, msg);
-      if (!workspaceId) break;
-      for (const dws of daemonConnections) {
-        if (
-          dws.readyState === 1
-          && normalizeWorkspaceId(dws._workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-          && (!msg.machineId || dws._machineId === msg.machineId)
-        ) {
-          dws.send(JSON.stringify({ type: "machine:workspace:delete", directoryName: msg.directoryName }));
-          if (msg.machineId) break;
-        }
-      }
-      break;
-    }
-  }
-}
-
-// ─── Auth: Google OAuth ──────────────────────────────────────────
-
-// Session store: token -> { name, email, picture }
-// Persisted to data/sessions.json so sessions survive server restarts.
-const authSessions = new Map();
-const MAGIC_LOGIN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
-const magicLoginChallenges = new Map();
-
-function isEmbedSessionUser(user) {
-  return !!user?.embed?.workspaceId;
-}
-
-function embedSessionExpired(user) {
-  if (!isEmbedSessionUser(user)) return false;
-  const expiresAt = Date.parse(user.embed.expiresAt || "");
-  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
-}
-
-function getAuthSession(token) {
-  if (!token) return null;
-  const user = authSessions.get(token);
-  if (!user) return null;
-  if (embedSessionExpired(user)) {
-    authSessions.delete(token);
-    return null;
-  }
-  return user;
-}
-
-function hasAuthSession(token) {
-  return !!getAuthSession(token);
-}
-
-function publicAuthUser(user) {
-  if (!user) return null;
-  return {
-    name: user.name,
-    email: user.email || null,
-    picture: user.picture || null,
-    gravatarUrl: user.gravatarUrl || null,
-    guest: !!user.guest,
-    embed: isEmbedSessionUser(user),
-  };
-}
-
-// Load sessions from PostgreSQL (when available) or local file fallback.
-// Called at startup — must be awaited before server accepts requests.
-async function loadAuthSessions() {
-  if (db.enabled) {
-    try {
-      const rows = await db.loadSessions();
-      if (rows) {
-        for (const { token, user } of rows) authSessions.set(token, user);
-        console.log(`[auth] Loaded ${authSessions.size} session(s) from database`);
-        return;
-      }
-    } catch (e) {
-      console.warn("[auth] Database session load failed, falling back to disk:", e.message);
-    }
-  }
-  // Local file fallback (local dev without a database)
-  try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      const entries = JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8"));
-      for (const [token, user] of entries) authSessions.set(token, user);
-      console.log(`[auth] Loaded ${authSessions.size} session(s) from disk`);
-    }
-  } catch (e) {
-    console.warn("[auth] Failed to load sessions from disk:", e.message);
-  }
-}
-
-async function persistSession(token, user) {
-  if (db.enabled) {
-    await db.saveSession(token, user);
-  } else {
-    try {
-      fs.writeFileSync(SESSIONS_FILE, JSON.stringify([...authSessions.entries()]), "utf8");
-    } catch (e) {
-      console.warn("[auth] Failed to save sessions to disk:", e.message);
-    }
-  }
-}
-
-async function removeSession(token) {
-  if (db.enabled) {
-    await db.deleteSession(token);
-  } else {
-    try {
-      fs.writeFileSync(SESSIONS_FILE, JSON.stringify([...authSessions.entries()]), "utf8");
-    } catch (e) {
-      console.warn("[auth] Failed to save sessions to disk:", e.message);
-    }
-  }
-}
-
-// ─── Feishu OAuth state ───────────────────────────────────────────
-// Short-lived CSRF tokens for the redirect handshake. In-memory is fine —
-// states are 5 min TTL and unaffected by redeploys (worst case the user
-// re-clicks the login button).
-
-const FEISHU_STATE_TTL_MS = 5 * 60 * 1000;
-const feishuStates = new Map(); // state -> { createdAt, returnTo }
-
-function gcFeishuStates() {
-  const cutoff = Date.now() - FEISHU_STATE_TTL_MS;
-  for (const [state, info] of feishuStates) {
-    if (info.createdAt < cutoff) feishuStates.delete(state);
-  }
-}
-
-function pruneMagicLoginChallenges() {
-  const nowMs = Date.now();
-  for (const [id, challenge] of magicLoginChallenges.entries()) {
-    if (!challenge || challenge.expiresAt <= nowMs) {
-      magicLoginChallenges.delete(id);
-    }
-  }
-}
-
-function createMagicLoginChallenge(email) {
-  pruneMagicLoginChallenges();
-  const challenge = {
-    id: crypto.randomBytes(24).toString("hex"),
-    pollToken: crypto.randomBytes(24).toString("hex"),
-    email: normalizeEmailInput(email),
-    status: "pending",
-    createdAt: Date.now(),
-    expiresAt: Date.now() + MAGIC_LOGIN_CHALLENGE_TTL_MS,
-    result: null,
-  };
-  magicLoginChallenges.set(challenge.id, challenge);
-  return challenge;
-}
-
-function getMagicLoginChallenge(id) {
-  if (!id || typeof id !== "string") return null;
-  const challenge = magicLoginChallenges.get(id);
-  if (!challenge) return null;
-  if (challenge.expiresAt <= Date.now()) {
-    magicLoginChallenges.delete(id);
-    return { ...challenge, status: "expired" };
-  }
-  return challenge;
-}
-
-function completeMagicLoginChallenge(id, result) {
-  const challenge = getMagicLoginChallenge(id);
-  if (!challenge || challenge.status === "expired") return false;
-  const resultEmail = normalizeEmailInput(result?.user?.email);
-  if (challenge.email && challenge.email !== resultEmail) {
-    console.warn(`[auth] Magic login challenge email mismatch for ${challenge.email}: got ${resultEmail || "none"}`);
-    return false;
-  }
-  challenge.status = "completed";
-  challenge.completedAt = Date.now();
-  challenge.result = result;
-  return true;
-}
-
-async function mintSessionForEmail(email, opts = {}) {
-  const normalizedEmail = normalizeEmailInput(email);
-  if (!normalizedEmail) {
-    const err = new Error("No email in Supabase session");
-    err.statusCode = 401;
-    throw err;
-  }
-  if (!isEmailAllowedAnyWorkspace(normalizedEmail)) {
-    const err = new Error("Email not authorized to access this server.");
-    err.statusCode = 403;
-    throw err;
-  }
-  const emailPrefix = normalizedEmail.split("@")[0];
-  if (isReservedName(emailPrefix)) {
-    const err = new Error("Reserved username — please contact an admin.");
-    err.statusCode = 403;
-    throw err;
-  }
-  const grav = gravatarUrl(normalizedEmail);
-  const user = {
-    name: emailPrefix,
-    email: normalizedEmail,
-    picture: opts.picture || null,
-    gravatarUrl: grav,
-  };
-  const sessionToken = crypto.randomBytes(32).toString("hex");
-  authSessions.set(sessionToken, user);
-  if (userCanAccessWorkspace(user, DEFAULT_WORKSPACE_ID)) {
-    ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
-  }
-  persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
-  const changed = upsertAllTimeHuman({
-    id: humanId(user.name),
-    name: user.name,
-    picture: user.picture || undefined,
-    gravatarUrl: user.gravatarUrl || undefined,
-  });
-  if (changed) broadcastHumans();
-  return {
-    token: sessionToken,
-    user,
-    requestedWorkspaceId: opts.requestedWorkspaceId || DEFAULT_WORKSPACE_ID,
-    accessibleWorkspaces: visibleWorkspacesForUser(user),
-  };
-}
-
-app.post("/api/auth/google", async (req, res) => {
-  const { credential } = req.body;
-  const requestedWorkspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
-  if (!credential) return res.status(400).json({ error: "Missing credential" });
-  if (!googleClient) return res.status(501).json({ error: "Google OAuth not configured (set GOOGLE_CLIENT_ID)" });
-
-  try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: credential,
-      audience: GOOGLE_CLIENT_ID,
-    });
-    const payload = ticket.getPayload();
-    res.json(await mintSessionForEmail(payload.email, {
-      picture: payload.picture || null,
-      requestedWorkspaceId,
-    }));
-  } catch (err) {
-    if (err.statusCode) {
-      if (err.statusCode === 403) console.log(`[auth] Rejected login: ${err.message}`);
-      return res.status(err.statusCode).json({ error: err.message });
-    }
-    console.error("[auth] Google token verification failed:", err.message);
-    res.status(401).json({ error: "Invalid Google credential" });
-  }
-});
-
-app.post("/api/auth/magic-link-challenge", (req, res) => {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return res.status(501).json({ error: "Magic link auth not configured" });
-  }
-  const email = normalizeEmailInput(req.body?.email);
-  if (!email) return res.status(400).json({ error: "Invalid email address" });
-  const challenge = createMagicLoginChallenge(email);
-  res.json({
-    challengeId: challenge.id,
-    pollToken: challenge.pollToken,
-    expiresAt: new Date(challenge.expiresAt).toISOString(),
-    expiresInSeconds: Math.round(MAGIC_LOGIN_CHALLENGE_TTL_MS / 1000),
-  });
-});
-
-app.get("/api/auth/magic-link-challenge/:id", (req, res) => {
-  const challenge = getMagicLoginChallenge(req.params.id);
-  if (!challenge || challenge.pollToken !== req.query.pollToken) {
-    return res.status(404).json({ error: "Magic login challenge not found" });
-  }
-  if (challenge.status === "expired") {
-    return res.status(410).json({ status: "expired" });
-  }
-  if (challenge.status === "completed" && challenge.result) {
-    return res.json({
-      status: "completed",
-      ...challenge.result,
-    });
-  }
-  res.json({
-    status: "pending",
-    expiresAt: new Date(challenge.expiresAt).toISOString(),
-  });
-});
-
-// Verify a Supabase access_token (from magic link or OAuth) and mint a zouk session.
-app.post("/api/auth/supabase", async (req, res) => {
-  const { accessToken, magicLoginChallengeId } = req.body;
-  const requestedWorkspaceId = findWorkspace(workspaceIdFromReq(req)) ? workspaceIdFromReq(req) : DEFAULT_WORKSPACE_ID;
-  if (!accessToken) return res.status(400).json({ error: "Missing accessToken" });
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return res.status(501).json({ error: "Supabase auth not configured (set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)" });
-  }
-
-  try {
-    const supaRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
-      },
-    });
-    if (!supaRes.ok) {
-      const body = await supaRes.json().catch(() => ({}));
-      console.warn(`[auth] Supabase user lookup failed: ${supaRes.status}`, body);
-      return res.status(401).json({ error: "Invalid or expired Supabase token" });
-    }
-    const supaUser = await supaRes.json();
-    const result = await mintSessionForEmail(supaUser.email, {
-      requestedWorkspaceId,
-    });
-    if (magicLoginChallengeId) completeMagicLoginChallenge(magicLoginChallengeId, result);
-    res.json(result);
-  } catch (err) {
-    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
-    console.error("[auth] Supabase token verification failed:", err.message);
-    res.status(500).json({ error: "Supabase verification failed" });
-  }
-});
-
-// Feishu / Lark Open Platform OAuth — redirect flow. /start 302s the browser
-// to Feishu's authorize page; after the user approves, Feishu 302s back to
-// /callback?code=…&state=…. We swap the code via the official SDK (which
-// transparently manages app_access_token) and mint a zouk session.
-app.get("/api/auth/feishu/start", async (req, res) => {
-  if (!feishuEnabled) {
-    return res.status(501).send("Feishu OAuth not configured (set FEISHU_APP_ID / FEISHU_APP_SECRET)");
-  }
-  gcFeishuStates();
-  const state = crypto.randomBytes(24).toString("hex");
-  const rawReturn = typeof req.query.return_to === "string" ? req.query.return_to : "/";
-  const returnTo = rawReturn.startsWith("/") && !rawReturn.startsWith("//") ? rawReturn : "/";
-  feishuStates.set(state, { createdAt: Date.now(), returnTo });
-  // Note Feishu's quirk: query param is `redirect_uri`, not `redirect_url`.
-  const u = new URL(FEISHU_AUTHORIZE_URL);
-  u.searchParams.set("app_id", FEISHU_APP_ID);
-  u.searchParams.set("redirect_uri", FEISHU_REDIRECT_URI);
-  u.searchParams.set("scope", FEISHU_SCOPE);
-  u.searchParams.set("state", state);
-  res.redirect(u.toString());
-});
-
-app.get("/api/oauth2/feishu/callback", async (req, res) => {
-  if (!feishuEnabled) {
-    return res.status(501).send("Feishu OAuth not configured");
-  }
-  const { code, state, error: errParam, error_description } = req.query;
-  if (errParam) {
-    return res.status(400).send(`Feishu auth error: ${errParam} ${error_description || ""}`);
-  }
-  if (typeof code !== "string" || typeof state !== "string") {
-    return res.status(400).send("Missing code or state");
-  }
-  const stateInfo = feishuStates.get(state);
-  if (!stateInfo || Date.now() - stateInfo.createdAt > FEISHU_STATE_TTL_MS) {
-    feishuStates.delete(state);
-    return res.status(400).send("Invalid or expired state");
-  }
-  feishuStates.delete(state);
-
-  try {
-    const client = getLarkClient();
-    // v1/access_token response carries the user profile (name/email/avatar_url
-    // /open_id/user_id) alongside the access_token, so we don't need a
-    // separate authen.userInfo.get round-trip.
-    const tokenRes = await client.authen.accessToken.create({
-      data: { grant_type: "authorization_code", code },
-    });
-    if (tokenRes?.code !== 0) {
-      console.error("[auth/feishu] token exchange returned non-zero:", tokenRes?.code, tokenRes?.msg);
-      return res.status(502).send(`Feishu token exchange failed: ${tokenRes?.msg || "unknown"}`);
-    }
-    const profile = tokenRes.data || {};
-    const email = (profile.enterprise_email || profile.email || "").trim().toLowerCase();
-    if (!email) {
-      return res
-        .status(401)
-        .send("Feishu did not return an email (check scope contact:user.email:readonly).");
-    }
-    if (!isEmailAllowed(email)) {
-      console.log(`[auth/feishu] rejected: ${email} not in allowlist`);
-      return res.status(403).send("Email not authorized to access this server.");
-    }
-    const emailPrefix = email.split("@")[0];
-    if (isReservedName(emailPrefix)) {
-      return res.status(403).send("Reserved username — please contact an admin.");
-    }
-    const grav = gravatarUrl(email);
-    const user = {
-      name: emailPrefix,
-      email,
-      picture:
-        typeof profile.avatar_url === "string" && profile.avatar_url
-          ? profile.avatar_url
-          : null,
-      gravatarUrl: grav,
-    };
-    const sessionToken = crypto.randomBytes(32).toString("hex");
-    authSessions.set(sessionToken, user);
-    persistSession(sessionToken, user).catch((e) =>
-      console.warn("[auth/feishu] persistSession error:", e.message)
-    );
-    const changed = upsertAllTimeHuman({
-      id: humanId(user.name),
-      name: user.name,
-      picture: user.picture || undefined,
-      gravatarUrl: user.gravatarUrl || undefined,
-    });
-    if (changed) broadcastHumans();
-
-    const sep = stateInfo.returnTo.includes("?") ? "&" : "?";
-    res.redirect(`${stateInfo.returnTo}${sep}auth=feishu&token=${sessionToken}`);
-  } catch (err) {
-    console.error("[auth/feishu] callback failed:", err?.message || err);
-    res.status(500).send("Feishu auth callback failed: " + (err?.message || "unknown"));
-  }
-});
-
-app.get("/api/auth/me", (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const user = token ? getAuthSession(token) : null;
-  if (!user) {
-    return res.status(401).json({ error: "Not authenticated" });
-  }
-  res.json({ user: publicAuthUser(user) });
-});
-
-app.post("/api/auth/logout", (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  if (token) {
-    authSessions.delete(token);
-    removeSession(token).catch(e => console.warn("[auth] removeSession error:", e.message));
-  }
-  res.json({ ok: true });
-});
-
-app.put("/api/auth/profile", requireAuth, (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const { name, picture } = req.body;
-  if (!name || typeof name !== "string" || !name.trim()) {
-    return res.status(400).json({ error: "name required" });
-  }
-  const trimmed = name.trim();
-  if (isReservedName(trimmed)) {
-    return res.status(400).json({ error: `"${trimmed}" is a reserved username and cannot be used.` });
-  }
-  const user = getAuthSession(token);
-  if (!user) return res.status(401).json({ error: "Not authenticated" });
-  const oldName = user.name;
-  user.name = trimmed;
-  // Update avatar if provided (base64 string, max ~50KB)
-  if (picture !== undefined) {
-    if (picture === null || picture === "") {
-      user.picture = null;
-    } else if (typeof picture === "string" && picture.length <= 14000) {
-      user.picture = picture;
-    } else {
-      return res.status(400).json({ error: "picture too large (max 10KB)" });
-    }
-  }
-  authSessions.set(token, user);
-  // Ensure gravatarUrl is set if user has email
-  if (!user.gravatarUrl && user.email) {
-    user.gravatarUrl = gravatarUrl(user.email);
-  }
-  if (oldName && oldName !== trimmed) {
-    if (onlineHumans.has(oldName)) {
-      const previous = onlineHumans.get(oldName);
-      onlineHumans.delete(oldName);
-      onlineHumans.set(trimmed, {
-        ...previous,
-        id: humanId(trimmed),
-        name: trimmed,
-        picture: user.picture || undefined,
-        gravatarUrl: user.gravatarUrl || undefined,
-        guest: false,
-      });
-      for (const client of webSockets) {
-        if (client._humanName === oldName) {
-          client._humanName = trimmed;
-          client._human = {
-            id: humanId(trimmed),
-            name: trimmed,
-            picture: user.picture || undefined,
-            gravatarUrl: user.gravatarUrl || undefined,
-            guest: false,
-          };
-        }
-      }
-    }
-    allTimeHumans.delete(oldName);
-  } else if (onlineHumans.has(trimmed)) {
-    const existing = onlineHumans.get(trimmed);
-    existing.picture = user.picture || undefined;
-    existing.gravatarUrl = user.gravatarUrl || undefined;
-    existing.guest = false;
-  }
-  upsertAllTimeHuman({
-    id: humanId(trimmed),
-    name: trimmed,
-    picture: user.picture || undefined,
-    gravatarUrl: user.gravatarUrl || undefined,
-  });
-  broadcastHumans();
-  db.saveSession(token, user).catch(e => console.warn("[auth] saveSession error:", e.message));
-  res.json({ user });
-});
-
-app.get("/api/auth/config", (req, res) => {
-  res.json({
-    googleClientId: GOOGLE_CLIENT_ID || null,
-    // Any workspace gating on an allowlist disables the guest button across
-    // the whole deployment — otherwise default-workspace visitors could click
-    // through to a per-workspace guard that immediately rejects them.
-    allowlistActive: allowlistActiveAnywhere(),
-    supabaseUrl: SUPABASE_URL || null,
-    supabaseAnonKey: SUPABASE_ANON_KEY || null,
-    feishuEnabled,
-    ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,
-    ovMcpRuntimeWhitelist: OV_MCP_RUNTIME_WHITELIST,
-  });
-});
-
-app.get("/api/workspaces", requireSessionAuth, (req, res) => {
-  res.json({
-    workspaces: visibleWorkspacesForUser(req.user),
-    activeWorkspaceId: req.workspaceId || DEFAULT_WORKSPACE_ID,
-  });
-});
-
-app.post("/api/workspaces", requireSessionAuth, async (req, res) => {
-  if (!req.user?.email) {
-    return res.status(403).json({ error: "Authenticated email required to create a server." });
-  }
-  const rawName = typeof req.body?.name === "string" ? req.body.name.trim() : "";
-  const name = rawName || "New Server";
-  const id = allocateWorkspaceId(req.body?.id || name, findWorkspace);
-  let icon;
-  try {
-    icon = normalizeWorkspaceIconInput(req.body?.icon, workspaceIconFallback(name, id));
-  } catch (err) {
-    return res.status(err.statusCode || 400).json({ error: err.message || "invalid icon" });
-  }
-  const ownerEmail = req.user?.email || null;
-  const workspace = ensureWorkspace({ id, name, icon, ownerEmail, createdAt: now() });
-  await db.saveWorkspace(workspace);
-  if (ownerEmail) {
-    const member = setWorkspaceMember({
-      workspaceId: id,
-      email: ownerEmail,
-      name: req.user.name,
-      role: "root",
-    });
-    await db.saveWorkspaceMember(member);
-    if (db.enabled) {
-      const row = await db.addEmailAllowlist(ownerEmail.trim().toLowerCase(), ownerEmail, id);
-      if (row && !row.dbError) {
-        dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
-          workspaceId: row.workspaceId,
-          email: row.email,
-          addedAt: row.addedAt,
-          addedBy: row.addedBy,
-        });
-      }
-    }
-  }
-  const all = findOrCreateChannel("all", "channel", id);
-  all.description = "General channel";
-  await db.saveChannel(all);
-  if (ownerEmail) broadcastWorkspaceMembers(id);
-  res.json({
-    workspace: workspacePayload(workspace),
-    workspaces: visibleWorkspacesForUser(req.user),
-  });
-});
-
-app.patch("/api/workspaces/:id", requireSessionAuth, async (req, res) => {
-  const id = normalizeWorkspaceId(req.params.id);
-  const workspace = findWorkspace(id);
-  if (!workspace) {
-    return res.status(404).json({ error: "Workspace not found." });
-  }
-  if (!userCanAccessWorkspace(req.user, id)) {
-    return res.status(403).json({ error: "Not a member of this workspace." });
-  }
-
-  const next = { ...workspace };
-  if (req.body?.name !== undefined) {
-    if (!userCanAdminWorkspace(req.user, id)) {
-      return res.status(403).json({ error: "Workspace root/admin required." });
-    }
-    const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
-    if (!name) return res.status(400).json({ error: "name required" });
-    next.name = name;
-  }
-  if (req.body?.icon !== undefined) {
-    try {
-      next.icon = normalizeWorkspaceIconInput(req.body.icon, workspaceIconFallback(next.name, id));
-    } catch (err) {
-      return res.status(err.statusCode || 400).json({ error: err.message || "invalid icon" });
-    }
-  }
-
-  const updated = ensureWorkspace(next);
-  await db.saveWorkspace(updated);
-  const payload = workspacePayload(updated);
-  broadcastToWeb({ type: "workspace_updated", workspaceId: id, workspace: payload });
-  res.json({
-    workspace: payload,
-    workspaces: visibleWorkspacesForUser(req.user),
-  });
-});
-
-app.delete("/api/workspaces/:id", requireAuth, async (req, res) => {
-  const id = normalizeWorkspaceId(req.params.id);
-  if (id === DEFAULT_WORKSPACE_ID) {
-    return res.status(400).json({ error: "Default workspace cannot be deleted." });
-  }
-  if (req.workspaceId !== id) {
-    return res.status(400).json({ error: "Workspace id mismatch — pass X-Workspace-Id matching the path." });
-  }
-  const workspace = findWorkspace(id);
-  if (!workspace) {
-    return res.status(404).json({ error: "Workspace not found." });
-  }
-  if (!userCanRootWorkspace(req.user, id)) {
-    return res.status(403).json({ error: "Workspace root required." });
-  }
-
-  const payload = workspacePayload(workspace);
-  const deletedInDb = await db.deleteWorkspace(id);
-  if (db.enabled && !deletedInDb) {
-    return res.status(500).json({ error: "Failed to delete workspace." });
-  }
-  removeWorkspaceFromMemory(id);
-  broadcastToWeb({ type: "workspace_deleted", workspaceId: id, workspace: payload });
-  res.json({
-    ok: true,
-    workspace: payload,
-    workspaces: visibleWorkspacesForUser(req.user),
-  });
-});
-
-// ─── Workspace members ──────────────────────────────────────────
-// Any workspace member can list members; only admins (root/owner/admin or
-// superuser) may invite, change roles, or remove. Inviting also seeds the
-// per-workspace email_allowlist so requireAuth lets the invitee in next time
-// they OAuth.
-const VALID_MEMBER_ROLES = new Set(["root", "owner", "admin", "member"]);
-
-app.get("/api/workspaces/:id/members", requireAuth, (req, res) => {
-  const workspaceId = normalizeWorkspaceId(req.params.id);
-  if (req.workspaceId !== workspaceId) {
-    return res.status(400).json({ error: "Workspace id mismatch — pass X-Workspace-Id matching the path." });
-  }
-  res.json({ workspaceId, members: listWorkspaceMembers(workspaceId) });
-});
-
-app.post("/api/workspaces/:id/members", requireAuth, requireWorkspaceAdmin, async (req, res) => {
-  const workspaceId = normalizeWorkspaceId(req.params.id);
-  if (req.workspaceId !== workspaceId) {
-    return res.status(400).json({ error: "Workspace id mismatch — pass X-Workspace-Id matching the path." });
-  }
-  const email = normalizeEmailInput(req.body?.email);
-  if (!email) return res.status(400).json({ error: "Invalid email address" });
-  const rawRole = typeof req.body?.role === "string" ? req.body.role.trim().toLowerCase() : "member";
-  // Inviting someone as `root` would let them demote the original owner.
-  // Restrict invites to admin/member; existing root/owner rows can only be
-  // changed by the holder themselves (or a superuser).
-  if (!["admin", "member"].includes(rawRole)) {
-    return res.status(400).json({ error: "role must be 'admin' or 'member'" });
-  }
-  const existing = getWorkspaceMember(workspaceId, email);
-  if (existing) {
-    return res.status(409).json({ error: "Already a member", member: workspaceMemberPayload(existing) });
-  }
-  const rawName = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 100) : null;
-  const member = setWorkspaceMember({
-    workspaceId,
-    email,
-    role: rawRole,
-    name: rawName || null,
-  });
-
-  // Non-default workspaces gate on per-workspace email_allowlist; without
-  // this row requireAuth would still reject the invitee on their next login.
-  // Default workspace does not require this — `userWorkspaceRole` falls back
-  // to "member" for any authenticated email when no allowlist is active.
-  if (db.enabled && workspaceId !== DEFAULT_WORKSPACE_ID) {
-    const row = await db.addEmailAllowlist(email, req.user.email || null, workspaceId);
-    if (row && !row.dbError) {
-      dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
-        workspaceId: row.workspaceId,
-        email: row.email,
-        addedAt: row.addedAt,
-        addedBy: row.addedBy,
-      });
-    }
-  }
-
-  broadcastWorkspaceMembers(workspaceId);
-  res.json({ ok: true, member: workspaceMemberPayload(member) });
-});
-
-app.put("/api/workspaces/:id/members/:email", requireAuth, requireWorkspaceAdmin, async (req, res) => {
-  const workspaceId = normalizeWorkspaceId(req.params.id);
-  if (req.workspaceId !== workspaceId) {
-    return res.status(400).json({ error: "Workspace id mismatch" });
-  }
-  const email = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
-  if (!email) return res.status(400).json({ error: "Invalid email address" });
-  const target = getWorkspaceMember(workspaceId, email);
-  if (!target) return res.status(404).json({ error: "Member not found" });
-
-  const role = typeof req.body?.role === "string" ? req.body.role.trim().toLowerCase() : null;
-  if (!role || !VALID_MEMBER_ROLES.has(role)) {
-    return res.status(400).json({ error: "role must be one of root/owner/admin/member" });
-  }
-
-  // Only the existing root (or a superuser) may promote to root or demote the
-  // workspace root. Without this gate any admin could pull root out from under
-  // the workspace creator.
-  const callerRole = userWorkspaceRole(req.user, workspaceId);
-  const callerIsSuper = isSuperuser(req.user?.email);
-  if ((target.role === "root" || role === "root") && callerRole !== "root" && !callerIsSuper) {
-    return res.status(403).json({ error: "Only root or a superuser can grant or revoke the root role." });
-  }
-  // A root must always exist on a workspace. Block demoting the only root.
-  if (target.role === "root" && role !== "root") {
-    const otherRoots = [...workspaceMembersFor(workspaceId).values()]
-      .filter((m) => m.email !== email && m.role === "root");
-    if (otherRoots.length === 0) {
-      return res.status(409).json({ error: "Cannot demote the only root — promote another member to root first." });
-    }
-  }
-
-  const updated = setWorkspaceMember({
-    workspaceId,
-    email,
-    name: target.name,
-    joinedAt: target.joinedAt,
-    role,
-  });
-  broadcastWorkspaceMembers(workspaceId);
-  res.json({ ok: true, member: workspaceMemberPayload(updated) });
-});
-
-app.delete("/api/workspaces/:id/members/:email", requireAuth, requireWorkspaceAdmin, async (req, res) => {
-  const workspaceId = normalizeWorkspaceId(req.params.id);
-  if (req.workspaceId !== workspaceId) {
-    return res.status(400).json({ error: "Workspace id mismatch" });
-  }
-  const email = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
-  if (!email) return res.status(400).json({ error: "Invalid email address" });
-  if (workspaceId === DEFAULT_WORKSPACE_ID && !allowlistActive(workspaceId)) {
-    return res.status(400).json({ error: "Default workspace is public; people cannot be removed unless ALLOW restricts access." });
-  }
-  const target = getWorkspaceMember(workspaceId, email);
-  if (!target) return res.status(404).json({ error: "Member not found" });
-
-  // Root removal: same constraints as demotion — must keep at least one root,
-  // and only root or superuser can revoke another root.
-  const callerRole = userWorkspaceRole(req.user, workspaceId);
-  const callerIsSuper = isSuperuser(req.user?.email);
-  if (target.role === "root" && callerRole !== "root" && !callerIsSuper) {
-    return res.status(403).json({ error: "Only root or a superuser can remove the root member." });
-  }
-  if (target.role === "root") {
-    const otherRoots = [...workspaceMembersFor(workspaceId).values()]
-      .filter((m) => m.email !== email && m.role === "root");
-    if (otherRoots.length === 0) {
-      return res.status(409).json({ error: "Cannot remove the only root — promote another member to root first." });
-    }
-  }
-
-  removeWorkspaceMember(workspaceId, email);
-  markWorkspaceMemberRemoved(workspaceId, email, req.user?.email || null);
-
-  // Mirror the invite path: drop the per-workspace allowlist row so the
-  // removed user can't reauth their way back in. A restricted default workspace
-  // gates via ALLOW env, so its durable removal gate is the tombstone above.
-  if (db.enabled && workspaceId !== DEFAULT_WORKSPACE_ID) {
-    const key = allowlistKey(workspaceId, email);
-    if (dbAllowEmails.has(key)) {
-      await db.removeEmailAllowlist(email, workspaceId);
-      dbAllowEmails.delete(key);
-    }
-  }
-
-  closeWorkspaceSocketsForEmail(workspaceId, email);
-  if (removeAllTimeHumanIfInaccessible(email)) broadcastHumans();
-  broadcastWorkspaceMembers(workspaceId);
-  res.json({ ok: true });
-});
-
-// Internal diagnostics: in-memory store sizes + index counts. Auth-gated so
-// random visitors can't fingerprint server load, but cheap enough to curl
-// when investigating "feels slow" reports.
-app.get("/api/_internal/stats", requireAuth, (_req, res) => {
-  let threadReplyTotal = 0;
-  for (const arr of repliesByThreadId.values()) threadReplyTotal += arr.length;
-  let cachedMessageTotal = 0;
-  for (const arr of store.channelMessages.values()) cachedMessageTotal += arr.length;
-  res.json({
-    timestamp: now(),
-    seq: store.seq,
-    taskSeq: store.taskSeq,
-    store: {
-      cachedMessages: cachedMessageTotal,
-      cachedChannels: store.channelMessages.size,
-      channelCacheTail: CHANNEL_CACHE_TAIL,
-      channels: store.channels.length,
-      tasks: store.tasks.length,
-      agents: Object.keys(store.agents).length,
-    },
-    indexes: {
-      messagesById: messagesById.size,
-      messagesByShortId: messagesByShortId.size,
-      threads: repliesByThreadId.size,
-      threadReplies: threadReplyTotal,
-    },
-    sockets: {
-      web: webSockets.size,
-      daemon: daemonSockets.size,
-      pendingDeliveryAgents: pendingDeliveries.size,
-    },
-  });
-});
-
-// WS connect tracker — surfaces who's hitting /ws (and how hard) so the
-// operator can identify a runaway client and cut its session.
-app.get("/api/_internal/ws-clients", requireAuth, (req, res) => {
-  const callerToken = req.headers.authorization?.replace("Bearer ", "");
-  const callerId = callerToken ? tokenFingerprint(callerToken) : null;
-  const nowMs = Date.now();
-  const clients = [];
-  for (const entry of wsTrackers.values()) {
-    pruneRecentConnects(entry, nowMs);
-    let owner = null;
-    if (entry.kind === "token" && entry.token) {
-      owner = getAuthSession(entry.token) || null;
-    }
-    const blocked = entry.blockedUntil > nowMs;
-    clients.push({
-      id: entry.key,
-      kind: entry.kind,
-      ownerName: owner?.name || null,
-      ownerEmail: owner?.email || null,
-      ownerPicture: owner?.picture || owner?.gravatarUrl || null,
-      ip: entry.ip,
-      openCount: entry.openCount,
-      totalConnects: entry.totalConnects,
-      totalDisconnects: entry.totalDisconnects,
-      totalRejections: entry.totalRejections,
-      connectsLastMinute: entry.recentConnects.length,
-      lastConnectAt: entry.lastConnectAt || null,
-      lastDisconnectAt: entry.lastDisconnectAt || null,
-      lastRejectionAt: entry.lastRejectionAt || null,
-      firstSeenAt: entry.firstSeenAt,
-      blockedUntil: blocked ? entry.blockedUntil : 0,
-      blockReason: blocked ? entry.blockReason : null,
-      manualBlock: !!entry.manualBlock,
-      sessionExists: entry.kind === "token" ? hasAuthSession(entry.token) : null,
-    });
-  }
-  clients.sort((a, b) => {
-    const ablk = a.blockedUntil > 0 ? 1 : 0;
-    const bblk = b.blockedUntil > 0 ? 1 : 0;
-    if (ablk !== bblk) return bblk - ablk;
-    if (b.connectsLastMinute !== a.connectsLastMinute) return b.connectsLastMinute - a.connectsLastMinute;
-    return (b.lastConnectAt || 0) - (a.lastConnectAt || 0);
-  });
-  res.json({
-    rateWindowSeconds: WS_RATE_WINDOW_MS / 1000,
-    autoBlockThreshold: WS_RATE_BLOCK_THRESHOLD,
-    autoBlockMaxOpen: WS_RATE_BLOCK_MAX_OPEN,
-    autoBlockHardThreshold: WS_RATE_HARD_BLOCK_THRESHOLD,
-    blockDurationSeconds: WS_BLOCK_DURATION_MS / 1000,
-    revokeBlockSeconds: WS_REVOKE_BLOCK_MS / 1000,
-    callerId,
-    clients,
-  });
-});
-
-// Revoke kills the auth session, marks the tracker manually blocked for 24h,
-// and force-closes any open WS the token still has. The blocked entry stays
-// visible in the list so the operator can confirm it took effect.
-app.post("/api/_internal/ws-clients/:id/revoke", requireAuth, (req, res) => {
-  const id = req.params.id;
-  const entry = wsTrackers.get(id);
-  if (!entry) return res.status(404).json({ error: "client not found" });
-  const nowMs = Date.now();
-  entry.blockedUntil = nowMs + WS_REVOKE_BLOCK_MS;
-  entry.manualBlock = true;
-  entry.blockReason = "manual revoke";
-  if (entry.kind === "token" && entry.token) {
-    const tokenToKill = entry.token;
-    if (hasAuthSession(tokenToKill)) {
-      authSessions.delete(tokenToKill);
-      removeSession(tokenToKill).catch(e => console.warn("[auth] removeSession error:", e.message));
-    }
-    let killed = 0;
-    for (const ws of webSockets) {
-      if (ws._authToken === tokenToKill) {
-        try { ws.close(4003, "session revoked"); } catch { /* ignore */ }
-        killed += 1;
-      }
-    }
-    console.log(`[ws-tracker] manual revoke ${id} — killed ${killed} open socket(s)`);
-  }
-  res.json({ ok: true, blockedUntil: entry.blockedUntil });
-});
-
-// Lift a manual block. Useful if the operator changes their mind, or to
-// re-enable an IP entry that auto-blocked. Does NOT restore a deleted session.
-app.post("/api/_internal/ws-clients/:id/unblock", requireAuth, (req, res) => {
-  const id = req.params.id;
-  const entry = wsTrackers.get(id);
-  if (!entry) return res.status(404).json({ error: "client not found" });
-  entry.blockedUntil = 0;
-  entry.manualBlock = false;
-  entry.blockReason = null;
-  entry.recentConnects = [];
-  res.json({ ok: true });
-});
-
-function embedSettingsPayload(workspaceId) {
-  const settings = embedSettings.get(workspaceId);
-  const allowed = new Set(settings.allowedChannelIds || []);
-  const channels = store.channels
-    .filter((ch) => (
-      (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-      && (ch.type || "channel") === "channel"
-      && allowed.has(ch.id)
-    ))
-    .map((ch) => ({ id: ch.id, name: ch.name, description: ch.description || "" }));
-  return { ...settings, allowedChannels: channels };
-}
-
-function parseEmbedOrigins(rawOrigins) {
-  const values = Array.isArray(rawOrigins)
-    ? rawOrigins
-    : String(rawOrigins || "").split(/\n|,/);
-  const origins = [];
-  for (const raw of values) {
-    const value = String(raw || "").trim();
-    if (!value) continue;
-    const origin = normalizeEmbedOrigin(value);
-    if (!origin) {
-      const err = new Error(`Invalid origin: ${value}`);
-      err.statusCode = 400;
-      throw err;
-    }
-    if (!origins.includes(origin)) origins.push(origin);
-  }
-  return origins;
-}
-
-// ─── Settings: external embed access ──────────────────────────────
-
-app.get("/api/settings/embed", requireAuth, requireWorkspaceAdmin, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  res.json({ settings: embedSettingsPayload(workspaceId) });
-});
-
-app.put("/api/settings/embed", requireAuth, requireWorkspaceAdmin, async (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  let allowedOrigins;
-  try {
-    allowedOrigins = parseEmbedOrigins(req.body?.allowedOrigins);
-  } catch (e) {
-    return res.status(e.statusCode || 400).json({ error: e.message });
-  }
-  const requestedChannelIds = Array.isArray(req.body?.allowedChannelIds) ? req.body.allowedChannelIds : [];
-  const allowedChannelIds = [];
-  for (const id of requestedChannelIds) {
-    const channelId = String(id || "").trim();
-    if (!channelId || allowedChannelIds.includes(channelId)) continue;
-    const channel = store.channels.find((ch) => (
-      ch.id === channelId
-      && (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-      && (ch.type || "channel") === "channel"
-    ));
-    if (!channel) return res.status(400).json({ error: `Unknown channel id: ${channelId}` });
-    allowedChannelIds.push(channelId);
-  }
-  if (req.body?.enabled && allowedOrigins.length === 0) {
-    return res.status(400).json({ error: "At least one allowed origin is required when embed is enabled." });
-  }
-  if (req.body?.enabled && allowedChannelIds.length === 0) {
-    return res.status(400).json({ error: "At least one channel scope is required when embed is enabled." });
-  }
-  const saved = await embedSettings.save(embedSettings.normalize({
-    enabled: !!req.body?.enabled,
-    allowedOrigins,
-    allowedChannelIds,
-    tokenTtlSeconds: req.body?.tokenTtlSeconds,
-  }, workspaceId, req.user?.email || req.user?.name || null));
-  res.json({ settings: embedSettingsPayload(saved.workspaceId) });
-});
-
-// ─── Settings: per-workspace OpenViking provisioning ─────────────
-// root_api_key is write-only — GET returns `rootConfigured` boolean instead
-// of echoing the key back. Send `clearRootApiKey: true` on PUT to wipe it.
-// The key is the same flavor as OPENVIKING_ROOT_KEY: new-format
-// (account.user.secret); the account is decoded from the key, never sent
-// separately by the client.
-
-function workspaceOvSettingsPayload(workspaceId) {
-  const ws = workspaceOvSettings.get(workspaceId);
-  const env = OV_ENV_PROVISIONING_ENABLED
-    ? { url: OPENVIKING_URL, account: OPENVIKING_ACCOUNT }
-    : null;
-  const effective = resolveProvisioningCreds(workspaceId);
-  const decodedFromKey = ws?.rootApiKey ? decodeAccountFromKey(ws.rootApiKey) : null;
-  return {
-    workspaceId,
-    enabled: !!ws?.enabled,
-    url: ws?.url || '',
-    rootConfigured: !!(ws?.rootApiKey),
-    account: ws?.account || '', // explicit override; empty = decode from key
-    accountFromKey: decodedFromKey || null, // hint for the UI: what we'd use if account is left blank
-    updatedAt: ws?.updatedAt || null,
-    updatedBy: ws?.updatedBy || null,
-    env, // server-wide env fallback (read-only mirror)
-    effective: effective
-      ? { url: effective.url, account: effective.account, source: effective.source }
-      : null,
-  };
-}
-
-app.get("/api/settings/openviking", requireAuth, requireWorkspaceAdmin, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  res.json({ settings: workspaceOvSettingsPayload(workspaceId) });
-});
-
-app.put("/api/settings/openviking", requireAuth, requireWorkspaceAdmin, async (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const current = workspaceOvSettings.get(workspaceId);
-
-  const rawUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
-  const url = rawUrl.replace(/\/+$/, '');
-  const wantsClearKey = !!req.body?.clearRootApiKey;
-  const incomingKey = typeof req.body?.rootApiKey === 'string' ? req.body.rootApiKey.trim() : '';
-  // Empty string = keep existing key (so the user can re-save url without
-  // re-typing the secret). Explicit clear flag wipes.
-  let rootApiKey = current.rootApiKey || '';
-  if (wantsClearKey) rootApiKey = '';
-  else if (incomingKey) rootApiKey = incomingKey;
-
-  // Account: optional explicit override. Empty string in the payload means
-  // "no override — decode from the key" (different from "keep existing").
-  // Send `account` to set/replace, omit the field to keep the current value.
-  let account = current.account || '';
-  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'account')) {
-    account = typeof req.body.account === 'string' ? req.body.account.trim() : '';
-  }
-
-  const enabled = !!req.body?.enabled;
-  if (enabled) {
-    if (!url) return res.status(400).json({ error: "URL is required when OpenViking is enabled." });
-    if (!rootApiKey) return res.status(400).json({ error: "Root API key is required when OpenViking is enabled." });
-    const accountFromKey = decodeAccountFromKey(rootApiKey);
-    if (!account && !accountFromKey) {
-      return res.status(400).json({
-        error: "Account is required: paste a new-format root key (account.user.secret) so the account can be decoded, or set the Account field explicitly (e.g. for legacy hex keys or multi-account roots).",
-      });
-    }
-  }
-
-  const saved = await workspaceOvSettings.save(workspaceOvSettings.normalize({
-    enabled,
-    url,
-    rootApiKey,
-    account,
-  }, workspaceId, req.user?.email || req.user?.name || null));
-  res.json({ settings: workspaceOvSettingsPayload(saved.workspaceId) });
-});
-
-// ─── Settings: email allowlist (admin UI for the DB source) ──────
-// Any authenticated user may view and edit the allowlist. Entries seeded from
-// the ALLOW env are read-only here (listed with source="env") — editing them
-// requires a server restart. DB entries are mutable.
-
-app.get("/api/settings/allowlist", requireAuth, (req, res) => {
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const env = workspaceId === DEFAULT_WORKSPACE_ID
-    ? [...ENV_ALLOW_EMAILS].map((email) => ({ email, source: "env" }))
-    : [];
-  const dbList = [...dbAllowEmails.values()]
-    .filter((meta) => (meta.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId)
-    .map((meta) => ({
-    email: meta.email,
-    source: "db",
-    addedAt: meta.addedAt,
-    addedBy: meta.addedBy || null,
-  }));
-  res.json({
-    workspaceId,
-    env,
-    db: dbList,
-    allowlistActive: allowlistActive(workspaceId),
-    dbWritable: db.enabled,
-  });
-});
-
-app.post("/api/settings/allowlist", requireAuth, requireWorkspaceAdmin, async (req, res) => {
-  if (!db.enabled) {
-    return res.status(501).json({ error: "Database not configured — cannot persist allowlist entries. Use the ALLOW env var instead." });
-  }
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const normalized = normalizeEmailInput(req.body?.email);
-  if (!normalized) {
-    return res.status(400).json({ error: "Invalid email address" });
-  }
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const addedBy = token ? getAuthSession(token)?.email || null : null;
-  const row = await db.addEmailAllowlist(normalized, addedBy, workspaceId);
-  if (!row || row.dbError) {
-    return res.status(500).json({ error: row?.dbError || "Failed to add allowlist entry" });
-  }
-  dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
-    workspaceId: row.workspaceId,
-    email: row.email,
-    addedAt: row.addedAt,
-    addedBy: row.addedBy,
-  });
-  setWorkspaceMember({ workspaceId, email: row.email, role: "member" });
-  res.json({ ok: true, entry: { email: row.email, source: "db", addedAt: row.addedAt, addedBy: row.addedBy } });
-});
-
-app.delete("/api/settings/allowlist/:email", requireAuth, requireWorkspaceAdmin, async (req, res) => {
-  if (!db.enabled) {
-    return res.status(501).json({ error: "Database not configured" });
-  }
-  const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-  const normalized = normalizeEmailInput(decodeURIComponent(req.params.email || ""));
-  if (!normalized) {
-    return res.status(400).json({ error: "Invalid email address" });
-  }
-  const key = allowlistKey(workspaceId, normalized);
-  if (!dbAllowEmails.has(key)) {
-    return res.status(404).json({ error: "Entry not found (env-seeded entries cannot be removed via API)" });
-  }
-  const ok = await db.removeEmailAllowlist(normalized, workspaceId);
-  if (!ok) {
-    return res.status(500).json({ error: "Failed to remove allowlist entry" });
-  }
-  dbAllowEmails.delete(key);
-  res.json({ ok: true });
-});
-
-function resolveEmbedRequestedChannel(workspaceId, body = {}) {
-  const channelId = String(body.channelId || "").trim();
-  const channelName = String(body.channel || body.channelName || "").trim().replace(/^#/, "");
-  if (!channelId && !channelName) return null;
-  return store.channels.find((ch) => (
-    (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-    && (ch.type || "channel") === "channel"
-    && ((channelId && ch.id === channelId) || (channelName && ch.name === channelName))
-  )) || null;
-}
-
-function sanitizeEmbedAvatarUrl(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 4096) return null;
-  if (trimmed.startsWith("data:image/")) {
-    return trimmed.length <= 14000 ? trimmed : null;
-  }
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    return trimmed;
-  } catch {
-    return null;
-  }
-}
-
-app.post("/api/auth/embed-guest-session", (req, res) => {
-  const workspaceId = workspaceIdFromReq(req);
-  const workspace = findWorkspace(workspaceId);
-  if (!workspace) return res.status(404).json({ error: "Workspace not found." });
-
-  const settings = embedSettings.get(workspaceId);
-  if (!settings.enabled) return res.status(403).json({ error: "Embed access is disabled for this workspace." });
-
-  const origin = normalizeEmbedOrigin(req.headers.origin || "");
-  if (!origin || !settings.allowedOrigins.includes(origin)) {
-    return res.status(403).json({ error: "Origin is not allowed for this workspace embed." });
-  }
-
-  const remoteIp = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim()
-    || req.socket.remoteAddress
-    || "unknown";
-  const rate = embedSessionRateLimiter.check(`${workspaceId}:${origin}:${remoteIp}`);
-  if (!rate.allowed) {
-    res.set("Retry-After", String(rate.retryAfterSeconds));
-    return res.status(429).json({ error: "Too many embed session requests." });
-  }
-
-  const configuredChannelIds = new Set(settings.allowedChannelIds || []);
-  const requested = resolveEmbedRequestedChannel(workspaceId, req.body || {});
-  let allowedChannelIds = [...configuredChannelIds].filter((id) => store.channels.some((ch) => (
-    ch.id === id
-    && (ch.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId
-    && (ch.type || "channel") === "channel"
-  )));
-  if (requested) {
-    if (!configuredChannelIds.has(requested.id)) {
-      return res.status(403).json({ error: "Requested channel is not allowed for this workspace embed." });
-    }
-    allowedChannelIds = [requested.id];
-  }
-  if (allowedChannelIds.length === 0) {
-    return res.status(403).json({ error: "No channel scope is configured for this workspace embed." });
-  }
-
-  const token = crypto.randomBytes(32).toString("hex");
-  const baseName = sanitizeEmbedGuestName(req.body?.name);
-  const stableSuffix = embedGuestSuffixForBrowser({
-    browserId: req.body?.browserId || req.body?.clientId,
-    workspaceId,
-    origin,
-    channelIds: allowedChannelIds,
-  });
-  const randomSuffix = stableSuffix || crypto.randomBytes(3).toString("hex");
-  const name = `embed-${baseName}-${randomSuffix}`.slice(0, 64);
-  const picture = sanitizeEmbedAvatarUrl(req.body?.picture);
-  const gravatarUrl = sanitizeEmbedAvatarUrl(req.body?.gravatarUrl);
-  const expiresAt = new Date(Date.now() + settings.tokenTtlSeconds * 1000).toISOString();
-  const user = {
-    name,
-    email: null,
-    picture,
-    gravatarUrl,
-    guest: true,
-    embed: {
-      workspaceId,
-      origin,
-      allowedChannelIds,
-      expiresAt,
-    },
-  };
-  authSessions.set(token, user);
-  res.json({
-    token,
-    user: publicAuthUser(user),
-    workspaceId,
-    allowedChannelIds,
-    allowedChannels: allowedChannelIds
-      .map((id) => store.channels.find((ch) => ch.id === id))
-      .filter(Boolean)
-      .map((ch) => ({ id: ch.id, name: ch.name })),
-    expiresAt,
-  });
-});
-
-// Guest session endpoint.
-// When Google OAuth is not configured (open/dev mode), issue a real session
-// token so guests can post messages without hitting the requireAuth wall.
-// When Google OAuth IS configured, we keep the old behaviour (token-less) so
-// the "Sign in with Google" prompt still appears.
-app.post("/api/auth/guest-session", async (req, res) => {
-  // Email allowlist disables guest access entirely — an active allowlist implies
-  // "only these humans may enter", and guests have no email to check.
-  const workspaceId = workspaceIdFromReq(req);
-  if (workspaceId !== DEFAULT_WORKSPACE_ID) {
-    return res.status(403).json({ error: "Guest access disabled on this server." });
-  }
-  if (allowlistActive(workspaceId)) {
-    return res.status(403).json({ error: "Guest access disabled on this server." });
-  }
-  const { name } = req.body || {};
-  if (!name || typeof name !== "string" || !name.trim()) {
-    return res.status(400).json({ error: "name required" });
-  }
-  const trimmed = name.trim();
-  if (trimmed.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
-  if (isReservedName(trimmed)) {
-    return res.status(400).json({ error: `"${trimmed}" is a reserved username and cannot be used.` });
-  }
-
-  // In open/dev mode (no Google OAuth), mint a real session so guests aren't
-  // blocked from write operations (sending messages, etc.).
-  if (!GOOGLE_CLIENT_ID) {
-    const token = crypto.randomBytes(24).toString("hex");
-    const user = { name: trimmed, email: null, picture: null, guest: true };
-    authSessions.set(token, user);
-    await persistSession(token, user);
-    return res.json({ ok: true, name: trimmed, token, user });
-  }
-
-  res.json({ ok: true, name: trimmed });
-});
 
 // ─── Serve static web frontend ────────────────────────────────────
 // Prefer React build (web/dist/) over static HTML (web/public/)
@@ -6952,6 +2723,61 @@ if (fs.existsSync(webDir)) {
     res.sendFile(path.join(webDir, "index.html"));
   });
 }
+
+// ─── HTTP Server + WebSocket (extracted) ─────────────────────────
+const { createDaemonHandler } = require("./lib/daemon-handler");
+const daemonHandler = createDaemonHandler({
+  app, db,
+  store, agentConfigs,
+  daemonConnections, daemonSockets, webSockets, machines,
+  pendingRuntimeModelRequests, pendingContextResets,
+  DEFAULT_WORKSPACE_ID, normalizeWorkspaceId,
+  validateApiKey, findMachineKeyRecord, resolveDaemonMachineId,
+  isDebugKey, computeMachineFingerprint,
+  machineKeys, saveMachineKeys,
+  hasKnownAgentConfig, purgeUnknownAgentState,
+  evaluateAgentMachineAffinity,
+  buildRuntimeAgent,
+  get syncRuntimeAgentFromConfig() { return syncRuntimeAgentFromConfig; },
+  agentPayload, sanitizedAgentConfigs,
+  workspaceIdFromAgent, updateAgentWorkDir,
+  broadcastToWeb,
+  hydrateAgentContextUsage,
+  replayPendingDeliveries,
+  hasWorkspaceFsCapability,
+  now,
+  recordWsConnectAttempt, recordInvalidTokenAttempt, recordWsDisconnect,
+  PUBLIC_URL,
+  ovLifecycle, isOvPluginForAgent,
+  // Late-bound auth functions (assigned by auth module wiring above)
+  get hasAuthSession() { return hasAuthSession; },
+  get getAuthSession() { return getAuthSession; },
+  get isEmbedSessionUser() { return isEmbedSessionUser; },
+  get isEmailAllowed() { return isEmailAllowed; },
+  get allowlistActive() { return allowlistActive; },
+  get isSuperuser() { return isSuperuser; },
+  get findWorkspace() { return findWorkspace; },
+  get userCanAccessWorkspace() { return userCanAccessWorkspace; },
+  get userWorkspaceRole() { return userWorkspaceRole; },
+  get ensureWorkspaceMemberForUser() { return ensureWorkspaceMemberForUser; },
+  get listWorkspaceMembers() { return listWorkspaceMembers; },
+  get visibleWorkspacesForUser() { return visibleWorkspacesForUser; },
+  get embedVisibleAgentIds() { return embedVisibleAgentIds; },
+  get embedCanAccessChannel() { return embedCanAccessChannel; },
+  get currentHumans() { return currentHumans; },
+  get setWebPresence() { return setWebPresence; },
+  get removeHumanPresence() { return removeHumanPresence; },
+  get resolveOvCredentials() { return resolveOvCredentials; },
+  get isLocalUrl() { return isLocalUrl; },
+  get ovHttpList() { return ovHttpList; },
+  get parseOvListResult() { return parseOvListResult; },
+  get ovHttpReadContent() { return ovHttpReadContent; },
+  get autoStartAgents() { return autoStartAgents; },
+});
+const { server } = daemonHandler;
+sendAgentStop = daemonHandler.sendAgentStop;
+normalizeInactiveAgentState = daemonHandler.normalizeInactiveAgentState;
+broadcastAgentStatus = daemonHandler.broadcastAgentStatus;
 
 // ─── DB init + startup ────────────────────────────────────────────
 
@@ -7086,6 +2912,7 @@ async function initFromDB() {
     await profilePresets.hydrateFromDb();
     await embedSettings.hydrateFromDb();
     await workspaceOvSettings.hydrateFromDb();
+    await agentAuth.hydrateFromDb();
 
     // One-shot trim of any historical activity backlog — cheap at our scale.
     db.trimAllAgentActivities().catch((e) =>
@@ -7202,16 +3029,25 @@ function reconcileAgentsWithConfigs() {
   seedMessages.sort((a, b) => a.seq - b.seq);
   rebuildDeliveryRoutingWindows(seedMessages);
 
+  // Boot-time OV session sweep: every offline agent that has OV creds gets
+  // a force-commit so any conversation pending from a previous crashed run
+  // (server killed / daemon died / power loss) rolls into an archive
+  // instead of sitting forever in the in-flight buffer.
+  let sweepCount = 0;
+  for (const cfg of agentConfigs) {
+    if (!cfg.openvikingApiKey || isOvPluginForAgent(cfg)) continue;
+    ovLifecycle.commitSession(cfg.id).catch(() => {});
+    sweepCount++;
+  }
+  if (sweepCount > 0) console.log(`[ov] boot sweep: force-commit ${sweepCount} OV session(s)`);
+
   server.listen(PORT, () => {
     console.log(`\n🚀 Zouk server running on ${PUBLIC_URL}`);
     console.log(`\n  Daemon endpoint:  ws://localhost:${PORT}/daemon/connect?key=test`);
     console.log(`  Web UI endpoint:  ws://localhost:${PORT}/ws`);
     console.log(`  REST API:         ${PUBLIC_URL}/internal/agent/{id}/...`);
     console.log(`\nTo connect a daemon:`);
-    console.log(`  # install once`);
-    console.log(`  npm install -g @bnpm-viking/zouk-daemon --registry=https://bnpm.byted.org`);
-    console.log(`  # then run on any machine`);
-    console.log(`  zouk-daemon --server-url ${PUBLIC_URL} --api-key <api_key>`);
+    console.log(`  npx @openviking/zouk-daemon@latest --server-url ${PUBLIC_URL} --api-key <api_key>`);
     console.log(`  Generate additional keys via POST /api/machine-keys or the Machine Setup UI.`);
     if (!process.env.NODE_ENV?.startsWith("prod")) {
       console.log(`  Dev mode: key "test" is also accepted without registration.\n`);

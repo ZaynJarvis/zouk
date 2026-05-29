@@ -10,8 +10,8 @@ export function agentStatus(a: Pick<ServerAgent, 'status' | 'activity'>): Avatar
   if (a.status !== 'active') return 'offline';
   const activity: AgentActivity | undefined = a.activity;
   if (activity === 'thinking' || activity === 'working' || activity === 'error') return 'working';
-  if (activity === 'online') return 'online';
-  // Undefined or 'offline' → offline. Mirrors the `agent.activity || 'offline'`
+  if (activity === 'online' || activity === 'idle') return 'online';
+  // Undefined, 'offline', or 'sleep' → offline. Mirrors the `agent.activity || 'offline'`
   // label fallback used in AgentProfilePanel/AgentDetail so the dot does not
   // contradict the OFFLINE text sitting next to it.
   return 'offline';

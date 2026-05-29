@@ -40,7 +40,6 @@ export default function AgentConfigForm({
   const persistedEnvVars = savedConfig?.envVars ?? {};
   const persistedOvMode: 'provisioned' | 'custom' =
     savedConfig?.openvikingMode === 'custom' ? 'custom' : 'provisioned';
-  const persistedOvUseAgentNameAsUser = savedConfig?.openvikingUseAgentNameAsUser === true;
   const persistedOvCustomUrl = savedConfig?.openvikingCustomUrl ?? '';
   const persistedOvCustomConfigured = !!savedConfig?.openvikingCustomConfigured;
   const persistedOvEnabledRaw = savedConfig?.openvikingEnabled;
@@ -51,6 +50,8 @@ export default function AgentConfigForm({
   const persistedOvMcpEnabledResolved = typeof agent.ovMcpEnabled === 'boolean' ? agent.ovMcpEnabled : false;
   const persistedOvMcpIsDefault = agent.ovMcpEnabledIsDefault !== false;
   const persistedOvMcpDefault = !!agent.ovMcpDefault;
+  // Default true (the column default). Only an explicit false counts as opt-out.
+  const persistedDisableLocalOvPlugin = savedConfig?.disableLocalOvPlugin !== false;
   const machine = agent.machineId ? machines?.find((m) => m.id === agent.machineId) : undefined;
   const machineLabel = machine?.alias || machine?.hostname || agent.machineId;
 
@@ -68,12 +69,12 @@ export default function AgentConfigForm({
   const [ovEnabled, setOvEnabled] = useState<boolean>(persistedOvEnabledResolved);
   const [ovMcpEnabled, setOvMcpEnabled] = useState<boolean>(persistedOvMcpEnabledResolved);
   const [ovMode, setOvMode] = useState<'provisioned' | 'custom'>(persistedOvMode);
-  const [ovUseAgentNameAsUser, setOvUseAgentNameAsUser] = useState<boolean>(persistedOvUseAgentNameAsUser);
   const [ovCustomUrl, setOvCustomUrl] = useState<string>(persistedOvCustomUrl ?? '');
   const [ovCustomApiKey, setOvCustomApiKey] = useState<string>('');
   const [ovCustomApiKeyDirty, setOvCustomApiKeyDirty] = useState(false);
   const persistedCustomLauncher = savedConfig?.customLauncher ?? '';
   const [customLauncher, setCustomLauncher] = useState<string>(persistedCustomLauncher);
+  const [disableLocalOvPlugin, setDisableLocalOvPlugin] = useState<boolean>(persistedDisableLocalOvPlugin);
   const pictureInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -146,7 +147,6 @@ export default function AgentConfigForm({
   const ovDirty =
     ovEnabledDirty ||
     ovMcpEnabledDirty ||
-    ovUseAgentNameAsUser !== persistedOvUseAgentNameAsUser ||
     ovMode !== persistedOvMode ||
     (ovMode === 'custom' && (ovCustomUrl !== (persistedOvCustomUrl ?? '') || ovCustomApiKeyDirty));
   const ovCustomValid =
@@ -154,6 +154,7 @@ export default function AgentConfigForm({
     ovMode !== 'custom' ||
     (ovCustomUrl.trim().length > 0 && (persistedOvCustomConfigured || ovCustomApiKey.length > 0));
   const customLauncherDirty = customLauncher.trim() !== (persistedCustomLauncher ?? '').trim();
+  const disableLocalOvPluginDirty = disableLocalOvPlugin !== persistedDisableLocalOvPlugin;
   const isDirty =
     displayName !== persistedDisplayName ||
     description !== persistedDescription ||
@@ -161,7 +162,8 @@ export default function AgentConfigForm({
     model !== persistedModel ||
     envVarsDirty ||
     ovDirty ||
-    customLauncherDirty;
+    customLauncherDirty ||
+    disableLocalOvPluginDirty;
 
   const handleSave = () => {
     if (!ovCustomValid) return;
@@ -178,6 +180,9 @@ export default function AgentConfigForm({
     if (customLauncherDirty) {
       payload.customLauncher = customLauncher.trim() || null;
     }
+    if (disableLocalOvPluginDirty) {
+      payload.disableLocalOvPlugin = disableLocalOvPlugin;
+    }
     if (ovDirty) {
       if (ovEnabledDirty) {
         payload.openvikingEnabled = ovEnabled;
@@ -185,7 +190,6 @@ export default function AgentConfigForm({
       if (ovMcpEnabledDirty) {
         payload.ovMcpEnabled = ovMcpEnabled;
       }
-      payload.openvikingUseAgentNameAsUser = ovUseAgentNameAsUser;
       payload.openvikingMode = ovMode;
       if (ovMode === 'custom') {
         payload.openvikingCustomUrl = ovCustomUrl.trim();
@@ -265,6 +269,9 @@ export default function AgentConfigForm({
             <ZkField label="Display name">
               <input className="zk-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             </ZkField>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--zk-font-mono)', color: 'var(--zk-ink-mute)' }}>
+              <span title="Permanent @mention handle — can't be changed">@{agent.name}</span>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--zk-font-mono)', color: 'var(--zk-ink-mute)' }}>
               <span>ID: {agent.id}</span>
               <button
@@ -369,6 +376,8 @@ export default function AgentConfigForm({
             onCustomLauncherBlur={refreshModels}
             envVars={envVars}
             onEnvVarsChange={setEnvVars}
+            disableLocalOvPlugin={disableLocalOvPlugin}
+            onDisableLocalOvPluginChange={setDisableLocalOvPlugin}
             ov={{
               mode: 'config',
               runtime: agent.runtime || '',
@@ -380,8 +389,6 @@ export default function AgentConfigForm({
               ovMcpEnabled,
               onOvMcpEnabledChange: setOvMcpEnabled,
               isOvMcpDefault: persistedOvMcpIsDefault && ovMcpEnabled === persistedOvMcpDefault,
-              ovUseAgentNameAsUser,
-              onOvUseAgentNameAsUserChange: setOvUseAgentNameAsUser,
               isProvisioned: !!savedConfig?.openvikingProvisioned,
               ovMode,
               onOvModeChange: setOvMode,
@@ -392,6 +399,8 @@ export default function AgentConfigForm({
               ovCustomConfigured: persistedOvCustomConfigured,
               ovUserId: savedConfig?.openvikingUserId,
               ovCustomValid,
+              agentId: agent.id,
+              provisionedUrl: savedConfig?.openvikingUrl ?? null,
             }}
           />
         </div>
