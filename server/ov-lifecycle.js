@@ -26,6 +26,18 @@ function deriveSessionId(agentId) {
   return `zouk-${agentId}`;
 }
 
+// The chat send tool surfaces under several names depending on the driver's
+// MCP prefix: `mcp__chat__send_message` (claude/codex/coco/…) or bare
+// `send_message` (copilot). Normalize to the base name (last `__` segment)
+// and match it — used to skip it during tool-call capture since its content
+// is already recorded via the /send route.
+const SEND_TOOL_BASENAMES = new Set(["send_message"]);
+function isSendTool(toolName) {
+  if (!toolName) return false;
+  const base = String(toolName).split("__").pop();
+  return SEND_TOOL_BASENAMES.has(base);
+}
+
 function estimateTokens(text) {
   let count = 0;
   for (const ch of text) {
@@ -189,12 +201,19 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     // so the archived session reflects what the agent *did* between turns
     // without bloating memory with tool output. One append per activity batch
     // keeps HTTP overhead low and preserves ordering within the batch.
+    //
+    // The chat send tool is skipped: its payload is the message the agent
+    // posts, which is already captured (with full content + channel tag) via
+    // the /send route's autoCapture — recording the truncated tool input too
+    // would just duplicate it.
     async captureToolCalls(agentId, toolEntries) {
       if (!Array.isArray(toolEntries) || toolEntries.length === 0) return;
+      const filtered = toolEntries.filter((e) => !isSendTool(e.toolName));
+      if (filtered.length === 0) return;
       const creds = resolveCreds(agentId);
       if (!creds) return;
       const sessionId = deriveSessionId(agentId);
-      const lines = toolEntries.map((e) => {
+      const lines = filtered.map((e) => {
         const name = e.toolName || "tool";
         const summary = (e.toolInputSummary || e.content || "").trim();
         return summary ? `[tool: ${name}] ${summary}` : `[tool: ${name}]`;
