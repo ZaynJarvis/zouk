@@ -554,6 +554,15 @@ function createDaemonHandler(ctx) {
             } catch (e) {
               console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
             }
+            // OV managed lifecycle: archive the agent's tool calls into its OV
+            // session (skip plugin-mode agents — their own plugin handles it).
+            const agentCfg = agentConfigs.find((c) => c.id === agentId);
+            if (agentCfg?.openvikingApiKey && !ctx.isOvPluginForAgent(agentCfg) && ctx.ovLifecycle) {
+              const toolEntries = entries.filter((e) => e.kind === "tool" && e.toolName);
+              if (toolEntries.length > 0) {
+                ctx.ovLifecycle.captureToolCalls(agentId, toolEntries).catch(() => {});
+              }
+            }
           }
           const visibleEntries = Array.isArray(entries)
             ? entries.filter((e) => e.content || e.text || e.detail || e.title || e.toolName

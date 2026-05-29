@@ -182,6 +182,30 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       this.autoCommit(agentId).catch(() => {});
     },
 
+    // Capture the agent's tool calls into the OV session as assistant-role
+    // messages. Called from the daemon-handler's agent:activity path with the
+    // `kind:'tool'` trajectory entries. We record the tool name + truncated
+    // input summary (daemon already caps it at ~200 chars) but NOT the result,
+    // so the archived session reflects what the agent *did* between turns
+    // without bloating memory with tool output. One append per activity batch
+    // keeps HTTP overhead low and preserves ordering within the batch.
+    async captureToolCalls(agentId, toolEntries) {
+      if (!Array.isArray(toolEntries) || toolEntries.length === 0) return;
+      const creds = resolveCreds(agentId);
+      if (!creds) return;
+      const sessionId = deriveSessionId(agentId);
+      const lines = toolEntries.map((e) => {
+        const name = e.toolName || "tool";
+        const summary = (e.toolInputSummary || e.content || "").trim();
+        return summary ? `[tool: ${name}] ${summary}` : `[tool: ${name}]`;
+      });
+      const content = lines.join("\n");
+      if (!content) return;
+      await safeCall(agentId, "append tool calls", () =>
+        ovApi.appendSessionMessage(creds, sessionId, { role: "assistant", content, timeout: 15000 })
+      );
+    },
+
     // Auto-commit: commit OV session if pending tokens exceed threshold.
     async autoCommit(agentId) {
       const creds = resolveCreds(agentId);
