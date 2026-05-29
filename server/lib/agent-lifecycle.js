@@ -9,15 +9,6 @@ const { v4: uuidv4 } = require("uuid");
 function createAgentLifecycle(ctx) {
   const router = Router();
 
-  // Derive a stable OpenViking user_id from the zouk agent.id. We strip the
-  // `agent-` prefix (already present on auto-generated ids) and namespace with
-  // `zouk-` so the user_id is recognisable in shared OV admin views. OV user_ids
-  // are permanent — never derive from agent.name (which is mutable).
-  function deriveOvUserId(agentId) {
-    const short = String(agentId || "").replace(/^agent-/, "");
-    return `zouk-${short}`;
-  }
-
   async function startAgentOnDaemon(id, config) {
     const {
       store, agentConfigs, db, agentAuth,
@@ -309,9 +300,16 @@ function createAgentLifecycle(ctx) {
         persisted.openvikingUseAgentNameAsUser = true;
       }
       if (ovApiKey) {
-        persisted.openvikingUserId = ovUserId;
         persisted.openvikingApiKey = ovApiKey;
         if (ovUrl) persisted.openvikingUrl = ovUrl;
+      }
+      // Canonical OV ids for new agents: the bare handle, persisted + frozen.
+      // (Existing agents never reach this new-agent block, so their legacy
+      // zouk-<id> user_id / zouk-<agentId> session_id fall-throughs are
+      // untouched — their OV memory is never orphaned.)
+      if (ovUserId) {
+        persisted.openvikingUserId = ovUserId;
+        persisted.openvikingSessionId = ovUserId;
       }
       const usedImages = new Set(agentConfigs.filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId).map((c) => c.picture).filter(Boolean));
       const shardedPicture = profilePresets.pickForAgent(id, usedImages, workspaceId);
@@ -373,6 +371,24 @@ function createAgentLifecycle(ctx) {
     const mergedConfig = { ...savedConfig, ...config };
     mergedConfig.workspaceId = workspaceId;
     if (savedConfig?.machineId) mergedConfig.machineId = savedConfig.machineId;
+
+    if (savedConfig) {
+      // Handle is immutable — never let the start payload rewrite it.
+      mergedConfig.name = savedConfig.name;
+    } else {
+      // New agent: the handle becomes the immutable, OV-backing canonical name.
+      const name = typeof mergedConfig.name === "string" ? mergedConfig.name.trim() : "";
+      if (!ctx.isValidAgentHandle(name)) {
+        return res.status(400).json({ error: "Agent name must be 1-48 chars: lowercase letters, digits, - or _, starting with a letter or digit" });
+      }
+      if (ctx.isReservedName(name)) {
+        return res.status(400).json({ error: `Agent name "${name}" is reserved` });
+      }
+      if (ctx.isAgentNameTaken(name, id)) {
+        return res.status(409).json({ error: `Agent name "${name}" is already taken` });
+      }
+      mergedConfig.name = name;
+    }
 
     if (ctx.store.agents[id] && ctx.store.agents[id].status === "active") {
       return res.status(400).json({ error: `Agent ${id} is already running` });

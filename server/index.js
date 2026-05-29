@@ -273,19 +273,51 @@ function deriveOvUserId(agentId) {
   return `zouk-${short}`;
 }
 
-function deriveOvUserIdFromName(name, fallbackId) {
+// Canonical agent handle → bare OV id. The handle is a validated slug at
+// creation (see isValidAgentHandle), so this is mostly an identity map; the
+// sanitizer is a safety net for handles created via paths that bypass
+// validation (e.g. daemon adoption). Returns "" when nothing usable remains.
+function canonicalOvId(name) {
   const raw = typeof name === "string" ? name : "";
-  const root = raw.split("[")[0].trim().toLowerCase();
-  // Limit to chars OV accepts in user_id (matches sanitizeEmbedGuestName ethos).
-  const safe = root.replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
-  if (safe) return `zouk-${safe}`;
-  return deriveOvUserId(fallbackId || "");
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
 }
 
+// Agent handle rules: lowercase slug, starts alphanumeric, 1-48 chars of
+// [a-z0-9_-]. The handle backs the OV user_id/session_id directly, so it must
+// be a path-safe identifier. Enforced at creation only.
+const AGENT_HANDLE_RE = /^[a-z0-9][a-z0-9_-]{0,47}$/;
+function isValidAgentHandle(name) {
+  return typeof name === "string" && AGENT_HANDLE_RE.test(name);
+}
+
+// Whether a handle is already in use by another agent. Case-insensitive and
+// GLOBAL (across all workspaces) because the OV account may be shared, so two
+// same-named agents would collide in OV. Distinct from agentIdByName, which is
+// workspace-scoped and also matches displayName.
+function isAgentNameTaken(name, excludeId = null) {
+  const lowered = String(name || "").trim().toLowerCase();
+  if (!lowered) return false;
+  for (const cfg of agentConfigs) {
+    if (cfg.id === excludeId) continue;
+    if ((cfg.name || "").trim().toLowerCase() === lowered) return true;
+  }
+  for (const [id, a] of Object.entries(store.agents)) {
+    if (id === excludeId) continue;
+    if ((a.name || "").trim().toLowerCase() === lowered) return true;
+  }
+  return false;
+}
+
+// Initial OV user_id for a NEW agent: the bare canonical handle. Existing
+// agents never reach this (their persisted openvikingUserId wins upstream).
+// Falls back to the zouk-<hash> id only when the handle is empty/unusable.
 function resolveInitialOvUserId(config, agentId) {
-  return config?.openvikingUseAgentNameAsUser === true
-    ? deriveOvUserIdFromName(config.name, agentId)
-    : deriveOvUserId(agentId);
+  return canonicalOvId(config?.name) || deriveOvUserId(agentId);
 }
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -2535,6 +2567,7 @@ const agentConfigModule = createAgentConfigRouter({
   get sendAgentStop() { return sendAgentStop; },
   agentAuth, purgeAgentMemberships, purgeUnknownAgentState,
   validateCustomLauncher, isOvEnabledForAgent, isOvPluginForAgent, isPersistentMachineId,
+  isValidAgentHandle, isAgentNameTaken, isReservedName,
   profilePresets, PROFILE_PRESET_MAX,
   generateApiKey, now,
   ovLifecycle,
@@ -2552,6 +2585,7 @@ const agentLifecycle = createAgentLifecycle({
   isOvEnabledForAgent, isOvMcpEnabledForAgent, isOvPluginForAgent,
   resolveProvisioningCreds, resolveInitialOvUserId,
   resolveAgentOvCreds,
+  isValidAgentHandle, isAgentNameTaken, isReservedName,
   OPENVIKING_URL, OPENVIKING_ACCOUNT,
   provisionAgentKey,
   buildRuntimeAgent, agentPayload, sanitizedAgentConfigs,

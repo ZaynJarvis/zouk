@@ -602,8 +602,8 @@ async function saveAgentConfig(config) {
          openviking_user_id, openviking_api_key, openviking_url,
          openviking_mode, openviking_custom_url, openviking_custom_api_key,
          openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled,
-         disable_local_ov_plugin
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
+         disable_local_ov_plugin, openviking_session_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
        ON CONFLICT (id) DO UPDATE SET
          workspace_id                 = EXCLUDED.workspace_id,
          name                       = EXCLUDED.name,
@@ -630,7 +630,8 @@ async function saveAgentConfig(config) {
          openviking_enabled         = EXCLUDED.openviking_enabled,
          openviking_use_agent_name_as_user = EXCLUDED.openviking_use_agent_name_as_user,
          ov_mcp_enabled             = EXCLUDED.ov_mcp_enabled,
-         disable_local_ov_plugin    = EXCLUDED.disable_local_ov_plugin`,
+         disable_local_ov_plugin    = EXCLUDED.disable_local_ov_plugin,
+         openviking_session_id      = EXCLUDED.openviking_session_id`,
       [
         config.id,
         config.workspaceId || DEFAULT_WORKSPACE_ID,
@@ -663,6 +664,7 @@ async function saveAgentConfig(config) {
         // Default true (disable local plugin) — only persisted as false when
         // the user explicitly opts in to letting the host's plugin run.
         config.disableLocalOvPlugin !== false,
+        config.openvikingSessionId || null,
       ]
     );
   } catch (e) {
@@ -685,7 +687,7 @@ async function loadAgentConfigs() {
               openviking_user_id, openviking_api_key, openviking_url,
               openviking_mode, openviking_custom_url, openviking_custom_api_key,
               openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled,
-              disable_local_ov_plugin
+              disable_local_ov_plugin, openviking_session_id
          FROM agent_configs
          ORDER BY name ASC`
     );
@@ -709,6 +711,7 @@ async function loadAgentConfigs() {
       lifecycle: row.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
       envVars: row.env_vars && typeof row.env_vars === 'object' ? row.env_vars : {},
       openvikingUserId: row.openviking_user_id || null,
+      openvikingSessionId: row.openviking_session_id || null,
       openvikingApiKey: row.openviking_api_key || null,
       openvikingUrl: row.openviking_url || null,
       openvikingMode: row.openviking_mode === 'custom' ? 'custom' : 'provisioned',

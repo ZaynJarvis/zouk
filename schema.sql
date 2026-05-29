@@ -145,9 +145,9 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_custom_api_key TEX
 -- NULL means "follow the runtime default (OV_RUNTIME_WHITELIST)"; boolean is
 -- an explicit per-agent override.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_enabled BOOLEAN;
--- False/default: provision a distinct OV user from the immutable Zouk agent id.
--- True: derive the OV user id from agent.name so cloned agents can intentionally
--- share one OV namespace (`alice[1]` -> `zouk-alice`).
+-- Legacy flag. New agents now always use the bare canonical handle as their OV
+-- user id (see openviking_session_id below), so this no longer drives
+-- derivation; kept for backward compat with existing rows.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_use_agent_name_as_user BOOLEAN NOT NULL DEFAULT false;
 -- NULL means "follow the runtime default (OV_MCP_RUNTIME_WHITELIST)"; boolean
 -- is an explicit per-agent override for OV MCP server injection.
@@ -157,6 +157,11 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS ov_mcp_enabled BOOLEAN;
 -- bleeding into managed-agent contexts. Set false on a per-agent basis to let
 -- the local plugin run alongside the server-driven OV integration.
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS disable_local_ov_plugin BOOLEAN NOT NULL DEFAULT true;
+-- OV session id for server-managed agents. New agents persist their bare
+-- canonical handle here so the OV session archive is human-readable. NULL on
+-- legacy rows → fall back to the derived zouk-<agentId> session id (their
+-- existing OV memory is never orphaned).
+ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_session_id TEXT;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,

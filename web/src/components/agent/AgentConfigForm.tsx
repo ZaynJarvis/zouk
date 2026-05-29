@@ -274,6 +274,9 @@ export default function AgentConfigForm({
               <input className="zk-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             </ZkField>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--zk-font-mono)', color: 'var(--zk-ink-mute)' }}>
+              <span title="Permanent @mention handle — can't be changed">@{agent.name}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontFamily: 'var(--zk-font-mono)', color: 'var(--zk-ink-mute)' }}>
               <span>ID: {agent.id}</span>
               <button
                 type="button" onClick={handleCopyId}

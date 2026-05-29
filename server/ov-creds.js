@@ -33,6 +33,7 @@ function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, 
           apiKey: cfg.openvikingCustomApiKey,
           account: decoded.account || "",
           userId: decoded.user || cfg.openvikingUserId || deriveOvUserId(cfg.id),
+          sessionId: cfg.openvikingSessionId || null,
           source: "custom",
         };
       }
@@ -55,6 +56,7 @@ function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, 
           apiKey: cfg.openvikingApiKey,
           account: decodedAccount || OPENVIKING_ACCOUNT || "",
           userId: cfg.openvikingUserId || deriveOvUserId(cfg.id),
+          sessionId: cfg.openvikingSessionId || null,
           source: "provisioned",
         };
       }
@@ -86,6 +88,7 @@ function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, 
       apiKey,
       account,
       userId: user,
+      sessionId: cfg.openvikingSessionId || null,
       source: "env",
     };
   };

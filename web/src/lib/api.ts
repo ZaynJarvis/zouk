@@ -242,7 +242,10 @@ export async function startAgent(config: {
     headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
-  if (!res.ok) throw new Error(`Failed to start agent: ${res.status}`);
+  if (!res.ok) {
+    const msg = await res.json().then((b) => b?.error).catch(() => null);
+    throw new Error(msg || `Failed to start agent: ${res.status}`);
+  }
   return res.json();
 }
 

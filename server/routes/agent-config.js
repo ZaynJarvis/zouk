@@ -19,6 +19,7 @@ function createAgentConfigRouter(ctx) {
     workspaceIdFromAgent,
     agentAuth, purgeAgentMemberships, purgeUnknownAgentState,
     validateCustomLauncher, isOvEnabledForAgent, isPersistentMachineId,
+    isValidAgentHandle, isAgentNameTaken, isReservedName,
     profilePresets, PROFILE_PRESET_MAX,
     generateApiKey, now,
   } = ctx;
@@ -71,12 +72,26 @@ function createAgentConfigRouter(ctx) {
       config.openvikingUseAgentNameAsUser = config.openvikingUseAgentNameAsUser === true;
     }
     if (existing >= 0) {
-      // machineId is immutable — never let the payload overwrite the stored value.
-      const { machineId: _ignored, ...rest } = config;
+      // machineId and name are immutable — never let the payload overwrite the
+      // stored values (name backs the agent's OV namespace, frozen at creation).
+      const { machineId: _ignored, name: _ignoredName, ...rest } = config;
       agentConfigs[existing] = { ...agentConfigs[existing], ...rest };
     } else {
       if (!config.machineId) return res.status(400).json({ error: "machineId is required" });
       if (!isPersistentMachineId(config.machineId, config.workspaceId)) return res.status(400).json({ error: "machineId does not match any machine key" });
+      // Validate the canonical handle: slug-shaped, not reserved, globally unique.
+      // It becomes the agent's immutable @mention handle and OV user/session id.
+      const name = typeof config.name === "string" ? config.name.trim() : "";
+      if (!isValidAgentHandle(name)) {
+        return res.status(400).json({ error: "Agent name must be 1-48 chars: lowercase letters, digits, - or _, starting with a letter or digit" });
+      }
+      if (isReservedName(name)) {
+        return res.status(400).json({ error: `Agent name "${name}" is reserved` });
+      }
+      if (isAgentNameTaken(name, config.id)) {
+        return res.status(409).json({ error: `Agent name "${name}" is already taken` });
+      }
+      config.name = name;
       agentConfigs.push(config);
     }
     const saved = agentConfigs.find((c) => c.id === config.id);
@@ -118,11 +133,13 @@ function createAgentConfigRouter(ctx) {
       });
       idx = agentConfigs.length - 1;
     }
-    // machineId is immutable. openvikingApiKey / openvikingUserId are
+    // machineId and name are immutable. name backs the agent's OV namespace
+    // (frozen at creation). openvikingApiKey / openvikingUserId are
     // server-managed (provisioned by the agent-start handler); never let the
-    // payload overwrite them.
+    // payload overwrite any of them.
     const {
       machineId: _ignoredMachineId,
+      name: _ignoredName,
       openvikingApiKey: _ignoredOvApiKey,
       openvikingUserId: _ignoredOvUserId,
       openvikingCustomApiKey: incomingCustomApiKey,

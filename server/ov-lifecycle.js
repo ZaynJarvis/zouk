@@ -87,7 +87,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       console.warn(`[ov-lifecycle] ${agentId} skip: no url`);
       return null;
     }
-    return { url, apiKey: c.apiKey, account: c.account, user: c.userId, agent: agentId };
+    return { url, apiKey: c.apiKey, account: c.account, user: c.userId, sessionId: c.sessionId || null, agent: agentId };
   }
 
   async function safeCall(agentId, label, fn) {
@@ -169,7 +169,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     async autoCapture(agentId, userMessage, agentResponse, meta = {}) {
       const creds = resolveCreds(agentId);
       if (!creds) return;
-      const sessionId = deriveSessionId(agentId);
+      const sessionId = creds.sessionId || deriveSessionId(agentId);
       const cleanUser = stripInjectedBlocks(userMessage);
       const cleanAgent = stripInjectedBlocks(agentResponse);
 
@@ -212,7 +212,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       if (filtered.length === 0) return;
       const creds = resolveCreds(agentId);
       if (!creds) return;
-      const sessionId = deriveSessionId(agentId);
+      const sessionId = creds.sessionId || deriveSessionId(agentId);
       const lines = filtered.map((e) => {
         const name = e.toolName || "tool";
         const summary = (e.toolInputSummary || e.content || "").trim();
@@ -229,7 +229,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     async autoCommit(agentId) {
       const creds = resolveCreds(agentId);
       if (!creds) return;
-      const sessionId = deriveSessionId(agentId);
+      const sessionId = creds.sessionId || deriveSessionId(agentId);
       const session = await safeCall(agentId, "get session", () =>
         ovApi.getSession(creds, sessionId, { autoCreate: true, timeout: 10000 })
       );
@@ -247,7 +247,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     async getSessionContext(agentId, tokenBudget = 4000) {
       const creds = resolveCreds(agentId);
       if (!creds) return null;
-      const sessionId = deriveSessionId(agentId);
+      const sessionId = creds.sessionId || deriveSessionId(agentId);
       const ctx = await safeCall(agentId, "session context", () =>
         ovApi.getSessionContext(creds, sessionId, tokenBudget, { timeout: 10000 })
       );
@@ -338,7 +338,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
     async commitSession(agentId) {
       const creds = resolveCreds(agentId);
       if (!creds) return;
-      const sessionId = deriveSessionId(agentId);
+      const sessionId = creds.sessionId || deriveSessionId(agentId);
       const ok = await safeCall(agentId, "force commit", async () => {
         await ovApi.commitSession(creds, sessionId, { timeout: 30000 });
         return true;
