@@ -224,7 +224,8 @@ export interface AgentConfig {
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   // Per-agent on/off override. `undefined` = follow the runtime default
-  // (server's OV_RUNTIME_WHITELIST). `true`/`false` = user-set explicit value.
+  // (ON for every runtime unless in the server's OV_RUNTIME_DENYLIST).
+  // `true`/`false` = user-set explicit value.
   openvikingEnabled?: boolean | null;
   openvikingCustomUrl?: string | null;
   // Sent by the client when saving (write-only). The server responds with

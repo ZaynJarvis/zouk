@@ -36,12 +36,16 @@
   /* Status — desaturated to a similar value range */
   --zk-ok:        #6fb697;
   --zk-ok-soft:   rgba(111, 182, 151, 0.09);
+  --zk-ok-line:   rgba(111, 182, 151, 0.28);
   --zk-warn:      #d2b170;
   --zk-warn-soft: rgba(210, 177, 112, 0.09);
+  --zk-warn-line: rgba(210, 177, 112, 0.28);
   --zk-err:       #d27474;
   --zk-err-soft:  rgba(210, 116, 116, 0.09);
+  --zk-err-line:  rgba(210, 116, 116, 0.28);
   --zk-info:      #7aa3ce;
   --zk-info-soft: rgba(122, 163, 206, 0.09);
+  --zk-info-line: rgba(122, 163, 206, 0.28);
   --zk-idle:      #5c6370;
   --zk-idle-soft: rgba(92, 99, 112, 0.09);
 
@@ -89,9 +93,13 @@ html[data-theme="atlas"][data-mode="light"] {
   --zk-ember-line:   rgba(160, 90, 68, 0.25);
 
   --zk-ok:    #2e7d56;
+  --zk-ok-line: rgba(46, 125, 86, 0.28);
   --zk-warn:  #a17436;
+  --zk-warn-line: rgba(161, 116, 54, 0.28);
   --zk-err:   #b14b4b;
+  --zk-err-line: rgba(177, 75, 75, 0.28);
   --zk-info:  #4f7ea3;
+  --zk-info-line: rgba(79, 126, 163, 0.28);
   --zk-idle:  #6b6660;
 
   --zk-shadow-1: 0 1px 0 rgba(28,25,23,0.02), 0 1px 2px rgba(28,25,23,0.04);
@@ -169,7 +177,7 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 
 .zk-seg {
   display: inline-flex; gap: 1px; padding: 2px;
-  background: var(--zk-bg-2); border: 1px solid var(--zk-line);
+  background: var(--zk-bg-1); border: 1px solid var(--zk-line-2);
   border-radius: 7px; width: fit-content;
 }
 .zk-seg button {
@@ -177,11 +185,40 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
   font-family: var(--zk-font-mono); letter-spacing: 0.04em;
   background: transparent; border: 0; border-radius: 5px;
   color: var(--zk-ink-mute); cursor: pointer;
-  transition: background 160ms var(--zk-ease-out), color 160ms var(--zk-ease-out);
+  transition: background 160ms var(--zk-ease-out), color 160ms var(--zk-ease-out), box-shadow 160ms var(--zk-ease-out);
 }
-.zk-seg button:hover { color: var(--zk-ink-dim); }
+.zk-seg button:hover { color: var(--zk-ink); background: var(--zk-bg-2); }
 .zk-seg button.is-active,
-.zk-seg button[aria-selected="true"] { background: var(--zk-bg-3); color: var(--zk-ink); }
+.zk-seg button[aria-selected="true"] {
+  background: var(--zk-ember-soft);
+  color: var(--zk-ember-bright);
+  box-shadow: inset 0 0 0 1px var(--zk-ember-line);
+}
+.zk-seg button.is-active.is-ok {
+  background: var(--zk-ok-soft);
+  color: var(--zk-ok);
+  box-shadow: inset 0 0 0 1px var(--zk-ok-line);
+}
+.zk-seg button.is-active.is-neutral {
+  background: var(--zk-bg-3);
+  color: var(--zk-ink);
+  box-shadow: inset 0 0 0 1px var(--zk-line-bright);
+}
+.zk-seg button.is-active.is-info {
+  background: var(--zk-info-soft);
+  color: var(--zk-info);
+  box-shadow: inset 0 0 0 1px var(--zk-info-line);
+}
+.zk-seg button.is-active.is-warn {
+  background: var(--zk-warn-soft);
+  color: var(--zk-warn);
+  box-shadow: inset 0 0 0 1px var(--zk-warn-line);
+}
+.zk-seg button.is-active.is-err {
+  background: var(--zk-err-soft);
+  color: var(--zk-err);
+  box-shadow: inset 0 0 0 1px var(--zk-err-line);
+}
 .zk-seg button:disabled,
 .zk-seg button[aria-disabled="true"] {
   opacity: 0.4; cursor: not-allowed;
@@ -292,18 +329,39 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 .zk-btn:hover { background: var(--zk-bg-3); border-color: var(--zk-line-bright); }
 .zk-btn:active { transform: translateY(0.5px); }
 .zk-btn:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--zk-bg-0), 0 0 0 3px rgba(210,118,86,0.45); }
-.zk-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.zk-btn[disabled] { opacity: 0.55; cursor: not-allowed; }
 
 .zk-btn--primary {
   background: var(--zk-ember); border-color: var(--zk-ember); color: #fff;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 1px 2px rgba(0,0,0,0.25);
 }
 .zk-btn--primary:hover { background: var(--zk-ember-bright); border-color: var(--zk-ember-bright); }
+.zk-btn--primary[disabled] {
+  opacity: 1;
+  background: var(--zk-bg-3);
+  border-color: var(--zk-line-2);
+  color: var(--zk-ink-mute);
+  box-shadow: none;
+}
+.zk-btn--primary[disabled]:hover {
+  background: var(--zk-bg-3);
+  border-color: var(--zk-line-2);
+}
 
 .zk-btn--ghost { background: transparent; border-color: transparent; color: var(--zk-ink-mute); }
 .zk-btn--ghost:hover { background: var(--zk-bg-2); color: var(--zk-ink); }
 
 .zk-btn--icon { padding: 5px; justify-content: center; }
+.zk-btn--ok {
+  background: var(--zk-ok-soft);
+  border-color: var(--zk-ok-line);
+  color: var(--zk-ok);
+}
+.zk-btn--ok:hover {
+  background: rgba(111, 182, 151, 0.16);
+  border-color: var(--zk-ok);
+  color: var(--zk-ok);
+}
 
 /* ──────────────────────────────────────────────────────────────────────
    Inputs
@@ -457,16 +515,21 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 }
 .zk-callout--info {
   background: var(--zk-info-soft);
-  border: 1px solid rgba(122,163,206,0.18);
+  border: 1px solid var(--zk-info-line);
   color: var(--zk-info);
+}
+.zk-callout--ok {
+  background: var(--zk-ok-soft);
+  border: 1px solid var(--zk-ok-line);
+  color: var(--zk-ok);
 }
 .zk-callout--warn {
   background: var(--zk-warn-soft);
-  border: 1px solid rgba(210,177,112,0.25);
+  border: 1px solid var(--zk-warn-line);
   color: var(--zk-warn);
 }
 .zk-callout--err {
   background: var(--zk-err-soft);
-  border: 1px solid rgba(210,116,116,0.25);
+  border: 1px solid var(--zk-err-line);
   color: var(--zk-err);
 }

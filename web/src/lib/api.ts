@@ -371,8 +371,8 @@ export async function getAuthConfig(): Promise<{
   supabaseUrl?: string | null;
   supabaseAnonKey?: string | null;
   feishuEnabled?: boolean;
-  ovRuntimeWhitelist?: string[];
-  ovMcpRuntimeWhitelist?: string[];
+  ovRuntimeDenylist?: string[];
+  ovMcpRuntimeDenylist?: string[];
 }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/config`, { headers: getWorkspaceHeaders() });
   if (!res.ok) throw new Error('Failed to fetch auth config');

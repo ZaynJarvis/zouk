@@ -13,7 +13,7 @@ function createAuthModule(ctx) {
     GOOGLE_CLIENT_ID, googleClient,
     SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
     feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
-    OV_RUNTIME_WHITELIST, OV_MCP_RUNTIME_WHITELIST, OV_PLUGIN_RUNTIME_WHITELIST,
+    OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
     DEFAULT_WORKSPACE_ID,
     gravatarUrl, isReservedName, normalizeEmailInput,
     isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
@@ -505,9 +505,10 @@ function createAuthModule(ctx) {
       supabaseUrl: SUPABASE_URL || null,
       supabaseAnonKey: SUPABASE_ANON_KEY || null,
       feishuEnabled: !!feishuEnabled,
-      ovRuntimeWhitelist: OV_RUNTIME_WHITELIST,
-      ovMcpRuntimeWhitelist: OV_MCP_RUNTIME_WHITELIST,
-      ovPluginRuntimeWhitelist: OV_PLUGIN_RUNTIME_WHITELIST,
+      // Denylist semantics: OV + MCP injection default ON for every runtime;
+      // these list the runtimes (if any) opted out of the default.
+      ovRuntimeDenylist: OV_RUNTIME_DENYLIST,
+      ovMcpRuntimeDenylist: OV_MCP_RUNTIME_DENYLIST,
     });
   });
 
