@@ -5,8 +5,8 @@ import type {
   WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
   Workspace, WorkspaceMember, WorkspaceRole, AgentLifecycleStatus,
 } from '../types';
-import { SlockWebSocket } from '../lib/ws';
-import type { WsEvent } from '../lib/ws';
+import type { SlockWebSocket, WsEvent } from '../lib/ws';
+import { ws as eagerWs } from '../lib/wsSingleton';
 import * as api from '../lib/api';
 import { normalizeMessage } from '../lib/api';
 import type { AuthUser } from '../lib/api';
@@ -869,13 +869,22 @@ export function useAppStore() {
   }, [addToast]);
 
   useEffect(() => {
-    const ws = new SlockWebSocket(serverUrl);
-    wsRef.current = ws;
-    const unsub = ws.on(handleWsEvent);
-    ws.connect();
+    // Reuse the singleton WS that started handshaking at JS-parse time (see
+    // lib/wsSingleton.ts). connect() is now idempotent on URL match — if the
+    // workspaceId / token captured at eager init is still current, this is a
+    // no-op and the warm connection lives; if either changed during the auth
+    // flow before AppProvider mounted, connect() tears the stale handshake
+    // down and re-opens with the right URL. Events received before this
+    // subscription were buffered in SlockWebSocket and drain into
+    // handleWsEvent the moment we register.
+    wsRef.current = eagerWs;
+    const unsub = eagerWs.on(handleWsEvent);
+    eagerWs.connect();
     return () => {
       unsub();
-      ws.disconnect();
+      // Intentionally NOT calling disconnect(). The singleton outlives the
+      // React tree; tearing it down on every dep change would defeat the
+      // whole point of the eager init.
     };
   }, [serverUrl, activeWorkspaceId, handleWsEvent]);
 
