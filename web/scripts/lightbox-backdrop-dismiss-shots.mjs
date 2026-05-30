@@ -6,8 +6,9 @@
  *   2. Open lightbox → click image                    → expect still open
  *   3. Open lightbox → click X button                 → expect closed
  *   4. Open lightbox (2 imgs) → click next then prev  → expect still open, index cycles
- *   5. Open lightbox → press Escape                   → expect closed
- *   6. Mobile phone-sized image → X and backdrop still close
+ *   5. Open thread lightbox → click next then prev    → expect still open
+ *   6. Open lightbox → press Escape                   → expect closed
+ *   7. Mobile phone-sized image → X and backdrop still close
  *
  * Saves before / after screenshots for case 1 (the regression target).
  */
@@ -95,6 +96,18 @@ function seedTwoImageMessage() {
         { id: ATT_A, filename: 'hero.png', contentType: 'image/png', width: 400, height: 800 },
         { id: ATT_B, filename: 'detail.png', contentType: 'image/png', width: 400, height: 800 },
       ],
+      replies: [
+        {
+          id: 'm1-reply-1',
+          channel_name: 'all:m1',
+          channel_type: 'thread',
+          parent_message_id: 'm1',
+          sender_name: 'QA Tester',
+          sender_type: 'human',
+          content: 'thread reply',
+          timestamp: new Date(now - 25000).toISOString(),
+        },
+      ],
     } },
   ];
 }
@@ -116,7 +129,7 @@ function seedPhoneSizedImageMessage() {
 
 async function openLightbox(page) {
   const thumb = page.getByRole('button', { name: /Open hero\.png/ });
-  await thumb.click();
+  await thumb.first().click();
   await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
   await page.waitForTimeout(200);
 }
@@ -184,7 +197,26 @@ await page.getByRole('button', { name: 'Close image viewer' }).click();
 await page.waitForTimeout(250);
 assertEq(await lightboxOpen(page), false, 'X button closes lightbox');
 
-// ── Case 5: Escape key closes ───────────────────────────────────────────────
+// ── Case 5: desktop thread rail + lightbox portal nav stays open ────────────
+{
+  await page.locator('button[title*="reply"], button[title*="replies"]').first().click();
+  await page.waitForTimeout(400);
+  await page.getByRole('button', { name: /Open hero\.png/ }).last().click();
+  await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+  await page.waitForTimeout(200);
+
+  await page.getByRole('button', { name: 'Next image' }).click();
+  await page.waitForTimeout(200);
+  assertEq(await lightboxOpen(page), true, 'thread lightbox next button does NOT close');
+  await page.getByRole('button', { name: 'Previous image' }).click();
+  await page.waitForTimeout(200);
+  assertEq(await lightboxOpen(page), true, 'thread lightbox prev button does NOT close');
+  await page.getByRole('button', { name: 'Close image viewer' }).click();
+  await page.waitForTimeout(250);
+  assertEq(await lightboxOpen(page), false, 'thread lightbox X closes');
+}
+
+// ── Case 6: Escape key closes ───────────────────────────────────────────────
 await openLightbox(page);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(250);
@@ -192,7 +224,7 @@ assertEq(await lightboxOpen(page), false, 'Escape closes lightbox');
 
 await ctx.close();
 
-// ── Case 6: mobile same-as-phone image still has reliable close paths ───────
+// ── Case 7: mobile same-as-phone image still has reliable close paths ───────
 {
   const mobileCtx = await browser.newContext({
     viewport: { width: 393, height: 852 },
