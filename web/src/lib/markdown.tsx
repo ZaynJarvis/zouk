@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { MENTION_TOKEN_REGEX } from './mentions';
 import { highlightCode } from './highlight';
 import type { LinkTransformRule } from '../store/storage';
@@ -405,6 +406,69 @@ function parseBlocks(text: string, keyBase: number, linkRules: LinkTransformRule
   return nodes;
 }
 
+function CodeBlock({ code, lang, highlighted }: { code: string; lang: string; highlighted: string | null }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="group relative my-3 border border-nc-green/25 rounded-sm bg-nc-black overflow-hidden">
+      {lang && (
+        <div className="px-3 pt-1.5 pb-0 text-[0.7em] font-mono text-nc-green/70 border-b border-nc-green/15 uppercase tracking-widest">
+          {lang}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={copied ? 'Copied code to clipboard' : 'Copy code'}
+        title={copied ? 'Copied' : 'Copy'}
+        className="absolute top-1 right-1 z-10 inline-flex items-center justify-center w-6 h-6 rounded-sm bg-nc-black/70 text-nc-green/70 hover:text-nc-green hover:bg-nc-black/90 focus-visible:text-nc-green focus-visible:bg-nc-black/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-nc-cyan opacity-50 sm:opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+      >
+        {copied ? (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 8.5 L6.5 12 L13 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="5.5" y="5.5" width="8" height="8" rx="1.2" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M3 11 V3.7 C3 2.76 3.76 2 4.7 2 H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+          </svg>
+        )}
+      </button>
+      <pre className="overflow-x-auto max-w-full bg-nc-black">
+        {highlighted ? (
+          <code
+            className="hljs block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre"
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
+        ) : (
+          <code className="block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre">
+            {code}
+          </code>
+        )}
+      </pre>
+    </div>
+  );
+}
+
 export function parseMarkdown(content: string, linkRules: LinkTransformRule[]): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   let key = 0;
@@ -421,27 +485,7 @@ export function parseMarkdown(content: string, linkRules: LinkTransformRule[]): 
     const lang = match[1] || '';
     const code = match[2].trim();
     const highlighted = highlightCode(code, lang);
-    nodes.push(
-      <div key={`cb-${key++}`} className="relative my-3 border border-nc-green/25 rounded-sm bg-nc-black overflow-hidden">
-        {lang && (
-          <div className="px-3 pt-1.5 pb-0 text-[0.7em] font-mono text-nc-green/70 border-b border-nc-green/15 uppercase tracking-widest">
-            {lang}
-          </div>
-        )}
-        <pre className="overflow-x-auto max-w-full bg-nc-black">
-          {highlighted ? (
-            <code
-              className="hljs block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre"
-              dangerouslySetInnerHTML={{ __html: highlighted }}
-            />
-          ) : (
-            <code className="block px-2.5 sm:px-3 py-2.5 font-mono text-[0.82em] sm:text-[0.88em] leading-[1.6] text-nc-text-bright whitespace-pre">
-              {code}
-            </code>
-          )}
-        </pre>
-      </div>
-    );
+    nodes.push(<CodeBlock key={`cb-${key++}`} code={code} lang={lang} highlighted={highlighted} />);
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < content.length) {
