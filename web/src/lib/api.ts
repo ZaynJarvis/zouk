@@ -134,7 +134,7 @@ export async function sendMessage(
   target: string,
   senderName: string,
   attachmentIds?: string[],
-): Promise<void> {
+): Promise<MessageRecord | null> {
   const url = `${getBaseUrl()}/api/messages`;
   const body: Record<string, unknown> = { content, target, senderName };
   if (attachmentIds && attachmentIds.length > 0) body.attachmentIds = attachmentIds;
@@ -144,6 +144,11 @@ export async function sendMessage(
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
+  // Server returns { messageId, message }. Older deployments only returned
+  // { messageId } — tolerate that by returning null so callers can fall back
+  // to WS-driven append.
+  const data = await res.json().catch(() => null);
+  return data?.message ? normalizeMessage(data.message) : null;
 }
 
 export interface UploadedAttachment {
