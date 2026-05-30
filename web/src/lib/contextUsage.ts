@@ -62,17 +62,19 @@ export function pickDisplayContextUsage(
 ): AgentContextUsageModel | undefined {
   if (!snapshot) return undefined;
   const { models, summary } = snapshot;
+  if (!models) return summary;
   if (preferredModel) {
     const exact = models.find(m => m.model === preferredModel);
     if (exact) return exact;
     const preferredLower = preferredModel.toLowerCase();
     const fuzzy = models.find(m => {
+      if (!m.model) return false;
       const modelLower = m.model.toLowerCase();
       return modelLower.includes(preferredLower) || preferredLower.includes(modelLower);
     });
     if (fuzzy) return fuzzy;
   }
-  const nonHaiku = models.filter(m => !m.model.toLowerCase().includes('haiku'));
+  const nonHaiku = models.filter(m => !m.model || !m.model.toLowerCase().includes('haiku'));
   if (nonHaiku.length > 0) return nonHaiku[0];
   return summary;
 }
@@ -83,6 +85,7 @@ export function formatContextUsageTitle(
 ): string {
   if (!snapshot) return '';
   const display = pickDisplayContextUsage(snapshot, preferredModel) ?? snapshot.summary;
+  if (!display) return '';
   const total = display.contextWindow?.toLocaleString() || 'unknown';
   const percent = formatContextPercent(display.percent);
   const cost = typeof snapshot.totalCostUSD === 'number' ? ` · $${snapshot.totalCostUSD.toFixed(4)}` : '';

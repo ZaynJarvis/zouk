@@ -232,7 +232,6 @@ export async function startAgent(config: {
   channels?: string[];
   lifecycle?: 'persistent' | 'ephemeral';
   openvikingEnabled?: boolean;
-  openvikingUseAgentNameAsUser?: boolean;
   ovMcpEnabled?: boolean;
   customLauncher?: string;
 }): Promise<{ agent: { id: string; name: string } }> {
@@ -242,7 +241,10 @@ export async function startAgent(config: {
     headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
-  if (!res.ok) throw new Error(`Failed to start agent: ${res.status}`);
+  if (!res.ok) {
+    const msg = await res.json().then((b) => b?.error).catch(() => null);
+    throw new Error(msg || `Failed to start agent: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -315,6 +317,21 @@ export async function fetchAgentOvStatus(agentId: string): Promise<AgentOvStatus
   return res.json();
 }
 
+export interface AgentOvCreds {
+  url: string;
+  apiKey: string;
+  account: string;
+  userId: string;
+  source: 'provisioned' | 'custom' | 'env';
+}
+
+export async function fetchAgentOvCreds(agentId: string): Promise<AgentOvCreds> {
+  const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/ov/creds`;
+  const res = await fetch(url, { headers: getAuthHeaders(), cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load OV creds: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchAgentChannels(agentId: string): Promise<string[]> {
   const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/channels`;
   const res = await fetch(url, { headers: getAuthHeaders() });
@@ -353,12 +370,22 @@ export async function getAuthConfig(): Promise<{
   allowlistActive?: boolean;
   supabaseUrl?: string | null;
   supabaseAnonKey?: string | null;
-  ovRuntimeWhitelist?: string[];
-  ovMcpRuntimeWhitelist?: string[];
+  feishuEnabled?: boolean;
+  ovRuntimeDenylist?: string[];
+  ovMcpRuntimeDenylist?: string[];
 }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/config`, { headers: getWorkspaceHeaders() });
   if (!res.ok) throw new Error('Failed to fetch auth config');
   return res.json();
+}
+
+export async function fetchAuthMe(token: string): Promise<AuthUser> {
+  const res = await fetch(`${getBaseUrl()}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`auth/me failed: ${res.status}`);
+  const body = await res.json();
+  return body.user as AuthUser;
 }
 
 export type LoginResponse = {

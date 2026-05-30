@@ -89,8 +89,8 @@ export default function MachineSetupDialog({
   };
 
   const daemonCommand = generatedKey
-    ? `# clone zouk-daemon first\nnpx tsx src/index.ts --server-url ${serverUrl} --api-key ${generatedKey}`
-    : `# clone zouk-daemon first\nnpx tsx src/index.ts --server-url ${serverUrl} --api-key <api_key>`;
+    ? `npx @openviking/zouk-daemon@latest --server-url ${serverUrl} --api-key ${generatedKey}`
+    : `npx @openviking/zouk-daemon@latest --server-url ${serverUrl} --api-key <api_key>`;
 
   return (
     <ZkDialog

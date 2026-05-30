@@ -113,90 +113,73 @@ async function migrate() {
   }
 }
 
-// ─── Messages ─────────────────────────────────────────────────────
+// ─── Query helpers ───────────────────────────────────────────────
+// Eliminate the repeated if(!pool)/try/catch/perfLog boilerplate.
 
-async function saveMessage(msg) {
+async function dbExec(label, sql, params, perfFields) {
   if (!pool) return;
   const started = perfNowMs();
   try {
-    await pool.query(
-      `INSERT INTO messages (id, seq, workspace_id, channel_id, channel_name, channel_type, thread_id, sender_name, sender_type, content, created_at, attachments, task_number, task_status, task_assignee_id, task_assignee_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-       ON CONFLICT (id) DO UPDATE SET
-         seq = EXCLUDED.seq,
-         workspace_id = EXCLUDED.workspace_id,
-         channel_id = EXCLUDED.channel_id,
-         channel_name = EXCLUDED.channel_name,
-         channel_type = EXCLUDED.channel_type,
-         thread_id = EXCLUDED.thread_id,
-         sender_name = EXCLUDED.sender_name,
-         sender_type = EXCLUDED.sender_type,
-         content = EXCLUDED.content,
-         created_at = EXCLUDED.created_at,
-         attachments = EXCLUDED.attachments,
-         task_number = EXCLUDED.task_number,
-         task_status = EXCLUDED.task_status,
-         task_assignee_id = EXCLUDED.task_assignee_id,
-         task_assignee_type = EXCLUDED.task_assignee_type`,
-      [
-        msg.id,
-        msg.seq,
-        msg.workspaceId || DEFAULT_WORKSPACE_ID,
-        msg.channelId || null,
-        msg.channelName,
-        msg.channelType,
-        msg.threadId || null,
-        msg.senderName,
-        msg.senderType,
-        msg.content,
-        msg.createdAt,
-        JSON.stringify(msg.attachments || []),
-        msg.taskNumber || null,
-        msg.taskStatus || null,
-        msg.taskAssigneeId || null,
-        msg.taskAssigneeType || null,
-      ]
-    );
-    logDbPerf('saveMessage', perfNowMs() - started, {
-      workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID,
-      channelId: msg.channelId,
-      channelType: msg.channelType,
-      thread: !!msg.threadId,
-    });
+    await pool.query(sql, params);
+    logDbPerf(label, perfNowMs() - started, perfFields || {});
   } catch (e) {
-    console.error('[db] saveMessage error:', e.message);
+    console.error(`[db] ${label} error:`, e.message);
   }
+}
+
+async function dbQuery(label, sql, params, mapper = (r) => r, fallback = []) {
+  if (!pool) return fallback;
+  const started = perfNowMs();
+  try {
+    const { rows } = await pool.query(sql, params);
+    logDbPerf(label, perfNowMs() - started, {});
+    return mapper === null ? rows : rows.map(mapper);
+  } catch (e) {
+    console.error(`[db] ${label} error:`, e.message);
+    return fallback;
+  }
+}
+
+async function dbQueryOne(label, sql, params, mapper = (r) => r) {
+  const rows = await dbQuery(label, sql, params, null, null);
+  if (rows === null) return null;
+  return rows.length > 0 ? mapper(rows[0]) : null;
+}
+
+// ─── Messages ─────────────────────────────────────────────────────
+
+function saveMessage(msg) {
+  return dbExec("saveMessage",
+    `INSERT INTO messages (id, seq, workspace_id, channel_id, channel_name, channel_type, thread_id, sender_name, sender_type, content, created_at, attachments, task_number, task_status, task_assignee_id, task_assignee_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     ON CONFLICT (id) DO UPDATE SET seq = EXCLUDED.seq, workspace_id = EXCLUDED.workspace_id,
+       channel_id = EXCLUDED.channel_id, channel_name = EXCLUDED.channel_name, channel_type = EXCLUDED.channel_type,
+       thread_id = EXCLUDED.thread_id, sender_name = EXCLUDED.sender_name, sender_type = EXCLUDED.sender_type,
+       content = EXCLUDED.content, created_at = EXCLUDED.created_at, attachments = EXCLUDED.attachments,
+       task_number = EXCLUDED.task_number, task_status = EXCLUDED.task_status,
+       task_assignee_id = EXCLUDED.task_assignee_id, task_assignee_type = EXCLUDED.task_assignee_type`,
+    [msg.id, msg.seq, msg.workspaceId || DEFAULT_WORKSPACE_ID, msg.channelId || null,
+     msg.channelName, msg.channelType, msg.threadId || null, msg.senderName, msg.senderType,
+     msg.content, msg.createdAt, JSON.stringify(msg.attachments || []),
+     msg.taskNumber || null, msg.taskStatus || null, msg.taskAssigneeId || null, msg.taskAssigneeType || null],
+    { workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, channelId: msg.channelId, channelType: msg.channelType, thread: !!msg.threadId });
 }
 
 // Bootstrap-only: returns the last N messages globally (seq ASC) to seed the
 // in-memory threading index, per-channel cache tails, and delivery routing.
 // Read paths do NOT use this — use the cursor-based helpers below instead.
-async function loadMessages(limit = MESSAGE_BOOTSTRAP_LIMIT) {
-  if (!pool) return [];
-  try {
-    const { rows } = await pool.query(
-      `SELECT * FROM (SELECT * FROM messages ORDER BY seq DESC LIMIT $1) sub ORDER BY seq ASC`,
-      [limit]
-    );
-    return rows.map(rowToMessage);
-  } catch (e) {
-    console.error('[db] loadMessages error:', e.message);
-    return [];
-  }
+function loadMessages(limit = MESSAGE_BOOTSTRAP_LIMIT) {
+  return dbQuery("loadMessages",
+    `SELECT * FROM (SELECT * FROM messages ORDER BY seq DESC LIMIT $1) sub ORDER BY seq ASC`,
+    [limit], rowToMessage);
 }
 
 // Resolve a message by full id. Used to translate the `before`/`after` message
 // ID params on /api/messages into a seq cursor before paginating, and for task
 // claim's by-id lookup.
-async function getMessageById(id) {
-  if (!pool || !id) return null;
-  try {
-    const { rows } = await pool.query('SELECT * FROM messages WHERE id = $1 LIMIT 1', [id]);
-    return rows[0] ? rowToMessage(rows[0]) : null;
-  } catch (e) {
-    console.error('[db] getMessageById error:', e.message);
-    return null;
-  }
+function getMessageById(id) {
+  if (!id) return Promise.resolve(null);
+  return dbQueryOne("getMessageById", 'SELECT * FROM messages WHERE id = $1 LIMIT 1', [id], rowToMessage);
 }
 
 // Prefix lookup over `messages.id` — backs the agent's 8-char-shortid claim
@@ -380,20 +363,11 @@ async function searchMessages({ workspaceId, channelIds, keyword, limit = 50 }) 
 
 // Thread reply lookup for the cache-miss path in formatMessageForClient /
 // agentDeliveryRouter (when the parent is older than the bootstrap window).
-async function queryThreadReplies({ threadId, channelId, limit = 50 }) {
-  if (!pool || !threadId) return [];
-  try {
-    const { rows } = await pool.query(
-      `SELECT * FROM messages
-        WHERE thread_id = $1 AND channel_id = $2
-        ORDER BY seq ASC LIMIT $3`,
-      [threadId, channelId, limit]
-    );
-    return rows.map(rowToMessage);
-  } catch (e) {
-    console.error('[db] queryThreadReplies error:', e.message);
-    return [];
-  }
+function queryThreadReplies({ threadId, channelId, limit = 50 }) {
+  if (!threadId) return Promise.resolve([]);
+  return dbQuery("queryThreadReplies",
+    `SELECT * FROM messages WHERE thread_id = $1 AND channel_id = $2 ORDER BY seq ASC LIMIT $3`,
+    [threadId, channelId, limit], rowToMessage);
 }
 
 async function queryThreadRepliesBatch({ pairs, limit = 50 }) {
@@ -447,21 +421,11 @@ async function queryThreadRepliesBatch({ pairs, limit = 50 }) {
 
 // Targeted UPDATE for task-related message columns. Replaces the previous
 // read-mutate-save pattern that depended on the message being in store.messages.
-async function updateMessageTaskFields({ id, taskNumber, taskStatus, taskAssigneeId, taskAssigneeType }) {
-  if (!pool || !id) return;
-  try {
-    await pool.query(
-      `UPDATE messages
-          SET task_number = $1,
-              task_status = $2,
-              task_assignee_id = $3,
-              task_assignee_type = $4
-        WHERE id = $5`,
-      [taskNumber || null, taskStatus || null, taskAssigneeId || null, taskAssigneeType || null, id]
-    );
-  } catch (e) {
-    console.error('[db] updateMessageTaskFields error:', e.message);
-  }
+function updateMessageTaskFields({ id, taskNumber, taskStatus, taskAssigneeId, taskAssigneeType }) {
+  if (!id) return Promise.resolve();
+  return dbExec("updateMessageTaskFields",
+    `UPDATE messages SET task_number = $1, task_status = $2, task_assignee_id = $3, task_assignee_type = $4 WHERE id = $5`,
+    [taskNumber || null, taskStatus || null, taskAssigneeId || null, taskAssigneeType || null, id]);
 }
 
 // One-shot aggregate for /api/tasks createdAt/updatedAt derivation. Bootstrap
@@ -518,38 +482,24 @@ function rowToMessage(row) {
 
 // ─── Channels ────────────────────────────────────────────────────
 
-async function saveChannel(ch) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO channels (id, workspace_id, name, description, type)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (id) DO UPDATE SET
-         workspace_id = EXCLUDED.workspace_id,
-         name = EXCLUDED.name,
-         description = EXCLUDED.description,
-         type = EXCLUDED.type`,
-      [ch.id, ch.workspaceId || DEFAULT_WORKSPACE_ID, ch.name, ch.description || '', ch.type || 'channel']
-    );
-  } catch (e) {
-    console.error('[db] saveChannel error:', e.message);
-  }
+function saveChannel(ch) {
+  return dbExec("saveChannel",
+    `INSERT INTO channels (id, workspace_id, name, description, type)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (id) DO UPDATE SET
+       workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name,
+       description = EXCLUDED.description, type = EXCLUDED.type`,
+    [ch.id, ch.workspaceId || DEFAULT_WORKSPACE_ID, ch.name, ch.description || '', ch.type || 'channel']);
 }
 
-async function deleteChannel(id) {
-  if (!pool) return;
-  try {
-    await pool.query('DELETE FROM channels WHERE id = $1', [id]);
-  } catch (e) {
-    console.error('[db] deleteChannel error:', e.message);
-  }
+function deleteChannel(id) {
+  return dbExec("deleteChannel", 'DELETE FROM channels WHERE id = $1', [id]);
 }
 
-async function loadChannels() {
-  if (!pool) return [];
-  try {
-    const { rows } = await pool.query('SELECT * FROM channels ORDER BY name ASC');
-    return rows.map(row => ({
+function loadChannels() {
+  return dbQuery("loadChannels",
+    'SELECT * FROM channels ORDER BY name ASC', [],
+    (row) => ({
       id: row.id,
       workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       name: row.name,
@@ -557,104 +507,59 @@ async function loadChannels() {
       type: row.type || 'channel',
       members: [],
     }));
-  } catch (e) {
-    console.error('[db] loadChannels error:', e.message);
-    return [];
-  }
 }
 
 // ─── Channel ↔ Agent membership ──────────────────────────────────
 
-async function saveChannelAgent({ workspaceId = DEFAULT_WORKSPACE_ID, channelId, agentId, canRead = true, subscribed = true }) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO channel_agents (workspace_id, channel_id, agent_id, can_read, subscribed, updated_at)
-       VALUES ($1,$2,$3,$4,$5, now())
-       ON CONFLICT (channel_id, agent_id) DO UPDATE SET
-         workspace_id = EXCLUDED.workspace_id,
-         can_read   = EXCLUDED.can_read,
-         subscribed = EXCLUDED.subscribed,
-         updated_at = now()`,
-      [workspaceId || DEFAULT_WORKSPACE_ID, channelId, agentId, !!canRead, !!subscribed]
-    );
-  } catch (e) {
-    console.error('[db] saveChannelAgent error:', e.message);
-  }
+function saveChannelAgent({ workspaceId = DEFAULT_WORKSPACE_ID, channelId, agentId, canRead = true, subscribed = true }) {
+  return dbExec("saveChannelAgent",
+    `INSERT INTO channel_agents (workspace_id, channel_id, agent_id, can_read, subscribed, updated_at)
+     VALUES ($1,$2,$3,$4,$5, now())
+     ON CONFLICT (channel_id, agent_id) DO UPDATE SET
+       workspace_id = EXCLUDED.workspace_id, can_read = EXCLUDED.can_read,
+       subscribed = EXCLUDED.subscribed, updated_at = now()`,
+    [workspaceId || DEFAULT_WORKSPACE_ID, channelId, agentId, !!canRead, !!subscribed]);
 }
 
-async function deleteChannelAgent(channelId, agentId) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      'DELETE FROM channel_agents WHERE channel_id = $1 AND agent_id = $2',
-      [channelId, agentId]
-    );
-  } catch (e) {
-    console.error('[db] deleteChannelAgent error:', e.message);
-  }
+function deleteChannelAgent(channelId, agentId) {
+  return dbExec("deleteChannelAgent",
+    'DELETE FROM channel_agents WHERE channel_id = $1 AND agent_id = $2',
+    [channelId, agentId]);
 }
 
-async function loadChannelAgents() {
-  if (!pool) return [];
-  try {
-    const { rows } = await pool.query(
-      'SELECT workspace_id, channel_id, agent_id, can_read, subscribed FROM channel_agents'
-    );
-    return rows.map(row => ({
+function loadChannelAgents() {
+  return dbQuery("loadChannelAgents",
+    'SELECT workspace_id, channel_id, agent_id, can_read, subscribed FROM channel_agents', [],
+    (row) => ({
       workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       channelId: row.channel_id,
       agentId: row.agent_id,
       canRead: row.can_read,
       subscribed: row.subscribed,
     }));
-  } catch (e) {
-    console.error('[db] loadChannelAgents error:', e.message);
-    return [];
-  }
 }
 
 // ─── Tasks ───────────────────────────────────────────────────────
 
-async function saveTask(task) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO tasks (task_number, workspace_id, channel_id, channel_name, title, status, message_id, claimed_by_name, claimed_by_type, created_by_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (task_number) DO UPDATE SET
-         workspace_id = EXCLUDED.workspace_id,
-         channel_id = EXCLUDED.channel_id,
-         channel_name = EXCLUDED.channel_name,
-         title = EXCLUDED.title,
-         status = EXCLUDED.status,
-         message_id = EXCLUDED.message_id,
-         claimed_by_name = EXCLUDED.claimed_by_name,
-         claimed_by_type = EXCLUDED.claimed_by_type,
-         created_by_name = EXCLUDED.created_by_name`,
-      [
-        task.taskNumber,
-        task.workspaceId || DEFAULT_WORKSPACE_ID,
-        task.channelId || null,
-        task.channelName || null,
-        task.title,
-        task.status || 'todo',
-        task.messageId || null,
-        task.claimedByName || null,
-        task.claimedByType || null,
-        task.createdByName || null,
-      ]
-    );
-  } catch (e) {
-    console.error('[db] saveTask error:', e.message);
-  }
+function saveTask(task) {
+  return dbExec("saveTask",
+    `INSERT INTO tasks (task_number, workspace_id, channel_id, channel_name, title, status, message_id, claimed_by_name, claimed_by_type, created_by_name)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT (task_number) DO UPDATE SET
+       workspace_id = EXCLUDED.workspace_id, channel_id = EXCLUDED.channel_id,
+       channel_name = EXCLUDED.channel_name, title = EXCLUDED.title,
+       status = EXCLUDED.status, message_id = EXCLUDED.message_id,
+       claimed_by_name = EXCLUDED.claimed_by_name, claimed_by_type = EXCLUDED.claimed_by_type,
+       created_by_name = EXCLUDED.created_by_name`,
+    [task.taskNumber, task.workspaceId || DEFAULT_WORKSPACE_ID, task.channelId || null,
+     task.channelName || null, task.title, task.status || 'todo', task.messageId || null,
+     task.claimedByName || null, task.claimedByType || null, task.createdByName || null]);
 }
 
-async function loadTasks() {
-  if (!pool) return [];
-  try {
-    const { rows } = await pool.query('SELECT * FROM tasks ORDER BY task_number ASC');
-    return rows.map(row => ({
+function loadTasks() {
+  return dbQuery("loadTasks",
+    'SELECT * FROM tasks ORDER BY task_number ASC', [],
+    (row) => ({
       taskNumber: row.task_number,
       workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
       channelId: row.channel_id,
@@ -666,34 +571,18 @@ async function loadTasks() {
       claimedByType: row.claimed_by_type,
       createdByName: row.created_by_name,
     }));
-  } catch (e) {
-    console.error('[db] loadTasks error:', e.message);
-    return [];
-  }
 }
 
 // ─── Sequence ────────────────────────────────────────────────────
 
 async function loadMaxSeq() {
-  if (!pool) return 0;
-  try {
-    const { rows } = await pool.query('SELECT seq FROM messages ORDER BY seq DESC LIMIT 1');
-    return rows[0]?.seq || 0;
-  } catch (e) {
-    console.error('[db] loadMaxSeq error:', e.message);
-    return 0;
-  }
+  const row = await dbQueryOne("loadMaxSeq", 'SELECT seq FROM messages ORDER BY seq DESC LIMIT 1', []);
+  return row?.seq || 0;
 }
 
 async function loadMaxTaskNum() {
-  if (!pool) return 0;
-  try {
-    const { rows } = await pool.query('SELECT task_number FROM tasks ORDER BY task_number DESC LIMIT 1');
-    return rows[0]?.task_number || 0;
-  } catch (e) {
-    console.error('[db] loadMaxTaskNum error:', e.message);
-    return 0;
-  }
+  const row = await dbQueryOne("loadMaxTaskNum", 'SELECT task_number FROM tasks ORDER BY task_number DESC LIMIT 1', []);
+  return row?.task_number || 0;
 }
 
 // ─── Agent configs ────────────────────────────────────────────────
@@ -712,8 +601,9 @@ async function saveAgentConfig(config) {
          max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
          openviking_user_id, openviking_api_key, openviking_url,
          openviking_mode, openviking_custom_url, openviking_custom_api_key,
-         openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+         openviking_enabled, ov_mcp_enabled,
+         disable_local_ov_plugin, openviking_session_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        ON CONFLICT (id) DO UPDATE SET
          workspace_id                 = EXCLUDED.workspace_id,
          name                       = EXCLUDED.name,
@@ -738,8 +628,9 @@ async function saveAgentConfig(config) {
          openviking_custom_url      = EXCLUDED.openviking_custom_url,
          openviking_custom_api_key  = EXCLUDED.openviking_custom_api_key,
          openviking_enabled         = EXCLUDED.openviking_enabled,
-         openviking_use_agent_name_as_user = EXCLUDED.openviking_use_agent_name_as_user,
-         ov_mcp_enabled             = EXCLUDED.ov_mcp_enabled`,
+         ov_mcp_enabled             = EXCLUDED.ov_mcp_enabled,
+         disable_local_ov_plugin    = EXCLUDED.disable_local_ov_plugin,
+         openviking_session_id      = EXCLUDED.openviking_session_id`,
       [
         config.id,
         config.workspaceId || DEFAULT_WORKSPACE_ID,
@@ -767,8 +658,11 @@ async function saveAgentConfig(config) {
         config.openvikingCustomApiKey || null,
         // null = follow runtime default; boolean = explicit override.
         typeof config.openvikingEnabled === 'boolean' ? config.openvikingEnabled : null,
-        config.openvikingUseAgentNameAsUser === true,
         typeof config.ovMcpEnabled === 'boolean' ? config.ovMcpEnabled : null,
+        // Default true (disable local plugin) — only persisted as false when
+        // the user explicitly opts in to letting the host's plugin run.
+        config.disableLocalOvPlugin !== false,
+        config.openvikingSessionId || null,
       ]
     );
   } catch (e) {
@@ -776,13 +670,8 @@ async function saveAgentConfig(config) {
   }
 }
 
-async function deleteAgentConfig(id) {
-  if (!pool) return;
-  try {
-    await pool.query('DELETE FROM agent_configs WHERE id = $1', [id]);
-  } catch (e) {
-    console.error('[db] deleteAgentConfig error:', e.message);
-  }
+function deleteAgentConfig(id) {
+  return dbExec("deleteAgentConfig", 'DELETE FROM agent_configs WHERE id = $1', [id]);
 }
 
 async function loadAgentConfigs() {
@@ -795,7 +684,8 @@ async function loadAgentConfigs() {
               max_concurrent_tasks, auto_start, skills, lifecycle, env_vars,
               openviking_user_id, openviking_api_key, openviking_url,
               openviking_mode, openviking_custom_url, openviking_custom_api_key,
-              openviking_enabled, openviking_use_agent_name_as_user, ov_mcp_enabled
+              openviking_enabled, ov_mcp_enabled,
+              disable_local_ov_plugin, openviking_session_id
          FROM agent_configs
          ORDER BY name ASC`
     );
@@ -819,6 +709,7 @@ async function loadAgentConfigs() {
       lifecycle: row.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
       envVars: row.env_vars && typeof row.env_vars === 'object' ? row.env_vars : {},
       openvikingUserId: row.openviking_user_id || null,
+      openvikingSessionId: row.openviking_session_id || null,
       openvikingApiKey: row.openviking_api_key || null,
       openvikingUrl: row.openviking_url || null,
       openvikingMode: row.openviking_mode === 'custom' ? 'custom' : 'provisioned',
@@ -827,8 +718,10 @@ async function loadAgentConfigs() {
       // SQL NULL → undefined so isOvEnabledForAgent falls back to the runtime
       // default; boolean → explicit override.
       openvikingEnabled: typeof row.openviking_enabled === 'boolean' ? row.openviking_enabled : undefined,
-      openvikingUseAgentNameAsUser: row.openviking_use_agent_name_as_user === true,
       ovMcpEnabled: typeof row.ov_mcp_enabled === 'boolean' ? row.ov_mcp_enabled : undefined,
+      // Column is NOT NULL with default true, but cope with older rows that
+      // may have been backfilled to NULL during partial migrations.
+      disableLocalOvPlugin: row.disable_local_ov_plugin !== false,
     }));
   } catch (e) {
     console.error('[db] loadAgentConfigs error:', e.message);
@@ -900,46 +793,22 @@ async function loadMachineKeys() {
 
 // ─── Agent profile presets ───────────────────────────────────────
 
-async function saveProfilePreset(preset) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO agent_profile_presets (id, workspace_id, image, created_at)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (id) DO UPDATE SET
-         workspace_id = EXCLUDED.workspace_id,
-         image = EXCLUDED.image,
-         created_at = EXCLUDED.created_at`,
-      [preset.id, preset.workspaceId || DEFAULT_WORKSPACE_ID, preset.image, preset.createdAt]
-    );
-  } catch (e) {
-    console.error('[db] saveProfilePreset error:', e.message);
-  }
+function saveProfilePreset(preset) {
+  return dbExec("saveProfilePreset",
+    `INSERT INTO agent_profile_presets (id, workspace_id, image, created_at) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (id) DO UPDATE SET workspace_id = EXCLUDED.workspace_id, image = EXCLUDED.image, created_at = EXCLUDED.created_at`,
+    [preset.id, preset.workspaceId || DEFAULT_WORKSPACE_ID, preset.image, preset.createdAt]);
 }
 
-async function deleteProfilePreset(id) {
-  if (!pool) return;
-  try {
-    await pool.query('DELETE FROM agent_profile_presets WHERE id = $1', [id]);
-  } catch (e) {
-    console.error('[db] deleteProfilePreset error:', e.message);
-  }
+function deleteProfilePreset(id) {
+  return dbExec("deleteProfilePreset", 'DELETE FROM agent_profile_presets WHERE id = $1', [id]);
 }
 
-async function loadProfilePresets() {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query('SELECT * FROM agent_profile_presets ORDER BY created_at ASC');
-    return rows.map(row => ({
-      id: row.id,
-      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
-      image: row.image,
-      createdAt: row.created_at,
-    }));
-  } catch (e) {
-    console.error('[db] loadProfilePresets error:', e.message);
-    return null;
-  }
+function loadProfilePresets() {
+  return dbQuery("loadProfilePresets",
+    'SELECT * FROM agent_profile_presets ORDER BY created_at ASC', [],
+    (row) => ({ id: row.id, workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID, image: row.image, createdAt: row.created_at }),
+    null);
 }
 
 // ─── Email allowlist ─────────────────────────────────────────────
@@ -1005,46 +874,18 @@ async function removeEmailAllowlist(email, workspaceId = DEFAULT_WORKSPACE_ID) {
 
 // ─── Workspaces ──────────────────────────────────────────────────
 
-async function saveWorkspace(workspace) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO workspaces (id, name, icon, owner_email, created_at)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (id) DO UPDATE SET
-         name = EXCLUDED.name,
-         icon = EXCLUDED.icon,
-         owner_email = EXCLUDED.owner_email`,
-      [
-        workspace.id,
-        workspace.name,
-        workspace.icon || 'z',
-        workspace.ownerEmail || null,
-        workspace.createdAt || new Date().toISOString(),
-      ]
-    );
-  } catch (e) {
-    console.error('[db] saveWorkspace error:', e.message);
-  }
+function saveWorkspace(workspace) {
+  return dbExec("saveWorkspace",
+    `INSERT INTO workspaces (id, name, icon, owner_email, created_at) VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, icon = EXCLUDED.icon, owner_email = EXCLUDED.owner_email`,
+    [workspace.id, workspace.name, workspace.icon || 'z', workspace.ownerEmail || null, workspace.createdAt || new Date().toISOString()]);
 }
 
-async function loadWorkspaces() {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query(
-      'SELECT id, name, icon, owner_email, created_at FROM workspaces ORDER BY created_at ASC, name ASC'
-    );
-    return rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      icon: row.icon || 'z',
-      ownerEmail: row.owner_email || null,
-      createdAt: row.created_at,
-    }));
-  } catch (e) {
-    console.error('[db] loadWorkspaces error:', e.message);
-    return null;
-  }
+function loadWorkspaces() {
+  return dbQuery("loadWorkspaces",
+    'SELECT id, name, icon, owner_email, created_at FROM workspaces ORDER BY created_at ASC, name ASC', [],
+    (row) => ({ id: row.id, name: row.name, icon: row.icon || 'z', ownerEmail: row.owner_email || null, createdAt: row.created_at }),
+    null);
 }
 
 async function deleteWorkspace(id) {
@@ -1058,220 +899,94 @@ async function deleteWorkspace(id) {
   }
 }
 
-async function saveWorkspaceMember(member) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO workspace_members (workspace_id, email, role, name, joined_at)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (workspace_id, email) DO UPDATE SET
-         role = EXCLUDED.role,
-         name = EXCLUDED.name`,
-      [
-        member.workspaceId || DEFAULT_WORKSPACE_ID,
-        member.email,
-        member.role || 'member',
-        member.name || null,
-        member.joinedAt || new Date().toISOString(),
-      ]
-    );
-  } catch (e) {
-    console.error('[db] saveWorkspaceMember error:', e.message);
-  }
+function saveWorkspaceMember(member) {
+  return dbExec("saveWorkspaceMember",
+    `INSERT INTO workspace_members (workspace_id, email, role, name, joined_at) VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (workspace_id, email) DO UPDATE SET role = EXCLUDED.role, name = EXCLUDED.name`,
+    [member.workspaceId || DEFAULT_WORKSPACE_ID, member.email, member.role || 'member', member.name || null, member.joinedAt || new Date().toISOString()]);
 }
 
-async function deleteWorkspaceMember(workspaceId, email) {
-  if (!pool) return false;
-  try {
-    await pool.query(
-      'DELETE FROM workspace_members WHERE workspace_id=$1 AND email=$2',
-      [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]
-    );
-    return true;
-  } catch (e) {
-    console.error('[db] deleteWorkspaceMember error:', e.message);
-    return false;
-  }
+function deleteWorkspaceMember(workspaceId, email) {
+  return dbExec("deleteWorkspaceMember",
+    'DELETE FROM workspace_members WHERE workspace_id=$1 AND email=$2',
+    [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]);
 }
 
-async function loadWorkspaceMembers() {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query(
-      'SELECT workspace_id, email, role, name, joined_at FROM workspace_members ORDER BY workspace_id ASC, email ASC'
-    );
-    return rows.map(row => ({
-      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
-      email: row.email,
-      role: row.role || 'member',
-      name: row.name || null,
-      joinedAt: row.joined_at,
-    }));
-  } catch (e) {
-    console.error('[db] loadWorkspaceMembers error:', e.message);
-    return null;
-  }
+function loadWorkspaceMembers() {
+  return dbQuery("loadWorkspaceMembers",
+    'SELECT workspace_id, email, role, name, joined_at FROM workspace_members ORDER BY workspace_id ASC, email ASC', [],
+    (row) => ({ workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID, email: row.email, role: row.role || 'member', name: row.name || null, joinedAt: row.joined_at }),
+    null);
 }
 
-async function saveWorkspaceMemberRemoval(removal) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO workspace_member_removals (workspace_id, email, removed_at, removed_by)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (workspace_id, email) DO UPDATE SET
-         removed_at = EXCLUDED.removed_at,
-         removed_by = EXCLUDED.removed_by`,
-      [
-        removal.workspaceId || DEFAULT_WORKSPACE_ID,
-        String(removal.email || '').trim().toLowerCase(),
-        removal.removedAt || new Date().toISOString(),
-        removal.removedBy || null,
-      ]
-    );
-  } catch (e) {
-    console.error('[db] saveWorkspaceMemberRemoval error:', e.message);
-  }
+function saveWorkspaceMemberRemoval(removal) {
+  return dbExec("saveWorkspaceMemberRemoval",
+    `INSERT INTO workspace_member_removals (workspace_id, email, removed_at, removed_by) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (workspace_id, email) DO UPDATE SET removed_at = EXCLUDED.removed_at, removed_by = EXCLUDED.removed_by`,
+    [removal.workspaceId || DEFAULT_WORKSPACE_ID, String(removal.email || '').trim().toLowerCase(), removal.removedAt || new Date().toISOString(), removal.removedBy || null]);
 }
 
-async function deleteWorkspaceMemberRemoval(workspaceId, email) {
-  if (!pool) return false;
-  try {
-    await pool.query(
-      'DELETE FROM workspace_member_removals WHERE workspace_id=$1 AND email=$2',
-      [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]
-    );
-    return true;
-  } catch (e) {
-    console.error('[db] deleteWorkspaceMemberRemoval error:', e.message);
-    return false;
-  }
+function deleteWorkspaceMemberRemoval(workspaceId, email) {
+  return dbExec("deleteWorkspaceMemberRemoval",
+    'DELETE FROM workspace_member_removals WHERE workspace_id=$1 AND email=$2',
+    [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]);
 }
 
-async function loadWorkspaceMemberRemovals() {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query(
-      'SELECT workspace_id, email, removed_at, removed_by FROM workspace_member_removals ORDER BY workspace_id ASC, email ASC'
-    );
-    return rows.map(row => ({
-      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
-      email: row.email,
-      removedAt: row.removed_at,
-      removedBy: row.removed_by || null,
-    }));
-  } catch (e) {
-    console.error('[db] loadWorkspaceMemberRemovals error:', e.message);
-    return null;
-  }
+function loadWorkspaceMemberRemovals() {
+  return dbQuery("loadWorkspaceMemberRemovals",
+    'SELECT workspace_id, email, removed_at, removed_by FROM workspace_member_removals ORDER BY workspace_id ASC, email ASC', [],
+    (row) => ({ workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID, email: row.email, removedAt: row.removed_at, removedBy: row.removed_by || null }),
+    null);
 }
 
 // ─── Workspace embed settings ─────────────────────────────────────
 
-async function saveWorkspaceEmbedSettings(settings) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO workspace_embed_settings
-         (workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (workspace_id) DO UPDATE SET
-         enabled = EXCLUDED.enabled,
-         allowed_origins = EXCLUDED.allowed_origins,
-         allowed_channel_ids = EXCLUDED.allowed_channel_ids,
-         token_ttl_seconds = EXCLUDED.token_ttl_seconds,
-         updated_at = EXCLUDED.updated_at,
-         updated_by = EXCLUDED.updated_by`,
-      [
-        settings.workspaceId || DEFAULT_WORKSPACE_ID,
-        !!settings.enabled,
-        JSON.stringify(settings.allowedOrigins || []),
-        JSON.stringify(settings.allowedChannelIds || []),
-        settings.tokenTtlSeconds || 3600,
-        settings.updatedAt || new Date().toISOString(),
-        settings.updatedBy || null,
-      ]
-    );
-  } catch (e) {
-    console.error('[db] saveWorkspaceEmbedSettings error:', e.message);
-  }
+function saveWorkspaceEmbedSettings(settings) {
+  return dbExec("saveWorkspaceEmbedSettings",
+    `INSERT INTO workspace_embed_settings (workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (workspace_id) DO UPDATE SET enabled = EXCLUDED.enabled, allowed_origins = EXCLUDED.allowed_origins,
+       allowed_channel_ids = EXCLUDED.allowed_channel_ids, token_ttl_seconds = EXCLUDED.token_ttl_seconds,
+       updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`,
+    [settings.workspaceId || DEFAULT_WORKSPACE_ID, !!settings.enabled,
+     JSON.stringify(settings.allowedOrigins || []), JSON.stringify(settings.allowedChannelIds || []),
+     settings.tokenTtlSeconds || 3600, settings.updatedAt || new Date().toISOString(), settings.updatedBy || null]);
 }
 
-async function loadWorkspaceEmbedSettings() {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query(
-      `SELECT workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by
-       FROM workspace_embed_settings
-       ORDER BY workspace_id ASC`
-    );
-    return rows.map(row => ({
-      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
-      enabled: !!row.enabled,
+function loadWorkspaceEmbedSettings() {
+  return dbQuery("loadWorkspaceEmbedSettings",
+    `SELECT workspace_id, enabled, allowed_origins, allowed_channel_ids, token_ttl_seconds, updated_at, updated_by
+     FROM workspace_embed_settings ORDER BY workspace_id ASC`, [],
+    (row) => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID, enabled: !!row.enabled,
       allowedOrigins: Array.isArray(row.allowed_origins) ? row.allowed_origins : [],
       allowedChannelIds: Array.isArray(row.allowed_channel_ids) ? row.allowed_channel_ids : [],
-      tokenTtlSeconds: row.token_ttl_seconds || 3600,
-      updatedAt: row.updated_at,
-      updatedBy: row.updated_by || null,
-    }));
-  } catch (e) {
-    console.error('[db] loadWorkspaceEmbedSettings error:', e.message);
-    return null;
-  }
+      tokenTtlSeconds: row.token_ttl_seconds || 3600, updatedAt: row.updated_at, updatedBy: row.updated_by || null,
+    }), null);
 }
 
 // ─── Workspace OpenViking settings ────────────────────────────────
 
-async function saveWorkspaceOpenvikingSettings(settings) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO workspace_openviking_settings
-         (workspace_id, enabled, url, root_api_key, account, updated_at, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT (workspace_id) DO UPDATE SET
-         enabled = EXCLUDED.enabled,
-         url = EXCLUDED.url,
-         root_api_key = EXCLUDED.root_api_key,
-         account = EXCLUDED.account,
-         updated_at = EXCLUDED.updated_at,
-         updated_by = EXCLUDED.updated_by`,
-      [
-        settings.workspaceId || DEFAULT_WORKSPACE_ID,
-        !!settings.enabled,
-        settings.url || null,
-        settings.rootApiKey || null,
-        settings.account || null,
-        settings.updatedAt || new Date().toISOString(),
-        settings.updatedBy || null,
-      ]
-    );
-  } catch (e) {
-    console.error('[db] saveWorkspaceOpenvikingSettings error:', e.message);
-  }
+function saveWorkspaceOpenvikingSettings(settings) {
+  return dbExec("saveWorkspaceOpenvikingSettings",
+    `INSERT INTO workspace_openviking_settings (workspace_id, enabled, url, root_api_key, account, updated_at, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (workspace_id) DO UPDATE SET enabled = EXCLUDED.enabled, url = EXCLUDED.url,
+       root_api_key = EXCLUDED.root_api_key, account = EXCLUDED.account,
+       updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`,
+    [settings.workspaceId || DEFAULT_WORKSPACE_ID, !!settings.enabled, settings.url || null,
+     settings.rootApiKey || null, settings.account || null, settings.updatedAt || new Date().toISOString(), settings.updatedBy || null]);
 }
 
-async function loadWorkspaceOpenvikingSettings() {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query(
-      `SELECT workspace_id, enabled, url, root_api_key, account, updated_at, updated_by
-       FROM workspace_openviking_settings
-       ORDER BY workspace_id ASC`
-    );
-    return rows.map(row => ({
-      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID,
-      enabled: !!row.enabled,
-      url: row.url || '',
-      rootApiKey: row.root_api_key || '',
-      account: row.account || '',
-      updatedAt: row.updated_at,
-      updatedBy: row.updated_by || null,
-    }));
-  } catch (e) {
-    console.error('[db] loadWorkspaceOpenvikingSettings error:', e.message);
-    return null;
-  }
+function loadWorkspaceOpenvikingSettings() {
+  return dbQuery("loadWorkspaceOpenvikingSettings",
+    `SELECT workspace_id, enabled, url, root_api_key, account, updated_at, updated_by
+     FROM workspace_openviking_settings ORDER BY workspace_id ASC`, [],
+    (row) => ({
+      workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID, enabled: !!row.enabled,
+      url: row.url || '', rootApiKey: row.root_api_key || '', account: row.account || '',
+      updatedAt: row.updated_at, updatedBy: row.updated_by || null,
+    }), null);
 }
 
 // ─── Agent activities ─────────────────────────────────────────────
@@ -1371,44 +1086,42 @@ async function trimAllAgentActivities(keep = ACTIVITY_KEEP_LIMIT) {
 
 // ─── Auth sessions ────────────────────────────────────────────────
 
-async function saveSession(token, user) {
-  if (!pool) return;
-  try {
-    await pool.query(
-      `INSERT INTO sessions (token, name, email, picture)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (token) DO UPDATE SET
-         name = EXCLUDED.name,
-         email = EXCLUDED.email,
-         picture = EXCLUDED.picture`,
-      [token, user.name, user.email, user.picture || null]
-    );
-  } catch (e) {
-    console.error('[db] saveSession error:', e.message);
-  }
+function saveSession(token, user) {
+  return dbExec("saveSession",
+    `INSERT INTO sessions (token, name, email, picture) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (token) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, picture = EXCLUDED.picture`,
+    [token, user.name, user.email, user.picture || null]);
 }
 
-async function deleteSession(token) {
-  if (!pool) return;
-  try {
-    await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
-  } catch (e) {
-    console.error('[db] deleteSession error:', e.message);
-  }
+function deleteSession(token) {
+  return dbExec("deleteSession", 'DELETE FROM sessions WHERE token = $1', [token]);
 }
 
-async function loadSessions() {
-  if (!pool) return null;
-  try {
-    const { rows } = await pool.query('SELECT token, name, email, picture FROM sessions');
-    return rows.map(row => ({
-      token: row.token,
-      user: { name: row.name, email: row.email, picture: row.picture || null },
-    }));
-  } catch (e) {
-    console.error('[db] loadSessions error:', e.message);
-    return null;
-  }
+function loadSessions() {
+  return dbQuery("loadSessions",
+    'SELECT token, name, email, picture FROM sessions', [],
+    (row) => ({ token: row.token, user: { name: row.name, email: row.email, picture: row.picture || null } }),
+    null);
+}
+
+// ─── Agent tokens ───────────────────────────────────────────────
+
+function saveAgentToken({ token, agentId, workspaceId }) {
+  return dbExec("saveAgentToken",
+    `INSERT INTO agent_tokens (token, agent_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (token) DO NOTHING`,
+    [token, agentId, workspaceId]);
+}
+
+function revokeAgentToken(agentId) {
+  return dbExec("revokeAgentToken",
+    `UPDATE agent_tokens SET revoked_at = now() WHERE agent_id = $1 AND revoked_at IS NULL`,
+    [agentId]);
+}
+
+function loadAgentTokens() {
+  return dbQuery("loadAgentTokens",
+    `SELECT token, agent_id AS "agentId", workspace_id AS "workspaceId", revoked_at AS "revokedAt" FROM agent_tokens`,
+    [], (r) => r);
 }
 
 async function closePool() {
@@ -1475,4 +1188,10 @@ module.exports = {
   loadLatestContextUsage,
   trimAgentActivities,
   trimAllAgentActivities,
+  saveAgentToken,
+  revokeAgentToken,
+  loadAgentTokens,
+  dbExec,
+  dbQuery,
+  dbQueryOne,
 };

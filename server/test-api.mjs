@@ -2121,29 +2121,3 @@ test('customLauncher: PUT with empty string clears the field', async () => {
   const cfg = configs.find((c) => c.id === LAUNCHER_AGENT);
   assert.equal(cfg.customLauncher ?? null, null);
 });
-
-test('OpenViking user strategy: PUT persists agent-name-as-user option', async () => {
-  const setTrue = await fetch(`${BASE}/api/agents/${LAUNCHER_AGENT}/config`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ROOT_TOKEN}` },
-    body: JSON.stringify({ openvikingUseAgentNameAsUser: true }),
-  });
-  assert.equal(setTrue.status, 200);
-
-  let getRes = await fetch(`${BASE}/api/agent-configs`, { headers: { Authorization: `Bearer ${ROOT_TOKEN}` } });
-  let { configs } = await getRes.json();
-  let cfg = configs.find((c) => c.id === LAUNCHER_AGENT);
-  assert.equal(cfg.openvikingUseAgentNameAsUser, true);
-
-  const setFalse = await fetch(`${BASE}/api/agents/${LAUNCHER_AGENT}/config`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ROOT_TOKEN}` },
-    body: JSON.stringify({ openvikingUseAgentNameAsUser: false }),
-  });
-  assert.equal(setFalse.status, 200);
-
-  getRes = await fetch(`${BASE}/api/agent-configs`, { headers: { Authorization: `Bearer ${ROOT_TOKEN}` } });
-  ({ configs } = await getRes.json());
-  cfg = configs.find((c) => c.id === LAUNCHER_AGENT);
-  assert.equal(cfg.openvikingUseAgentNameAsUser, false);
-});
