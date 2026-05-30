@@ -26,6 +26,53 @@ function levelClassName(level?: AgentEntry['level']) {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function truncate(text: string, max = 140) {
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function parseStructuredInput(value: unknown): Record<string, unknown> | null {
+  const record = asRecord(value);
+  if (record) return record;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+  try {
+    return asRecord(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+}
+
+function formatShellCommand(command: string) {
+  const match = command.match(/^\/bin\/(?:zsh|bash|sh)\s+-lc\s+(['"])([\s\S]*)\1$/);
+  return truncate(match?.[2] || command, 160);
+}
+
+function formatToolInput(entry: AgentEntry) {
+  const structured = parseStructuredInput(entry.toolInput)
+    || parseStructuredInput(entry.content)
+    || parseStructuredInput(entry.toolInputSummary);
+  const toolName = (entry.toolName || '').toLowerCase();
+  if (structured) {
+    const command = structured.command;
+    if (typeof command === 'string' && (toolName === 'shell' || toolName === 'bash' || toolName.includes('command'))) {
+      return formatShellCommand(command);
+    }
+    for (const key of ['target', 'channel', 'path', 'file_path', 'query', 'pattern', 'url']) {
+      const value = structured[key];
+      if (typeof value === 'string' && value) return truncate(value);
+    }
+    if (typeof command === 'string' && command) return formatShellCommand(command);
+  }
+  if (typeof entry.toolInputSummary === 'string' && entry.toolInputSummary.trim()) return truncate(entry.toolInputSummary.trim());
+  if (typeof entry.content === 'string' && entry.content.trim()) return truncate(entry.content.trim());
+  return '';
+}
+
 function getEntryClassName(entry: AgentEntry) {
   if (entry.kind === 'context_usage' && entry.contextUsage) {
     return contextUsageToneClass(entry.contextUsage.summary.percent);
@@ -103,12 +150,13 @@ function renderStructuredEntry(entry: AgentEntry) {
   }
 
   if (entry.kind === 'tool') {
+    const toolInput = formatToolInput(entry);
     return (
       <div className="space-y-1">
         {renderHeader(entry, entry.toolName ? `Tool · ${entry.toolName}` : 'Tool')}
-        {(entry.content || entry.toolInputSummary) && (
+        {toolInput && (
           <div className="text-[11px] whitespace-pre-wrap break-words text-nc-text-bright">
-            {entry.content || entry.toolInputSummary}
+            {toolInput}
           </div>
         )}
       </div>
@@ -159,6 +207,7 @@ function isStructuredEntry(entry: AgentEntry) {
 function hasVisibleContent(entry: AgentEntry) {
   if (entry.kind === 'context_usage' && entry.contextUsage) return true;
   if (entry.kind === 'tool' || entry.kind === 'tool_start') return !!entry.toolName;
+  if (entry.kind === 'status' && (entry.activity === 'thinking' || entry.activity === 'working') && !entry.content && !entry.text && !entry.detail) return false;
   if (entry.content || entry.text || entry.detail || entry.title) return true;
   if (entry.kind === 'status' && entry.activity && entry.activity !== 'online' && entry.activity !== 'idle') return true;
   return false;
