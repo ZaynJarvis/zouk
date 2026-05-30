@@ -14,7 +14,7 @@ import { agentStatus, humanStatus } from '../lib/avatarStatus';
 import FailableImage from './FailableImage';
 import type { ServerHuman } from '../types';
 
-const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // mirrors server multer limit
+const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024; // mirrors server multer limit
 
 interface PendingAttachment {
   key: string;        // stable react key + tag until upload finishes
@@ -185,7 +185,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     const accepted: PendingAttachment[] = [];
     for (const file of files) {
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        addToast(`${file.name || 'file'} is larger than 5MB`, 'error');
+        addToast(`${file.name || 'file'} is larger than 50MB`, 'error');
         continue;
       }
       const isImage = file.type.startsWith('image/');
