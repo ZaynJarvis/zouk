@@ -181,7 +181,7 @@ export function useAppStore() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
   const [agentProfileId, setAgentProfileId] = useState<string | null>(null);
-  const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'config'>('profile');
+  const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'memory' | 'config'>('profile');
   const [memoryFocusAgentId, setMemoryFocusAgentId] = useState<string | null>(null);
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
