@@ -28,25 +28,11 @@ export function formatContextUsageCompact(usage?: AgentContextUsageModel): strin
   return percent ? `${used}/${percent}` : used;
 }
 
-export function contextUsageToneClass(percent?: number): string {
-  if (typeof percent !== 'number' || !Number.isFinite(percent)) {
-    return 'border-nc-border bg-nc-elevated text-nc-muted';
-  }
-  if (percent >= 0.9) {
-    return 'border-nc-red/40 bg-nc-red/10 text-nc-red';
-  }
-  if (percent >= 0.75) {
-    return 'border-nc-yellow/40 bg-nc-yellow/10 text-nc-yellow';
-  }
-  return 'border-nc-cyan/40 bg-nc-cyan/10 text-nc-cyan';
+export function contextUsageToneClass(_percent?: number): string {
+  return 'border-nc-border-bright/60 bg-transparent text-nc-muted';
 }
 
-export function contextUsageTextTone(percent?: number): string {
-  if (typeof percent !== 'number' || !Number.isFinite(percent)) {
-    return 'text-nc-muted';
-  }
-  if (percent >= 0.8) return 'text-nc-red';
-  if (percent >= 0.6) return 'text-nc-yellow';
+export function contextUsageTextTone(_percent?: number): string {
   return 'text-nc-muted';
 }
 
