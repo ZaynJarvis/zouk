@@ -21,7 +21,8 @@ import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
 import { fetchAgentOvStatus } from '../lib/api';
 import { isMobileViewport } from '../lib/layout';
-import { Avatar } from './zk/primitives';
+import { AgentAvatar } from './zk/primitives';
+import AgentProfileSummary from './agent/AgentProfileSummary';
 import { LEVEL_META } from './memory/atlas-helpers';
 import {
   fileKindLabel,
@@ -139,12 +140,10 @@ function AgentChipStrip({
               transition: 'background 160ms var(--zk-ease-out), border-color 160ms var(--zk-ease-out), color 160ms var(--zk-ease-out)',
             }}
           >
-            <Avatar
-              src={a.picture}
-              name={a.displayName || a.name}
-              kind="agent"
+            <AgentAvatar
+              agent={a}
               size="sm"
-              activity={a.activity}
+              hideDotWhen={['offline', 'online', 'working']}
             />
             <span style={{ fontWeight: active ? 500 : 400 }}>
               {a.displayName || a.name}
@@ -721,13 +720,15 @@ export default function MemoryView() {
     }
   }, [source, fetchFolderSummaries]);
 
+  const memoryBrowserRoot = source === 'memory' && ovUser ? memoryFolderUri(ovUser, 'memories') : undefined;
+
   const refreshActive = useCallback(() => {
     if (!agentId) return;
-    fetchList(rootFor(source));
+    fetchList(memoryBrowserRoot ?? rootFor(source));
     expanded.forEach((u) => fetchList(u));
     if (selectedFile) fetchContent(selectedFile);
     if (selectedFolder && source === 'memory') fetchFolderSummaries(selectedFolder);
-  }, [agentId, source, expanded, selectedFile, selectedFolder, fetchList, fetchContent, fetchFolderSummaries]);
+  }, [agentId, source, memoryBrowserRoot, expanded, selectedFile, selectedFolder, fetchList, fetchContent, fetchFolderSummaries]);
 
   const previewUri = selectedFile ?? selectedFolder;
   const previewIsDir = !selectedFile && !!selectedFolder;
@@ -826,6 +827,16 @@ export default function MemoryView() {
         onSelect={setAgentId}
       />
 
+      {selectedAgent && source === 'memory' && (
+        <AgentProfileSummary
+          agent={selectedAgent}
+          compact
+          showStatusDot={false}
+          className="shrink-0 px-4 py-3"
+          style={{ borderBottom: '1px solid var(--zk-line)', background: 'var(--zk-bg-1)' }}
+        />
+      )}
+
       {!selectedAgent ? (
         <div
           style={{
@@ -862,6 +873,7 @@ export default function MemoryView() {
               selectedUri={selectedFile ?? selectedFolder}
               onSelectFile={setSelectedFile}
               onSelectFolder={handleSelectFolder}
+              rootUri={memoryBrowserRoot}
               expanded={expanded}
               setExpanded={setExpanded}
             />

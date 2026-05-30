@@ -28,11 +28,13 @@ export function formatContextUsageCompact(usage?: AgentContextUsageModel): strin
   return percent ? `${used}/${percent}` : used;
 }
 
-export function contextUsageToneClass(_percent?: number): string {
+export function contextUsageToneClass(percent?: number): string {
+  void percent;
   return 'border-nc-border-bright/60 bg-transparent text-nc-muted';
 }
 
-export function contextUsageTextTone(_percent?: number): string {
+export function contextUsageTextTone(percent?: number): string {
+  void percent;
   return 'text-nc-muted';
 }
 
