@@ -15,7 +15,7 @@ function createDaemonHandler(ctx) {
     pendingRuntimeModelRequests, pendingContextResets,
     DEFAULT_WORKSPACE_ID, normalizeWorkspaceId,
     validateApiKey, findMachineKeyRecord, resolveDaemonMachineId,
-    isDebugKey, computeMachineFingerprint,
+    isDebugKey, computeMachineFingerprint, computeMachineFingerprintVariants,
     machineKeys, saveMachineKeys,
     hasKnownAgentConfig, purgeUnknownAgentState,
     evaluateAgentMachineAffinity,
@@ -361,13 +361,16 @@ function createDaemonHandler(ctx) {
           const keyRecord = findMachineKeyRecord(ws._apiKey);
           if (keyRecord) {
             const fingerprint = computeMachineFingerprint(msg.hostname, msg.os);
+            const compatibleFingerprints = typeof computeMachineFingerprintVariants === "function"
+              ? computeMachineFingerprintVariants(msg.hostname, msg.os)
+              : [fingerprint];
             if (!keyRecord.boundFingerprint) {
               // First-time bind: record the fingerprint
               keyRecord.boundFingerprint = fingerprint;
               saveMachineKeys(machineKeys);
               db.saveMachineKey(keyRecord);
               console.log(`[daemon] Key "${keyRecord.name}" bound to machine fingerprint ${fingerprint.substring(0, 12)}...`);
-            } else if (keyRecord.boundFingerprint !== fingerprint) {
+            } else if (!compatibleFingerprints.includes(keyRecord.boundFingerprint)) {
               // Fingerprint mismatch: reject silently
               console.log(`[daemon] Key "${keyRecord.name}" rejected — fingerprint mismatch (expected ${keyRecord.boundFingerprint.substring(0, 12)}..., got ${fingerprint.substring(0, 12)}...)`);
               ws.close(1008, 'machine binding mismatch');

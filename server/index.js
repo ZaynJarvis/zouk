@@ -613,10 +613,54 @@ function isReservedName(name) {
   return RESERVED_USER_NAMES.has(String(name || "").trim().toLowerCase());
 }
 
-// Stable fingerprint for machine binding: SHA-256(hostname:os)
+const MACHINE_ARCH_SUFFIXES = [
+  "arm64",
+  "aarch64",
+  "x64",
+  "x86_64",
+  "amd64",
+  "ia32",
+  "arm",
+  "armv7",
+  "armv7l",
+];
+const MACHINE_ARCH_SUFFIX_SET = new Set(MACHINE_ARCH_SUFFIXES);
+
+function normalizeMachineOsForFingerprint(os) {
+  const parts = String(os || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (parts.length > 1 && MACHINE_ARCH_SUFFIX_SET.has(parts[parts.length - 1])) {
+    parts.pop();
+  }
+  return parts.join(" ");
+}
+
+function hashMachineFingerprint(hostname, os) {
+  const input = [hostname, os].map((part) => String(part || "").trim()).filter(Boolean).join(":").toLowerCase();
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+// Stable fingerprint for machine binding: SHA-256(hostname:os_without_arch).
+// Older daemons reported OS as "darwin arm64"; newer packages reported "darwin".
+// Bind canonical values without the trailing arch, but keep accepting legacy
+// arch-suffixed hashes for already-bound machine keys.
 function computeMachineFingerprint(hostname, os) {
-  const input = [hostname, os].filter(Boolean).join(':').toLowerCase();
-  return crypto.createHash('sha256').update(input).digest('hex');
+  return hashMachineFingerprint(hostname, normalizeMachineOsForFingerprint(os));
+}
+
+function computeMachineFingerprintVariants(hostname, os) {
+  const normalizedOs = normalizeMachineOsForFingerprint(os);
+  const variants = new Set([
+    computeMachineFingerprint(hostname, os),
+    hashMachineFingerprint(hostname, os),
+  ]);
+
+  if (normalizedOs) {
+    for (const arch of MACHINE_ARCH_SUFFIXES) {
+      variants.add(hashMachineFingerprint(hostname, `${normalizedOs} ${arch}`));
+    }
+  }
+
+  return [...variants];
 }
 
 // Whether this is a debug/dev key (not subject to machine binding)
@@ -2747,7 +2791,7 @@ const daemonHandler = createDaemonHandler({
   pendingRuntimeModelRequests, pendingContextResets,
   DEFAULT_WORKSPACE_ID, normalizeWorkspaceId,
   validateApiKey, findMachineKeyRecord, resolveDaemonMachineId,
-  isDebugKey, computeMachineFingerprint,
+  isDebugKey, computeMachineFingerprint, computeMachineFingerprintVariants,
   machineKeys, saveMachineKeys,
   hasKnownAgentConfig, purgeUnknownAgentState,
   evaluateAgentMachineAffinity,
