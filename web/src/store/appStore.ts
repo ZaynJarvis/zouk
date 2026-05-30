@@ -374,10 +374,17 @@ export function useAppStore() {
           if (lastMsg) {
             const isDm = viewModeRef.current === 'dm';
             const sender = isDm ? currentUserRef.current : undefined;
+            // Snapshot the view at fetch-start; a workspace OR channel switch
+            // before the response arrives must drop the result, otherwise old
+            // messages get appended into a different conversation's list.
             const workspaceId = activeWorkspaceRef.current;
-            api.fetchMessages(activeChannelRef.current, isDm, 200, sender, undefined, lastMsg.id)
+            const channelAtRequest = activeChannelRef.current;
+            const viewModeAtRequest = viewModeRef.current;
+            api.fetchMessages(channelAtRequest, isDm, 200, sender, undefined, lastMsg.id)
               .then(res => {
                 if (activeWorkspaceRef.current !== workspaceId) return;
+                if (activeChannelRef.current !== channelAtRequest) return;
+                if (viewModeRef.current !== viewModeAtRequest) return;
                 if (res.messages.length === 0) return;
                 setMessages(prev => {
                   const known = new Set(prev.map(m => m.id));
@@ -395,9 +402,11 @@ export function useAppStore() {
             const isThreadDm = openThread.channel_type === 'dm';
             const threadSender = isThreadDm ? currentUserRef.current : undefined;
             const workspaceId = activeWorkspaceRef.current;
+            const threadAtRequest = openThread.id;
             api.fetchThreadMessages(openThread.channel_name, openThread.id, isThreadDm, 200, threadSender)
               .then(msgs => {
                 if (activeWorkspaceRef.current !== workspaceId) return;
+                if (activeThreadMessageRef.current?.id !== threadAtRequest) return;
                 setThreadMessages(prev => {
                   const known = new Set(prev.map(m => m.id));
                   const fresh = msgs.filter(m => !known.has(m.id));
@@ -1099,8 +1108,12 @@ export function useAppStore() {
     threadTarget?: string,
     attachmentIds?: string[],
   ): Promise<boolean> => {
+    // Snapshot the view at send-time so the optimistic append doesn't leak into
+    // a different conversation if the user switches channels before POST resolves.
     const isDm = viewModeRef.current === 'dm';
-    const target = threadTarget || (isDm ? `dm:@${activeChannelRef.current}` : `#${activeChannelRef.current}`);
+    const sendChannelAtRequest = activeChannelRef.current;
+    const sendViewModeAtRequest = viewModeRef.current;
+    const target = threadTarget || (isDm ? `dm:@${sendChannelAtRequest}` : `#${sendChannelAtRequest}`);
     try {
       const sent = await api.sendMessage(content, target, currentUser, attachmentIds);
       // Optimistic append. iOS PWA cold-opens often spend 10–30s establishing
@@ -1120,12 +1133,14 @@ export function useAppStore() {
             setThreadMessages(prev => prev.some(m => m.id === sent.id) ? prev : [...prev, sent]);
           }
         } else {
-          const isDmMessage = sent.channel_type === 'dm';
-          let conversationKey = sent.channel_name;
-          if (isDmMessage && sent.dm_parties && sent.dm_parties.length === 2) {
-            conversationKey = sent.dm_parties.find(p => p !== currentUser) || sent.dm_parties[0];
-          }
+          // For DMs the conversation key is the peer name (current-user POV),
+          // not the canonical `dm:a,b` channel_name. The POST response often
+          // doesn't carry `dm_parties`, so derive the peer from the in-flight
+          // target instead — that's what activeChannelRef was when we sent.
+          const isDmMessage = sent.channel_type === 'dm' || (isDm && sent.channel_type !== 'channel');
+          const conversationKey = isDmMessage ? sendChannelAtRequest : sent.channel_name;
           const isActive = conversationKey === activeChannelRef.current
+            && sendViewModeAtRequest === viewModeRef.current
             && ((isDmMessage && viewModeRef.current === 'dm')
                 || (!isDmMessage && viewModeRef.current !== 'dm'));
           if (isActive) {
