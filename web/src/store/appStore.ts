@@ -361,10 +361,13 @@ export function useAppStore() {
     switch (event.type) {
       case 'ws:connected' as string: {
         setWsConnected(true);
-        const isReconnect = hasConnectedOnceRef.current;
         hasConnectedOnceRef.current = true;
-        if (isReconnect) {
-          // Gap-fill: fetch any messages that arrived while the WS was down.
+        // Always gap-fill on connect — not just reconnects. iOS PWA cold opens
+        // commonly spend 10–30s on the WS upgrade after the initial REST page
+        // of messages has already loaded; messages other users sent in that
+        // window are missed by both the page fetch (snapshot was earlier) and
+        // the WS stream (not connected yet). The HTTP cursor catches them.
+        {
           // Use the last visible message as the cursor; merge results in without
           // wiping the existing list so scroll position is preserved.
           const lastMsg = messagesRef.current[messagesRef.current.length - 1];
@@ -526,7 +529,7 @@ export function useAppStore() {
             || open.id.slice(0, 8) === threadShortId
           );
           if (threadIsOpen) {
-            setThreadMessages(prev => [...prev, msg]);
+            setThreadMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
           }
 
           // Append the reply onto its parent's inline preview so the channel list
@@ -581,7 +584,7 @@ export function useAppStore() {
           if (isActiveConversation) {
             // Update channel_name to peer name for consistent frontend display
             if (isDmMessage) msg.channel_name = conversationKey;
-            setMessages(prev => [...prev, msg]);
+            setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
           } else if (!isSelfMessage) {
             // Don't bump unread for our own echo — sending from another channel
             // or another tab shouldn't light up the destination we sent to.
@@ -1099,7 +1102,38 @@ export function useAppStore() {
     const isDm = viewModeRef.current === 'dm';
     const target = threadTarget || (isDm ? `dm:@${activeChannelRef.current}` : `#${activeChannelRef.current}`);
     try {
-      await api.sendMessage(content, target, currentUser, attachmentIds);
+      const sent = await api.sendMessage(content, target, currentUser, attachmentIds);
+      // Optimistic append. iOS PWA cold-opens often spend 10–30s establishing
+      // the WS upgrade; without this the user sees their text vanish but no
+      // bubble appears until the WS finally connects and pushes the echo back.
+      // The corresponding WS handler dedups by msg.id so the broadcast is a
+      // no-op when it eventually arrives.
+      if (sent) {
+        if (sent.channel_type === 'thread') {
+          const open = activeThreadMessageRef.current;
+          const threadShortId = sent.channel_name;
+          const threadIsOpen = !!open && (
+            (sent.parent_message_id && open.id === sent.parent_message_id)
+            || open.id.slice(0, 8) === threadShortId
+          );
+          if (threadIsOpen) {
+            setThreadMessages(prev => prev.some(m => m.id === sent.id) ? prev : [...prev, sent]);
+          }
+        } else {
+          const isDmMessage = sent.channel_type === 'dm';
+          let conversationKey = sent.channel_name;
+          if (isDmMessage && sent.dm_parties && sent.dm_parties.length === 2) {
+            conversationKey = sent.dm_parties.find(p => p !== currentUser) || sent.dm_parties[0];
+          }
+          const isActive = conversationKey === activeChannelRef.current
+            && ((isDmMessage && viewModeRef.current === 'dm')
+                || (!isDmMessage && viewModeRef.current !== 'dm'));
+          if (isActive) {
+            if (isDmMessage) sent.channel_name = conversationKey;
+            setMessages(prev => prev.some(m => m.id === sent.id) ? prev : [...prev, sent]);
+          }
+        }
+      }
       return true;
     } catch {
       addToast('Failed to send message', 'error');
