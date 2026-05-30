@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { Bot, User, ImagePlus, X, ArrowUp } from 'lucide-react';
+import { Bot, User, Paperclip, X, ArrowUp, FileText } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { uploadAttachment } from '../lib/api';
@@ -16,10 +16,16 @@ import type { ServerHuman } from '../types';
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // mirrors server multer limit
 
-interface PendingImage {
+interface PendingAttachment {
   key: string;        // stable react key + tag until upload finishes
   file: File;
-  previewUrl: string; // blob URL for thumbnail preview
+  previewUrl: string | null; // blob URL for image thumbnails; null for non-image files
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // Locate the @ that anchors the current mention query. Mirrors the lookbehind
@@ -50,9 +56,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
-  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
-  const pendingImagesRef = useRef<PendingImage[]>([]);
-  pendingImagesRef.current = pendingImages;
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const pendingAttachmentsRef = useRef<PendingAttachment[]>([]);
+  pendingAttachmentsRef.current = pendingAttachments;
   const [isSending, setIsSending] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounter = useRef(0);
@@ -60,7 +66,9 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   // Revoke any outstanding preview blob URLs on unmount.
   useEffect(() => {
     return () => {
-      for (const p of pendingImagesRef.current) URL.revokeObjectURL(p.previewUrl);
+      for (const p of pendingAttachmentsRef.current) {
+        if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+      }
     };
   }, []);
 
@@ -76,7 +84,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   }, []);
 
   const showCloseThreadBtn = isMobileSurface && !!threadTarget && !text.trim();
-  const showImageBtn = !text.trim();
+  const showAttachBtn = !text.trim();
   const showSendBtn = !isMobileSurface;
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
@@ -172,46 +180,46 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     });
   }, [text]);
 
-  const addImageFiles = useCallback((files: File[]) => {
+  const addFiles = useCallback((files: File[]) => {
     if (isGuest || files.length === 0) return;
-    const accepted: PendingImage[] = [];
+    const accepted: PendingAttachment[] = [];
     for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        addToast(`${file.name || 'image'} is larger than 5MB`, 'error');
+        addToast(`${file.name || 'file'} is larger than 5MB`, 'error');
         continue;
       }
+      const isImage = file.type.startsWith('image/');
       accepted.push({
         key: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         file,
-        previewUrl: URL.createObjectURL(file),
+        previewUrl: isImage ? URL.createObjectURL(file) : null,
       });
     }
-    if (accepted.length > 0) setPendingImages((prev) => [...prev, ...accepted]);
+    if (accepted.length > 0) setPendingAttachments((prev) => [...prev, ...accepted]);
   }, [isGuest, addToast]);
 
-  const removePendingImage = useCallback((key: string) => {
-    setPendingImages((prev) => {
+  const removePendingAttachment = useCallback((key: string) => {
+    setPendingAttachments((prev) => {
       const hit = prev.find((p) => p.key === key);
-      if (hit) URL.revokeObjectURL(hit.previewUrl);
+      if (hit?.previewUrl) URL.revokeObjectURL(hit.previewUrl);
       return prev.filter((p) => p.key !== key);
     });
   }, []);
 
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
-    const images = pendingImagesRef.current;
-    if (!trimmed && images.length === 0) return;
+    const attachments = pendingAttachmentsRef.current;
+    if (!trimmed && attachments.length === 0) return;
     if (isSending) return;
     setIsSending(true);
     let attachmentIds: string[] | undefined;
     try {
-      if (images.length > 0) {
-        const uploads = await Promise.all(images.map((p) => uploadAttachment(p.file)));
+      if (attachments.length > 0) {
+        const uploads = await Promise.all(attachments.map((p) => uploadAttachment(p.file)));
         attachmentIds = uploads.map((u) => u.id);
       }
     } catch {
-      addToast('Failed to upload image', 'error');
+      addToast('Failed to upload file', 'error');
       setIsSending(false);
       return;
     }
@@ -219,8 +227,10 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     setIsSending(false);
     if (!ok) return;
     setText('');
-    for (const p of images) URL.revokeObjectURL(p.previewUrl);
-    setPendingImages([]);
+    for (const p of attachments) {
+      if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+    }
+    setPendingAttachments([]);
     draftsRef.current.delete(draftKey);
     setMentionQuery(null);
     setSuppressedAtPos(null);
@@ -235,25 +245,25 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     if (!items) return;
     const files: File[] = [];
     for (const item of Array.from(items)) {
-      if (item.kind === 'file' && item.type.startsWith('image/')) {
+      if (item.kind === 'file') {
         const f = item.getAsFile();
         if (f) files.push(f);
       }
     }
     if (files.length === 0) return;
     // Keep default behavior for accompanying text (no preventDefault unless we
-    // actually pulled images) — rich-text pastes with embedded images still
+    // actually pulled files) — rich-text pastes with embedded files still
     // drop their caption text into the textarea.
     e.preventDefault();
-    addImageFiles(files);
-  }, [isGuest, addImageFiles]);
+    addFiles(files);
+  }, [isGuest, addFiles]);
 
   const handleFilePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files;
     if (!list) return;
-    addImageFiles(Array.from(list));
+    addFiles(Array.from(list));
     e.target.value = ''; // allow selecting the same file again next time
-  }, [addImageFiles]);
+  }, [addFiles]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes('Files')) return;
@@ -278,8 +288,8 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
     dragCounter.current = 0;
     setIsDragOver(false);
     if (isGuest) return;
-    addImageFiles(Array.from(e.dataTransfer.files));
-  }, [isGuest, addImageFiles]);
+    addFiles(Array.from(e.dataTransfer.files));
+  }, [isGuest, addFiles]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionQuery !== null && mentionMatches.length > 0) {
@@ -448,33 +458,74 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           </div>
         )}
 
-        {pendingImages.length > 0 && (
+        {pendingAttachments.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
-            {pendingImages.map((img) => (
-              <div
-                key={img.key}
-                className="relative w-16 h-16 overflow-hidden group"
-                style={{
-                  border: '1px solid var(--zk-line)',
-                  background: 'var(--zk-bg-1)',
-                  borderRadius: 6,
-                }}
-              >
-                <FailableImage
-                  src={img.previewUrl}
-                  alt={img.file.name}
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => removePendingImage(img.key)}
-                  aria-label={`Remove ${img.file.name}`}
-                  className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center transition-colors"
-                  style={{ background: 'rgba(10,11,13,0.7)', color: 'var(--zk-ink)' }}
+            {pendingAttachments.map((att) => (
+              att.previewUrl ? (
+                <div
+                  key={att.key}
+                  className="relative w-16 h-16 overflow-hidden group"
+                  style={{
+                    border: '1px solid var(--zk-line)',
+                    background: 'var(--zk-bg-1)',
+                    borderRadius: 6,
+                  }}
                 >
-                  <X size={12} />
-                </button>
-              </div>
+                  <FailableImage
+                    src={att.previewUrl}
+                    alt={att.file.name}
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removePendingAttachment(att.key)}
+                    aria-label={`Remove ${att.file.name}`}
+                    className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center transition-colors"
+                    style={{ background: 'rgba(10,11,13,0.7)', color: 'var(--zk-ink)' }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  key={att.key}
+                  className="relative flex items-center gap-2 group"
+                  style={{
+                    border: '1px solid var(--zk-line)',
+                    background: 'var(--zk-bg-1)',
+                    borderRadius: 6,
+                    padding: '6px 28px 6px 10px',
+                    maxWidth: 240,
+                    minWidth: 0,
+                  }}
+                  title={att.file.name}
+                >
+                  <FileText size={14} style={{ flexShrink: 0, color: 'var(--zk-ink-low)' }} />
+                  <div className="flex flex-col min-w-0">
+                    <span
+                      className="text-xs truncate"
+                      style={{ color: 'var(--zk-ink)', fontFamily: 'var(--zk-font-sans)' }}
+                    >
+                      {att.file.name}
+                    </span>
+                    <span
+                      className="text-2xs font-mono"
+                      style={{ color: 'var(--zk-ink-low)' }}
+                    >
+                      {formatFileSize(att.file.size)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removePendingAttachment(att.key)}
+                    aria-label={`Remove ${att.file.name}`}
+                    className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center transition-colors"
+                    style={{ background: 'rgba(10,11,13,0.7)', color: 'var(--zk-ink)' }}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )
             ))}
           </div>
         )}
@@ -514,35 +565,34 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             }`}
           >
             <div className="h-full flex items-center justify-center gap-2 text-nc-cyan text-sm font-mono select-none">
-              <ImagePlus size={16} />
-              Drop to attach image
+              <Paperclip size={16} />
+              Drop to attach file
             </div>
           </div>
           <div className="flex items-center" style={{ padding: isMobileSurface ? '3px 6px' : '6px 8px' }}>
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
             multiple
             onChange={handleFilePick}
             className="hidden"
           />
           <div
             className={`flex-shrink-0 self-center overflow-hidden transition-[width,opacity] duration-150 ease-out ${
-              showImageBtn ? 'w-9 sm:w-10 opacity-100' : 'w-0 opacity-0'
+              showAttachBtn ? 'w-9 sm:w-10 opacity-100' : 'w-0 opacity-0'
             }`}
-            aria-hidden={!showImageBtn}
+            aria-hidden={!showAttachBtn}
           >
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isGuest}
-              tabIndex={showImageBtn ? 0 : -1}
-              aria-label="Attach image"
+              tabIndex={showAttachBtn ? 0 : -1}
+              aria-label="Attach file"
               className="zk-btn zk-btn--ghost zk-btn--icon flex-shrink-0 self-center"
               style={{ borderRadius: 9999 }}
             >
-              <ImagePlus size={14} />
+              <Paperclip size={14} />
             </button>
           </div>
           <textarea
@@ -579,7 +629,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isGuest || (!text.trim() && pendingImages.length === 0) || isSending}
+              disabled={isGuest || (!text.trim() && pendingAttachments.length === 0) || isSending}
               aria-label="Send message"
               className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-center"
               style={{ borderRadius: 9999 }}
