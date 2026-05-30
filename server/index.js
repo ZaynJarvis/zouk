@@ -312,15 +312,25 @@ function isValidAgentHandle(name) {
 // GLOBAL (across all workspaces) because the OV account may be shared, so two
 // same-named agents would collide in OV. Distinct from agentIdByName, which is
 // workspace-scoped and also matches displayName.
-function isAgentNameTaken(name, excludeId = null) {
+// Name uniqueness is scoped to a single workspace — agents are workspace-scoped
+// everywhere else (delete, list, config all filter by workspace), so the same
+// handle may exist in different workspaces. Cross-workspace same-name agents map
+// to the same bare OV user_id only when their workspaces resolve to the same OV
+// account (see resolveProvisioningCreds); workspaces that fall back to the env
+// account should use distinct accounts to avoid unintended OV sharing. When the
+// account is shared, reuse is the documented behavior (inherit prior memory).
+function isAgentNameTaken(name, excludeId = null, workspaceId = DEFAULT_WORKSPACE_ID) {
   const lowered = String(name || "").trim().toLowerCase();
   if (!lowered) return false;
+  const wsId = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
   for (const cfg of agentConfigs) {
     if (cfg.id === excludeId) continue;
+    if (normalizeWorkspaceId(cfg.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
     if ((cfg.name || "").trim().toLowerCase() === lowered) return true;
   }
   for (const [id, a] of Object.entries(store.agents)) {
     if (id === excludeId) continue;
+    if (normalizeWorkspaceId(a.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
     if ((a.name || "").trim().toLowerCase() === lowered) return true;
   }
   return false;
