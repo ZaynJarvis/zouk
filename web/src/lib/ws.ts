@@ -300,6 +300,20 @@ export class SlockWebSocket {
     }
 
     const newUrl = this.buildUrl();
+    const urlChanged = this.lastConnectUrl !== null && this.lastConnectUrl !== newUrl;
+    if (urlChanged) {
+      // Any buffered pre-mount events were generated under stale credentials
+      // (different workspaceId / no token / wrong token) — replaying them into
+      // a subscriber that registers *after* the URL change would overwrite the
+      // newly-fetched state. Drop them; the fresh handshake will deliver a
+      // matching `init`. Covers OPEN/CONNECTING teardown AND the case where
+      // the eager socket already closed but earlyEvents still hold its `init`.
+      if (this.earlyEvents.length > 0) {
+        wsLog(this.instanceId, `connect() URL changed, dropping ${this.earlyEvents.length} stale pre-mount events`);
+        this.earlyEvents = [];
+      }
+      this.lastConnectUrl = null;
+    }
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       if (this.lastConnectUrl === newUrl) {
         wsLog(this.instanceId, `connect() skipped readyState=${this.ws.readyState} (url unchanged)`);

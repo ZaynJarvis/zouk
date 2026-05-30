@@ -870,23 +870,28 @@ export function useAppStore() {
 
   useEffect(() => {
     // Reuse the singleton WS that started handshaking at JS-parse time (see
-    // lib/wsSingleton.ts). connect() is now idempotent on URL match — if the
+    // lib/wsSingleton.ts). connect() is idempotent on URL match — if the
     // workspaceId / token captured at eager init is still current, this is a
-    // no-op and the warm connection lives; if either changed during the auth
+    // no-op and the warm connection lives. If either changed during the auth
     // flow before AppProvider mounted, connect() tears the stale handshake
-    // down and re-opens with the right URL. Events received before this
-    // subscription were buffered in SlockWebSocket and drain into
-    // handleWsEvent the moment we register.
+    // down, clears any buffered pre-mount events (they were generated under
+    // the wrong credentials and would clobber state if drained), and re-opens
+    // with the right URL.
+    //
+    // Order matters: connect() runs *before* on(), so URL reconciliation +
+    // earlyEvents pruning happen first; the handler then drains only events
+    // that actually match the current URL, plus the fresh `init` that the
+    // re-handshake will produce.
     wsRef.current = eagerWs;
-    const unsub = eagerWs.on(handleWsEvent);
     eagerWs.connect();
+    const unsub = eagerWs.on(handleWsEvent);
     return () => {
       unsub();
       // Intentionally NOT calling disconnect(). The singleton outlives the
       // React tree; tearing it down on every dep change would defeat the
       // whole point of the eager init.
     };
-  }, [serverUrl, activeWorkspaceId, handleWsEvent]);
+  }, [serverUrl, activeWorkspaceId, authToken, handleWsEvent]);
 
   useEffect(() => {
     if (!isLoggedIn) {
