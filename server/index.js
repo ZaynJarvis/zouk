@@ -2372,7 +2372,25 @@ app.use("/ov", createOvProxy({
 const attachmentStorage = createStorage(
   process.env.ZOUK_UPLOADS_DIR || path.join(__dirname, "..", "uploads")
 );
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ATTACHMENT_BYTES } });
+
+// Periodic prune: keep attachment blobs for 3 days, then unlink the blob +
+// sidecar. resolveAttachmentRefs() already falls back to filename:"unknown"
+// for missing ids, so old messages keep rendering without their thumbnails.
+const ATTACHMENT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const ATTACHMENT_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+async function runAttachmentPrune() {
+  try {
+    const removed = await attachmentStorage.pruneOlderThan(ATTACHMENT_MAX_AGE_MS);
+    if (removed > 0) console.log(`[attachments] pruned ${removed} blob(s) older than 3 days`);
+  } catch (err) {
+    console.warn(`[attachments] prune failed: ${err.message}`);
+  }
+}
+// Sweep on boot so a long-down server still catches up, then on a fixed cadence.
+setTimeout(runAttachmentPrune, 10_000);
+setInterval(runAttachmentPrune, ATTACHMENT_PRUNE_INTERVAL_MS).unref();
 
 // Resolve an array of attachment ids into the thin {id, filename, contentType}
 // shape that rides along with each message. Unknown ids fall through as

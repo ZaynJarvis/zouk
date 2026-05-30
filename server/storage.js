@@ -72,7 +72,43 @@ function createStorage(dir = DEFAULT_DIR) {
     ]);
   }
 
-  return { put, statSync, existsSync, stream, remove, dir };
+  // Delete blob + sidecar pairs whose meta.createdAt is older than maxAgeMs.
+  // Falls back to file mtime when meta is missing/unparseable so we can still
+  // sweep up orphaned blobs. Returns the count of removed attachment ids.
+  async function pruneOlderThan(maxAgeMs) {
+    const cutoff = Date.now() - maxAgeMs;
+    let entries;
+    try {
+      entries = await fs.promises.readdir(dir);
+    } catch {
+      return 0;
+    }
+    const ids = entries.filter((n) => !n.endsWith(".meta.json"));
+    let removed = 0;
+    for (const id of ids) {
+      let createdAt = null;
+      const meta = statSync(id);
+      if (meta?.createdAt) {
+        const t = Date.parse(meta.createdAt);
+        if (Number.isFinite(t)) createdAt = t;
+      }
+      if (createdAt === null) {
+        try {
+          const s = await fs.promises.stat(blobPath(id));
+          createdAt = s.mtimeMs;
+        } catch {
+          continue;
+        }
+      }
+      if (createdAt < cutoff) {
+        await remove(id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
+  return { put, statSync, existsSync, stream, remove, pruneOlderThan, dir };
 }
 
 module.exports = { createStorage };
