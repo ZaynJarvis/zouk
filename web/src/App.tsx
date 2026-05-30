@@ -103,6 +103,7 @@ function AppShell() {
       const panel = threadRailRef.current;
       if (!panel) return;
       const target = e.target as Node | null;
+      if (target instanceof Element && target.closest('.image-lightbox')) return;
       if (target && panel.contains(target)) return;
       closeRightPanel();
     };
