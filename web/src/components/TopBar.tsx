@@ -1,7 +1,8 @@
 /* TopBar — channel/dm header.
-   On channel/dm view this matches the V1Channel header from
+   On channel view this matches the V1Channel header from
    tmp/.../zouk-rethink/v1-conservative.jsx (CHANNEL eyebrow + Hash glyph +
-   name + counts + actions). Full-canvas views render their own headers. */
+   name + counts + actions). DM view swaps the eyebrow to DIRECT MESSAGE and
+   the # glyph to @. Full-canvas views render their own headers. */
 
 import { Settings, Menu } from 'lucide-react';
 import { useApp } from '../store/AppContext';
@@ -15,6 +16,7 @@ export default function TopBar() {
   } = useApp();
 
   const inHomeView = viewMode === 'channel' || viewMode === 'dm';
+  const isDm = viewMode === 'dm';
   const activeChannel = viewMode === 'channel'
     ? channels.find((c) => c.name === activeChannelName) ?? null
     : null;
@@ -59,13 +61,29 @@ export default function TopBar() {
             render their own header, so we suppress here to avoid a duplicate. */}
         {inHomeView ? (
           <div className="zk-col zk-grow" style={{ minWidth: 0 }}>
-            <span className="zk-eyebrow hidden lg:block" style={{ fontSize: 9 }}>CHANNEL</span>
+            <span className="zk-eyebrow hidden lg:block" style={{ fontSize: 9 }}>
+              {isDm ? 'DIRECT MESSAGE' : 'CHANNEL'}
+            </span>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 2 }}>
               <h1
                 className="zk-display zk-truncate"
                 style={{ margin: 0, fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em', color: 'var(--zk-ink)' }}
               >
-                <Hash name={activeChannelName} dim />
+                {isDm ? (
+                  <span style={{ color: 'var(--zk-ink-mute)' }}>
+                    <span
+                      style={{
+                        color: 'var(--zk-ink-low)',
+                        fontFamily: 'var(--zk-font-mono)',
+                        fontWeight: 400,
+                        marginRight: 4,
+                      }}
+                    >@</span>
+                    {activeChannelName}
+                  </span>
+                ) : (
+                  <Hash name={activeChannelName} dim />
+                )}
               </h1>
               {activeChannel && (
                 <span

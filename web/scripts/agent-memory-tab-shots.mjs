@@ -48,9 +48,17 @@ const CONFIG = {
   ovEnabled: true,
 };
 
-// Mocked OV memory tree shape.
+// Mocked OV memory tree shape — mirrors the real server structure where
+// viking:// branches into top-level dirs (session/agent/user/resources/) and
+// users live under viking://user/<name>/.
 const TREE = {
   'viking://': [
+    { uri: 'viking://session/', isDir: true },
+    { uri: 'viking://agent/', isDir: true },
+    { uri: 'viking://user/', isDir: true },
+    { uri: 'viking://resources/', isDir: true },
+  ],
+  'viking://user/': [
     { uri: 'viking://user/bob/', isDir: true },
   ],
   'viking://user/bob/': [

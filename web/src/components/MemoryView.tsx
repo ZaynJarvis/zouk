@@ -689,15 +689,21 @@ export default function MemoryView() {
     const key = `${agentId}:${source}:${ovUser}`;
     if (defaultsAppliedRef.current === key) return;
     defaultsAppliedRef.current = key;
+    // OV root structure is viking:// → user/ → <ovUser>/ → memories/ → profile.md.
+    // Each ancestor must be in the expanded set; expanding only the leaves
+    // hides them under a collapsed parent.
+    const userParent = 'viking://user/';
     const userRoot = memoryUserRoot(ovUser);
     const memDir = memoryFolderUri(ovUser, 'memories');
     setExpanded((prev) => {
       const next = new Set(prev);
+      next.add(userParent);
       next.add(userRoot);
       next.add(memDir);
       return next;
     });
     // Warm the listings so the expanded path renders without a click.
+    requestMemoryList(agentId, userParent);
     requestMemoryList(agentId, userRoot);
     requestMemoryList(agentId, memDir);
     // Default-open the profile.md.
