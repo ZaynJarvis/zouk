@@ -9,6 +9,41 @@
 
 const { Router } = require("express");
 
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+function shouldDropForwardedHeader(name) {
+  const lower = String(name).toLowerCase();
+  return (
+    HOP_BY_HOP_HEADERS.has(lower) ||
+    lower === "cdn-loop" ||
+    lower === "forwarded" ||
+    lower === "true-client-ip" ||
+    lower === "x-real-ip" ||
+    lower.startsWith("cf-") ||
+    lower.startsWith("x-forwarded-")
+  );
+}
+
+function buildUpstreamHeaders(reqHeaders) {
+  const headers = {};
+  for (const [name, value] of Object.entries(reqHeaders || {})) {
+    if (!shouldDropForwardedHeader(name)) {
+      headers[name] = value;
+    }
+  }
+  return headers;
+}
+
 function createOvProxy({ agentAuth, getAgentOvCreds, resolveOvUrl }) {
   const router = Router();
 
@@ -50,16 +85,12 @@ function createOvProxy({ agentAuth, getAgentOvCreds, resolveOvUrl }) {
     const targetUrl = `${agent.ovUrl}${ovPath}`;
     console.log(`[ov-proxy] ${agent.agentId} ${req.method} ${ovPath} → ${agent.ovUrl}`);
 
-    const headers = { ...req.headers };
+    const headers = buildUpstreamHeaders(req.headers);
     // Replace auth headers
     headers["authorization"] = `Bearer ${agent.ovApiKey}`;
     headers["x-openviking-account"] = agent.ovAccount;
     headers["x-openviking-user"] = agent.ovUserId;
     headers["x-openviking-agent"] = agent.agentId;
-    // Remove hop-by-hop headers
-    delete headers["host"];
-    delete headers["connection"];
-    delete headers["transfer-encoding"];
 
     try {
       const fetchOpts = {
@@ -110,4 +141,4 @@ function createOvProxy({ agentAuth, getAgentOvCreds, resolveOvUrl }) {
   return router;
 }
 
-module.exports = { createOvProxy };
+module.exports = { createOvProxy, buildUpstreamHeaders };
