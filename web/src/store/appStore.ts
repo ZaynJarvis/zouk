@@ -1109,8 +1109,10 @@ export function useAppStore() {
     attachmentIds?: string[],
   ): Promise<boolean> => {
     // Snapshot the view at send-time so the optimistic append doesn't leak into
-    // a different conversation if the user switches channels before POST resolves.
+    // a different conversation if the user switches channels/workspaces before
+    // POST resolves.
     const isDm = viewModeRef.current === 'dm';
+    const sendWorkspaceAtRequest = activeWorkspaceRef.current;
     const sendChannelAtRequest = activeChannelRef.current;
     const sendViewModeAtRequest = viewModeRef.current;
     const target = threadTarget || (isDm ? `dm:@${sendChannelAtRequest}` : `#${sendChannelAtRequest}`);
@@ -1120,8 +1122,10 @@ export function useAppStore() {
       // the WS upgrade; without this the user sees their text vanish but no
       // bubble appears until the WS finally connects and pushes the echo back.
       // The corresponding WS handler dedups by msg.id so the broadcast is a
-      // no-op when it eventually arrives.
-      if (sent) {
+      // no-op when it eventually arrives. Workspace switch between request
+      // and response: drop the append (the message is already persisted
+      // server-side; the destination workspace's WS stream will surface it).
+      if (sent && activeWorkspaceRef.current === sendWorkspaceAtRequest) {
         if (sent.channel_type === 'thread') {
           const open = activeThreadMessageRef.current;
           const threadShortId = sent.channel_name;
