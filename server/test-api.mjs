@@ -1240,6 +1240,83 @@ test('workspaces: unicode ids flow through route websocket and root delete', asy
   }
 });
 
+// name-scope — agent handle uniqueness must be per-workspace, not global. A
+// global check let an agent in one workspace (e.g. the default "zeus") block
+// creating the same handle in another, and deleting the local one couldn't free
+// it. Regression guard for both 409 paths: POST /api/agents/start and POST
+// /api/agent-configs. The start name-check fires before any daemon work, so the
+// cross-workspace case reaches "no daemon" (400/non-409) rather than conflict.
+test('agent name uniqueness is scoped per-workspace (start + config create)', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-name-scope-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-name-scope-uploads-'));
+  const port = TEST_PORT + 21;
+  const base = `http://localhost:${port}`;
+  const token = 'name-scope-root-token';
+  const email = 'name-scope-root@example.com';
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [token, { name: 'name-scope-root', email, picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ZOUK_SUPERUSERS: email,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+  const wsHeaders = (wsId) => ({ ...auth, 'X-Workspace-Id': wsId });
+
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try { if ((await fetch(`${base}/api/channels`)).ok) { ready = true; break; } } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'name-scope test server must become ready');
+
+    // Two workspaces, each with its own machine key (config create requires a
+    // machine key bound to the same workspace).
+    const wsA = (await json(await fetch(`${base}/api/workspaces`, { method: 'POST', headers: auth, body: JSON.stringify({ name: 'Scope A' }) }))).body.workspace.id;
+    const wsB = (await json(await fetch(`${base}/api/workspaces`, { method: 'POST', headers: auth, body: JSON.stringify({ name: 'Scope B' }) }))).body.workspace.id;
+    assert.ok(wsA && wsB && wsA !== wsB, 'two distinct workspaces');
+    const keyA = (await json(await fetch(`${base}/api/machine-keys`, { method: 'POST', headers: wsHeaders(wsA), body: JSON.stringify({ name: 'mk-a' }) }))).body.key.id;
+    const keyB = (await json(await fetch(`${base}/api/machine-keys`, { method: 'POST', headers: wsHeaders(wsB), body: JSON.stringify({ name: 'mk-b' }) }))).body.key.id;
+
+    // Seed handle "dupe" in workspace A.
+    const created = await json(await fetch(`${base}/api/agent-configs`, { method: 'POST', headers: wsHeaders(wsA), body: JSON.stringify({ name: 'dupe', runtime: 'claude', model: 'sonnet', machineId: keyA }) }));
+    assert.equal(created.status, 200, 'creating "dupe" in workspace A should succeed');
+
+    // start: same handle, same workspace → 409 (fires before daemon lookup).
+    const startSame = await json(await fetch(`${base}/api/agents/start`, { method: 'POST', headers: wsHeaders(wsA), body: JSON.stringify({ name: 'dupe', runtime: 'claude', machineId: keyA }) }));
+    assert.equal(startSame.status, 409, 'starting "dupe" again in workspace A must conflict');
+
+    // start: same handle, different workspace → not a name conflict (proceeds to
+    // the daemon step and fails only because no daemon is connected).
+    const startCross = await json(await fetch(`${base}/api/agents/start`, { method: 'POST', headers: wsHeaders(wsB), body: JSON.stringify({ name: 'dupe', runtime: 'claude', machineId: keyB }) }));
+    assert.notEqual(startCross.status, 409, 'starting "dupe" in workspace B must not be a name conflict');
+
+    // config create: same-workspace duplicate blocked, cross-workspace allowed.
+    const cfgSame = await json(await fetch(`${base}/api/agent-configs`, { method: 'POST', headers: wsHeaders(wsA), body: JSON.stringify({ name: 'dupe', runtime: 'claude', model: 'sonnet', machineId: keyA }) }));
+    assert.equal(cfgSame.status, 409, 'creating a second "dupe" in workspace A must conflict');
+    const cfgCross = await json(await fetch(`${base}/api/agent-configs`, { method: 'POST', headers: wsHeaders(wsB), body: JSON.stringify({ name: 'dupe', runtime: 'claude', model: 'sonnet', machineId: keyB }) }));
+    assert.equal(cfgCross.status, 200, 'creating "dupe" in workspace B must be allowed (handles scoped per workspace)');
+  } finally {
+    proc.kill('SIGKILL');
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
 test('WS rate limit allows many concurrent browser windows for one token', async () => {
   const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
     method: 'POST',

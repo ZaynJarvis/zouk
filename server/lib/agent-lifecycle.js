@@ -405,7 +405,7 @@ function createAgentLifecycle(ctx) {
       if (ctx.isReservedName(name)) {
         return res.status(400).json({ error: `Agent name "${name}" is reserved` });
       }
-      if (ctx.isAgentNameTaken(name, id)) {
+      if (ctx.isAgentNameTaken(name, id, workspaceId)) {
         return res.status(409).json({ error: `Agent name "${name}" is already taken` });
       }
       mergedConfig.name = name;

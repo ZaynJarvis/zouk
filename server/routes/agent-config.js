@@ -76,8 +76,9 @@ function createAgentConfigRouter(ctx) {
     } else {
       if (!config.machineId) return res.status(400).json({ error: "machineId is required" });
       if (!isPersistentMachineId(config.machineId, config.workspaceId)) return res.status(400).json({ error: "machineId does not match any machine key" });
-      // Validate the canonical handle: slug-shaped, not reserved, globally unique.
-      // It becomes the agent's immutable @mention handle and OV user/session id.
+      // Validate the canonical handle: slug-shaped, not reserved, unique within
+      // the workspace. It becomes the agent's immutable @mention handle and OV
+      // user/session id.
       const name = typeof config.name === "string" ? config.name.trim() : "";
       if (!isValidAgentHandle(name)) {
         return res.status(400).json({ error: "Agent name must be 1-48 chars: lowercase letters, digits, - or _, starting with a letter or digit" });
@@ -85,7 +86,7 @@ function createAgentConfigRouter(ctx) {
       if (isReservedName(name)) {
         return res.status(400).json({ error: `Agent name "${name}" is reserved` });
       }
-      if (isAgentNameTaken(name, config.id)) {
+      if (isAgentNameTaken(name, config.id, config.workspaceId)) {
         return res.status(409).json({ error: `Agent name "${name}" is already taken` });
       }
       config.name = name;

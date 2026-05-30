@@ -1227,8 +1227,8 @@ export function useAppStore() {
     try {
       await api.stopAgent(agentId);
       addToast('Agent stopping...', 'info');
-    } catch {
-      addToast('Failed to stop agent', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to stop agent', 'error');
     }
   }, [addToast]);
 
@@ -1236,8 +1236,8 @@ export function useAppStore() {
     try {
       await api.resetAgentContext(agentId);
       addToast('Context reset', 'info');
-    } catch {
-      addToast('Failed to reset context', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to reset context', 'error');
     }
   }, [addToast]);
 
@@ -1245,8 +1245,8 @@ export function useAppStore() {
     try {
       await api.deleteAgent(agentId);
       addToast('Agent deleted', 'info');
-    } catch {
-      addToast('Failed to delete agent', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to delete agent', 'error');
     }
   }, [addToast]);
 
@@ -1285,8 +1285,8 @@ export function useAppStore() {
     try {
       await api.saveAgentConfig(config);
       addToast(`Agent config "${config.displayName || config.name}" saved`, 'success');
-    } catch {
-      addToast('Failed to save agent config', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save agent config', 'error');
     }
   }, [addToast]);
 
@@ -1294,8 +1294,8 @@ export function useAppStore() {
     try {
       await api.updateAgentConfig(agentId, updates);
       addToast('Agent config updated', 'info');
-    } catch {
-      addToast('Failed to update agent config', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to update agent config', 'error');
     }
   }, [addToast]);
 
