@@ -22,7 +22,7 @@ function createDaemonHandler(ctx) {
     buildRuntimeAgent, syncRuntimeAgentFromConfig,
     agentPayload, sanitizedAgentConfigs,
     workspaceIdFromAgent, updateAgentWorkDir,
-    broadcastToWeb,
+    broadcastToWeb, postSystemMessage,
     hydrateAgentContextUsage,
     replayPendingDeliveries,
     hasWorkspaceFsCapability,
@@ -237,6 +237,49 @@ function createDaemonHandler(ctx) {
 
   function isBusyActivity(activity) {
     return activity === "working" || activity === "thinking" || activity === "error";
+  }
+
+  function oneLine(value, maxLength = 260) {
+    if (value == null) return "";
+    let text;
+    try {
+      text = typeof value === "string" ? value : JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+    return text.replace(/\s+/g, " ").trim().slice(0, maxLength);
+  }
+
+  function activityErrorText(detail, entries) {
+    const candidates = [detail];
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue;
+        candidates.push(entry.error, entry.message, entry.detail, entry.title, entry.text, entry.content);
+      }
+    }
+    for (const candidate of candidates) {
+      const text = oneLine(candidate);
+      if (text) return text;
+    }
+    return "Unknown activity error";
+  }
+
+  async function postActivityErrorMessage(agentId, detail, entries) {
+    if (typeof postSystemMessage !== "function") return;
+    const agent = store.agents[agentId];
+    const agentName = agent?.displayName || agent?.name || agentId;
+    const error = activityErrorText(detail, entries);
+    try {
+      await postSystemMessage({
+        workspaceId: workspaceIdFromAgent(agentId),
+        channelName: "all",
+        channelType: "channel",
+        content: `⚠️ @${agentName} activity error: ${error}`,
+      });
+    } catch (e) {
+      console.error(`[agent:${agentId}] Failed to post activity error system message:`, e.message);
+    }
   }
 
   function clearAgentRuntimeBinding(agentId, ws = null) {
@@ -577,6 +620,9 @@ function createDaemonHandler(ctx) {
                 ctx.ovLifecycle.captureToolCalls(agentId, toolEntries).catch(() => {});
               }
             }
+          }
+          if (activity === "error") {
+            await postActivityErrorMessage(agentId, detail, entries);
           }
           const visibleEntries = Array.isArray(entries)
             ? entries.filter((e) => e.content || e.text || e.detail || e.title || e.toolName

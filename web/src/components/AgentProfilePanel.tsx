@@ -13,6 +13,7 @@ import AgentProfileSummary from './agent/AgentProfileSummary';
 import {
   Preview,
   TreeView,
+  defaultExpandedMemoryChildDirs,
   memoryFolderUri,
   memoryProfileUri,
   memoryUserRoot,
@@ -83,6 +84,7 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const defaultsAppliedRef = useRef<string | null>(null);
+  const defaultChildDirsAppliedRef = useRef<string | null>(null);
 
   const [previewRatio, setPreviewRatio] = useState(0.5);
   const stackRef = useRef<HTMLDivElement | null>(null);
@@ -100,6 +102,7 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
     setSelectedFolder(null);
     setExpanded(new Set());
     defaultsAppliedRef.current = null;
+    defaultChildDirsAppliedRef.current = null;
     fetchAgentOvStatus(agent.id)
       .then((data) => {
         if (cancelled) return;
@@ -148,6 +151,23 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
     setSelectedFolder(null);
     requestMemoryContent(agent.id, profileUri, 'l2');
   }, [agent.id, ovUser, rootUri, memDirUri, profileUri, requestMemoryList, requestMemoryContent]);
+
+  useEffect(() => {
+    if (!ovUser || !memDirUri) return;
+    const key = `${agent.id}:${ovUser}:${memDirUri}`;
+    if (defaultChildDirsAppliedRef.current === key) return;
+    const childDirs = defaultExpandedMemoryChildDirs(agentCache[memDirUri]);
+    if (!agentCache[memDirUri]) return;
+    defaultChildDirsAppliedRef.current = key;
+    if (childDirs.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(memDirUri);
+      childDirs.forEach((uri) => next.add(uri));
+      return next;
+    });
+    childDirs.forEach((uri) => requestMemoryList(agent.id, uri));
+  }, [agent.id, ovUser, memDirUri, agentCache, requestMemoryList]);
 
   const fetchList = useCallback((uri?: string) => {
     requestMemoryList(agent.id, uri ?? rootUri ?? undefined);

@@ -68,9 +68,21 @@ const TREE = {
   'viking://user/bob/memories/': [
     { uri: 'viking://user/bob/memories/profile.md', isDir: false, abstract: 'bob profile' },
     { uri: 'viking://user/bob/memories/preferences/', isDir: true },
+    { uri: 'viking://user/bob/memories/entities/', isDir: true },
+    { uri: 'viking://user/bob/memories/events/', isDir: true },
+    { uri: 'viking://user/bob/memories/privacy/', isDir: true },
   ],
   'viking://user/bob/memories/preferences/': [
-    { uri: 'viking://user/bob/memories/preferences/example.md', isDir: false },
+    { uri: 'viking://user/bob/memories/preferences/style.md', isDir: false },
+  ],
+  'viking://user/bob/memories/entities/': [
+    { uri: 'viking://user/bob/memories/entities/project.md', isDir: false },
+  ],
+  'viking://user/bob/memories/events/': [
+    { uri: 'viking://user/bob/memories/events/2026-05-30.md', isDir: false },
+  ],
+  'viking://user/bob/memories/privacy/': [
+    { uri: 'viking://user/bob/memories/privacy/rules.md', isDir: false },
   ],
 };
 
@@ -147,6 +159,8 @@ async function run() {
     for (const link of links) (link).click();
   });
   await page.waitForTimeout(800);
+  await page.locator('text=style.md').first().waitFor({ timeout: 3000 });
+  await page.locator('text=project.md').first().waitFor({ timeout: 3000 });
 
   await page.screenshot({ path: resolve(OUT_DIR, 'memory-page.png'), fullPage: false });
   console.log('[saved] memory-page.png');
@@ -186,6 +200,8 @@ async function run() {
     if (memTab) memTab.click();
   });
   await page.waitForTimeout(1500);
+  await page.locator('text=style.md').first().waitFor({ timeout: 3000 });
+  await page.locator('text=project.md').first().waitFor({ timeout: 3000 });
 
   await page.screenshot({ path: resolve(OUT_DIR, 'sidebar-memory-tab.png'), fullPage: false });
   console.log('[saved] sidebar-memory-tab.png');
