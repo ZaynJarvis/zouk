@@ -65,6 +65,13 @@ function visibleEntries(entries: MemoryEntry[], source: Source): MemoryEntry[] {
   });
 }
 
+export function defaultExpandedMemoryChildDirs(entries: MemoryEntry[] | undefined): string[] {
+  if (!entries) return [];
+  return visibleEntries(entries, 'memory')
+    .filter((entry) => entry.isDir)
+    .map((entry) => entry.uri);
+}
+
 /* ---- URI / path helpers --------------------------------------------- */
 
 export function uriBasename(uri: string, source: Source): string {
@@ -573,6 +580,7 @@ export default function MemoryView() {
   const rootRefreshKeyRef = useRef<string | null>(null);
   const previewResizeCleanupRef = useRef<(() => void) | null>(null);
   const defaultsAppliedRef = useRef<string | null>(null);
+  const defaultChildDirsAppliedRef = useRef<string | null>(null);
 
   useEffect(() => {
     const update = () => setIsMobileSurface(isMobileViewport());
@@ -667,6 +675,7 @@ export default function MemoryView() {
     setSelectedFolder(null);
     setExpanded(new Set());
     defaultsAppliedRef.current = null;
+    defaultChildDirsAppliedRef.current = null;
   }, [agentId, source]);
 
   useEffect(() => {
@@ -711,6 +720,24 @@ export default function MemoryView() {
     setSelectedFolder(null);
     requestMemoryContent(agentId, profile, 'l2');
   }, [agentId, source, ovUser, requestMemoryList, requestMemoryContent]);
+
+  useEffect(() => {
+    if (!agentId || source !== 'memory' || !ovUser) return;
+    const memDir = memoryFolderUri(ovUser, 'memories');
+    const key = `${agentId}:${source}:${memDir}`;
+    if (defaultChildDirsAppliedRef.current === key) return;
+    const childDirs = defaultExpandedMemoryChildDirs(agentCache[memDir]);
+    if (!agentCache[memDir]) return;
+    defaultChildDirsAppliedRef.current = key;
+    if (childDirs.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(memDir);
+      childDirs.forEach((uri) => next.add(uri));
+      return next;
+    });
+    childDirs.forEach((uri) => requestMemoryList(agentId, uri));
+  }, [agentId, source, ovUser, agentCache, requestMemoryList]);
 
   const handleSelectFolder = useCallback((uri: string) => {
     setSelectedFolder(uri);

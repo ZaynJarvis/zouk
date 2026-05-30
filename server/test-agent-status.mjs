@@ -323,6 +323,54 @@ test('agent idle health check reconciles stale busy activity to online', async (
   await closeWs(web);
 });
 
+test('agent error activity posts a system message to #all', async () => {
+  const web = await connectWeb();
+  await waitForMessageOrTimeout(web, (ev) => ev.type === 'init', 3000);
+
+  const daemon = await connectDaemon();
+  sendReady(daemon);
+
+  const activePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => (
+      (ev.type === 'agent_started' && ev.agent?.id === AGENT_ID)
+      || (ev.type === 'agent_status' && ev.agentId === AGENT_ID && ev.status === 'active')
+    ),
+    3000,
+  );
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'active' }));
+  assert.ok(await activePromise, 'web client should observe the agent becoming active');
+
+  const activityPromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'error',
+    3000,
+  );
+  const systemMessagePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'message'
+      && ev.message?.senderName === 'system'
+      && ev.message?.senderType === 'system'
+      && ev.message?.channelName === 'all'
+      && ev.message?.content?.includes(`@${AGENT_ID}`)
+      && ev.message?.content?.includes('Reconnect activity failed'),
+    3000,
+  );
+
+  daemon.send(JSON.stringify({
+    type: 'agent:activity',
+    agentId: AGENT_ID,
+    activity: 'error',
+    detail: 'Reconnect activity failed',
+  }));
+
+  assert.ok(await activityPromise, 'web client should receive the error activity');
+  assert.ok(await systemMessagePromise, 'error activity should also be posted to #all as a system message');
+
+  await closeWs(daemon);
+  await closeWs(web);
+});
+
 test('reset-context cold-starts instead of resuming cached runtime session', async () => {
   const daemon = await connectDaemon();
   sendReady(daemon);

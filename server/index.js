@@ -2590,6 +2590,29 @@ function fanoutUserMessage(msg) {
   broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, message: formatMessageForClient(msg) });
 }
 
+async function postSystemMessage({ workspaceId, channelName = "all", channelType = "channel", content }) {
+  const scopedWorkspaceId = workspaceId || DEFAULT_WORKSPACE_ID;
+  const ch = findOrCreateChannel(channelName, channelType, scopedWorkspaceId);
+  const msg = {
+    id: uuidv4(),
+    seq: nextSeq(),
+    workspaceId: scopedWorkspaceId,
+    channelId: ch.id,
+    channelName: ch.name,
+    channelType: ch.type || channelType,
+    threadId: null,
+    senderName: "system",
+    senderType: "system",
+    content,
+    createdAt: now(),
+    attachments: [],
+  };
+  appendMessage(msg);
+  await db.saveMessage(msg);
+  broadcastToWeb({ type: "message", workspaceId: scopedWorkspaceId, message: formatMessageForClient(msg) });
+  return msg;
+}
+
 // Auth middleware for the external trigger API — validates the X-API-Key
 // header against the existing machine_keys table, the same store used today
 // for daemon WS connect. Debug keys ("1007"/"test", non-prod only) are
@@ -2799,7 +2822,7 @@ const daemonHandler = createDaemonHandler({
   get syncRuntimeAgentFromConfig() { return syncRuntimeAgentFromConfig; },
   agentPayload, sanitizedAgentConfigs,
   workspaceIdFromAgent, updateAgentWorkDir,
-  broadcastToWeb,
+  broadcastToWeb, postSystemMessage,
   hydrateAgentContextUsage,
   replayPendingDeliveries,
   hasWorkspaceFsCapability,
