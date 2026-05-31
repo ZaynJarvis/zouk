@@ -747,7 +747,10 @@ export default function MemoryView() {
     }
   }, [source, fetchFolderSummaries]);
 
-  const memoryBrowserRoot = source === 'memory' && ovUser ? memoryFolderUri(ovUser, 'memories') : undefined;
+  // The full Memory page keeps the OpenViking namespace roots visible
+  // (session/user/resources). The sidebar Memory tab passes a narrower
+  // rootUri so it can stay focused on the agent's memories/ folder.
+  const memoryBrowserRoot = source === 'memory' ? rootFor(source) : undefined;
 
   const refreshActive = useCallback(() => {
     if (!agentId) return;
@@ -859,6 +862,7 @@ export default function MemoryView() {
           agent={selectedAgent}
           compact
           showStatusDot={false}
+          avatarShape="rounded"
           className="shrink-0 px-4 py-3"
           style={{ borderBottom: '1px solid var(--zk-line)', background: 'var(--zk-bg-1)' }}
         />
