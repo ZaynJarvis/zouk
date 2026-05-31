@@ -47,29 +47,90 @@ function parseStructuredInput(value: unknown): Record<string, unknown> | null {
   }
 }
 
+function hasMeaningfulValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
+  const record = asRecord(value);
+  return record ? Object.values(record).some(hasMeaningfulValue) : false;
+}
+
+function getString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function getPathList(record: Record<string, unknown>): string[] {
+  const raw = record.paths ?? record.files ?? record.changes;
+  if (!Array.isArray(raw)) return [];
+  const paths = new Set<string>();
+  for (const value of raw) {
+    if (typeof value === 'string' && value.trim()) {
+      paths.add(value.trim());
+      continue;
+    }
+    const nested = asRecord(value);
+    const nestedPath = nested ? getString(nested, ['path', 'file_path', 'filePath', 'file']) : null;
+    if (nestedPath) paths.add(nestedPath);
+  }
+  return [...paths];
+}
+
 function formatShellCommand(command: string) {
   const match = command.match(/^\/bin\/(?:zsh|bash|sh)\s+-lc\s+(['"])([\s\S]*)\1$/);
   return truncate(match?.[2] || command, 160);
 }
 
-function formatToolInput(entry: AgentEntry) {
-  const structured = parseStructuredInput(entry.toolInput)
-    || parseStructuredInput(entry.content)
-    || parseStructuredInput(entry.toolInputSummary);
-  const toolName = (entry.toolName || '').toLowerCase();
-  if (structured) {
-    const command = structured.command;
-    if (typeof command === 'string' && (toolName === 'shell' || toolName === 'bash' || toolName.includes('command'))) {
-      return formatShellCommand(command);
-    }
-    for (const key of ['target', 'channel', 'path', 'file_path', 'query', 'pattern', 'url']) {
-      const value = structured[key];
-      if (typeof value === 'string' && value) return truncate(value);
-    }
-    if (typeof command === 'string' && command) return formatShellCommand(command);
+function formatPlainText(value: unknown) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed || parseStructuredInput(trimmed)) return '';
+  return truncate(trimmed);
+}
+
+function formatStructuredToolInput(toolName: string, structured: Record<string, unknown>) {
+  const command = getString(structured, ['command']);
+  if (command && (toolName === 'shell' || toolName === 'bash' || toolName.includes('command'))) {
+    return formatShellCommand(command);
   }
-  if (typeof entry.toolInputSummary === 'string' && entry.toolInputSummary.trim()) return truncate(entry.toolInputSummary.trim());
-  if (typeof entry.content === 'string' && entry.content.trim()) return truncate(entry.content.trim());
+  if (toolName === 'file_change') {
+    const pathValue = getString(structured, ['path', 'file_path', 'filePath', 'file']);
+    const paths = pathValue ? [pathValue] : getPathList(structured);
+    if (paths.length > 0) {
+      const action = getString(structured, ['action', 'operation', 'changeType', 'change_type']);
+      const summary = paths.slice(0, 3).join(', ');
+      const suffix = paths.length > 3 ? ` +${paths.length - 3} more` : '';
+      return truncate(`${action ? `${action} ` : ''}${summary}${suffix}`);
+    }
+    return '';
+  }
+  for (const key of ['target', 'channel', 'path', 'file_path', 'query', 'pattern', 'url']) {
+    const value = structured[key];
+    if (typeof value === 'string' && value.trim()) return truncate(value.trim());
+  }
+  if (command) return formatShellCommand(command);
+  return '';
+}
+
+function formatToolInput(entry: AgentEntry) {
+  const toolName = (entry.toolName || '').toLowerCase();
+  const structuredInputs = [entry.toolInput, entry.content, entry.toolInputSummary]
+    .map(parseStructuredInput)
+    .filter((value): value is Record<string, unknown> => Boolean(value));
+  for (const structured of structuredInputs) {
+    const formatted = formatStructuredToolInput(toolName, structured);
+    if (formatted) return formatted;
+  }
+  if (structuredInputs.length > 0 && !structuredInputs.some(hasMeaningfulValue)) {
+    return '';
+  }
+  const summary = formatPlainText(entry.toolInputSummary);
+  if (summary) return summary;
+  const content = formatPlainText(entry.content);
+  if (content) return content;
   return '';
 }
 
@@ -206,7 +267,11 @@ function isStructuredEntry(entry: AgentEntry) {
 
 function hasVisibleContent(entry: AgentEntry) {
   if (entry.kind === 'context_usage' && entry.contextUsage) return true;
-  if (entry.kind === 'tool' || entry.kind === 'tool_start') return !!entry.toolName;
+  if (entry.kind === 'tool' || entry.kind === 'tool_start') {
+    if (!entry.toolName) return false;
+    if (entry.toolName.toLowerCase() === 'file_change') return Boolean(formatToolInput(entry));
+    return true;
+  }
   if (entry.kind === 'status' && (entry.activity === 'thinking' || entry.activity === 'working') && !entry.content && !entry.text && !entry.detail) return false;
   if (entry.content || entry.text || entry.detail || entry.title) return true;
   if (entry.kind === 'status' && entry.activity && entry.activity !== 'online' && entry.activity !== 'idle') return true;

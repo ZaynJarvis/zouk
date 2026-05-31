@@ -4,6 +4,7 @@
  *
  * Verifies:
  * - shell tool entries show the command, not raw JSON
+ * - empty file_change entries are suppressed
  * - empty thinking-status heartbeats are suppressed
  */
 
@@ -53,6 +54,20 @@ const agent = {
       toolInputSummary: JSON.stringify({ command: "/bin/zsh -lc 'npm test'" }),
       timestamp: new Date(Date.now() - 45_000).toISOString(),
     },
+    {
+      kind: 'tool',
+      title: 'Tool · file_change',
+      toolName: 'file_change',
+      content: JSON.stringify({ path: '', action: '' }),
+      timestamp: new Date(Date.now() - 40_000).toISOString(),
+    },
+    {
+      kind: 'tool',
+      title: 'Tool · file_change',
+      toolName: 'file_change',
+      toolInputSummary: JSON.stringify({ path: 'web/src/App.tsx', action: 'modified' }),
+      timestamp: new Date(Date.now() - 35_000).toISOString(),
+    },
   ],
 };
 
@@ -91,6 +106,9 @@ const body = await page.locator('body').innerText();
 assert(body.includes('git status --short --branch'), 'shell command summary should be visible');
 assert(body.includes('npm test'), 'shell command summary from toolInputSummary should be visible');
 assert(!body.includes('"command"'), 'raw shell JSON should not be visible');
+assert(body.includes('modified web/src/App.tsx'), 'file change summary should be visible');
+assert(!body.includes('{"path":"","action":""}'), 'empty file change JSON should not be visible');
+assert((body.match(/Tool · file_change/g) || []).length === 1, 'empty file change entry should be hidden');
 
 assert(!body.includes('THINKING'), 'empty THINKING status heartbeat should be hidden');
 

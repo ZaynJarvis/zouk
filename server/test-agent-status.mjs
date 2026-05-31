@@ -253,6 +253,66 @@ test('inactive agent status clears stale busy activity and rejects late busy hea
   await closeWs(web);
 });
 
+test('activity broadcast filters empty file change entries', async () => {
+  const web = await connectWeb();
+  await waitForMessageOrTimeout(web, (ev) => ev.type === 'init', 3000);
+
+  const daemon = await connectDaemon();
+  sendReady(daemon);
+
+  const activePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => (
+      (ev.type === 'agent_started' && ev.agent?.id === AGENT_ID)
+      || (ev.type === 'agent_status' && ev.agentId === AGENT_ID && ev.status === 'active')
+    ),
+    3000,
+  );
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'active' }));
+  assert.ok(await activePromise, 'web client should observe the agent becoming active');
+
+  const activityPromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'working',
+    3000,
+  );
+  daemon.send(JSON.stringify({
+    type: 'agent:activity',
+    agentId: AGENT_ID,
+    activity: 'working',
+    detail: 'editing',
+    entries: [
+      {
+        kind: 'tool',
+        title: 'Tool · file_change',
+        toolName: 'file_change',
+        content: JSON.stringify({ path: '', action: '' }),
+      },
+      {
+        kind: 'tool',
+        title: 'Tool · file_change',
+        toolName: 'file_change',
+        toolInputSummary: JSON.stringify({ path: 'server/index.js', action: 'modified' }),
+      },
+      {
+        kind: 'tool',
+        title: 'Tool · mcp_chat_inbox',
+        toolName: 'mcp_chat_inbox',
+      },
+    ],
+  }));
+
+  const activity = await activityPromise;
+  assert.ok(activity, 'web client should receive filtered activity update');
+  assert.equal(activity.entries.length, 2);
+  assert.ok(activity.entries.some((entry) => entry.toolName === 'file_change' && entry.toolInputSummary?.includes('server/index.js')));
+  assert.ok(activity.entries.some((entry) => entry.toolName === 'mcp_chat_inbox'));
+  assert.ok(!activity.entries.some((entry) => entry.content === JSON.stringify({ path: '', action: '' })));
+
+  await closeWs(daemon);
+  await closeWs(web);
+});
+
 test('agent idle health check reconciles stale busy activity to online', async () => {
   const web = await connectWeb();
   await waitForMessageOrTimeout(web, (ev) => ev.type === 'init', 3000);

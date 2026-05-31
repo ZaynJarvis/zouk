@@ -7,6 +7,58 @@ const http = require("http");
 const { WebSocketServer } = require("ws");
 const { v4: uuidv4 } = require("uuid");
 
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function parseStructuredInput(value) {
+  const record = asRecord(value);
+  if (record) return record;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  try {
+    return asRecord(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+}
+
+function hasMeaningfulValue(value) {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
+  const record = asRecord(value);
+  return record ? Object.values(record).some(hasMeaningfulValue) : false;
+}
+
+function hasMeaningfulToolField(value) {
+  const structured = parseStructuredInput(value);
+  return structured ? hasMeaningfulValue(structured) : hasMeaningfulValue(value);
+}
+
+function hasMeaningfulToolInput(entry) {
+  return hasMeaningfulToolField(entry.toolInput)
+    || hasMeaningfulToolField(entry.toolInputSummary)
+    || hasMeaningfulToolField(entry.content);
+}
+
+function isVisibleActivityEntry(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  if (entry.kind === "context_usage" && entry.contextUsage) return true;
+  if (entry.kind === "tool" || entry.kind === "tool_start") {
+    if (!entry.toolName) return false;
+    if (String(entry.toolName).toLowerCase() === "file_change") return hasMeaningfulToolInput(entry);
+    return true;
+  }
+  if (entry.kind === "status" && (entry.activity === "thinking" || entry.activity === "working") && !entry.content && !entry.text && !entry.detail) {
+    return false;
+  }
+  if (entry.content || entry.text || entry.detail || entry.title) return true;
+  if (entry.kind === "status" && entry.activity && entry.activity !== "online" && entry.activity !== "idle") return true;
+  return false;
+}
+
 function createDaemonHandler(ctx) {
   const {
     app, db,
@@ -582,12 +634,15 @@ function createDaemonHandler(ctx) {
           break;
         }
         enqueueActivity(agentId, async () => {
+          const visibleEntries = Array.isArray(entries)
+            ? entries.filter(isVisibleActivityEntry)
+            : entries;
           const current = store.agents[agentId];
           if (current?.status !== "active" && activity !== "offline") {
             console.warn(`[agent:${agentId}] Dropped activity=${activity} while status=${current?.status || "unknown"}`);
-            if (Array.isArray(entries) && entries.length > 0) {
+            if (Array.isArray(visibleEntries) && visibleEntries.length > 0) {
               try {
-                await db.saveActivityEntries(agentId, activity, detail, entries);
+                await db.saveActivityEntries(agentId, activity, detail, visibleEntries);
               } catch (e) {
                 console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
               }
@@ -605,9 +660,9 @@ function createDaemonHandler(ctx) {
           if (prev !== activity) {
             console.log(`[agent:${agentId}] Activity: ${prev ?? '?'} → ${activity}${detail ? ` (${detail})` : ''}`);
           }
-          if (Array.isArray(entries) && entries.length > 0) {
+          if (Array.isArray(visibleEntries) && visibleEntries.length > 0) {
             try {
-              await db.saveActivityEntries(agentId, activity, detail, entries);
+              await db.saveActivityEntries(agentId, activity, detail, visibleEntries);
             } catch (e) {
               console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
             }
@@ -615,7 +670,7 @@ function createDaemonHandler(ctx) {
             // session (skip plugin-mode agents — their own plugin handles it).
             const agentCfg = agentConfigs.find((c) => c.id === agentId);
             if (agentCfg?.openvikingApiKey && !ctx.isOvPluginForAgent(agentCfg) && ctx.ovLifecycle) {
-              const toolEntries = entries.filter((e) => e.kind === "tool" && e.toolName);
+              const toolEntries = visibleEntries.filter((e) => e.kind === "tool" && e.toolName);
               if (toolEntries.length > 0) {
                 ctx.ovLifecycle.captureToolCalls(agentId, toolEntries).catch(() => {});
               }
@@ -624,11 +679,6 @@ function createDaemonHandler(ctx) {
           if (activity === "error") {
             await postActivityErrorMessage(agentId, detail, entries);
           }
-          const visibleEntries = Array.isArray(entries)
-            ? entries.filter((e) => e.content || e.text || e.detail || e.title || e.toolName
-              || (e.kind === 'context_usage' && e.contextUsage)
-              || (e.kind === 'status' && e.activity && e.activity !== 'online' && e.activity !== 'idle'))
-            : entries;
           broadcastToWeb({
             type: "agent_activity",
             workspaceId: workspaceIdFromAgent(agentId),
