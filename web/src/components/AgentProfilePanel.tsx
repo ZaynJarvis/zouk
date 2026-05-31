@@ -16,7 +16,6 @@ import {
   defaultExpandedMemoryChildDirs,
   memoryFolderUri,
   memoryProfileUri,
-  memoryUserRoot,
 } from './MemoryView';
 import '../styles/atlas-renderers.css';
 
@@ -119,30 +118,29 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
 
   const agentCache = useMemo(() => memoryTreeCache[agent.id] || {}, [memoryTreeCache, agent.id]);
   const agentErrors = useMemo(() => memoryTreeErrors[agent.id] || {}, [memoryTreeErrors, agent.id]);
-  const rootUri = ovUser ? memoryUserRoot(ovUser) : null;
   const memDirUri = ovUser ? memoryFolderUri(ovUser, 'memories') : null;
   const profileUri = ovUser ? memoryProfileUri(ovUser) : null;
-  const rootLoaded = !!rootUri && Object.prototype.hasOwnProperty.call(agentCache, rootUri);
-  const rootError = rootUri ? (agentErrors[rootUri] || null) : null;
-  const rootErrorText = rootError && rootError.length > 240 ? `${rootError.slice(0, 237)}...` : rootError;
+  const treeRootUri = memDirUri;
+  const treeRootLoaded = !!treeRootUri && Object.prototype.hasOwnProperty.call(agentCache, treeRootUri);
+  const treeRootError = treeRootUri ? (agentErrors[treeRootUri] || null) : null;
+  const treeRootErrorText = treeRootError && treeRootError.length > 240 ? `${treeRootError.slice(0, 237)}...` : treeRootError;
   const statusErrorText = statusError && statusError.length > 240 ? `${statusError.slice(0, 237)}...` : statusError;
 
   // Fetch root listing once ovUser is known.
   useEffect(() => {
-    if (rootUri && !rootLoaded && !rootError) {
-      requestMemoryList(agent.id, rootUri);
+    if (treeRootUri && !treeRootLoaded && !treeRootError) {
+      requestMemoryList(agent.id, treeRootUri);
     }
-  }, [agent.id, rootUri, rootLoaded, rootError, requestMemoryList]);
+  }, [agent.id, treeRootUri, treeRootLoaded, treeRootError, requestMemoryList]);
 
   // Apply default expand + open once root is loaded.
   useEffect(() => {
-    if (!ovUser || !rootUri || !memDirUri || !profileUri) return;
+    if (!ovUser || !memDirUri || !profileUri) return;
     const key = `${agent.id}:${ovUser}`;
     if (defaultsAppliedRef.current === key) return;
     defaultsAppliedRef.current = key;
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.add(rootUri);
       next.add(memDirUri);
       return next;
     });
@@ -150,7 +148,7 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
     setSelectedFile(profileUri);
     setSelectedFolder(null);
     requestMemoryContent(agent.id, profileUri, 'l2');
-  }, [agent.id, ovUser, rootUri, memDirUri, profileUri, requestMemoryList, requestMemoryContent]);
+  }, [agent.id, ovUser, memDirUri, profileUri, requestMemoryList, requestMemoryContent]);
 
   useEffect(() => {
     if (!ovUser || !memDirUri) return;
@@ -170,8 +168,8 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
   }, [agent.id, ovUser, memDirUri, agentCache, requestMemoryList]);
 
   const fetchList = useCallback((uri?: string) => {
-    requestMemoryList(agent.id, uri ?? rootUri ?? undefined);
-  }, [agent.id, rootUri, requestMemoryList]);
+    requestMemoryList(agent.id, uri ?? treeRootUri ?? undefined);
+  }, [agent.id, treeRootUri, requestMemoryList]);
 
   const fetchContent = useCallback((uri: string) => {
     requestMemoryContent(agent.id, uri, 'l2');
@@ -243,10 +241,10 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
         <span className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-low)' }}>· {ovUser}</span>
       )}
       <span style={{ flex: 1 }} />
-      {rootUri && (
+      {treeRootUri && (
         <button
           type="button"
-          onClick={() => fetchList(rootUri)}
+          onClick={() => treeRootUri && fetchList(treeRootUri)}
           className="zk-btn zk-btn--ghost zk-btn--icon"
           title="Refresh"
           aria-label="Refresh memory"
@@ -288,15 +286,15 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
     );
   }
 
-  if (rootErrorText) {
+  if (treeRootErrorText) {
     return (
       <div className="flex-1 flex flex-col min-h-0">
         {toolbar}
         <div className="flex items-start gap-2 py-2 px-3">
-          <div className="min-w-0 flex-1 text-2xs font-mono break-words" style={{ color: 'var(--zk-bad)' }}>{rootErrorText}</div>
+          <div className="min-w-0 flex-1 text-2xs font-mono break-words" style={{ color: 'var(--zk-bad)' }}>{treeRootErrorText}</div>
           <button
             type="button"
-            onClick={() => rootUri && requestMemoryList(agent.id, rootUri)}
+            onClick={() => treeRootUri && requestMemoryList(agent.id, treeRootUri)}
             className="zk-btn zk-btn--ghost zk-btn--icon"
             title="Retry"
             style={{ flexShrink: 0, padding: 4 }}
@@ -308,7 +306,7 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
     );
   }
 
-  if (!rootUri) return null;
+  if (!treeRootUri) return null;
 
   const previewBasisPct = Math.round(previewRatio * 100);
   const previewBasis = `calc(${previewBasisPct}% - 5px)`;
@@ -332,7 +330,7 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
           selectedUri={selectedFile ?? selectedFolder}
           onSelectFile={setSelectedFile}
           onSelectFolder={handleSelectFolder}
-          rootUri={rootUri}
+          rootUri={treeRootUri}
           expanded={expanded}
           setExpanded={setExpanded}
           emptyMessage="No memories"

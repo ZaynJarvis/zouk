@@ -14,12 +14,14 @@ export default function AgentProfileSummary({
   agent,
   compact = false,
   showStatusDot = true,
+  avatarShape = 'agent',
   className,
   style,
 }: {
   agent: ServerAgent;
   compact?: boolean;
   showStatusDot?: boolean;
+  avatarShape?: 'agent' | 'rounded';
   className?: string;
   style?: CSSProperties;
 }) {
@@ -31,6 +33,7 @@ export default function AgentProfileSummary({
   const runtimeLabel = formatRuntime(agent.runtime) || 'Unknown';
   const machineLabel = machine?.alias || machine?.hostname;
   const avatarSizeClass = compact ? 'w-9 h-9 text-sm' : 'w-12 h-12 text-base';
+  const avatarRadius = avatarShape === 'rounded' ? 'rounded-md' : avatarRadiusClass(theme);
   const titleSize = compact ? 14 : 15;
 
   return (
@@ -42,7 +45,7 @@ export default function AgentProfileSummary({
           title={`Message @${agent.displayName || agent.name}`}
           className={`relative ${avatarSizeClass} shrink-0 p-0 border-0 bg-transparent cursor-pointer text-inherit`}
         >
-          <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)}`}>
+          <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadius}`}>
             {agent.picture ? (
               <img src={agent.picture} alt="" className="w-full h-full object-cover" />
             ) : (
