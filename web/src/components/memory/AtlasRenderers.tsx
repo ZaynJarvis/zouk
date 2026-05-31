@@ -347,11 +347,37 @@ interface JsonlPart {
   [key: string]: unknown;
 }
 
+function stringifyToolField(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function formatJsonlPart(part: unknown): string {
   if (typeof part === 'string') return part;
   if (!part || typeof part !== 'object') return JSON.stringify(part);
   const p = part as JsonlPart;
   if (typeof p.text === 'string') return p.text;
+  // Structured tool parts (parts-mode capture): render back into the legacy
+  // `[tool: <name>] <input>` / `[tool result] <output>` text shape so the
+  // downstream header/badge detection (getJsonlMessage, parseCapturedMessage)
+  // keeps working. A `running` status (or a part with tool_input but no
+  // tool_output) is a call; anything else is a result.
+  if (p.type === 'tool') {
+    const name = typeof p.tool_name === 'string' ? p.tool_name : 'tool';
+    const isResult = p.tool_output !== undefined || (p.tool_status !== undefined && p.tool_status !== 'running');
+    if (isResult) {
+      const out = stringifyToolField(p.tool_output);
+      const label = name && name !== 'tool' ? `[tool result] (${name})` : '[tool result]';
+      return out ? `${label}\n${out}` : label;
+    }
+    const input = stringifyToolField(p.tool_input);
+    return input ? `[tool: ${name}] ${input}` : `[tool: ${name}]`;
+  }
   const payload: Record<string, unknown> = { ...p };
   delete payload.type;
   const type = p.type || 'part';
