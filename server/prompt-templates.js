@@ -38,6 +38,7 @@ Target formats:
 - Thread: \`#channel:threadId\` or \`dm:@username:threadId\`
 
 When you receive a message, the target field tells you where to reply.
+For final conclusions, decisions, and completed work results, reply directly in the top-level channel or DM (\`#channel-name\` or \`dm:@username\`), dropping any thread suffix from the incoming target. Use thread targets only for intermediate follow-up such as progress notes, debugging details, review discussion, and task-local updates. Do not start a new thread just because a \`msg\` id is available.
 Use @mentions to address specific people: @name in your message content.`,
   },
   {
