@@ -224,9 +224,20 @@ function wsLog(instanceId: number, msg: string): void {
 //      handoff, Cloudflare idle timeout, screen-lock while foregrounded.
 const INBOUND_WATCHDOG_MS = 70_000; // 2× server ping interval + buffer
 
+// Cap on events buffered before any handler subscribes. Sized to hold one
+// `init` plus a small burst; oldest-first eviction past the cap keeps memory
+// bounded if the app never mounts.
+const EARLY_EVENT_BUFFER_CAP = 200;
+
 export class SlockWebSocket {
   private ws: WebSocket | null = null;
   private handlers: WsEventHandler[] = [];
+  // Events received before any consumer subscribed. Drained into the first
+  // handler that calls .on(). Necessary because the singleton in
+  // ./wsSingleton.ts starts handshaking at JS-parse time, well before
+  // <AppProvider> mounts and the store subscribes — without buffering, the
+  // `init` payload would land in /dev/null.
+  private earlyEvents: WsEvent[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private visibilityBound: (() => void) | null = null;
@@ -236,6 +247,13 @@ export class SlockWebSocket {
   private serverUrl: string;
   private _connected = false;
   private pendingSends: string[] = [];
+  // URL of the in-flight or last-opened connection. Used to short-circuit
+  // duplicate connect() calls when the URL hasn't changed, and to force a
+  // re-handshake when the workspaceId / token in the URL differs from current
+  // state (the singleton outlives workspace switches; the eager connect at
+  // JS-parse time captures the URL from localStorage, which may go stale by
+  // the time AppProvider mounts and the active workspace gets resolved).
+  private lastConnectUrl: string | null = null;
   // Counts close-without-open events since the last successful onopen. Drives
   // the exponential backoff and token-revalidation logic in scheduleReconnect.
   private failedAttempts = 0;
@@ -281,17 +299,50 @@ export class SlockWebSocket {
       document.addEventListener('visibilitychange', this.visibilityBound);
     }
 
+    const newUrl = this.buildUrl();
+    const urlChanged = this.lastConnectUrl !== null && this.lastConnectUrl !== newUrl;
+    if (urlChanged) {
+      // Any buffered pre-mount events were generated under stale credentials
+      // (different workspaceId / no token / wrong token) — replaying them into
+      // a subscriber that registers *after* the URL change would overwrite the
+      // newly-fetched state. Drop them; the fresh handshake will deliver a
+      // matching `init`. Covers OPEN/CONNECTING teardown AND the case where
+      // the eager socket already closed but earlyEvents still hold its `init`.
+      if (this.earlyEvents.length > 0) {
+        wsLog(this.instanceId, `connect() URL changed, dropping ${this.earlyEvents.length} stale pre-mount events`);
+        this.earlyEvents = [];
+      }
+      this.lastConnectUrl = null;
+    }
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      wsLog(this.instanceId, `connect() skipped readyState=${this.ws.readyState}`);
-      return;
+      if (this.lastConnectUrl === newUrl) {
+        wsLog(this.instanceId, `connect() skipped readyState=${this.ws.readyState} (url unchanged)`);
+        return;
+      }
+      // URL diverged (workspace switch, token refresh) — must re-handshake.
+      wsLog(this.instanceId, `connect() URL changed, tearing down old socket`);
+      const old = this.ws;
+      old.onopen = null;
+      old.onmessage = null;
+      old.onerror = null;
+      old.onclose = null;
+      try { old.close(); } catch { /* ignore */ }
+      this.ws = null;
+      this._connected = false;
+      this.clearWatchdog();
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
     }
 
     const attemptStart = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     wsLog(this.instanceId, `connect() opening attempt=${this.failedAttempts + 1}`);
+    this.lastConnectUrl = newUrl;
 
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.buildUrl());
+      socket = new WebSocket(newUrl);
       this.ws = socket;
     } catch (e) {
       wsLog(this.instanceId, `new WebSocket() threw: ${(e as Error)?.message || e}`);
@@ -393,12 +444,25 @@ export class SlockWebSocket {
 
   on(handler: WsEventHandler): () => void {
     this.handlers.push(handler);
+    // Drain pre-mount events into the new subscriber. Only the very first
+    // .on() ever sees a non-empty buffer; subsequent subscribers see only
+    // the live stream from that point on.
+    if (this.earlyEvents.length > 0) {
+      const buffered = this.earlyEvents;
+      this.earlyEvents = [];
+      for (const event of buffered) handler(event);
+    }
     return () => {
       this.handlers = this.handlers.filter(h => h !== handler);
     };
   }
 
   private emit(event: WsEvent): void {
+    if (this.handlers.length === 0) {
+      this.earlyEvents.push(event);
+      if (this.earlyEvents.length > EARLY_EVENT_BUFFER_CAP) this.earlyEvents.shift();
+      return;
+    }
     for (const handler of this.handlers) {
       handler(event);
     }

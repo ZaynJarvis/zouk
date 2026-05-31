@@ -1,37 +1,35 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   X, Activity, Settings as SettingsIcon,
-  Brain, ChevronRight, File, Folder, FolderOpen as FolderOpenIcon,
-  RefreshCw,
+  Brain, ExternalLink, RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
-import type { ServerAgent, MemoryEntry } from '../types';
-import { activityLabels } from '../lib/activityStatus';
-import { ncStyle } from '../lib/themeUtils';
-import { formatRuntime } from '../lib/runtimeLabels';
-import { agentAvatarStatus, agentLifecycle, avatarPaletteClass, avatarRadiusClass } from '../lib/avatarStatus';
+import type { ServerAgent } from '../types';
 import { fetchAgentOvStatus } from '../lib/api';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import AgentConfigForm from './agent/AgentConfigForm';
-import { SafePreviewContent } from './memory/renderPreviewContent';
-import { WorkspaceTree } from './workspace/WorkspaceTree';
-import { useWorkspaceTree } from './workspace/useWorkspaceTree';
+import AgentProfileSummary from './agent/AgentProfileSummary';
+import {
+  Preview,
+  TreeView,
+  defaultExpandedMemoryChildDirs,
+  memoryFolderUri,
+  memoryProfileUri,
+  memoryUserRoot,
+} from './MemoryView';
 import '../styles/atlas-renderers.css';
 
-type Tab = 'profile' | 'workspace' | 'config';
+type Tab = 'profile' | 'memory' | 'config';
 
-const TAB_CONFIG: { key: Tab | 'mem_nav'; label: string; icon: typeof Activity }[] = [
+const TAB_CONFIG: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: 'profile', label: 'Activity', icon: Activity },
-  { key: 'mem_nav', label: 'Memory', icon: Brain },
+  { key: 'memory', label: 'Memory', icon: Brain },
   { key: 'config', label: 'Config', icon: SettingsIcon },
 ];
 
 function ProfileTab({ agent }: { agent: ServerAgent }) {
-  const { machines, selectChannel, loadAgentActivities, theme } = useApp();
-  const machine = agent.machineId ? machines.find((m) => m.id === agent.machineId) : null;
-  const activity = agent.activity || 'offline';
-  const avatarStatus = agentAvatarStatus(agent);
-  const isActive = agent.status === 'active';
+  const { loadAgentActivities } = useApp();
   const entries = agent.entries || [];
 
   useEffect(() => {
@@ -39,87 +37,10 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.id]);
 
-  const runtimeLabel = formatRuntime(agent.runtime) || 'Unknown';
-  const machineLabel = machine?.alias || machine?.hostname;
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="shrink-0 overflow-y-auto scrollbar-thin px-4 pt-3 pb-2 space-y-3 max-h-[55%]">
-        <div className="flex items-start gap-3">
-          <button
-            type="button"
-            onClick={() => selectChannel(agent.name, true)}
-            title={`Message @${agent.displayName || agent.name}`}
-            className="relative w-12 h-12 shrink-0 p-0 border-0 bg-transparent cursor-pointer text-inherit"
-          >
-            <div className={`w-full h-full border flex items-center justify-center overflow-hidden font-display font-bold text-base ${avatarPaletteClass(avatarStatus, 'cyan', agentLifecycle(agent))} ${avatarRadiusClass(theme)}`}>
-              {agent.picture ? (
-                <img src={agent.picture} alt="" className="w-full h-full object-cover" />
-              ) : (
-                (agent.displayName || agent.name).charAt(0).toUpperCase()
-              )}
-            </div>
-            <span
-              style={{
-                position: 'absolute', right: -1, bottom: -1,
-                width: 8, height: 8,
-                border: '2px solid var(--zk-bg-1)',
-                borderRadius: '50%',
-                boxSizing: 'content-box',
-              }}
-              className={`zk-dot zk-dot--${avatarStatus}`}
-            />
-          </button>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <div className="zk-display" style={{ fontSize: 15, color: 'var(--zk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                @{agent.displayName || agent.name}
-              </div>
-              <span className="zk-pill zk-pill--ok" style={{ flexShrink: 0 }}>Agent</span>
-            </div>
-            <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-mute)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isActive ? activityLabels[activity] : 'Inactive'}
-              {agent.activityDetail && isActive ? ` · ${agent.activityDetail}` : ''}
-            </div>
-          </div>
-        </div>
-
-        {agent.description && (
-          <p style={{ fontSize: 12, color: 'var(--zk-ink-dim)', fontFamily: 'var(--zk-font-sans)', lineHeight: 1.5, margin: 0 }}>{agent.description}</p>
-        )}
-
-        <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-mute)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 6px' }}>
-          <span style={{ color: 'var(--zk-ink)' }}>{runtimeLabel}</span>
-          {agent.model && (
-            <>
-              <span>·</span>
-              <span style={{ color: 'var(--zk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{agent.model}</span>
-            </>
-          )}
-          {machineLabel && (
-            <>
-              <span>·</span>
-              <span style={{ color: 'var(--zk-ok)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{machineLabel}</span>
-            </>
-          )}
-        </div>
-
-        {((agent.channels && agent.channels.length > 0) || (agent.skills && agent.skills.length > 0)) && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {agent.channels?.map((ch) => (
-              <span key={`c-${ch}`} className="zk-pill zk-pill--ember">#{ch}</span>
-            ))}
-            {agent.skills?.map((s) => (
-              <span key={`s-${s.id}`} className="zk-pill zk-pill--warn" title={s.description || s.name}>{s.name}</span>
-            ))}
-          </div>
-        )}
-
-        {agent.workDir && (
-          <div className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ok)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={agent.workDir}>
-            {agent.workDir}
-          </div>
-        )}
+        <AgentProfileSummary agent={agent} />
       </div>
 
       <div style={{ flexShrink: 0, borderTop: '1px solid var(--zk-line)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -145,255 +66,323 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
   );
 }
 
-function uriName(uri: string): string {
-  const parts = uri.replace(/\/+$/, '').split('/').filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 1] : parts[0] || uri;
-}
+/* ---- Memory tab (independent display, tree + preview, top-down) ---- */
 
-function OvTreeNode({
-  entry, level, expandedDirs, treeCache, onToggleDir, onViewFile,
-}: {
-  entry: MemoryEntry; level: number; expandedDirs: Set<string>;
-  treeCache: Record<string, MemoryEntry[]>;
-  onToggleDir: (uri: string) => void; onViewFile: (uri: string) => void;
-}) {
-  const { uri, isDir } = entry;
-  const isExpanded = isDir && expandedDirs.has(uri);
-  const children = isDir ? treeCache[uri] : undefined;
-  const name = uriName(uri);
+function MemoryTab({ agent }: { agent: ServerAgent }) {
+  const {
+    activeWorkspaceId,
+    memoryTreeCache, memoryTreeErrors,
+    requestMemoryList, requestMemoryContent,
+    navigateToView, setMemoryFocusAgentId, closeAgentProfileRail,
+  } = useApp();
 
-  return (
-    <>
-      <button
-        onClick={() => isDir ? onToggleDir(uri) : onViewFile(uri)}
-        className="w-full flex items-start gap-1.5 py-1 text-left hover:bg-nc-elevated transition-colors"
-        style={{ paddingLeft: `${12 + level * 16}px`, paddingRight: '12px' }}
-      >
-        {isDir ? (
-          <ChevronRight size={12} className={`flex-shrink-0 text-nc-muted transition-transform duration-150 mt-0.5 ${isExpanded ? 'rotate-90' : ''}`} />
-        ) : <span className="w-3 flex-shrink-0" />}
-        {isDir
-          ? (isExpanded ? <FolderOpenIcon size={12} className="flex-shrink-0 text-nc-cyan mt-0.5" /> : <Folder size={12} className="flex-shrink-0 text-nc-cyan mt-0.5" />)
-          : <File size={12} className="flex-shrink-0 text-nc-muted mt-0.5" />}
-        <div className="flex-1 min-w-0">
-          <span className="text-xs font-mono text-nc-text truncate block">{name}</span>
-          {!isDir && entry.abstract && (
-            <span className="text-2xs text-nc-muted font-mono truncate block leading-tight">{entry.abstract}</span>
-          )}
-        </div>
-      </button>
-      {isDir && isExpanded && (
-        <div>
-          {children ? (
-            children.length > 0 ? children.map((child) => (
-              <OvTreeNode key={child.uri} entry={child} level={level + 1} expandedDirs={expandedDirs} treeCache={treeCache} onToggleDir={onToggleDir} onViewFile={onViewFile} />
-            )) : (
-              <div className="text-2xs text-nc-muted font-mono py-1" style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}>(empty)</div>
-            )
-          ) : (
-            <div className="text-2xs text-nc-muted font-mono py-1 animate-pulse" style={{ paddingLeft: `${12 + (level + 1) * 16}px` }}>loading...</div>
-          )}
-        </div>
-      )}
-    </>
-  );
-}
-
-function OvSection({ agent, onViewFile }: { agent: ServerAgent; onViewFile: (uri: string) => void }) {
-  const { activeWorkspaceId, memoryTreeCache, memoryTreeErrors, requestMemoryList } = useApp();
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [ovUser, setOvUser] = useState<string | null>(null);
-  const [checked, setChecked] = useState(false);
+  const [statusChecked, setStatusChecked] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
 
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const defaultsAppliedRef = useRef<string | null>(null);
+  const defaultChildDirsAppliedRef = useRef<string | null>(null);
+
+  const [previewRatio, setPreviewRatio] = useState(0.5);
+  const stackRef = useRef<HTMLDivElement | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => { resizeCleanupRef.current?.(); }, []);
+
+  // Resolve OV user for this agent.
   useEffect(() => {
     let cancelled = false;
-    setChecked(false);
+    setStatusChecked(false);
     setOvUser(null);
     setStatusError(null);
+    setSelectedFile(null);
+    setSelectedFolder(null);
+    setExpanded(new Set());
+    defaultsAppliedRef.current = null;
+    defaultChildDirsAppliedRef.current = null;
     fetchAgentOvStatus(agent.id)
-      .then(data => {
+      .then((data) => {
         if (cancelled) return;
         setOvUser(data.enabled ? (data.user || agent.name) : null);
-        setChecked(true);
+        setStatusChecked(true);
       })
       .catch((e) => {
         if (cancelled) return;
         setStatusError(e instanceof Error ? e.message : 'Failed to load OV status');
-        setChecked(true);
+        setStatusChecked(true);
       });
     return () => { cancelled = true; };
   }, [activeWorkspaceId, agent.id, agent.name]);
 
-  const rootUri = ovUser ? `viking://user/${ovUser}/` : null;
   const agentCache = useMemo(() => memoryTreeCache[agent.id] || {}, [memoryTreeCache, agent.id]);
   const agentErrors = useMemo(() => memoryTreeErrors[agent.id] || {}, [memoryTreeErrors, agent.id]);
+  const rootUri = ovUser ? memoryUserRoot(ovUser) : null;
+  const memDirUri = ovUser ? memoryFolderUri(ovUser, 'memories') : null;
+  const profileUri = ovUser ? memoryProfileUri(ovUser) : null;
   const rootLoaded = !!rootUri && Object.prototype.hasOwnProperty.call(agentCache, rootUri);
   const rootError = rootUri ? (agentErrors[rootUri] || null) : null;
-  const rootErrorText = rootError && rootError.length > 160 ? `${rootError.slice(0, 157)}...` : rootError;
-  const statusErrorText = statusError && statusError.length > 160 ? `${statusError.slice(0, 157)}...` : statusError;
-  const rootEntries = useMemo(() => (rootUri ? agentCache[rootUri] || [] : []), [agentCache, rootUri]);
+  const rootErrorText = rootError && rootError.length > 240 ? `${rootError.slice(0, 237)}...` : rootError;
+  const statusErrorText = statusError && statusError.length > 240 ? `${statusError.slice(0, 237)}...` : statusError;
 
+  // Fetch root listing once ovUser is known.
   useEffect(() => {
     if (rootUri && !rootLoaded && !rootError) {
       requestMemoryList(agent.id, rootUri);
     }
   }, [agent.id, rootUri, rootLoaded, rootError, requestMemoryList]);
 
-  const handleToggleDir = useCallback((uri: string) => {
-    setExpandedDirs(prev => {
+  // Apply default expand + open once root is loaded.
+  useEffect(() => {
+    if (!ovUser || !rootUri || !memDirUri || !profileUri) return;
+    const key = `${agent.id}:${ovUser}`;
+    if (defaultsAppliedRef.current === key) return;
+    defaultsAppliedRef.current = key;
+    setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(uri)) { next.delete(uri); } else {
-        next.add(uri);
-        if (!agentCache[uri]) requestMemoryList(agent.id, uri);
-      }
+      next.add(rootUri);
+      next.add(memDirUri);
       return next;
     });
-  }, [agent.id, agentCache, requestMemoryList]);
+    requestMemoryList(agent.id, memDirUri);
+    setSelectedFile(profileUri);
+    setSelectedFolder(null);
+    requestMemoryContent(agent.id, profileUri, 'l2');
+  }, [agent.id, ovUser, rootUri, memDirUri, profileUri, requestMemoryList, requestMemoryContent]);
 
-  if (!checked) return null;
+  useEffect(() => {
+    if (!ovUser || !memDirUri) return;
+    const key = `${agent.id}:${ovUser}:${memDirUri}`;
+    if (defaultChildDirsAppliedRef.current === key) return;
+    const childDirs = defaultExpandedMemoryChildDirs(agentCache[memDirUri]);
+    if (!agentCache[memDirUri]) return;
+    defaultChildDirsAppliedRef.current = key;
+    if (childDirs.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(memDirUri);
+      childDirs.forEach((uri) => next.add(uri));
+      return next;
+    });
+    childDirs.forEach((uri) => requestMemoryList(agent.id, uri));
+  }, [agent.id, ovUser, memDirUri, agentCache, requestMemoryList]);
 
-  if (!ovUser) {
-    if (!statusErrorText) return null;
+  const fetchList = useCallback((uri?: string) => {
+    requestMemoryList(agent.id, uri ?? rootUri ?? undefined);
+  }, [agent.id, rootUri, requestMemoryList]);
+
+  const fetchContent = useCallback((uri: string) => {
+    requestMemoryContent(agent.id, uri, 'l2');
+  }, [agent.id, requestMemoryContent]);
+
+  const handleSelectFolder = useCallback((uri: string) => {
+    setSelectedFolder(uri);
+    setSelectedFile(null);
+    requestMemoryContent(agent.id, uri, 'l0');
+    requestMemoryContent(agent.id, uri, 'l1');
+  }, [agent.id, requestMemoryContent]);
+
+  const previewUri = selectedFile ?? selectedFolder;
+  const previewIsDir = !selectedFile && !!selectedFolder;
+
+  const beginResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const container = stackRef.current;
+    if (!container) return;
+    event.preventDefault();
+
+    const updateRatio = (clientY: number) => {
+      const rect = container.getBoundingClientRect();
+      if (!rect.height) return;
+      const next = (rect.bottom - clientY) / rect.height;
+      setPreviewRatio(Math.max(0.2, Math.min(0.8, next)));
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      resizeCleanupRef.current = null;
+    };
+    const onMove = (e: PointerEvent) => updateRatio(e.clientY);
+
+    resizeCleanupRef.current?.();
+    resizeCleanupRef.current = stop;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    updateRatio(event.clientY);
+  }, []);
+
+  const openMemoryPage = useCallback(() => {
+    setMemoryFocusAgentId(agent.id);
+    navigateToView('memory');
+    closeAgentProfileRail();
+  }, [agent.id, navigateToView, setMemoryFocusAgentId, closeAgentProfileRail]);
+
+  // Toolbar — shown above the tree.
+  const toolbar = (
+    <div
+      style={{
+        flexShrink: 0,
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '6px 10px 6px 12px',
+        borderBottom: '1px solid var(--zk-line)',
+        background: 'var(--zk-bg-1)',
+      }}
+    >
+      <Brain size={11} style={{ color: 'var(--zk-ember)', flexShrink: 0 }} />
+      <span
+        className="zk-mono"
+        style={{ fontSize: 10, fontWeight: 600, color: 'var(--zk-ink-mute)', letterSpacing: '0.06em' }}
+      >
+        OV MEMORY
+      </span>
+      {ovUser && (
+        <span className="zk-mono" style={{ fontSize: 10, color: 'var(--zk-ink-low)' }}>· {ovUser}</span>
+      )}
+      <span style={{ flex: 1 }} />
+      {rootUri && (
+        <button
+          type="button"
+          onClick={() => fetchList(rootUri)}
+          className="zk-btn zk-btn--ghost zk-btn--icon"
+          title="Refresh"
+          aria-label="Refresh memory"
+          style={{ padding: 4 }}
+        >
+          <RefreshCw size={11} />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={openMemoryPage}
+        className="zk-btn zk-btn--ghost"
+        title="Open Memory page"
+        style={{ padding: '3px 8px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
+      >
+        Open
+        <ExternalLink size={10} />
+      </button>
+    </div>
+  );
+
+  if (!statusChecked) {
     return (
-      <div className="border-t border-nc-border">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/30">
-          <Brain size={11} className="text-nc-cyan flex-shrink-0" />
-          <span className="text-2xs font-bold text-nc-cyan font-mono tracking-wider">OV MEMORY</span>
-        </div>
-        <div className="text-2xs text-nc-red font-mono py-2 px-3 break-words">{statusErrorText}</div>
+      <div className="flex-1 flex flex-col min-h-0">
+        {toolbar}
+        <div className="text-2xs text-nc-muted font-mono py-2 px-3 animate-pulse">Loading…</div>
       </div>
     );
   }
 
-  return (
-    <div className="border-t border-nc-border">
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/30">
-        <Brain size={11} className="text-nc-cyan flex-shrink-0" />
-        <span className="text-2xs font-bold text-nc-cyan font-mono tracking-wider">OV MEMORY</span>
-        <span className="text-2xs text-nc-muted font-mono">· {ovUser}</span>
-      </div>
-      <div className="py-0.5">
-        {rootErrorText ? (
-          <div className="flex items-start gap-2 py-2 px-3">
-            <div className="min-w-0 flex-1 text-2xs text-nc-red font-mono break-words">{rootErrorText}</div>
-            <button
-              type="button"
-              onClick={() => { if (rootUri) requestMemoryList(agent.id, rootUri); }}
-              className="shrink-0 w-5 h-5 flex items-center justify-center border border-nc-border text-nc-muted hover:text-nc-cyan hover:border-nc-cyan"
-              title="Retry OV memory list"
-            >
-              <RefreshCw size={11} />
-            </button>
-          </div>
-        ) : !rootLoaded ? (
-          <div className="text-2xs text-nc-muted font-mono py-2 px-3 animate-pulse">Loading OV data...</div>
-        ) : rootEntries.length > 0 ? rootEntries.map((entry) => (
-          <OvTreeNode key={entry.uri} entry={entry} level={0} expandedDirs={expandedDirs} treeCache={agentCache} onToggleDir={handleToggleDir} onViewFile={onViewFile} />
-        )) : (
-          <div className="text-2xs text-nc-muted font-mono py-2 px-3">No OV memories</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function WorkspaceTab({ agent }: { agent: ServerAgent }) {
-  const { workspaceFileContent, requestFileContent, memoryContentCache, requestMemoryContent } = useApp();
-  const [viewingFile, setViewingFile] = useState<string | null>(null);
-  const [viewingOvUri, setViewingOvUri] = useState<string | null>(null);
-  const { expandedDirs, rootFiles, toggleDir, treeCache } = useWorkspaceTree(agent);
-
-  const fileContent = viewingFile && workspaceFileContent?.agentId === agent.id && workspaceFileContent?.path === viewingFile
-    ? workspaceFileContent.content
-    : null;
-
-  const ovContent = viewingOvUri
-    ? (memoryContentCache[agent.id]?.[viewingOvUri]?.l2
-        ?? memoryContentCache[agent.id]?.[viewingOvUri]?.__legacy__
-        ?? null)
-    : null;
-
-  const previewContent = viewingOvUri ? ovContent : fileContent;
-  const previewName = viewingOvUri ? uriName(viewingOvUri) : (viewingFile?.split('/').pop() || viewingFile);
-  const previewTitle = viewingOvUri || viewingFile;
-  const hasPreview = !!(viewingFile || viewingOvUri);
-
-  const handleViewFile = useCallback((filePath: string) => {
-    setViewingFile(filePath);
-    setViewingOvUri(null);
-    requestFileContent(agent.id, filePath);
-  }, [agent.id, requestFileContent]);
-
-  const handleViewOvFile = useCallback((uri: string) => {
-    setViewingOvUri(uri);
-    setViewingFile(null);
-    requestMemoryContent(agent.id, uri, 'l2');
-  }, [agent.id, requestMemoryContent]);
-
-  const handleClosePreview = useCallback(() => {
-    setViewingFile(null);
-    setViewingOvUri(null);
-  }, []);
-
-  return (
-    <div className="flex-1 flex flex-col min-h-0">
-      <div
-        className="flex flex-col min-h-0"
-        style={hasPreview ? { maxHeight: '50%', flex: '1 1 0%' } : { flex: '1 1 0%' }}
-      >
-        {agent.status === 'active' && (
-          <div className="px-3 py-1.5 border-b border-nc-border">
-            <span className="text-xs font-mono text-nc-muted truncate block">{agent.workDir || '/'}</span>
-          </div>
-        )}
-        <div className="flex-1 overflow-y-auto scrollbar-thin safe-bottom-fill">
-          {agent.status === 'active' && rootFiles.length > 0 ? (
-            <div className="py-0.5">
-              <WorkspaceTree
-                files={rootFiles}
-                treeCache={treeCache}
-                expandedDirs={expandedDirs}
-                onToggleDir={toggleDir}
-                onFileSelect={handleViewFile}
-                variant="compact"
-                expandMode="static"
-              />
-            </div>
-          ) : agent.status === 'active' ? (
-            <div className="flex flex-col items-center justify-center text-center py-6">
-              <FolderOpenIcon size={20} className="text-nc-muted mb-2" />
-              <p className="text-xs text-nc-muted font-mono">No workspace files</p>
-            </div>
-          ) : null}
-          <OvSection agent={agent} onViewFile={handleViewOvFile} />
+  if (!ovUser) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0">
+        {toolbar}
+        <div className="text-2xs font-mono py-3 px-3 break-words" style={{ color: statusErrorText ? 'var(--zk-bad)' : 'var(--zk-ink-mute)' }}>
+          {statusErrorText || 'OpenViking is not enabled for this agent. Toggle it on in the agent config.'}
         </div>
       </div>
-      {hasPreview && (
-        <div className="flex-1 flex flex-col min-h-0 border-t border-nc-border">
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-nc-border bg-nc-elevated/50">
-            {viewingOvUri && <Brain size={11} className="text-nc-cyan flex-shrink-0" />}
-            <span className="flex-1 text-xs font-mono text-nc-text truncate" title={previewTitle || ''}>
-              {previewName}
-            </span>
-            <button
-              onClick={handleClosePreview}
-              className="w-5 h-5 flex items-center justify-center text-nc-muted hover:text-nc-red transition-colors"
-              title="Close preview"
-            >
-              <X size={12} />
-            </button>
-          </div>
-          <div
-            className="flex-1 overflow-auto scrollbar-thin bg-nc-black/50 safe-bottom-fill"
-            style={ncStyle({ textShadow: '0 0 4px rgb(var(--nc-green) / 0.3)' })}
+    );
+  }
+
+  if (rootErrorText) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0">
+        {toolbar}
+        <div className="flex items-start gap-2 py-2 px-3">
+          <div className="min-w-0 flex-1 text-2xs font-mono break-words" style={{ color: 'var(--zk-bad)' }}>{rootErrorText}</div>
+          <button
+            type="button"
+            onClick={() => rootUri && requestMemoryList(agent.id, rootUri)}
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            title="Retry"
+            style={{ flexShrink: 0, padding: 4 }}
           >
-            {previewContent === null ? (
-              <div className="p-3 text-xs font-mono text-nc-muted animate-pulse">Loading...</div>
-            ) : (
-              <SafePreviewContent text={previewContent} fileName={previewTitle || previewName || 'memory'} className="p-3" />
-            )}
-          </div>
+            <RefreshCw size={11} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!rootUri) return null;
+
+  const previewBasisPct = Math.round(previewRatio * 100);
+  const previewBasis = `calc(${previewBasisPct}% - 5px)`;
+  const treeBasis = `calc(${100 - previewBasisPct}% - 5px)`;
+
+  return (
+    <div ref={stackRef} className="flex-1 flex flex-col min-h-0">
+      {toolbar}
+
+      {/* Tree pane (top) */}
+      <div
+        className="flex flex-col min-h-0"
+        style={{ flex: previewUri ? `0 0 ${treeBasis}` : 1 }}
+      >
+        <TreeView
+          agentId={agent.id}
+          treeCache={agentCache}
+          source="memory"
+          fetchList={fetchList}
+          fetchContent={fetchContent}
+          selectedUri={selectedFile ?? selectedFolder}
+          onSelectFile={setSelectedFile}
+          onSelectFolder={handleSelectFolder}
+          rootUri={rootUri}
+          expanded={expanded}
+          setExpanded={setExpanded}
+          emptyMessage="No memories"
+        />
+      </div>
+
+      {/* Drag handle — 1px divider line + an invisible ±4px hit area for
+          easy grabbing. No background, no grip pill. */}
+      {previewUri && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize preview"
+          onPointerDown={beginResize}
+          style={{
+            flexShrink: 0,
+            height: 1,
+            background: 'var(--zk-line)',
+            position: 'relative',
+            cursor: 'row-resize',
+            touchAction: 'none',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: -4,
+              bottom: -4,
+            }}
+          />
+        </div>
+      )}
+
+      {/* Preview pane (bottom) */}
+      {previewUri && (
+        <div
+          className="flex flex-col min-h-0"
+          style={{ flex: `0 0 ${previewBasis}`, background: 'var(--zk-bg-0)' }}
+        >
+          <Preview
+            agentId={agent.id}
+            previewUri={previewUri}
+            isDirectory={previewIsDir}
+            source="memory"
+            compact
+            onBack={selectedFile ? () => setSelectedFile(null) : undefined}
+          />
         </div>
       )}
     </div>
@@ -438,8 +427,8 @@ function ConfigTab({ agent }: { agent: ServerAgent }) {
  * also clears `rightPanel='agent_profile'` so the modal unmounts.
  */
 export default function AgentProfilePanel({ inline = false }: { inline?: boolean }) {
-  const { agents, configs, closeAgentProfileRail, agentProfileId, agentProfileTab, setAgentProfileTab, navigateToView, setMemoryFocusAgentId } = useApp();
-  const tab = agentProfileTab as Tab;
+  const { agents, configs, closeAgentProfileRail, agentProfileId, agentProfileTab, setAgentProfileTab } = useApp();
+  const tab = (agentProfileTab === 'workspace' ? 'profile' : agentProfileTab) as Tab;
   const setTab = (next: Tab) => setAgentProfileTab(next);
 
   const liveAgent = agents.find((a) => a.id === agentProfileId);
@@ -504,28 +493,19 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
       >
         <div className="flex-1" />
         {TAB_CONFIG.map(({ key, label, icon: Icon }) => {
-          const isMemNav = key === 'mem_nav';
-          const active = !isMemNav && tab === key;
+          const active = tab === key;
           return (
             <button
               key={key}
               type="button"
-              onClick={() => {
-                if (isMemNav) {
-                  if (agent) setMemoryFocusAgentId(agent.id);
-                  navigateToView('memory');
-                  closeAgentProfileRail();
-                } else {
-                  setTab(key as Tab);
-                }
-              }}
+              onClick={() => setTab(key)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '10px 12px', fontSize: 11, fontWeight: 600,
                 fontFamily: 'var(--zk-font-mono)', letterSpacing: '0.02em',
                 borderBottom: '2px solid', marginBottom: -1,
                 borderColor: active ? 'var(--zk-ember)' : 'transparent',
-                color: active ? 'var(--zk-ink)' : isMemNav ? 'var(--zk-ink-mute)' : 'var(--zk-ink-mute)',
+                color: active ? 'var(--zk-ink)' : 'var(--zk-ink-mute)',
                 background: 'transparent', border: 'none',
                 borderBottomWidth: 2, borderBottomStyle: 'solid',
                 borderBottomColor: active ? 'var(--zk-ember)' : 'transparent',
@@ -537,7 +517,6 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
             >
               <Icon size={12} />
               {label}
-              {isMemNav && <span style={{ fontSize: 9, opacity: 0.5 }}>↗</span>}
             </button>
           );
         })}
@@ -553,7 +532,7 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
 
       <div className="flex-1 min-h-0 flex flex-col">
         {tab === 'profile' && <ProfileTab agent={agent} />}
-        {tab === 'workspace' && <WorkspaceTab agent={agent} />}
+        {tab === 'memory' && <MemoryTab key={agent.id} agent={agent} />}
         {tab === 'config' && <ConfigTab key={agent.id} agent={agent} />}
       </div>
     </div>

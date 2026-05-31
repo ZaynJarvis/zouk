@@ -5,8 +5,8 @@ import type {
   WorkspaceFile, MemoryEntry, AgentProfilePreset, AgentAvailableSkill,
   Workspace, WorkspaceMember, WorkspaceRole, AgentLifecycleStatus,
 } from '../types';
-import { SlockWebSocket } from '../lib/ws';
-import type { WsEvent } from '../lib/ws';
+import type { SlockWebSocket, WsEvent } from '../lib/ws';
+import { ws as eagerWs } from '../lib/wsSingleton';
 import * as api from '../lib/api';
 import { normalizeMessage } from '../lib/api';
 import type { AuthUser } from '../lib/api';
@@ -181,7 +181,7 @@ export function useAppStore() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [agentSettingsId, setAgentSettingsId] = useState<string | null>(null);
   const [agentProfileId, setAgentProfileId] = useState<string | null>(null);
-  const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'config'>('profile');
+  const [agentProfileTab, setAgentProfileTab] = useState<'profile' | 'workspace' | 'memory' | 'config'>('profile');
   const [memoryFocusAgentId, setMemoryFocusAgentId] = useState<string | null>(null);
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const [activeThreadMessage, setActiveThreadMessage] = useState<MessageRecord | null>(null);
@@ -869,15 +869,29 @@ export function useAppStore() {
   }, [addToast]);
 
   useEffect(() => {
-    const ws = new SlockWebSocket(serverUrl);
-    wsRef.current = ws;
-    const unsub = ws.on(handleWsEvent);
-    ws.connect();
+    // Reuse the singleton WS that started handshaking at JS-parse time (see
+    // lib/wsSingleton.ts). connect() is idempotent on URL match — if the
+    // workspaceId / token captured at eager init is still current, this is a
+    // no-op and the warm connection lives. If either changed during the auth
+    // flow before AppProvider mounted, connect() tears the stale handshake
+    // down, clears any buffered pre-mount events (they were generated under
+    // the wrong credentials and would clobber state if drained), and re-opens
+    // with the right URL.
+    //
+    // Order matters: connect() runs *before* on(), so URL reconciliation +
+    // earlyEvents pruning happen first; the handler then drains only events
+    // that actually match the current URL, plus the fresh `init` that the
+    // re-handshake will produce.
+    wsRef.current = eagerWs;
+    eagerWs.connect();
+    const unsub = eagerWs.on(handleWsEvent);
     return () => {
       unsub();
-      ws.disconnect();
+      // Intentionally NOT calling disconnect(). The singleton outlives the
+      // React tree; tearing it down on every dep change would defeat the
+      // whole point of the eager init.
     };
-  }, [serverUrl, activeWorkspaceId, handleWsEvent]);
+  }, [serverUrl, activeWorkspaceId, authToken, handleWsEvent]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -1227,8 +1241,8 @@ export function useAppStore() {
     try {
       await api.stopAgent(agentId);
       addToast('Agent stopping...', 'info');
-    } catch {
-      addToast('Failed to stop agent', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to stop agent', 'error');
     }
   }, [addToast]);
 
@@ -1236,8 +1250,8 @@ export function useAppStore() {
     try {
       await api.resetAgentContext(agentId);
       addToast('Context reset', 'info');
-    } catch {
-      addToast('Failed to reset context', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to reset context', 'error');
     }
   }, [addToast]);
 
@@ -1245,8 +1259,8 @@ export function useAppStore() {
     try {
       await api.deleteAgent(agentId);
       addToast('Agent deleted', 'info');
-    } catch {
-      addToast('Failed to delete agent', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to delete agent', 'error');
     }
   }, [addToast]);
 
@@ -1285,8 +1299,8 @@ export function useAppStore() {
     try {
       await api.saveAgentConfig(config);
       addToast(`Agent config "${config.displayName || config.name}" saved`, 'success');
-    } catch {
-      addToast('Failed to save agent config', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to save agent config', 'error');
     }
   }, [addToast]);
 
@@ -1294,8 +1308,8 @@ export function useAppStore() {
     try {
       await api.updateAgentConfig(agentId, updates);
       addToast('Agent config updated', 'info');
-    } catch {
-      addToast('Failed to update agent config', 'error');
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to update agent config', 'error');
     }
   }, [addToast]);
 

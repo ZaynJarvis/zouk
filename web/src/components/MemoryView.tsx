@@ -7,14 +7,11 @@
    - 'files': browses the agent's workspace via requestWorkspaceFiles /
      requestFileContent. Identifiers are filesystem paths; root is empty.
 
-   Paradigms (both sources share the UI):
-   - Columns: Finder/Miller columns + right preview pane.
-   - Tree: single-column expand/collapse.
-
-   Keyboard: ↑/↓ navigate · → / ⏎ open · ← back · ⌘1/⌘2 switch view. */
+   Layout: single-column tree on the left, preview pane on the right. The
+   tree is also re-exported for use inside the agent sidebar's Memory tab. */
 
 import {
-  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo,
+  useCallback, useEffect, useMemo, useRef, useState, memo,
 } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
@@ -22,8 +19,10 @@ import {
 } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, MemoryEntry } from '../types';
+import { fetchAgentOvStatus } from '../lib/api';
 import { isMobileViewport } from '../lib/layout';
-import { Avatar } from './zk/primitives';
+import { AgentAvatar } from './zk/primitives';
+import AgentProfileSummary from './agent/AgentProfileSummary';
 import { LEVEL_META } from './memory/atlas-helpers';
 import {
   fileKindLabel,
@@ -35,13 +34,24 @@ import {
 import ViewHeader from './ViewHeader';
 import '../styles/atlas-renderers.css';
 
-type Source = 'memory' | 'files';
+export type Source = 'memory' | 'files';
 
-const MEMORY_ROOT = 'viking://';
+export const MEMORY_ROOT = 'viking://';
 const FILES_ROOT = '';
-const COLUMN_W = 220;
 
-const rootFor = (s: Source) => (s === 'memory' ? MEMORY_ROOT : FILES_ROOT);
+export const rootFor = (s: Source) => (s === 'memory' ? MEMORY_ROOT : FILES_ROOT);
+
+export function memoryUserRoot(ovUser: string): string {
+  return `viking://user/${ovUser}/`;
+}
+
+export function memoryFolderUri(ovUser: string, folder: string): string {
+  return `viking://user/${ovUser}/${folder}/`;
+}
+
+export function memoryProfileUri(ovUser: string): string {
+  return `viking://user/${ovUser}/memories/profile.md`;
+}
 
 // Hide dot-prefixed entries (.ov, .git, .DS_Store, .cache, ...) from the Files
 // view. They're agent-internal scaffolding, not content the user wants to
@@ -55,9 +65,16 @@ function visibleEntries(entries: MemoryEntry[], source: Source): MemoryEntry[] {
   });
 }
 
+export function defaultExpandedMemoryChildDirs(entries: MemoryEntry[] | undefined): string[] {
+  if (!entries) return [];
+  return visibleEntries(entries, 'memory')
+    .filter((entry) => entry.isDir)
+    .map((entry) => entry.uri);
+}
+
 /* ---- URI / path helpers --------------------------------------------- */
 
-function uriBasename(uri: string, source: Source): string {
+export function uriBasename(uri: string, source: Source): string {
   if (source === 'memory') {
     if (!uri || uri === MEMORY_ROOT || uri === 'viking:///') return '/';
     const trimmed = uri.replace(/\/+$/, '');
@@ -130,12 +147,10 @@ function AgentChipStrip({
               transition: 'background 160ms var(--zk-ease-out), border-color 160ms var(--zk-ease-out), color 160ms var(--zk-ease-out)',
             }}
           >
-            <Avatar
-              src={a.picture}
-              name={a.displayName || a.name}
-              kind="agent"
+            <AgentAvatar
+              agent={a}
               size="sm"
-              activity={a.activity}
+              hideDotWhen={['offline', 'online', 'working']}
             />
             <span style={{ fontWeight: active ? 500 : 400 }}>
               {a.displayName || a.name}
@@ -143,116 +158,6 @@ function AgentChipStrip({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-/* ---- Miller column row ---------------------------------------------- */
-
-const ColumnRow = memo(function ColumnRow({
-  entry, selected, source, onSelect,
-}: {
-  entry: MemoryEntry;
-  selected: boolean;
-  source: Source;
-  onSelect: (e: MemoryEntry) => void;
-}) {
-  const name = uriBasename(entry.uri, source);
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(entry)}
-      style={{
-        width: '100%',
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '7px 10px',
-        background: selected ? 'var(--zk-ember-soft)' : 'transparent',
-        border: 0, borderRadius: 5,
-        cursor: 'pointer', textAlign: 'left',
-        color: 'inherit',
-        transition: 'background 140ms var(--zk-ease-out)',
-      }}
-      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = 'var(--zk-bg-1)'; }}
-      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}
-    >
-      {entry.isDir
-        ? <Folder size={11} color={selected ? 'var(--zk-ember)' : 'var(--zk-ink-dim)'} />
-        : <File size={11} color={selected ? 'var(--zk-ember)' : 'var(--zk-ink-mute)'} />}
-      <span
-        style={{
-          flex: 1, minWidth: 0,
-          fontFamily: 'var(--zk-font-mono)', fontSize: 12,
-          color: selected ? 'var(--zk-ember)' : 'var(--zk-ink-dim)',
-          fontWeight: selected ? 500 : 400,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}
-      >
-        {name}
-      </span>
-      {entry.isDir && (
-        <ChevronRight size={9} color={selected ? 'var(--zk-ember)' : 'var(--zk-ink-low)'} />
-      )}
-    </button>
-  );
-});
-
-/* ---- Miller column -------------------------------------------------- */
-
-function MillerColumn({
-  uri, entries, selectedChildUri, loading, source, onPickEntry,
-}: {
-  uri: string;
-  entries: MemoryEntry[];
-  selectedChildUri: string | null;
-  loading: boolean;
-  source: Source;
-  onPickEntry: (e: MemoryEntry) => void;
-}) {
-  const headerLabel = uri === rootFor(source) ? (source === 'files' ? '~' : '/') : uriBasename(uri, source);
-  return (
-    <div
-      style={{
-        width: COLUMN_W,
-        flexShrink: 0,
-        borderRight: '1px solid var(--zk-line)',
-        display: 'flex', flexDirection: 'column',
-        background: 'var(--zk-bg-0)',
-      }}
-    >
-      <div
-        style={{
-          padding: '12px 14px 8px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          fontFamily: 'var(--zk-font-mono)', fontSize: 10,
-          letterSpacing: '0.18em', color: 'var(--zk-ink-mute)',
-        }}
-      >
-        <span className="zk-truncate" title={uri}>{headerLabel}</span>
-        <span className="zk-tabular" style={{ color: 'var(--zk-ink-low)' }}>
-          {entries.length || (loading ? '…' : 0)}
-        </span>
-      </div>
-      <div className="zk-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '2px 6px 12px' }}>
-        {loading && entries.length === 0 ? (
-          <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--zk-ink-low)', fontFamily: 'var(--zk-font-mono)', fontStyle: 'italic' }}>
-            loading…
-          </div>
-        ) : entries.length === 0 ? (
-          <div style={{ padding: '12px', fontSize: 13, color: 'var(--zk-ink-low)', fontStyle: 'italic', fontFamily: 'var(--zk-font-display)' }}>
-            empty
-          </div>
-        ) : (
-          entries.map((e) => (
-            <ColumnRow
-              key={e.uri}
-              entry={e}
-              selected={e.uri === selectedChildUri}
-              source={source}
-              onSelect={onPickEntry}
-            />
-          ))
-        )}
-      </div>
     </div>
   );
 }
@@ -268,14 +173,15 @@ type LevelKey = 'l0' | 'l1' | 'l2';
 const FOLDER_LEVELS: LevelKey[] = ['l0', 'l1'];
 const FILE_LEVELS: LevelKey[] = ['l2'];
 
-function Preview({
-  agentId, previewUri, isDirectory, source, onBack,
+export function Preview({
+  agentId, previewUri, isDirectory, source, onBack, compact = false,
 }: {
   agentId: string | null;
   previewUri: string | null;
   isDirectory: boolean;
   source: Source;
   onBack?: () => void;
+  compact?: boolean;
 }) {
   const { memoryContentCache, workspaceFileContent } = useApp();
   const [activeLevels, setActiveLevels] = useState<LevelKey[] | null>(null);
@@ -352,10 +258,14 @@ function Preview({
     return <SafePreviewContent text={text} fileName={renderName} className="atlas-section-body" />;
   }
 
+  const headerPad = compact ? '10px 14px 8px' : '18px 24px 16px';
+  const nameSize = compact ? 13 : 14;
+  const metaSize = compact ? 10 : 11;
+
   return (
     <div className="zk-fade-in" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
-      <header style={{ padding: '18px 24px 16px', borderBottom: '1px solid var(--zk-line)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+      <header style={{ padding: headerPad, borderBottom: '1px solid var(--zk-line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: compact ? 6 : 10 }}>
           {onBack && (
             <button
               type="button"
@@ -372,7 +282,7 @@ function Preview({
             : <File size={13} color="var(--zk-ink-dim)" />}
           <span
             style={{
-              fontFamily: 'var(--zk-font-mono)', fontSize: 14,
+              fontFamily: 'var(--zk-font-mono)', fontSize: nameSize,
               color: 'var(--zk-ink)', fontWeight: 500,
             }}
             className="zk-truncate"
@@ -396,7 +306,7 @@ function Preview({
           className="zk-truncate"
           style={{
             display: 'flex', gap: 18,
-            fontFamily: 'var(--zk-font-mono)', fontSize: 11,
+            fontFamily: 'var(--zk-font-mono)', fontSize: metaSize,
             color: 'var(--zk-ink-mute)',
           }}
           title={previewUri}
@@ -463,7 +373,7 @@ function Preview({
 
 const TreeNode = memo(function TreeNode({
   entry, level, expanded, treeCache, selectedUri, source,
-  onToggle, onSelectFile,
+  onToggle, onSelectFile, onSelectFolder,
 }: {
   entry: MemoryEntry;
   level: number;
@@ -473,18 +383,26 @@ const TreeNode = memo(function TreeNode({
   source: Source;
   onToggle: (uri: string) => void;
   onSelectFile: (uri: string) => void;
+  onSelectFolder?: (uri: string) => void;
 }) {
   const { uri, isDir } = entry;
   const isExpanded = isDir && expanded.has(uri);
   const children = isDir ? (treeCache[uri] ? visibleEntries(treeCache[uri], source) : undefined) : undefined;
   const name = uriBasename(uri, source);
-  const isSelected = !isDir && uri === selectedUri;
+  const isSelected = uri === selectedUri;
 
   return (
     <>
       <button
         type="button"
-        onClick={() => isDir ? onToggle(uri) : onSelectFile(uri)}
+        onClick={() => {
+          if (isDir) {
+            onToggle(uri);
+            onSelectFolder?.(uri);
+          } else {
+            onSelectFile(uri);
+          }
+        }}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 6,
           padding: '5px 10px',
@@ -537,6 +455,7 @@ const TreeNode = memo(function TreeNode({
                 source={source}
                 onToggle={onToggle}
                 onSelectFile={onSelectFile}
+                onSelectFolder={onSelectFolder}
               />
             ))
           )
@@ -550,30 +469,41 @@ const TreeNode = memo(function TreeNode({
   );
 });
 
-function TreeView({
+export function TreeView({
   agentId, treeCache, source, fetchList, fetchContent,
-  selectedFile, onSelectFile,
+  selectedUri, onSelectFile, onSelectFolder,
+  rootUri,
+  expanded: controlledExpanded,
+  setExpanded: setControlledExpanded,
+  emptyMessage,
 }: {
   agentId: string;
   treeCache: Record<string, MemoryEntry[]>;
   source: Source;
   fetchList: (uri?: string) => void;
   fetchContent: (uri: string) => void;
-  selectedFile: string | null;
+  selectedUri: string | null;
   onSelectFile: (uri: string) => void;
+  onSelectFolder?: (uri: string) => void;
+  rootUri?: string;
+  expanded?: Set<string>;
+  setExpanded?: (updater: (prev: Set<string>) => Set<string>) => void;
+  emptyMessage?: string;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const root = rootFor(source);
+  const [internalExpanded, setInternalExpanded] = useState<Set<string>>(new Set());
+  const expanded = controlledExpanded ?? internalExpanded;
+  const setExpanded = setControlledExpanded ?? setInternalExpanded;
+  const root = rootUri ?? rootFor(source);
   const rootEntries = visibleEntries(
-    treeCache[root] || (source === 'memory' ? (treeCache['viking:///'] || []) : []),
+    treeCache[root] || (source === 'memory' && root === MEMORY_ROOT ? (treeCache['viking:///'] || []) : []),
     source,
   );
 
   useEffect(() => {
-    if (!treeCache[root] && !(source === 'memory' && treeCache['viking:///'])) {
-      fetchList();
+    if (!treeCache[root] && !(source === 'memory' && root === MEMORY_ROOT && treeCache['viking:///'])) {
+      fetchList(rootUri);
     }
-  }, [agentId, treeCache, fetchList, root, source]);
+  }, [agentId, treeCache, fetchList, root, source, rootUri]);
 
   const handleToggle = useCallback((uri: string) => {
     setExpanded((prev) => {
@@ -586,7 +516,7 @@ function TreeView({
       }
       return next;
     });
-  }, [treeCache, fetchList]);
+  }, [treeCache, fetchList, setExpanded]);
 
   const handlePickFile = useCallback((uri: string) => {
     onSelectFile(uri);
@@ -597,7 +527,7 @@ function TreeView({
     <div className="zk-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '6px 4px' }}>
       {rootEntries.length === 0 ? (
         <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--zk-ink-mute)', fontSize: 12, fontFamily: 'var(--zk-font-mono)' }}>
-          {source === 'memory' ? 'No memories' : 'No files'}
+          {emptyMessage ?? (source === 'memory' ? 'No memories' : 'No files')}
         </div>
       ) : (
         rootEntries.map((e) => (
@@ -607,59 +537,14 @@ function TreeView({
             level={0}
             expanded={expanded}
             treeCache={treeCache}
-            selectedUri={selectedFile}
+            selectedUri={selectedUri}
             source={source}
             onToggle={handleToggle}
             onSelectFile={handlePickFile}
+            onSelectFolder={onSelectFolder}
           />
         ))
       )}
-    </div>
-  );
-}
-
-/* ---- View segmented control ---------------------------------------- */
-
-type Paradigm = 'columns' | 'tree';
-
-function ViewSwitch({ value, onChange }: { value: Paradigm; onChange: (v: Paradigm) => void }) {
-  return (
-    <div className="zk-seg">
-      <button type="button" className={value === 'columns' ? 'is-active' : ''} onClick={() => onChange('columns')}>Columns</button>
-      <button type="button" className={value === 'tree' ? 'is-active' : ''} onClick={() => onChange('tree')}>Tree</button>
-    </div>
-  );
-}
-
-/* ---- Footer (keyboard hints) --------------------------------------- */
-
-function FooterShortcuts({ paradigm, currentPath }: { paradigm: Paradigm; currentPath: string }) {
-  const items: Array<[string, string]> = paradigm === 'columns'
-    ? [['↑↓', 'Navigate'], ['→ ⏎', 'Open'], ['←', 'Back'], ['⌘1 ⌘2', 'View']]
-    : [['↑↓', 'Navigate'], ['→ ⏎', 'Open / expand'], ['⌘1 ⌘2', 'View']];
-
-  return (
-    <div
-      className="hidden lg:flex"
-      style={{
-        gap: 18, alignItems: 'center',
-        padding: '8px 22px',
-        borderTop: '1px solid var(--zk-line)',
-        fontFamily: 'var(--zk-font-mono)', fontSize: 11,
-        color: 'var(--zk-ink-mute)',
-        background: 'var(--zk-bg-0)',
-      }}
-    >
-      {items.map(([k, l]) => (
-        <span key={l} style={{ display: 'flex', gap: 6 }}>
-          <span style={{ color: 'var(--zk-ink-low)' }}>{k}</span>
-          <span>{l}</span>
-        </span>
-      ))}
-      <span className="zk-grow" />
-      <span className="zk-truncate" style={{ color: 'var(--zk-ink-low)', maxWidth: '50%' }} title={currentPath}>
-        {currentPath}
-      </span>
     </div>
   );
 }
@@ -685,15 +570,17 @@ export default function MemoryView() {
   useEffect(() => {
     if (!ovEnabledForAgent && source !== 'files') setSource('files');
   }, [ovEnabledForAgent, source]);
-  const [paradigm, setParadigm] = useState<Paradigm>('columns');
-  const [trail, setTrail] = useState<string[]>([rootFor('memory')]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [ovUser, setOvUser] = useState<string | null>(null);
   const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport());
   const [mobilePreviewRatio, setMobilePreviewRatio] = useState(0.46);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const rootRefreshKeyRef = useRef<string | null>(null);
   const previewResizeCleanupRef = useRef<(() => void) | null>(null);
+  const defaultsAppliedRef = useRef<string | null>(null);
+  const defaultChildDirsAppliedRef = useRef<string | null>(null);
 
   useEffect(() => {
     const update = () => setIsMobileSurface(isMobileViewport());
@@ -718,10 +605,25 @@ export default function MemoryView() {
     if (!agentId && agents.length > 0) setAgentId(agents[0].id);
     if (agentId && !agents.find((a) => a.id === agentId)) {
       setAgentId(agents[0]?.id ?? null);
-      setTrail([rootFor(source)]);
       setSelectedFile(null);
+      setSelectedFolder(null);
+      setExpanded(new Set());
     }
   }, [agents, agentId, source]);
+
+  // Resolve OV user for the selected agent so we can default-expand and
+  // default-open the agent's profile.md when on the memory source.
+  useEffect(() => {
+    if (!agentId) { setOvUser(null); return; }
+    let cancelled = false;
+    fetchAgentOvStatus(agentId)
+      .then((data) => {
+        if (cancelled) return;
+        setOvUser(data.enabled ? (data.user || agents.find((a) => a.id === agentId)?.name || null) : null);
+      })
+      .catch(() => { if (!cancelled) setOvUser(null); });
+    return () => { cancelled = true; };
+  }, [agentId, agents]);
 
   /* Per-source data adapter — uniform Record<uri, MemoryEntry[]> shape. */
   const agentCache = useMemo(() => {
@@ -767,10 +669,13 @@ export default function MemoryView() {
     requestMemoryContent(agentId, uri, 'l1');
   }, [agentId, source, requestMemoryContent]);
 
-  // Reset when agent or source changes; eagerly load root.
+  // Reset selection when agent or source changes; eagerly load root.
   useEffect(() => {
-    setTrail([rootFor(source)]);
     setSelectedFile(null);
+    setSelectedFolder(null);
+    setExpanded(new Set());
+    defaultsAppliedRef.current = null;
+    defaultChildDirsAppliedRef.current = null;
   }, [agentId, source]);
 
   useEffect(() => {
@@ -785,116 +690,75 @@ export default function MemoryView() {
     }
   }, [agentId, source, agentCache, fetchList]);
 
-  useLayoutEffect(() => {
-    if (paradigm !== 'columns') return;
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
-  }, [trail.length, paradigm]);
+  // Default expand path + open profile.md for the selected agent's OV root.
+  // Runs once per (agent, source) pair; user expand/collapse is preserved.
+  useEffect(() => {
+    if (!agentId || source !== 'memory' || !ovUser) return;
+    const key = `${agentId}:${source}:${ovUser}`;
+    if (defaultsAppliedRef.current === key) return;
+    defaultsAppliedRef.current = key;
+    // OV root structure is viking:// → user/ → <ovUser>/ → memories/ → profile.md.
+    // Each ancestor must be in the expanded set; expanding only the leaves
+    // hides them under a collapsed parent.
+    const userParent = 'viking://user/';
+    const userRoot = memoryUserRoot(ovUser);
+    const memDir = memoryFolderUri(ovUser, 'memories');
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(userParent);
+      next.add(userRoot);
+      next.add(memDir);
+      return next;
+    });
+    // Warm the listings so the expanded path renders without a click.
+    requestMemoryList(agentId, userParent);
+    requestMemoryList(agentId, userRoot);
+    requestMemoryList(agentId, memDir);
+    // Default-open the profile.md.
+    const profile = memoryProfileUri(ovUser);
+    setSelectedFile(profile);
+    setSelectedFolder(null);
+    requestMemoryContent(agentId, profile, 'l2');
+  }, [agentId, source, ovUser, requestMemoryList, requestMemoryContent]);
 
-  const onPickEntry = useCallback((colIdx: number, entry: MemoryEntry) => {
-    if (!agentId) return;
-    const newTrail = trail.slice(0, colIdx + 1);
-    if (entry.isDir) {
-      newTrail.push(entry.uri);
-      setTrail(newTrail);
-      setSelectedFile(null);
-      if (!agentCache[entry.uri]) fetchList(entry.uri);
-    } else {
-      setTrail(newTrail);
-      setSelectedFile(entry.uri);
-      fetchContent(entry.uri);
+  useEffect(() => {
+    if (!agentId || source !== 'memory' || !ovUser) return;
+    const memDir = memoryFolderUri(ovUser, 'memories');
+    const key = `${agentId}:${source}:${memDir}`;
+    if (defaultChildDirsAppliedRef.current === key) return;
+    const childDirs = defaultExpandedMemoryChildDirs(agentCache[memDir]);
+    if (!agentCache[memDir]) return;
+    defaultChildDirsAppliedRef.current = key;
+    if (childDirs.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.add(memDir);
+      childDirs.forEach((uri) => next.add(uri));
+      return next;
+    });
+    childDirs.forEach((uri) => requestMemoryList(agentId, uri));
+  }, [agentId, source, ovUser, agentCache, requestMemoryList]);
+
+  const handleSelectFolder = useCallback((uri: string) => {
+    setSelectedFolder(uri);
+    setSelectedFile(null);
+    if (source === 'memory') {
+      fetchFolderSummaries(uri);
     }
-  }, [agentId, agentCache, trail, fetchList, fetchContent]);
+  }, [source, fetchFolderSummaries]);
+
+  const memoryBrowserRoot = source === 'memory' && ovUser ? memoryFolderUri(ovUser, 'memories') : undefined;
 
   const refreshActive = useCallback(() => {
     if (!agentId) return;
-    fetchList(rootFor(source));
-    trail.slice(1).forEach((u) => fetchList(u));
+    fetchList(memoryBrowserRoot ?? rootFor(source));
+    expanded.forEach((u) => fetchList(u));
     if (selectedFile) fetchContent(selectedFile);
-  }, [agentId, source, trail, selectedFile, fetchList, fetchContent]);
+    if (selectedFolder && source === 'memory') fetchFolderSummaries(selectedFolder);
+  }, [agentId, source, memoryBrowserRoot, expanded, selectedFile, selectedFolder, fetchList, fetchContent, fetchFolderSummaries]);
 
-  useEffect(() => {
-    if (paradigm !== 'columns' || !agentId) return;
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea') return;
-      if (e.metaKey && (e.key === '1' || e.key === '2')) {
-        e.preventDefault();
-        setParadigm(e.key === '1' ? 'columns' : 'tree');
-        return;
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-      const activeColIdx = trail.length - 1;
-      const activeUri = trail[activeColIdx];
-      const entries = agentCache[activeUri] || [];
-      const selectedChildUri = trail[activeColIdx + 1] ?? selectedFile;
-      const activeIdx = entries.findIndex((x) => x.uri === selectedChildUri);
-
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        if (entries.length === 0) return;
-        e.preventDefault();
-        const dir = e.key === 'ArrowDown' ? 1 : -1;
-        const next = activeIdx < 0
-          ? (e.key === 'ArrowDown' ? 0 : entries.length - 1)
-          : Math.max(0, Math.min(entries.length - 1, activeIdx + dir));
-        const entry = entries[next];
-        const newTrail = trail.slice(0, activeColIdx + 1);
-        if (entry.isDir) {
-          setTrail([...newTrail, entry.uri]);
-          setSelectedFile(null);
-          if (!agentCache[entry.uri]) fetchList(entry.uri);
-        } else {
-          setTrail(newTrail);
-          setSelectedFile(entry.uri);
-          fetchContent(entry.uri);
-        }
-      } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
-        if (activeIdx < 0) return;
-        const entry = entries[activeIdx];
-        if (!entry) return;
-        e.preventDefault();
-        if (entry.isDir) {
-          if (trail[activeColIdx + 1] !== entry.uri) {
-            const newTrail = [...trail.slice(0, activeColIdx + 1), entry.uri];
-            setTrail(newTrail);
-            if (!agentCache[entry.uri]) fetchList(entry.uri);
-          }
-        } else {
-          setSelectedFile(entry.uri);
-          fetchContent(entry.uri);
-        }
-      } else if (e.key === 'ArrowLeft') {
-        if (trail.length <= 1) return;
-        e.preventDefault();
-        setTrail(trail.slice(0, -1));
-        setSelectedFile(null);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [paradigm, agentId, trail, agentCache, selectedFile, fetchList, fetchContent]);
-
-  const root = rootFor(source);
-
-  // Folder preview target: deepest non-root folder in trail when no file is
-  // selected. Files take precedence over folder summaries.
-  const folderPreviewUri = useMemo(() => {
-    if (selectedFile) return null;
-    if (source !== 'memory') return null;
-    const last = trail[trail.length - 1];
-    if (!last || last === MEMORY_ROOT) return null;
-    return last;
-  }, [selectedFile, source, trail]);
-
-  // Kick off L0/L1 fetch when the deepest folder changes.
-  useEffect(() => {
-    if (folderPreviewUri) fetchFolderSummaries(folderPreviewUri);
-  }, [folderPreviewUri, fetchFolderSummaries]);
-
-  const previewUri = selectedFile ?? folderPreviewUri;
-  const previewIsDir = !selectedFile && !!folderPreviewUri;
+  const previewUri = selectedFile ?? selectedFolder;
+  const previewIsDir = !selectedFile && !!selectedFolder;
   const showMobilePreview = isMobileSurface && !!previewUri;
   const showPreviewPane = !isMobileSurface || !!previewUri;
   const mobilePreviewPercent = Math.round(mobilePreviewRatio * 100);
@@ -933,19 +797,6 @@ export default function MemoryView() {
     updateRatio(event.clientY);
   }, [previewUri, isMobileSurface]);
 
-  const columns = useMemo(() => {
-    return trail.map((uri, i) => {
-      const raw = agentCache[uri] || (uri === root && source === 'memory' ? agentCache['viking:///'] || [] : []);
-      const entries = visibleEntries(raw, source);
-      const childTrailUri = trail[i + 1] ?? null;
-      const childUri = childTrailUri ?? (i === trail.length - 1 ? selectedFile : null);
-      const loaded = !!agentCache[uri] || (uri === root && source === 'memory' && !!agentCache['viking:///']);
-      return { uri, entries, childUri, loading: !loaded };
-    });
-  }, [trail, agentCache, selectedFile, root, source]);
-
-  const currentPath = selectedFile || trail[trail.length - 1] || root || '~';
-
   return (
     <div
       style={{
@@ -983,7 +834,6 @@ export default function MemoryView() {
                 Files
               </button>
             </div>
-            <ViewSwitch value={paradigm} onChange={setParadigm} />
             <button
               type="button"
               className="zk-btn zk-btn--ghost zk-btn--icon"
@@ -1004,6 +854,16 @@ export default function MemoryView() {
         onSelect={setAgentId}
       />
 
+      {selectedAgent && source === 'memory' && (
+        <AgentProfileSummary
+          agent={selectedAgent}
+          compact
+          showStatusDot={false}
+          className="shrink-0 px-4 py-3"
+          style={{ borderBottom: '1px solid var(--zk-line)', background: 'var(--zk-bg-1)' }}
+        />
+      )}
+
       {!selectedAgent ? (
         <div
           style={{
@@ -1017,79 +877,6 @@ export default function MemoryView() {
             Configure an agent to browse its memory.
           </p>
         </div>
-      ) : paradigm === 'columns' ? (
-        <>
-          {/* Mobile: vertical stack (columns top, preview bottom).
-              Desktop: side-by-side (columns left, preview right). */}
-          <div ref={stackRef} className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
-            <div
-              ref={scrollRef}
-              className="zk-scroll flex"
-              style={{
-                flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobileBrowserBasis}` : 1) : (selectedFile ? undefined : 1),
-                minWidth: 0,
-                minHeight: 0,
-                overflowX: 'auto',
-                background: 'var(--zk-bg-0)',
-                borderBottom: isMobileSurface && showMobilePreview ? '1px solid var(--zk-line)' : undefined,
-              }}
-            >
-              {columns.map((col, i) => (
-                <MillerColumn
-                  key={col.uri + ':' + i}
-                  uri={col.uri}
-                  entries={col.entries}
-                  selectedChildUri={col.childUri}
-                  loading={col.loading}
-                  source={source}
-                  onPickEntry={(e) => onPickEntry(i, e)}
-                />
-              ))}
-            </div>
-
-            {showMobilePreview && (
-              <div className="lg:hidden flex-shrink-0" style={{ background: 'var(--zk-bg-0)' }}>
-                <div
-                  role="separator"
-                  aria-orientation="horizontal"
-                  aria-label="Resize preview"
-                  onPointerDown={beginPreviewResize}
-                  style={{
-                    height: 10,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'row-resize',
-                    touchAction: 'none',
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width: 40,
-                      height: 4,
-                      borderRadius: 999,
-                      background: 'var(--zk-line-2)',
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div
-              className={`flex-col ${showPreviewPane ? 'flex' : 'hidden lg:flex'} lg:w-1/2 lg:min-w-[480px] lg:max-w-[720px]`}
-              style={{
-                flex: isMobileSurface ? (showMobilePreview ? `0 0 ${mobilePreviewBasis}` : 1) : 1,
-                minHeight: 0,
-                borderLeft: isMobileSurface ? '0' : '1px solid var(--zk-line)',
-                background: 'var(--zk-bg-0)',
-              }}
-            >
-              <Preview agentId={agentId} previewUri={previewUri} isDirectory={previewIsDir} source={source} onBack={selectedFile ? () => setSelectedFile(null) : undefined} />
-            </div>
-          </div>
-          <FooterShortcuts paradigm="columns" currentPath={currentPath} />
-        </>
       ) : (
         <div ref={stackRef} className="flex flex-col lg:flex-row" style={{ flex: 1, minHeight: 0 }}>
           <div
@@ -1110,8 +897,12 @@ export default function MemoryView() {
               source={source}
               fetchList={fetchList}
               fetchContent={fetchContent}
-              selectedFile={selectedFile}
+              selectedUri={selectedFile ?? selectedFolder}
               onSelectFile={setSelectedFile}
+              onSelectFolder={handleSelectFolder}
+              rootUri={memoryBrowserRoot}
+              expanded={expanded}
+              setExpanded={setExpanded}
             />
           </div>
 

@@ -9,7 +9,7 @@ const { v4: uuidv4 } = require("uuid");
 function createAgentLifecycle(ctx) {
   const router = Router();
 
-  async function startAgentOnDaemon(id, config) {
+  async function startAgentOnDaemon(id, config, options = {}) {
     const {
       store, agentConfigs, db, agentAuth,
       daemonConnections, daemonSockets,
@@ -39,6 +39,8 @@ function createAgentLifecycle(ctx) {
     const requestedWorkDir = typeof config.workDir === "string" && config.workDir.trim()
       ? config.workDir.trim()
       : undefined;
+    const resumeSession = options.resumeSession !== false;
+    const cachedSessionId = resumeSession ? store.agents[id]?.sessionId : null;
 
     // Normalize / validate the launcher override up-front so we never spawn an
     // agent with an invalid value, and so the persisted row matches what the
@@ -85,6 +87,7 @@ function createAgentLifecycle(ctx) {
       workDir: requestedWorkDir,
       status: "starting",
       machineId: targetWs._machineId,
+      sessionId: cachedSessionId || undefined,
     });
 
     // OpenViking creds: gated on the per-agent `openvikingEnabled` toggle. When
@@ -210,8 +213,8 @@ function createAgentLifecycle(ctx) {
       lifecycle: config.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
     };
     if (requestedWorkDir) daemonConfig.workDir = requestedWorkDir;
-    const cachedSessionId = store.agents[id]?.sessionId;
     if (cachedSessionId) daemonConfig.sessionId = cachedSessionId;
+    else if (!resumeSession) daemonConfig.sessionId = null;
     if (config.envVars && typeof config.envVars === 'object') {
       daemonConfig.envVars = config.envVars;
     }
@@ -405,7 +408,7 @@ function createAgentLifecycle(ctx) {
       if (ctx.isReservedName(name)) {
         return res.status(400).json({ error: `Agent name "${name}" is reserved` });
       }
-      if (ctx.isAgentNameTaken(name, id)) {
+      if (ctx.isAgentNameTaken(name, id, workspaceId)) {
         return res.status(409).json({ error: `Agent name "${name}" is already taken` });
       }
       mergedConfig.name = name;
@@ -467,7 +470,7 @@ function createAgentLifecycle(ctx) {
       });
     }
 
-    const result = await startAgentOnDaemon(id, savedConfig);
+    const result = await startAgentOnDaemon(id, savedConfig, { resumeSession: false });
     if (result.error) return res.status(400).json(result);
     console.log(`[api] Context reset for agent ${id}`);
     res.json({ success: true });

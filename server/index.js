@@ -312,15 +312,25 @@ function isValidAgentHandle(name) {
 // GLOBAL (across all workspaces) because the OV account may be shared, so two
 // same-named agents would collide in OV. Distinct from agentIdByName, which is
 // workspace-scoped and also matches displayName.
-function isAgentNameTaken(name, excludeId = null) {
+// Name uniqueness is scoped to a single workspace — agents are workspace-scoped
+// everywhere else (delete, list, config all filter by workspace), so the same
+// handle may exist in different workspaces. Cross-workspace same-name agents map
+// to the same bare OV user_id only when their workspaces resolve to the same OV
+// account (see resolveProvisioningCreds); workspaces that fall back to the env
+// account should use distinct accounts to avoid unintended OV sharing. When the
+// account is shared, reuse is the documented behavior (inherit prior memory).
+function isAgentNameTaken(name, excludeId = null, workspaceId = DEFAULT_WORKSPACE_ID) {
   const lowered = String(name || "").trim().toLowerCase();
   if (!lowered) return false;
+  const wsId = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
   for (const cfg of agentConfigs) {
     if (cfg.id === excludeId) continue;
+    if (normalizeWorkspaceId(cfg.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
     if ((cfg.name || "").trim().toLowerCase() === lowered) return true;
   }
   for (const [id, a] of Object.entries(store.agents)) {
     if (id === excludeId) continue;
+    if (normalizeWorkspaceId(a.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
     if ((a.name || "").trim().toLowerCase() === lowered) return true;
   }
   return false;
@@ -603,10 +613,54 @@ function isReservedName(name) {
   return RESERVED_USER_NAMES.has(String(name || "").trim().toLowerCase());
 }
 
-// Stable fingerprint for machine binding: SHA-256(hostname:os)
+const MACHINE_ARCH_SUFFIXES = [
+  "arm64",
+  "aarch64",
+  "x64",
+  "x86_64",
+  "amd64",
+  "ia32",
+  "arm",
+  "armv7",
+  "armv7l",
+];
+const MACHINE_ARCH_SUFFIX_SET = new Set(MACHINE_ARCH_SUFFIXES);
+
+function normalizeMachineOsForFingerprint(os) {
+  const parts = String(os || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (parts.length > 1 && MACHINE_ARCH_SUFFIX_SET.has(parts[parts.length - 1])) {
+    parts.pop();
+  }
+  return parts.join(" ");
+}
+
+function hashMachineFingerprint(hostname, os) {
+  const input = [hostname, os].map((part) => String(part || "").trim()).filter(Boolean).join(":").toLowerCase();
+  return crypto.createHash("sha256").update(input).digest("hex");
+}
+
+// Stable fingerprint for machine binding: SHA-256(hostname:os_without_arch).
+// Older daemons reported OS as "darwin arm64"; newer packages reported "darwin".
+// Bind canonical values without the trailing arch, but keep accepting legacy
+// arch-suffixed hashes for already-bound machine keys.
 function computeMachineFingerprint(hostname, os) {
-  const input = [hostname, os].filter(Boolean).join(':').toLowerCase();
-  return crypto.createHash('sha256').update(input).digest('hex');
+  return hashMachineFingerprint(hostname, normalizeMachineOsForFingerprint(os));
+}
+
+function computeMachineFingerprintVariants(hostname, os) {
+  const normalizedOs = normalizeMachineOsForFingerprint(os);
+  const variants = new Set([
+    computeMachineFingerprint(hostname, os),
+    hashMachineFingerprint(hostname, os),
+  ]);
+
+  if (normalizedOs) {
+    for (const arch of MACHINE_ARCH_SUFFIXES) {
+      variants.add(hashMachineFingerprint(hostname, `${normalizedOs} ${arch}`));
+    }
+  }
+
+  return [...variants];
 }
 
 // Whether this is a debug/dev key (not subject to machine binding)
@@ -2318,7 +2372,25 @@ app.use("/ov", createOvProxy({
 const attachmentStorage = createStorage(
   process.env.ZOUK_UPLOADS_DIR || path.join(__dirname, "..", "uploads")
 );
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ATTACHMENT_BYTES } });
+
+// Periodic prune: keep attachment blobs for 3 days, then unlink the blob +
+// sidecar. resolveAttachmentRefs() already falls back to filename:"unknown"
+// for missing ids, so old messages keep rendering without their thumbnails.
+const ATTACHMENT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+const ATTACHMENT_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+async function runAttachmentPrune() {
+  try {
+    const removed = await attachmentStorage.pruneOlderThan(ATTACHMENT_MAX_AGE_MS);
+    if (removed > 0) console.log(`[attachments] pruned ${removed} blob(s) older than 3 days`);
+  } catch (err) {
+    console.warn(`[attachments] prune failed: ${err.message}`);
+  }
+}
+// Sweep on boot so a long-down server still catches up, then on a fixed cadence.
+setTimeout(runAttachmentPrune, 10_000);
+setInterval(runAttachmentPrune, ATTACHMENT_PRUNE_INTERVAL_MS).unref();
 
 // Resolve an array of attachment ids into the thin {id, filename, contentType}
 // shape that rides along with each message. Unknown ids fall through as
@@ -2536,6 +2608,29 @@ function fanoutUserMessage(msg) {
   broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, message: formatMessageForClient(msg) });
 }
 
+async function postSystemMessage({ workspaceId, channelName = "all", channelType = "channel", content }) {
+  const scopedWorkspaceId = workspaceId || DEFAULT_WORKSPACE_ID;
+  const ch = findOrCreateChannel(channelName, channelType, scopedWorkspaceId);
+  const msg = {
+    id: uuidv4(),
+    seq: nextSeq(),
+    workspaceId: scopedWorkspaceId,
+    channelId: ch.id,
+    channelName: ch.name,
+    channelType: ch.type || channelType,
+    threadId: null,
+    senderName: "system",
+    senderType: "system",
+    content,
+    createdAt: now(),
+    attachments: [],
+  };
+  appendMessage(msg);
+  await db.saveMessage(msg);
+  broadcastToWeb({ type: "message", workspaceId: scopedWorkspaceId, message: formatMessageForClient(msg) });
+  return msg;
+}
+
 // Auth middleware for the external trigger API — validates the X-API-Key
 // header against the existing machine_keys table, the same store used today
 // for daemon WS connect. Debug keys ("1007"/"test", non-prod only) are
@@ -2737,7 +2832,7 @@ const daemonHandler = createDaemonHandler({
   pendingRuntimeModelRequests, pendingContextResets,
   DEFAULT_WORKSPACE_ID, normalizeWorkspaceId,
   validateApiKey, findMachineKeyRecord, resolveDaemonMachineId,
-  isDebugKey, computeMachineFingerprint,
+  isDebugKey, computeMachineFingerprint, computeMachineFingerprintVariants,
   machineKeys, saveMachineKeys,
   hasKnownAgentConfig, purgeUnknownAgentState,
   evaluateAgentMachineAffinity,
@@ -2745,7 +2840,7 @@ const daemonHandler = createDaemonHandler({
   get syncRuntimeAgentFromConfig() { return syncRuntimeAgentFromConfig; },
   agentPayload, sanitizedAgentConfigs,
   workspaceIdFromAgent, updateAgentWorkDir,
-  broadcastToWeb,
+  broadcastToWeb, postSystemMessage,
   hydrateAgentContextUsage,
   replayPendingDeliveries,
   hasWorkspaceFsCapability,

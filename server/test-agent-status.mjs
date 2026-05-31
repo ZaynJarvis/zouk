@@ -26,6 +26,8 @@ const TEST_UPLOADS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'zouk-test-upload
 const MACHINE_ID = crypto.randomUUID();
 const MACHINE_KEY = `sk_test_${crypto.randomBytes(8).toString('hex')}`;
 const AGENT_ID = `agent-status-${crypto.randomBytes(4).toString('hex')}`;
+const ROOT_TOKEN = `root-${crypto.randomBytes(8).toString('hex')}`;
+const ROOT_EMAIL = 'agent-status-root@example.com';
 
 let serverProc = null;
 
@@ -72,6 +74,9 @@ before(async () => {
     autoStart: false,
     lifecycle: 'persistent',
   }]);
+  writeJson(path.join(TEST_CONFIG_DIR, 'sessions.json'), [
+    [ROOT_TOKEN, { name: 'agent-status-root', email: ROOT_EMAIL, picture: null }],
+  ]);
 
   serverProc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
     env: {
@@ -80,6 +85,7 @@ before(async () => {
       NODE_ENV: 'test',
       ZOUK_CONFIG_DIR: TEST_CONFIG_DIR,
       ZOUK_UPLOADS_DIR: TEST_UPLOADS_DIR,
+      ZOUK_SUPERUSERS: ROOT_EMAIL,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -146,6 +152,17 @@ async function closeWs(ws) {
     ws.once('close', resolve);
     ws.close();
   });
+}
+
+async function postJson(pathname, body) {
+  return json(await fetch(`${BASE}${pathname}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ROOT_TOKEN}`,
+    },
+    body: JSON.stringify(body || {}),
+  }));
 }
 
 async function readAgent() {
@@ -236,6 +253,66 @@ test('inactive agent status clears stale busy activity and rejects late busy hea
   await closeWs(web);
 });
 
+test('activity broadcast filters empty file change entries', async () => {
+  const web = await connectWeb();
+  await waitForMessageOrTimeout(web, (ev) => ev.type === 'init', 3000);
+
+  const daemon = await connectDaemon();
+  sendReady(daemon);
+
+  const activePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => (
+      (ev.type === 'agent_started' && ev.agent?.id === AGENT_ID)
+      || (ev.type === 'agent_status' && ev.agentId === AGENT_ID && ev.status === 'active')
+    ),
+    3000,
+  );
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'active' }));
+  assert.ok(await activePromise, 'web client should observe the agent becoming active');
+
+  const activityPromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'working',
+    3000,
+  );
+  daemon.send(JSON.stringify({
+    type: 'agent:activity',
+    agentId: AGENT_ID,
+    activity: 'working',
+    detail: 'editing',
+    entries: [
+      {
+        kind: 'tool',
+        title: 'Tool · file_change',
+        toolName: 'file_change',
+        content: JSON.stringify({ path: '', action: '' }),
+      },
+      {
+        kind: 'tool',
+        title: 'Tool · file_change',
+        toolName: 'file_change',
+        toolInputSummary: JSON.stringify({ path: 'server/index.js', action: 'modified' }),
+      },
+      {
+        kind: 'tool',
+        title: 'Tool · mcp_chat_inbox',
+        toolName: 'mcp_chat_inbox',
+      },
+    ],
+  }));
+
+  const activity = await activityPromise;
+  assert.ok(activity, 'web client should receive filtered activity update');
+  assert.equal(activity.entries.length, 2);
+  assert.ok(activity.entries.some((entry) => entry.toolName === 'file_change' && entry.toolInputSummary?.includes('server/index.js')));
+  assert.ok(activity.entries.some((entry) => entry.toolName === 'mcp_chat_inbox'));
+  assert.ok(!activity.entries.some((entry) => entry.content === JSON.stringify({ path: '', action: '' })));
+
+  await closeWs(daemon);
+  await closeWs(web);
+});
+
 test('agent idle health check reconciles stale busy activity to online', async () => {
   const web = await connectWeb();
   await waitForMessageOrTimeout(web, (ev) => ev.type === 'init', 3000);
@@ -304,4 +381,109 @@ test('agent idle health check reconciles stale busy activity to online', async (
 
   await closeWs(daemon);
   await closeWs(web);
+});
+
+test('agent error activity posts a system message to #all', async () => {
+  const web = await connectWeb();
+  await waitForMessageOrTimeout(web, (ev) => ev.type === 'init', 3000);
+
+  const daemon = await connectDaemon();
+  sendReady(daemon);
+
+  const activePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => (
+      (ev.type === 'agent_started' && ev.agent?.id === AGENT_ID)
+      || (ev.type === 'agent_status' && ev.agentId === AGENT_ID && ev.status === 'active')
+    ),
+    3000,
+  );
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'active' }));
+  assert.ok(await activePromise, 'web client should observe the agent becoming active');
+
+  const activityPromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'agent_activity' && ev.agentId === AGENT_ID && ev.activity === 'error',
+    3000,
+  );
+  const systemMessagePromise = waitForMessageOrTimeout(
+    web,
+    (ev) => ev.type === 'message'
+      && ev.message?.senderName === 'system'
+      && ev.message?.senderType === 'system'
+      && ev.message?.channelName === 'all'
+      && ev.message?.content?.includes(`@${AGENT_ID}`)
+      && ev.message?.content?.includes('Reconnect activity failed'),
+    3000,
+  );
+
+  daemon.send(JSON.stringify({
+    type: 'agent:activity',
+    agentId: AGENT_ID,
+    activity: 'error',
+    detail: 'Reconnect activity failed',
+  }));
+
+  assert.ok(await activityPromise, 'web client should receive the error activity');
+  assert.ok(await systemMessagePromise, 'error activity should also be posted to #all as a system message');
+
+  await closeWs(daemon);
+  await closeWs(web);
+});
+
+test('reset-context cold-starts instead of resuming cached runtime session', async () => {
+  const daemon = await connectDaemon();
+  sendReady(daemon);
+
+  const initialStartPromise = waitForMessageOrTimeout(
+    daemon,
+    (ev) => ev.type === 'agent:start' && ev.agentId === AGENT_ID,
+    3000,
+  );
+  const initial = await postJson('/api/agents/start', { id: AGENT_ID });
+  assert.equal(initial.status, 200);
+  const initialStart = await initialStartPromise;
+  assert.ok(initialStart, 'initial start should be sent to daemon');
+  assert.equal(initialStart.config.sessionId, undefined, 'first start has no cached session');
+
+  daemon.send(JSON.stringify({ type: 'agent:session', agentId: AGENT_ID, sessionId: 'session-before-reset' }));
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'inactive' }));
+  await new Promise(r => setTimeout(r, 100));
+
+  const resumeStartPromise = waitForMessageOrTimeout(
+    daemon,
+    (ev) => ev.type === 'agent:start' && ev.agentId === AGENT_ID,
+    3000,
+  );
+  const resume = await postJson('/api/agents/start', { id: AGENT_ID });
+  assert.equal(resume.status, 200);
+  const resumeStart = await resumeStartPromise;
+  assert.ok(resumeStart, 'regular start should be sent to daemon');
+  assert.equal(resumeStart.config.sessionId, 'session-before-reset', 'regular start should resume cached session');
+
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'active' }));
+  await new Promise(r => setTimeout(r, 100));
+
+  const stopPromise = waitForMessageOrTimeout(
+    daemon,
+    (ev) => ev.type === 'agent:stop' && ev.agentId === AGENT_ID,
+    3000,
+  );
+  const resetStartPromise = waitForMessageOrTimeout(
+    daemon,
+    (ev) => ev.type === 'agent:start' && ev.agentId === AGENT_ID,
+    3000,
+  );
+  const resetRequest = postJson(`/api/agents/${AGENT_ID}/reset-context`);
+  const stop = await stopPromise;
+  assert.ok(stop, 'reset should ask daemon to stop the running process first');
+  daemon.send(JSON.stringify({ type: 'agent:status', agentId: AGENT_ID, status: 'inactive' }));
+
+  const resetStart = await resetStartPromise;
+  const reset = await resetRequest;
+  assert.equal(reset.status, 200);
+  assert.ok(resetStart, 'reset should start the agent again after stop ack');
+  assert.equal(resetStart.config.sessionId, null, 'reset must cold-start with an explicit null session');
+
+  await closeWs(daemon);
 });

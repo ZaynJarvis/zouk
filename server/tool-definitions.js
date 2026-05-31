@@ -10,11 +10,11 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
   const allTools = [
     {
       name: "send",
-      description: "Send a message to a channel, DM, or thread. Use the target from incoming messages to reply.",
+      description: "Send a message to a channel, DM, or thread. Final conclusions and completed work results should go to the top-level channel or DM; use thread targets only for intermediate follow-up.",
       inputSchema: {
         type: "object",
         properties: {
-          target: { type: "string", description: "Where to send: #channel, dm:@name, #channel:threadId, dm:@name:threadId" },
+          target: { type: "string", description: "Where to send: #channel, dm:@name, #channel:threadId, dm:@name:threadId. For final deliverables, drop any thread suffix and send to #channel or dm:@name." },
           content: { type: "string", description: "Message content" },
           attachments: { type: "array", items: { type: "string" }, description: "Attachment IDs from upload tool" },
         },
@@ -32,7 +32,7 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
       inputSchema: {
         type: "object",
         properties: {
-          channel: { type: "string", description: "Target: #channel, dm:@name, #channel:threadId" },
+          channel: { type: "string", description: "Target: #channel, dm:@name, #channel:threadId, dm:@name:threadId" },
           limit: { type: "number", description: "Max messages to return (default 30, max 100)" },
           before: { type: "string", description: "Cursor: message ID to fetch before" },
           after: { type: "string", description: "Cursor: message ID to fetch after" },

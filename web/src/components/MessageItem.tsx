@@ -1,8 +1,9 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { MessageSquare, Paperclip } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { MessageRecord } from '../types';
 import { getAttachmentUrl } from '../lib/api';
+import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import { getStoredLinkTransforms, subscribeLinkTransforms } from '../store/storage';
 import { parseMarkdown, renderInline } from '../lib/markdown';
 import ImageLightbox from './ImageLightbox';
@@ -160,6 +161,17 @@ export default function MessageItem({
 }) {
   const { humans, agents, configs, currentUser, authUser, openAgentProfile, openThread, threadedMessageIds } = useApp();
   const linkRules = useSyncExternalStore(subscribeLinkTransforms, getStoredLinkTransforms);
+  const [isMobileSurface, setIsMobileSurface] = useState(() => isMobileViewport() || isStandalonePWA());
+  useEffect(() => {
+    const update = () => setIsMobileSurface(isMobileViewport() || isStandalonePWA());
+    window.addEventListener('resize', update);
+    const mql = window.matchMedia?.('(display-mode: standalone)');
+    mql?.addEventListener?.('change', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      mql?.removeEventListener?.('change', update);
+    };
+  }, []);
   const senderName = message.sender_name || 'Unknown';
   const isAgent = message.sender_type === 'agent';
   const isSystem = message.sender_type === 'system';
@@ -202,7 +214,8 @@ export default function MessageItem({
     || threadedMessageIds.has(message.id.slice(0, 8));
   const canStartThread = !hideInlineThread
     && message.channel_type !== 'thread'
-    && !hasInlineThread;
+    && !hasInlineThread
+    && !isMobileSurface;
   const senderColor = isAgent ? 'var(--zk-ink)' : 'var(--zk-info)';
 
   return (

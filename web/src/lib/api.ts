@@ -19,6 +19,17 @@ function getAuthHeaders(): Record<string, string> {
   return { 'Content-Type': 'application/json', ...getWorkspaceHeaders() };
 }
 
+// Build an Error from a failed response, preferring the server's { error }
+// message (e.g. "Agent name X is already taken") so the UI surfaces the real
+// reason instead of a bare status code. Falls back to `${fallback}: ${status}`.
+async function errorFromResponse(res: Response, fallback: string): Promise<Error> {
+  const msg = await res
+    .json()
+    .then((b) => (b && typeof b.error === 'string' ? b.error : null))
+    .catch(() => null);
+  return new Error(msg || `${fallback}: ${res.status}`);
+}
+
 // Server returns camelCase, frontend uses snake_case — normalize here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizeMessage(m: any): MessageRecord {
@@ -241,29 +252,26 @@ export async function startAgent(config: {
     headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
-  if (!res.ok) {
-    const msg = await res.json().then((b) => b?.error).catch(() => null);
-    throw new Error(msg || `Failed to start agent: ${res.status}`);
-  }
+  if (!res.ok) throw await errorFromResponse(res, 'Failed to start agent');
   return res.json();
 }
 
 export async function stopAgent(agentId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}/stop`;
   const res = await fetch(url, { method: 'POST', headers: getAuthHeaders() });
-  if (!res.ok) throw new Error(`Failed to stop agent: ${res.status}`);
+  if (!res.ok) throw await errorFromResponse(res, 'Failed to stop agent');
 }
 
 export async function resetAgentContext(agentId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}/reset-context`;
   const res = await fetch(url, { method: 'POST', headers: getAuthHeaders() });
-  if (!res.ok) throw new Error(`Failed to reset agent context: ${res.status}`);
+  if (!res.ok) throw await errorFromResponse(res, 'Failed to reset agent context');
 }
 
 export async function deleteAgent(agentId: string): Promise<void> {
   const url = `${getBaseUrl()}/api/agents/${agentId}`;
   const res = await fetch(url, { method: 'DELETE', headers: getAuthHeaders() });
-  if (!res.ok) throw new Error(`Failed to delete agent: ${res.status}`);
+  if (!res.ok) throw await errorFromResponse(res, 'Failed to delete agent');
 }
 
 export interface RuntimeModel {
@@ -347,7 +355,7 @@ export async function updateAgentConfig(agentId: string, updates: Record<string,
     headers: getAuthHeaders(),
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error(`Failed to update agent config: ${res.status}`);
+  if (!res.ok) throw await errorFromResponse(res, 'Failed to update agent config');
 }
 
 export async function saveAgentConfig(config: AgentConfig): Promise<void> {
@@ -357,7 +365,7 @@ export async function saveAgentConfig(config: AgentConfig): Promise<void> {
     headers: getAuthHeaders(),
     body: JSON.stringify(config),
   });
-  if (!res.ok) throw new Error(`Failed to save agent config: ${res.status}`);
+  if (!res.ok) throw await errorFromResponse(res, 'Failed to save agent config');
 }
 
 export function getAttachmentUrl(attachmentId: string): string {

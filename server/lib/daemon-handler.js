@@ -7,6 +7,61 @@ const http = require("http");
 const { WebSocketServer } = require("ws");
 const { v4: uuidv4 } = require("uuid");
 
+function asRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function parseStructuredInput(value) {
+  const record = asRecord(value);
+  if (record) return record;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  try {
+    return asRecord(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+}
+
+function hasMeaningfulValue(value) {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) return value.some(hasMeaningfulValue);
+  const record = asRecord(value);
+  return record ? Object.values(record).some(hasMeaningfulValue) : false;
+}
+
+function hasMeaningfulToolField(value) {
+  const structured = parseStructuredInput(value);
+  return structured ? hasMeaningfulValue(structured) : hasMeaningfulValue(value);
+}
+
+function hasMeaningfulToolInput(entry) {
+  return hasMeaningfulToolField(entry.toolInput)
+    || hasMeaningfulToolField(entry.toolInputSummary)
+    || hasMeaningfulToolField(entry.content);
+}
+
+function isVisibleActivityEntry(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  if (entry.kind === "context_usage" && entry.contextUsage) return true;
+  // Tool results are archived into OV only — they never surface in the web
+  // activity feed (which shows tool *calls*, not their output).
+  if (entry.kind === "tool_result") return false;
+  if (entry.kind === "tool" || entry.kind === "tool_start") {
+    if (!entry.toolName) return false;
+    if (String(entry.toolName).toLowerCase() === "file_change") return hasMeaningfulToolInput(entry);
+    return true;
+  }
+  if (entry.kind === "status" && (entry.activity === "thinking" || entry.activity === "working") && !entry.content && !entry.text && !entry.detail) {
+    return false;
+  }
+  if (entry.content || entry.text || entry.detail || entry.title) return true;
+  if (entry.kind === "status" && entry.activity && entry.activity !== "online" && entry.activity !== "idle") return true;
+  return false;
+}
+
 function createDaemonHandler(ctx) {
   const {
     app, db,
@@ -15,14 +70,14 @@ function createDaemonHandler(ctx) {
     pendingRuntimeModelRequests, pendingContextResets,
     DEFAULT_WORKSPACE_ID, normalizeWorkspaceId,
     validateApiKey, findMachineKeyRecord, resolveDaemonMachineId,
-    isDebugKey, computeMachineFingerprint,
+    isDebugKey, computeMachineFingerprint, computeMachineFingerprintVariants,
     machineKeys, saveMachineKeys,
     hasKnownAgentConfig, purgeUnknownAgentState,
     evaluateAgentMachineAffinity,
     buildRuntimeAgent, syncRuntimeAgentFromConfig,
     agentPayload, sanitizedAgentConfigs,
     workspaceIdFromAgent, updateAgentWorkDir,
-    broadcastToWeb,
+    broadcastToWeb, postSystemMessage,
     hydrateAgentContextUsage,
     replayPendingDeliveries,
     hasWorkspaceFsCapability,
@@ -239,6 +294,49 @@ function createDaemonHandler(ctx) {
     return activity === "working" || activity === "thinking" || activity === "error";
   }
 
+  function oneLine(value, maxLength = 260) {
+    if (value == null) return "";
+    let text;
+    try {
+      text = typeof value === "string" ? value : JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+    return text.replace(/\s+/g, " ").trim().slice(0, maxLength);
+  }
+
+  function activityErrorText(detail, entries) {
+    const candidates = [detail];
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue;
+        candidates.push(entry.error, entry.message, entry.detail, entry.title, entry.text, entry.content);
+      }
+    }
+    for (const candidate of candidates) {
+      const text = oneLine(candidate);
+      if (text) return text;
+    }
+    return "Unknown activity error";
+  }
+
+  async function postActivityErrorMessage(agentId, detail, entries) {
+    if (typeof postSystemMessage !== "function") return;
+    const agent = store.agents[agentId];
+    const agentName = agent?.displayName || agent?.name || agentId;
+    const error = activityErrorText(detail, entries);
+    try {
+      await postSystemMessage({
+        workspaceId: workspaceIdFromAgent(agentId),
+        channelName: "all",
+        channelType: "channel",
+        content: `⚠️ @${agentName} activity error: ${error}`,
+      });
+    } catch (e) {
+      console.error(`[agent:${agentId}] Failed to post activity error system message:`, e.message);
+    }
+  }
+
   function clearAgentRuntimeBinding(agentId, ws = null) {
     if (!ws || daemonSockets.get(agentId) === ws) {
       daemonSockets.delete(agentId);
@@ -361,13 +459,16 @@ function createDaemonHandler(ctx) {
           const keyRecord = findMachineKeyRecord(ws._apiKey);
           if (keyRecord) {
             const fingerprint = computeMachineFingerprint(msg.hostname, msg.os);
+            const compatibleFingerprints = typeof computeMachineFingerprintVariants === "function"
+              ? computeMachineFingerprintVariants(msg.hostname, msg.os)
+              : [fingerprint];
             if (!keyRecord.boundFingerprint) {
               // First-time bind: record the fingerprint
               keyRecord.boundFingerprint = fingerprint;
               saveMachineKeys(machineKeys);
               db.saveMachineKey(keyRecord);
               console.log(`[daemon] Key "${keyRecord.name}" bound to machine fingerprint ${fingerprint.substring(0, 12)}...`);
-            } else if (keyRecord.boundFingerprint !== fingerprint) {
+            } else if (!compatibleFingerprints.includes(keyRecord.boundFingerprint)) {
               // Fingerprint mismatch: reject silently
               console.log(`[daemon] Key "${keyRecord.name}" rejected — fingerprint mismatch (expected ${keyRecord.boundFingerprint.substring(0, 12)}..., got ${fingerprint.substring(0, 12)}...)`);
               ws.close(1008, 'machine binding mismatch');
@@ -536,12 +637,15 @@ function createDaemonHandler(ctx) {
           break;
         }
         enqueueActivity(agentId, async () => {
+          const visibleEntries = Array.isArray(entries)
+            ? entries.filter(isVisibleActivityEntry)
+            : entries;
           const current = store.agents[agentId];
           if (current?.status !== "active" && activity !== "offline") {
             console.warn(`[agent:${agentId}] Dropped activity=${activity} while status=${current?.status || "unknown"}`);
-            if (Array.isArray(entries) && entries.length > 0) {
+            if (Array.isArray(visibleEntries) && visibleEntries.length > 0) {
               try {
-                await db.saveActivityEntries(agentId, activity, detail, entries);
+                await db.saveActivityEntries(agentId, activity, detail, visibleEntries);
               } catch (e) {
                 console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
               }
@@ -559,27 +663,31 @@ function createDaemonHandler(ctx) {
           if (prev !== activity) {
             console.log(`[agent:${agentId}] Activity: ${prev ?? '?'} → ${activity}${detail ? ` (${detail})` : ''}`);
           }
-          if (Array.isArray(entries) && entries.length > 0) {
+          if (Array.isArray(visibleEntries) && visibleEntries.length > 0) {
             try {
-              await db.saveActivityEntries(agentId, activity, detail, entries);
+              await db.saveActivityEntries(agentId, activity, detail, visibleEntries);
             } catch (e) {
               console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
             }
-            // OV managed lifecycle: archive the agent's tool calls into its OV
-            // session (skip plugin-mode agents — their own plugin handles it).
+          }
+          // OV managed lifecycle: archive the agent's tool calls + results into
+          // its OV session (skip plugin-mode agents — their own plugin handles
+          // it). Read from the RAW entries (not visibleEntries) so tool_result
+          // entries — which are hidden from the web feed — still reach OV.
+          if (Array.isArray(entries) && entries.length > 0) {
             const agentCfg = agentConfigs.find((c) => c.id === agentId);
             if (agentCfg?.openvikingApiKey && !ctx.isOvPluginForAgent(agentCfg) && ctx.ovLifecycle) {
-              const toolEntries = entries.filter((e) => e.kind === "tool" && e.toolName);
+              const toolEntries = entries.filter(
+                (e) => (e.kind === "tool" && e.toolName) || e.kind === "tool_result"
+              );
               if (toolEntries.length > 0) {
                 ctx.ovLifecycle.captureToolCalls(agentId, toolEntries).catch(() => {});
               }
             }
           }
-          const visibleEntries = Array.isArray(entries)
-            ? entries.filter((e) => e.content || e.text || e.detail || e.title || e.toolName
-              || (e.kind === 'context_usage' && e.contextUsage)
-              || (e.kind === 'status' && e.activity && e.activity !== 'online' && e.activity !== 'idle'))
-            : entries;
+          if (activity === "error") {
+            await postActivityErrorMessage(agentId, detail, entries);
+          }
           broadcastToWeb({
             type: "agent_activity",
             workspaceId: workspaceIdFromAgent(agentId),
