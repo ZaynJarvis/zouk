@@ -3,8 +3,8 @@
  * Smoke test for:
  *  - Sidebar Memory tab (independent display, tree-only, top-down, resize,
  *    L0/L1 + markdown, Open button)
- *  - Memory page (tree-only, default expand memories/<user>/, default open
- *    memories/<user>/profile.md)
+ *  - Memory page (tree-only, shows OV namespace roots, default expands
+ *    user/<name>/memories/ and opens profile.md)
  *
  * Boots Vite with a mocked WebSocket + mocked OV status + mocked memory
  * list/read responses (in-page wsRef interceptor via WebSocket route).
@@ -159,6 +159,8 @@ async function run() {
     for (const link of links) (link).click();
   });
   await page.waitForTimeout(800);
+  await page.locator('text=session').first().waitFor({ timeout: 3000 });
+  await page.locator('text=resources').first().waitFor({ timeout: 3000 });
   await page.locator('text=style.md').first().waitFor({ timeout: 3000 });
   await page.locator('text=project.md').first().waitFor({ timeout: 3000 });
 
@@ -202,6 +204,10 @@ async function run() {
   await page.waitForTimeout(1500);
   await page.locator('text=style.md').first().waitFor({ timeout: 3000 });
   await page.locator('text=project.md').first().waitFor({ timeout: 3000 });
+  const sidebarText = await page.evaluate(() => document.body.innerText);
+  if (/\bsession\b/.test(sidebarText) || /\bresources\b/.test(sidebarText)) {
+    throw new Error('Sidebar Memory tab should not render OV namespace root directories');
+  }
 
   await page.screenshot({ path: resolve(OUT_DIR, 'sidebar-memory-tab.png'), fullPage: false });
   console.log('[saved] sidebar-memory-tab.png');
