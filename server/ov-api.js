@@ -106,11 +106,14 @@ async function getSession(creds, sessionId, { autoCreate = false, timeout } = {}
 }
 
 // ─── POST /api/v1/sessions/{id}/messages ────────────────────────────
-// Body: { role: "user" | "assistant", content }
-async function appendSessionMessage(creds, sessionId, { role, content, timeout } = {}) {
+// Body: { role: "user" | "assistant", content } OR { role, parts: [...] }
+// Parts-mode carries structured tool call/result parts so the server can
+// process them separately from prose; takes precedence over `content`.
+async function appendSessionMessage(creds, sessionId, { role, content, parts, timeout } = {}) {
+  const body = parts ? { role, parts } : { role, content };
   await ovCall(creds, `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: "POST",
-    body: { role, content },
+    body,
     timeout,
   });
 }

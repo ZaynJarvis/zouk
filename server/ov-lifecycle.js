@@ -43,6 +43,35 @@ function isSendTool(toolName) {
   return SEND_TOOL_BASENAMES.has(base);
 }
 
+// Bound the size of structured tool parts so we never archive whole files /
+// web pages / command stdout verbatim. tool_input keeps its object shape when
+// small (so the server sees structured args); oversized inputs/outputs fall
+// back to a truncated string.
+const TOOL_INPUT_MAX_CHARS = 2000;
+const TOOL_OUTPUT_MAX_CHARS = 2000;
+
+function truncate(s, max) {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}\n... [truncated, ${s.length - max} more chars]`;
+}
+
+function boundToolInput(input) {
+  if (input === undefined || input === null) return undefined;
+  if (typeof input === "string") return truncate(input, TOOL_INPUT_MAX_CHARS);
+  try {
+    const s = JSON.stringify(input);
+    if (s.length <= TOOL_INPUT_MAX_CHARS) return input; // small: pass object through
+    return truncate(s, TOOL_INPUT_MAX_CHARS);
+  } catch {
+    return String(input);
+  }
+}
+
+function boundToolOutput(output) {
+  const s = typeof output === "string" ? output : String(output ?? "");
+  return truncate(s, TOOL_OUTPUT_MAX_CHARS);
+}
+
 function estimateTokens(text) {
   let count = 0;
   for (const ch of text) {
@@ -199,34 +228,55 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       this.autoCommit(agentId).catch(() => {});
     },
 
-    // Capture the agent's tool calls into the OV session as assistant-role
-    // messages. Called from the daemon-handler's agent:activity path with the
-    // `kind:'tool'` trajectory entries. We record the tool name + truncated
-    // input summary (daemon already caps it at ~200 chars) but NOT the result,
-    // so the archived session reflects what the agent *did* between turns
-    // without bloating memory with tool output. One append per activity batch
-    // keeps HTTP overhead low and preserves ordering within the batch.
+    // Capture the agent's tool calls + results into the OV session as
+    // structured `tool` parts (NOT inlined into content), so the server can
+    // process call vs result separately. Called from the daemon-handler's
+    // agent:activity path with `kind:'tool'` (calls) and `kind:'tool_result'`
+    // (results) trajectory entries. Calls become `tool_status:"running"` parts
+    // carrying tool_input; results become `completed`/`error` parts carrying
+    // tool_output. They correlate via tool_id when the runtime provides one.
+    // One append per activity batch keeps HTTP overhead low and preserves
+    // ordering within the batch.
     //
-    // The chat send tool is skipped: its payload is the message the agent
-    // posts, which is already captured (with full content + channel tag) via
-    // the /send route's autoCapture — recording the truncated tool input too
-    // would just duplicate it.
+    // The chat send tool's *call* is skipped: its payload is the message the
+    // agent posts, which is already captured (with full content + channel tag)
+    // via the /send route's autoCapture — recording the tool input too would
+    // just duplicate it.
     async captureToolCalls(agentId, toolEntries) {
       if (!Array.isArray(toolEntries) || toolEntries.length === 0) return;
-      const filtered = toolEntries.filter((e) => !isSendTool(e.toolName));
+      const filtered = toolEntries.filter(
+        (e) => !(e.kind !== "tool_result" && isSendTool(e.toolName))
+      );
       if (filtered.length === 0) return;
       const creds = resolveCreds(agentId);
       if (!creds) return;
       const sessionId = creds.sessionId || deriveSessionId(agentId);
-      const lines = filtered.map((e) => {
-        const name = e.toolName || "tool";
-        const summary = (e.toolInputSummary || e.content || "").trim();
-        return summary ? `[tool: ${name}] ${summary}` : `[tool: ${name}]`;
-      });
-      const content = lines.join("\n");
-      if (!content) return;
-      await safeCall(agentId, "append tool calls", () =>
-        ovApi.appendSessionMessage(creds, sessionId, { role: "assistant", content, timeout: 15000 })
+
+      const parts = [];
+      for (const e of filtered) {
+        if (e.kind === "tool_result") {
+          parts.push({
+            type: "tool",
+            tool_id: e.toolId || undefined,
+            tool_name: e.toolName || undefined,
+            tool_output: boundToolOutput(e.toolOutput ?? e.content ?? ""),
+            tool_status: e.toolStatus || "completed",
+          });
+        } else {
+          parts.push({
+            type: "tool",
+            tool_id: e.toolId || undefined,
+            tool_name: e.toolName || "tool",
+            tool_input: boundToolInput(
+              e.toolInput !== undefined ? e.toolInput : e.toolInputSummary
+            ),
+            tool_status: "running",
+          });
+        }
+      }
+      if (parts.length === 0) return;
+      await safeCall(agentId, "append tool parts", () =>
+        ovApi.appendSessionMessage(creds, sessionId, { role: "assistant", parts, timeout: 15000 })
       );
     },
 

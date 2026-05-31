@@ -46,6 +46,9 @@ function hasMeaningfulToolInput(entry) {
 function isVisibleActivityEntry(entry) {
   if (!entry || typeof entry !== "object") return false;
   if (entry.kind === "context_usage" && entry.contextUsage) return true;
+  // Tool results are archived into OV only — they never surface in the web
+  // activity feed (which shows tool *calls*, not their output).
+  if (entry.kind === "tool_result") return false;
   if (entry.kind === "tool" || entry.kind === "tool_start") {
     if (!entry.toolName) return false;
     if (String(entry.toolName).toLowerCase() === "file_change") return hasMeaningfulToolInput(entry);
@@ -666,11 +669,17 @@ function createDaemonHandler(ctx) {
             } catch (e) {
               console.error(`[db] saveActivityEntries(${agentId}) failed:`, e.message);
             }
-            // OV managed lifecycle: archive the agent's tool calls into its OV
-            // session (skip plugin-mode agents — their own plugin handles it).
+          }
+          // OV managed lifecycle: archive the agent's tool calls + results into
+          // its OV session (skip plugin-mode agents — their own plugin handles
+          // it). Read from the RAW entries (not visibleEntries) so tool_result
+          // entries — which are hidden from the web feed — still reach OV.
+          if (Array.isArray(entries) && entries.length > 0) {
             const agentCfg = agentConfigs.find((c) => c.id === agentId);
             if (agentCfg?.openvikingApiKey && !ctx.isOvPluginForAgent(agentCfg) && ctx.ovLifecycle) {
-              const toolEntries = visibleEntries.filter((e) => e.kind === "tool" && e.toolName);
+              const toolEntries = entries.filter(
+                (e) => (e.kind === "tool" && e.toolName) || e.kind === "tool_result"
+              );
               if (toolEntries.length > 0) {
                 ctx.ovLifecycle.captureToolCalls(agentId, toolEntries).catch(() => {});
               }
