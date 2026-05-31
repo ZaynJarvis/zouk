@@ -357,6 +357,61 @@ function stringifyToolField(value: unknown): string {
   }
 }
 
+// MCP tool results are wrapped in an envelope:
+//   { content: [{ type: 'text', text: '…' }], structuredContent, _meta }
+// Pull the human-readable text out so the viewer shows "No tasks found."
+// instead of the whole JSON blob. Accepts the envelope as an object (parts
+// mode) or a JSON string (inline content mode). Falls back to structuredContent
+// when there are no text blocks, and returns null when the value isn't an
+// MCP-shaped result so callers can fall back to raw stringify.
+function mcpResultText(value: unknown): string | null {
+  let obj: unknown = value;
+  if (typeof value === 'string') {
+    const t = value.trim();
+    if (!t.startsWith('{') && !t.startsWith('[')) return null;
+    try { obj = JSON.parse(t); } catch { return null; }
+  }
+  const envelope = obj as { content?: unknown; structuredContent?: unknown };
+  const content = envelope?.content;
+  if (Array.isArray(content)) {
+    const text = content
+      .filter((c): c is { type: string; text: string } =>
+        !!c && typeof c === 'object' && (c as { type?: unknown }).type === 'text'
+        && typeof (c as { text?: unknown }).text === 'string')
+      .map((c) => c.text)
+      .join('\n')
+      .trim();
+    if (text) return text;
+  } else if (content !== undefined) {
+    // Has a `content` key but it isn't the MCP block array — not our shape.
+    return null;
+  }
+  // No text blocks (image/resource-only or structured-only results): fall back
+  // to the structured payload rather than dumping the raw envelope with its
+  // `structuredContent: null, _meta: null` noise.
+  if (content === undefined && envelope?.structuredContent === undefined) return null;
+  if (envelope?.structuredContent != null) {
+    try { return JSON.stringify(envelope.structuredContent); } catch { /* fall through */ }
+  }
+  return null;
+}
+
+// Inline (content-mode) captures store a tool result as a single line:
+//   [tool result] (name) {json-envelope}
+// Unwrap the envelope per line so the body renders as the underlying text.
+function prettifyInlineToolResults(text: string): string {
+  if (!text.includes('[tool result]')) return text;
+  return text
+    .split('\n')
+    .map((line) => {
+      const m = line.match(/^(\[tool result\](?:\s*\([^)]*\))?)\s+(\{[\s\S]*\}|\[[\s\S]*\])\s*$/);
+      if (!m) return line;
+      const extracted = mcpResultText(m[2]);
+      return extracted != null ? `${m[1]} ${extracted}` : line;
+    })
+    .join('\n');
+}
+
 function formatJsonlPart(part: unknown): string {
   if (typeof part === 'string') return part;
   if (!part || typeof part !== 'object') return JSON.stringify(part);
@@ -371,8 +426,12 @@ function formatJsonlPart(part: unknown): string {
     const name = typeof p.tool_name === 'string' ? p.tool_name : 'tool';
     const isResult = p.tool_output !== undefined || (p.tool_status !== undefined && p.tool_status !== 'running');
     if (isResult) {
-      const out = stringifyToolField(p.tool_output);
-      const label = name && name !== 'tool' ? `[tool result] (${name})` : '[tool result]';
+      const out = mcpResultText(p.tool_output) ?? stringifyToolField(p.tool_output);
+      // Keep the `[tool result]` prefix verbatim (downstream detection relies on
+      // it); append an error marker so failed tools are distinguishable.
+      const errored = p.tool_status === 'error' || p.is_error === true;
+      const named = name && name !== 'tool' ? ` (${name})` : '';
+      const label = `[tool result]${named}${errored ? ' ⚠ error' : ''}`;
       return out ? `${label}\n${out}` : label;
     }
     const input = stringifyToolField(p.tool_input);
@@ -416,13 +475,15 @@ function getJsonlMessage(record: JsonlRecord): JsonlMessage {
   const p = parsed as Record<string, unknown>;
   const role = String(p.role || 'message');
   const parts = Array.isArray(p.parts) ? p.parts : [];
-  const text = parts.length
+  const rawText = parts.length
     ? parts.map(formatJsonlPart).join('\n\n')
     : typeof p.content === 'string'
       ? p.content
       : JSON.stringify(parsed, null, 2);
+  const text = prettifyInlineToolResults(rawText);
   const toolCall = text.match(/^\[tool:\s*([^\]]+)\]/);
   const toolResult = /^\[tool result\]/.test(text);
+  const toolResultName = text.match(/^\[tool result\]\s*\(([^)]+)\)/);
   const kind = toolResult ? 'tool-result' : role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'other';
 
   return {
@@ -434,7 +495,7 @@ function getJsonlMessage(record: JsonlRecord): JsonlMessage {
     lineNo: index + 1,
     time: (p.created_at as string) || '',
     text,
-    toolName: toolCall ? toolCall[1] : '',
+    toolName: toolCall ? toolCall[1] : toolResultName ? toolResultName[1] : '',
   };
 }
 
@@ -528,7 +589,10 @@ interface ParsedCapture {
 
 function parseCapturedMessage(text: string): ParsedCapture {
   const lead = text.trimStart();
-  if (/^\[tool:/i.test(lead)) {
+  // Tool calls (`[tool: name] …`) and tool results (`[tool result] …`) render
+  // as preformatted text — never markdown — so underscores in tool names like
+  // `mcp_chat_task` aren't eaten as emphasis and JSON stays verbatim.
+  if (/^\[tool:/i.test(lead) || /^\[tool result\]/i.test(lead)) {
     return { header: null, isToolCalls: true, body: text };
   }
   const m = lead.match(/^\[([^\]]*)\]([\s\S]*)$/);
