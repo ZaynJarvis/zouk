@@ -10,12 +10,12 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
   const allTools = [
     {
       name: "send",
-      description: "Send a message to a channel, DM, or thread. Final conclusions and completed work results should go to the top-level channel or DM; use thread targets only for intermediate follow-up.",
+      description: "Send a message to a channel, DM, or thread. Use the exact incoming thread target for intermediate follow-up in an existing thread; use the top-level channel or DM for final conclusions and completed work. Do not prefix DM messages with the recipient's @name.",
       inputSchema: {
         type: "object",
         properties: {
-          target: { type: "string", description: "Where to send: #channel, dm:@name, #channel:threadId, dm:@name:threadId. For final deliverables, drop any thread suffix and send to #channel or dm:@name." },
-          content: { type: "string", description: "Message content" },
+          target: { type: "string", description: "Where to send: #channel, dm:@name, #channel:threadId, dm:@name:threadId. For intermediate replies to an existing thread, keep the incoming thread target. For final deliverables, drop any thread suffix and send to #channel or dm:@name." },
+          content: { type: "string", description: "Message content. In DMs, do not prefix the message with the recipient's @name; in channels, mention people only when needed." },
           attachments: { type: "array", items: { type: "string" }, description: "Attachment IDs from upload tool" },
         },
         required: ["target", "content"],
