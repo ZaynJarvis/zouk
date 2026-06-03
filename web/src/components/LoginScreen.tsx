@@ -6,6 +6,8 @@ import GlitchTransition from './glitch/GlitchTransition';
 import ScanlineTear from './glitch/ScanlineTear';
 import { initSupabase } from '../lib/supabase';
 import { createMagicLoginChallenge, pollMagicLoginChallenge, type MagicLoginChallenge } from '../lib/api';
+import UsernameSetupModal from './UsernameSetupModal';
+import { getGuestNamed, setGuestNamed, getStoredCurrentUser } from '../store/storage';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
 const MAGIC_LINK_POLL_INTERVAL_MS = 2000;
@@ -85,12 +87,43 @@ export default function LoginScreen() {
   const [magicLinkNow, setMagicLinkNow] = useState(() => Date.now());
   const [magicChallenge, setMagicChallenge] = useState<MagicLoginChallenge | null>(null);
   const magicLoginInFlightRef = useRef(false);
+  // Guest username picker (one-time per browser). `guestNameRef` carries the
+  // chosen name through the glitch transition into loginAsGuest.
+  const [showGuestSetup, setShowGuestSetup] = useState(false);
+  const [guestSuffixDefault, setGuestSuffixDefault] = useState('');
+  const guestNameRef = useRef<string | undefined>(undefined);
 
-  const handleGuestLogin = useCallback(() => {
+  const startGuestGlitch = useCallback((name?: string) => {
+    guestNameRef.current = name;
     setLoading(true);
     setPendingAction('guest');
     setGlitchActive(true);
   }, []);
+
+  const handleGuestLogin = useCallback(() => {
+    // Offer the username picker the first time this browser goes guest; after
+    // that, reuse the stored guest identity and jump straight into the glitch.
+    if (!getGuestNamed()) {
+      setGuestSuffixDefault(getStoredCurrentUser().replace(/^guest-/i, ''));
+      setShowGuestSetup(true);
+      return;
+    }
+    startGuestGlitch();
+  }, [startGuestGlitch]);
+
+  const handleGuestSetupConfirm = useCallback((suffix: string) => {
+    setGuestNamed();
+    setShowGuestSetup(false);
+    const cleaned = suffix.trim();
+    // Server forces the `guest-` prefix too; send it pre-applied for clarity.
+    startGuestGlitch(cleaned ? `guest-${cleaned}` : undefined);
+  }, [startGuestGlitch]);
+
+  const handleGuestSetupSkip = useCallback(() => {
+    setGuestNamed();
+    setShowGuestSetup(false);
+    startGuestGlitch();
+  }, [startGuestGlitch]);
 
   const handleGoogleSuccess = useCallback(async (credential: string) => {
     setLoading(true);
@@ -243,7 +276,7 @@ export default function LoginScreen() {
   const handleGlitchComplete = useCallback(() => {
     setGlitchActive(false);
     if (pendingAction === 'guest') {
-      loginAsGuest();
+      loginAsGuest(guestNameRef.current);
     }
     setPendingAction(null);
   }, [pendingAction, loginAsGuest]);
@@ -272,6 +305,14 @@ export default function LoginScreen() {
         duration={500}
         onComplete={handleGlitchComplete}
         themeAgnostic={pendingAction === null}
+      />
+
+      <UsernameSetupModal
+        open={showGuestSetup}
+        kind="guest"
+        defaultValue={guestSuffixDefault}
+        onConfirm={handleGuestSetupConfirm}
+        onSkip={handleGuestSetupSkip}
       />
 
       {nc && (

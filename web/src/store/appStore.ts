@@ -34,6 +34,7 @@ import {
   setStoredColorMode,
   setStoredNowRailHidden,
   setStoredActiveWorkspaceId,
+  takePendingUsernameSetup,
 } from './storage';
 import { applyTheme } from '../themes';
 import {
@@ -225,6 +226,10 @@ export function useAppStore() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user || null);
   const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token || null);
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getStoredAuth());
+  // One-time username picker for a first-time email login. Holds the default
+  // name to pre-fill; null when the picker is closed. Guest naming is driven
+  // separately on the login screen (it has no server session yet).
+  const [usernameSetup, setUsernameSetup] = useState<{ defaultValue: string } | null>(null);
   const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
   const [allowlistActive, setAllowlistActive] = useState(false);
   const [supabaseConfig, setSupabaseConfig] = useState<{ url: string; anonKey: string } | null>(null);
@@ -944,6 +949,14 @@ export function useAppStore() {
     return () => { cancelled = true; };
   }, [isLoggedIn, authToken, activeWorkspaceId, commitWorkspaceSelection]);
 
+  // Boot-time email logins (Feishu redirect, cross-browser magic link) resolve
+  // before this store mounts, so they stash a `firstLogin` default name in
+  // localStorage. Pick it up once to open the username picker.
+  useEffect(() => {
+    const pendingName = takePendingUsernameSetup();
+    if (pendingName) setUsernameSetup({ defaultValue: pendingName });
+  }, []);
+
   // Register guest users on the server so presence lists see them.
   // Authenticated users are pushed into store.humans by /api/auth/google; guests
   // need a separate hook since requireAuth blocks them from other writes.
@@ -1402,7 +1415,8 @@ export function useAppStore() {
 
   const completeAuthenticatedLogin = useCallback((result: api.LoginResponse) => {
     const { token, user, accessibleWorkspaces } = result;
-    // Server already uses email prefix as name; use it as display name
+    // Server already uses email prefix (or the email's last chosen name) as the
+    // display name; use it as display name.
     setStoredAuth(token, user);
     setStoredCurrentUser(user.name);
     setAuthToken(token);
@@ -1410,6 +1424,9 @@ export function useAppStore() {
     setIsLoggedIn(true);
     setCurrentUser(user.name);
     routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection);
+    // First sign-in for this email → offer a one-time username customization,
+    // pre-filled with the @-prefix default.
+    if (result.firstLogin) setUsernameSetup({ defaultValue: user.name });
   }, [commitWorkspaceSelection]);
 
   const loginWithGoogle = useCallback(async (credential: string) => {
@@ -1431,16 +1448,25 @@ export function useAppStore() {
     return true;
   }, []);
 
-  const loginAsGuest = useCallback(() => {
-    // Clear any existing auth and use the random name
+  const loginAsGuest = useCallback((name?: string) => {
+    // Clear any existing auth and adopt the guest name (caller may pass a
+    // customized one from the login-screen picker; otherwise reuse the stored
+    // random `guest-XXXX`).
     clearStoredAuth();
     setAuthToken(null);
     setAuthUser(null);
+    const guestName = name && name.trim() ? name.trim() : currentUserRef.current;
+    setStoredCurrentUser(guestName);
+    setCurrentUser(guestName);
     setIsLoggedIn(true);
-    // currentUser already has a random name from getStoredCurrentUser()
     // In open/dev mode the server mints a real session token so guests can
     // post messages (requireAuth won't block them).  Store it if returned.
-    api.registerGuestSession(currentUserRef.current).then(({ token, user }) => {
+    // The server also normalizes the `guest-` prefix — adopt the name it echoes.
+    api.registerGuestSession(guestName).then(({ token, user, name: serverName }) => {
+      if (serverName && serverName !== guestName) {
+        setStoredCurrentUser(serverName);
+        setCurrentUser(serverName);
+      }
       if (token) {
         setStoredAuthToken(token);
         setAuthToken(token);
@@ -1451,6 +1477,8 @@ export function useAppStore() {
       }
     }).catch(() => {});
   }, []);
+
+  const dismissUsernameSetup = useCallback(() => setUsernameSetup(null), []);
 
   const logoutAction = useCallback(async () => {
     if (authToken) {
@@ -1569,6 +1597,7 @@ export function useAppStore() {
     ovRuntimeDenylist, setOvRuntimeDenylist,
     ovMcpRuntimeDenylist, setOvMcpRuntimeDenylist,
     isGuest: isLoggedIn && !authUser,
+    usernameSetup, dismissUsernameSetup,
     loginWithGoogle, loginAsGuest, logout: logoutAction,
     loginWithAuthResponse: completeAuthenticatedLogin,
     loginWithSupabaseAccessToken, loginWithStoredAuth,
