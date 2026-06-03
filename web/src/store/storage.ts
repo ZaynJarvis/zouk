@@ -10,6 +10,13 @@ const NOW_RAIL_HIDDEN_KEY = 'zouk_now_rail_hidden';
 const LAST_VIEW_STORAGE_KEY = 'zouk_last_view';
 export const ACTIVE_WORKSPACE_KEY = 'zouk_active_workspace_id';
 const LINK_TRANSFORMS_KEY = 'zouk_link_transforms';
+// Set once this browser has been offered (confirmed or skipped) the one-time
+// guest username picker, so we don't prompt again on every guest login.
+const GUEST_NAMED_KEY = 'zouk_guest_named';
+// Transient handoff: boot-time email logins (Feishu redirect, cross-browser
+// magic link) detect `firstLogin` before the store mounts. They stash the
+// default name here; the store consumes it on mount to open the picker.
+const USERNAME_SETUP_PENDING_KEY = 'zouk_username_setup_pending';
 
 type StoredAuth = { token: string; user: AuthUser };
 type StoredLastView = { name: string; mode: Extract<ViewMode, 'channel' | 'dm'> };
@@ -44,7 +51,27 @@ function writeJson(key: string, value: unknown) {
 }
 
 export function createGuestUserName() {
-  return 'user-' + Math.random().toString(36).slice(2, 6);
+  return 'guest-' + Math.random().toString(36).slice(2, 6);
+}
+
+export function getGuestNamed(): boolean {
+  return localStorage.getItem(GUEST_NAMED_KEY) === '1';
+}
+
+export function setGuestNamed() {
+  localStorage.setItem(GUEST_NAMED_KEY, '1');
+}
+
+export function setPendingUsernameSetup(defaultName: string) {
+  localStorage.setItem(USERNAME_SETUP_PENDING_KEY, defaultName);
+}
+
+// Read-and-clear: returns the stashed default name (once), or null.
+export function takePendingUsernameSetup(): string | null {
+  const value = localStorage.getItem(USERNAME_SETUP_PENDING_KEY);
+  if (value === null) return null;
+  localStorage.removeItem(USERNAME_SETUP_PENDING_KEY);
+  return value;
 }
 
 export function getStoredTheme(): Theme {

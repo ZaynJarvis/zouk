@@ -682,23 +682,27 @@ function createWorkspaceRouter(ctx) {
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name required" });
     }
-    const trimmed = name.trim();
-    if (trimmed.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
-    if (isReservedName(trimmed)) {
-      return res.status(400).json({ error: `"${trimmed}" is a reserved username and cannot be used.` });
+    // Guest names are forced to a `guest-` prefix. Strip any prefix the client
+    // already added (so we never produce `guest-guest-…`), then re-apply it.
+    // An empty remainder falls back to a random suffix.
+    const base = name.trim().replace(/^(?:guest-+)+/i, "").trim();
+    const guestName = base ? `guest-${base}` : `guest-${crypto.randomBytes(3).toString("hex")}`;
+    if (guestName.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
+    if (isReservedName(guestName)) {
+      return res.status(400).json({ error: `"${guestName}" is a reserved username and cannot be used.` });
     }
 
     // In open/dev mode (no Google OAuth), mint a real session so guests aren't
     // blocked from write operations (sending messages, etc.).
     if (!GOOGLE_CLIENT_ID) {
       const token = crypto.randomBytes(24).toString("hex");
-      const user = { name: trimmed, email: `guest_${token.slice(0, 8)}@local`, picture: null, guest: true };
+      const user = { name: guestName, email: `guest_${token.slice(0, 8)}@local`, picture: null, guest: true };
       authSessions.set(token, user);
       await persistSession(token, user);
-      return res.json({ ok: true, name: trimmed, token, user });
+      return res.json({ ok: true, name: guestName, token, user });
     }
 
-    res.json({ ok: true, name: trimmed });
+    res.json({ ok: true, name: guestName });
   });
 
   return router;

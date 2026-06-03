@@ -114,7 +114,7 @@ test('guest session: returns token and user for valid name', async () => {
   const { status, body } = await json(res);
   assert.equal(status, 200);
   assert.equal(body.ok, true);
-  assert.equal(body.user.name, 'ci-tester');
+  assert.equal(body.user.name, 'guest-ci-tester');
   assert.equal(body.user.guest, true);
   assert.ok(typeof body.token === 'string' && body.token.length > 8, 'token must be a non-trivial string');
 });
@@ -325,7 +325,7 @@ test('POST /api/messages: stores and returns the message', async () => {
   assert.ok(body.messageId, 'response must include messageId');
   assert.equal(body.message.content, 'ci-test-message');
   assert.equal(body.message.channelName, 'all');
-  assert.equal(body.message.senderName, 'ci-msg-sender');
+  assert.equal(body.message.senderName, 'guest-ci-msg-sender');
 });
 
 test('GET /api/messages: returns previously stored message', async () => {
@@ -935,19 +935,19 @@ test('claim_tasks: DM short message ids resolve in the canonical DM channel', as
   const claimed = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks/claim`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ channel: 'dm:@ci-dm-task-human', message_ids: [sent.body.messageId.slice(0, 8)] }),
+    body: JSON.stringify({ channel: 'dm:@guest-ci-dm-task-human', message_ids: [sent.body.messageId.slice(0, 8)] }),
   }));
   assert.equal(claimed.status, 200);
   const [result] = claimed.body.results;
   assert.equal(result.messageId, sent.body.messageId);
   assert.equal(result.success, true);
 
-  const tasks = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks?channel=dm%3A%40ci-dm-task-human`));
+  const tasks = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/tasks?channel=dm%3A%40guest-ci-dm-task-human`));
   const task = tasks.body.tasks.find((t) => t.taskNumber === result.taskNumber);
   assert.equal(task.title, marker);
   assert.equal(task.status, 'in_progress');
 
-  const history = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/history?channel=dm%3A%40ci-dm-task-human&limit=20`));
+  const history = await json(await fetch(`${BASE}/internal/agent/${MOCK_AGENT}/history?channel=dm%3A%40guest-ci-dm-task-human&limit=20`));
   const systemClaim = history.body.messages.find((m) => m.content.includes(`claimed #${result.taskNumber}`));
   assert.equal(systemClaim.parent_channel_type || systemClaim.channel_type, 'dm');
 });
@@ -1031,7 +1031,7 @@ test('read_history: non-party agent cannot read another pair\'s DM history', asy
 
   // Recipient agent sees its own DM history.
   const recipient = await json(await fetch(
-    `${BASE}/internal/agent/agent-mock-bugbot/history?channel=${encodeURIComponent('dm:@dm-history-tester')}&limit=50`,
+    `${BASE}/internal/agent/agent-mock-bugbot/history?channel=${encodeURIComponent('dm:@guest-dm-history-tester')}&limit=50`,
   ));
   assert.equal(recipient.status, 200);
   assert.ok(
@@ -1042,7 +1042,7 @@ test('read_history: non-party agent cannot read another pair\'s DM history', asy
   // Unrelated agent (reviewer) querying the same DM target returns nothing:
   // matchesTarget + the DM-party gate combine so history is never fished.
   const unrelated = await json(await fetch(
-    `${BASE}/internal/agent/agent-mock-reviewer/history?channel=${encodeURIComponent('dm:@dm-history-tester')}&limit=50`,
+    `${BASE}/internal/agent/agent-mock-reviewer/history?channel=${encodeURIComponent('dm:@guest-dm-history-tester')}&limit=50`,
   ));
   assert.equal(unrelated.status, 200);
   assert.ok(
@@ -1383,7 +1383,7 @@ test('WS broadcast: DM messages reach only the two parties', async () => {
   await fetch(`${BASE}/api/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
-    body: JSON.stringify({ target: 'dm:@dmtest-bob', content: marker }),
+    body: JSON.stringify({ target: 'dm:@guest-dmtest-bob', content: marker }),
   });
 
   const [aliceGot, bobGot, carolGot] = await Promise.all([alicePromise, bobPromise, carolPromise]);
@@ -1964,22 +1964,39 @@ test('POST /api/trigger: WS clients receive the broadcast frame', async () => {
 
 // ─── Reserved usernames ───────────────────────────────────────────────────────
 
-test('reserved username: guest-session rejects "system"', async () => {
+test('guest-session forces a guest- prefix (reserved "system" becomes "guest-system")', async () => {
+  // The forced prefix structurally prevents a guest from claiming a reserved
+  // identity: "system" is namespaced to "guest-system" instead of rejected.
   const res = await fetch(`${BASE}/api/auth/guest-session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'system' }),
   });
-  assert.equal(res.status, 400);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.name, 'guest-system');
 });
 
-test('reserved username: guest-session rejects "System" (case-insensitive)', async () => {
+test('guest-session strips a client-supplied guest- prefix (no doubling)', async () => {
   const res = await fetch(`${BASE}/api/auth/guest-session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'System' }),
+    body: JSON.stringify({ name: 'guest-alice' }),
   });
-  assert.equal(res.status, 400);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.name, 'guest-alice');
+});
+
+test('guest-session prefixes a plain name', async () => {
+  const res = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Bob' }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.name, 'guest-Bob');
 });
 
 test('reserved username: profile rename to "system" is rejected', async () => {

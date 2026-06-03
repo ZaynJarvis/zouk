@@ -14,6 +14,7 @@ import AgentProfilePanel from './components/AgentProfilePanel';
 import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
 import ChannelSettingsModal from './components/ChannelSettingsModal';
+import UsernameSetupModal from './components/UsernameSetupModal';
 import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
 import TasksView from './components/TasksView';
@@ -24,7 +25,7 @@ import { isMobileViewport } from './lib/layout';
 import { useEdgeSwipeRight } from './hooks/useEdgeSwipeRight';
 import { useVisualViewportChatShell } from './hooks/useVisualViewportChatShell';
 import { initSupabase } from './lib/supabase';
-import { setStoredAuth, setStoredCurrentUser, setStoredActiveWorkspaceId, getStoredActiveWorkspaceIdOrNull } from './store/storage';
+import { setStoredAuth, setStoredCurrentUser, setStoredActiveWorkspaceId, getStoredActiveWorkspaceIdOrNull, setPendingUsernameSetup } from './store/storage';
 import { normalizeWorkspaceId } from './lib/workspaceRoute';
 
 function GoogleAuthSync() {
@@ -59,7 +60,7 @@ function OvDenylistSync({ denylist, mcpDenylist }: { denylist: string[]; mcpDeny
 }
 
 function AppShell() {
-  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId, usernameSetup, dismissUsernameSetup, updateProfile } = useApp();
   const threadRailRef = useRef<HTMLDivElement | null>(null);
   const [mobileSurface, setMobileSurface] = useState(() => isMobileViewport());
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
@@ -275,6 +276,13 @@ function AppShell() {
 
       <SettingsModal />
       <ChannelSettingsModal />
+      <UsernameSetupModal
+        open={!!usernameSetup}
+        kind="email"
+        defaultValue={usernameSetup?.defaultValue || ''}
+        onConfirm={(name) => { updateProfile(name); dismissUsernameSetup(); }}
+        onSkip={dismissUsernameSetup}
+      />
       <ToastContainer />
     </div>
   );
@@ -297,13 +305,18 @@ function AppWithAuth() {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('auth') === 'feishu' && urlParams.get('token')) {
           const token = urlParams.get('token')!;
+          const firstLogin = urlParams.get('first') === '1';
           urlParams.delete('auth');
           urlParams.delete('token');
+          urlParams.delete('first');
           const qs = urlParams.toString();
           window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
           const user = await api.fetchAuthMe(token);
           setStoredAuth(token, user);
           setStoredCurrentUser(user.name);
+          // First Feishu sign-in → hand the default name to the store, which
+          // opens the one-time username picker once it mounts.
+          if (firstLogin) setPendingUsernameSetup(user.name);
         }
       } catch (e) {
         console.error('[auth] Feishu session adoption failed:', e);
@@ -361,6 +374,9 @@ function AppWithAuth() {
               const result = await api.supabaseLogin(accessToken, magicLoginChallengeId);
               setStoredAuth(result.token, result.user);
               setStoredCurrentUser(result.user.name);
+              // First sign-in for this email → open the one-time username picker
+              // once the store mounts (cross-browser magic-link path).
+              if (result.firstLogin) setPendingUsernameSetup(result.user.name);
               const accessible = result.accessibleWorkspaces || [];
               if (accessible.length > 0) {
                 const stored = getStoredActiveWorkspaceIdOrNull();
