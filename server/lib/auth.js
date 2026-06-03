@@ -184,6 +184,20 @@ function createAuthModule(ctx) {
     return true;
   }
 
+  // Return the display name a returning email already chose, by scanning live
+  // (DB-loaded) sessions for a non-guest, non-embed session on the same email.
+  // Sessions of one email are kept in sync on profile rename (see PUT
+  // /api/auth/profile), so any match carries the latest custom name.
+  function findExistingDisplayNameForEmail(email) {
+    if (!email) return null;
+    for (const u of authSessions.values()) {
+      if (u && !u.guest && !isEmbedSessionUser(u) && u.email === email && u.name) {
+        return u.name;
+      }
+    }
+    return null;
+  }
+
   async function mintSessionForEmail(email, opts = {}) {
     const normalizedEmail = normalizeEmailInput(email);
     if (!normalizedEmail) {
@@ -202,9 +216,15 @@ function createAuthModule(ctx) {
       err.statusCode = 403;
       throw err;
     }
+    // First login for this email → default to the @-prefix and let the client
+    // offer a one-time username customization. Returning emails keep whatever
+    // name they last chose so a fresh OAuth round-trip doesn't reset it.
+    const existingName = findExistingDisplayNameForEmail(normalizedEmail);
+    const firstLogin = !existingName;
+    const name = existingName || emailPrefix;
     const grav = gravatarUrl(normalizedEmail);
     const user = {
-      name: emailPrefix,
+      name,
       email: normalizedEmail,
       picture: opts.picture || null,
       gravatarUrl: grav,
@@ -225,6 +245,7 @@ function createAuthModule(ctx) {
     return {
       token: sessionToken,
       user,
+      firstLogin,
       requestedWorkspaceId: opts.requestedWorkspaceId || DEFAULT_WORKSPACE_ID,
       accessibleWorkspaces: visibleWorkspacesForUser(user),
     };
@@ -394,7 +415,8 @@ function createAuthModule(ctx) {
             : null,
       });
       const sep = stateInfo.returnTo.includes("?") ? "&" : "?";
-      res.redirect(`${stateInfo.returnTo}${sep}auth=feishu&token=${result.token}`);
+      const firstParam = result.firstLogin ? "&first=1" : "";
+      res.redirect(`${stateInfo.returnTo}${sep}auth=feishu&token=${result.token}${firstParam}`);
     } catch (err) {
       if (err.statusCode) {
         if (err.statusCode === 403) console.log(`[auth/feishu] rejected: ${err.message}`);
@@ -451,6 +473,18 @@ function createAuthModule(ctx) {
     // Ensure gravatarUrl is set if user has email
     if (!user.gravatarUrl && user.email) {
       user.gravatarUrl = gravatarUrl(user.email);
+    }
+    // Keep every session for this email on the same display name, so a later
+    // fresh OAuth login (findExistingDisplayNameForEmail) reuses the latest
+    // chosen name regardless of which session it happens to match first.
+    if (user.email && oldName !== trimmed) {
+      for (const [otherToken, otherUser] of authSessions) {
+        if (otherToken === token) continue;
+        if (otherUser && !otherUser.guest && otherUser.email === user.email && otherUser.name !== trimmed) {
+          otherUser.name = trimmed;
+          db.saveSession(otherToken, otherUser).catch(e => console.warn("[auth] saveSession (sibling) error:", e.message));
+        }
+      }
     }
     if (oldName && oldName !== trimmed) {
       if (onlineHumans.has(oldName)) {
