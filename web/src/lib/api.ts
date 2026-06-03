@@ -649,6 +649,8 @@ export async function saveOpenvikingSettings(input: {
   // Empty string clears the explicit account (server will decode from key).
   // Omit the field entirely to leave the stored account unchanged.
   account?: string;
+  // Opt into the new OV peer contract. Omit to leave the stored flag unchanged.
+  peerEnabled?: boolean;
 }): Promise<WorkspaceOpenvikingSettings> {
   const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
     method: 'PUT',

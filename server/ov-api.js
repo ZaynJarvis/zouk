@@ -20,13 +20,21 @@ async function ovCall(creds, path, opts = {}) {
   }
   const baseUrl = creds.url.replace(/\/+$/, "");
   const url = `${baseUrl}${path}`;
+  // New peer contract: identity is derived from the Bearer key alone. Sending
+  // X-OpenViking-Account / -User in API-key mode now 403s, and -Agent is gone.
+  // Old contract: pass them through as before.
+  const identityHeaders = creds.peerEnabled
+    ? {}
+    : {
+        "X-OpenViking-Account": creds.account || "",
+        "X-OpenViking-User": creds.user || creds.userId || "",
+        ...(creds.agent ? { "X-OpenViking-Agent": creds.agent } : {}),
+      };
   const headers = {
     "Accept": "application/json",
     "Content-Type": "application/json",
     "Authorization": `Bearer ${creds.apiKey}`,
-    "X-OpenViking-Account": creds.account || "",
-    "X-OpenViking-User": creds.user || creds.userId || "",
-    ...(creds.agent ? { "X-OpenViking-Agent": creds.agent } : {}),
+    ...identityHeaders,
     ...(opts.headers || {}),
   };
 
@@ -109,8 +117,11 @@ async function getSession(creds, sessionId, { autoCreate = false, timeout } = {}
 // Body: { role: "user" | "assistant", content } OR { role, parts: [...] }
 // Parts-mode carries structured tool call/result parts so the server can
 // process them separately from prose; takes precedence over `content`.
-async function appendSessionMessage(creds, sessionId, { role, content, parts, timeout } = {}) {
+// `peerId` (new peer contract) tags the message with the stable id of "the
+// other party" — set it on incoming messages so commit can extract peer memory.
+async function appendSessionMessage(creds, sessionId, { role, content, parts, peerId, timeout } = {}) {
   const body = parts ? { role, parts } : { role, content };
+  if (peerId) body.peer_id = peerId;
   await ovCall(creds, `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: "POST",
     body,
@@ -120,10 +131,12 @@ async function appendSessionMessage(creds, sessionId, { role, content, parts, ti
 
 // ─── POST /api/v1/sessions/{id}/commit ──────────────────────────────
 // Empty body forces a commit regardless of pending_tokens threshold.
-async function commitSession(creds, sessionId, { timeout } = {}) {
+// `memoryPolicy` (new peer contract) overrides the session's default policy
+// for this commit, e.g. { self: {enabled}, peer: {enabled} }.
+async function commitSession(creds, sessionId, { memoryPolicy, timeout } = {}) {
   await ovCall(creds, `/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
     method: "POST",
-    body: {},
+    body: memoryPolicy ? { memory_policy: memoryPolicy } : {},
     timeout,
   });
 }

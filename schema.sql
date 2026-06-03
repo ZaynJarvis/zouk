@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS workspace_openviking_settings (
   updated_by     TEXT
 );
 ALTER TABLE workspace_openviking_settings ADD COLUMN IF NOT EXISTS account TEXT;
+ALTER TABLE workspace_openviking_settings ADD COLUMN IF NOT EXISTS peer_enabled BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS email_allowlist (
   workspace_id TEXT NOT NULL DEFAULT 'default' REFERENCES workspaces(id) ON DELETE CASCADE,

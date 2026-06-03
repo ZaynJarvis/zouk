@@ -423,6 +423,7 @@ function createWorkspaceRouter(ctx) {
     return {
       workspaceId,
       enabled: !!ws?.enabled,
+      peerEnabled: !!ws?.peerEnabled,
       url: ws?.url || '',
       rootConfigured: !!(ws?.rootApiKey),
       account: ws?.account || '', // explicit override; empty = decode from key
@@ -475,11 +476,18 @@ function createWorkspaceRouter(ctx) {
       }
     }
 
+    // Peer contract opt-in is orthogonal to the provisioning override; persist
+    // it whenever the client sends the field, leave it untouched otherwise.
+    const peerEnabled = Object.prototype.hasOwnProperty.call(req.body || {}, 'peerEnabled')
+      ? !!req.body.peerEnabled
+      : !!current.peerEnabled;
+
     const saved = await workspaceOvSettings.save(workspaceOvSettings.normalize({
       enabled,
       url,
       rootApiKey,
       account,
+      peerEnabled,
     }, workspaceId, req.user?.email || req.user?.name || null));
     res.json({ settings: workspaceOvSettingsPayload(saved.workspaceId) });
   });

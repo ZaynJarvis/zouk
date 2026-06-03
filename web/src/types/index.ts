@@ -308,6 +308,10 @@ export interface WorkspaceEmbedSettings {
 export interface WorkspaceOpenvikingSettings {
   workspaceId: string;
   enabled: boolean;
+  // Opt this workspace's OV deployment into the new peer contract (messages
+  // carry peer_id, commits use a peer-enabled memory_policy, legacy
+  // X-OpenViking-* identity headers dropped). Independent of `enabled`.
+  peerEnabled: boolean;
   url: string;
   rootConfigured: boolean;
   account: string;

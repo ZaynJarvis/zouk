@@ -26,6 +26,22 @@ function deriveSessionId(agentId) {
   return `zouk-${agentId}`;
 }
 
+// Peer contract: the stable id of "the other party" on an incoming message.
+// OV rejects path separators (they'd cross into another namespace), so strip
+// them. The sender's display name is unique within a workspace and human-
+// readable, which is exactly the kind of id the contract wants.
+function safePeerId(name) {
+  if (!name) return undefined;
+  const cleaned = String(name).replace(/[\\/]/g, "").trim();
+  return cleaned || undefined;
+}
+
+// memory_policy override sent at commit when the workspace opts into peer
+// memory. `self` stays on (today's behavior — the managed agent's own memory)
+// and `peer` is added so OV also builds a profile of each person/agent the
+// agent talks to, under viking://user/{owner}/peers/{peer_id}/.
+const PEER_MEMORY_POLICY = { self: { enabled: true }, peer: { enabled: true } };
+
 // The chat send tool surfaces under several names depending on the driver's
 // MCP prefix and naming style, e.g. `mcp__chat__send`, `mcp__chat__send_message`,
 // bare `send_message`, or the hyphenated activity-log form `chat-send`. We skip
@@ -121,7 +137,7 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       console.warn(`[ov-lifecycle] ${agentId} skip: no url`);
       return null;
     }
-    return { url, apiKey: c.apiKey, account: c.account, user: c.userId, sessionId: c.sessionId || null, agent: agentId };
+    return { url, apiKey: c.apiKey, account: c.account, user: c.userId, sessionId: c.sessionId || null, agent: agentId, peerEnabled: !!c.peerEnabled };
   }
 
   async function safeCall(agentId, label, fn) {
@@ -211,8 +227,11 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
         const header = formatMessageHeader({ ...meta, senderType: meta.senderType || "human" });
         const sender = meta.senderName ? `@${meta.senderName}` : "user";
         const content = `${header} ${sender}: ${cleanUser}`.trim();
+        // The incoming message is from "the other party" (peer). The agent's
+        // own reply below is the session owner (self) and carries no peer_id.
+        const peerId = creds.peerEnabled ? safePeerId(meta.senderName) : undefined;
         await safeCall(agentId, "append user msg", () =>
-          ovApi.appendSessionMessage(creds, sessionId, { role: "user", content, timeout: 15000 })
+          ovApi.appendSessionMessage(creds, sessionId, { role: "user", content, peerId, timeout: 15000 })
         );
       }
       if (cleanAgent) {
@@ -294,7 +313,10 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
 
       console.log(`[ov-lifecycle] Committing session ${sessionId} for ${agentId} (${pending} pending tokens)`);
       await safeCall(agentId, "commit (threshold)", () =>
-        ovApi.commitSession(creds, sessionId, { timeout: 30000 })
+        ovApi.commitSession(creds, sessionId, {
+          memoryPolicy: creds.peerEnabled ? PEER_MEMORY_POLICY : undefined,
+          timeout: 30000,
+        })
       );
     },
 
@@ -395,7 +417,10 @@ function createOvLifecycleManager({ getAgentOvCreds, resolveOvUrl }) {
       if (!creds) return;
       const sessionId = creds.sessionId || deriveSessionId(agentId);
       const ok = await safeCall(agentId, "force commit", async () => {
-        await ovApi.commitSession(creds, sessionId, { timeout: 30000 });
+        await ovApi.commitSession(creds, sessionId, {
+          memoryPolicy: creds.peerEnabled ? PEER_MEMORY_POLICY : undefined,
+          timeout: 30000,
+        });
         return true;
       });
       if (ok) console.log(`[ov-lifecycle] force-committed session ${sessionId} for ${agentId}`);
