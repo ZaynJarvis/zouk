@@ -6,9 +6,9 @@
 // when the OV contract changes (or our assumption turns out to have been a
 // hallucination), the fix lands in one file.
 //
-// Auth: callers pass a `creds` object with at least `{ url, apiKey }`.
-//       `account` / `user` / `agent` are optional and pass through as the
-//       corresponding X-OpenViking-* headers.
+// Auth: callers pass a `creds` object with at least `{ url, apiKey }`. Identity
+//       is derived from the Bearer key (zouk uses user-scoped keys, non-trusted
+//       mode), so no X-OpenViking-* identity headers are sent.
 //
 // Errors: low-level `ovCall` throws on non-2xx (with `.status` and `.body`
 //         attached). Typed wrappers re-throw — caller decides whether to
@@ -20,21 +20,15 @@ async function ovCall(creds, path, opts = {}) {
   }
   const baseUrl = creds.url.replace(/\/+$/, "");
   const url = `${baseUrl}${path}`;
-  // New peer contract: identity is derived from the Bearer key alone. Sending
-  // X-OpenViking-Account / -User in API-key mode now 403s, and -Agent is gone.
-  // Old contract: pass them through as before.
-  const identityHeaders = creds.peerEnabled
-    ? {}
-    : {
-        "X-OpenViking-Account": creds.account || "",
-        "X-OpenViking-User": creds.user || creds.userId || "",
-        ...(creds.agent ? { "X-OpenViking-Agent": creds.agent } : {}),
-      };
+  // Identity is derived from the Bearer key alone. zouk always uses user-scoped
+  // OV API keys (account.user.secret) and never OV's "trusted" mode, so the
+  // X-OpenViking-Account/User/Agent headers are redundant — and the current OV
+  // contract 403s on them in API-key mode ("can only assert identity in trusted
+  // mode"). Never send them.
   const headers = {
     "Accept": "application/json",
     "Content-Type": "application/json",
     "Authorization": `Bearer ${creds.apiKey}`,
-    ...identityHeaders,
     ...(opts.headers || {}),
   };
 

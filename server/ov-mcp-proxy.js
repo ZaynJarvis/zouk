@@ -14,13 +14,13 @@ const mcpSessions = new Map();
 
 async function mcpCall(creds, method, params, id = 1) {
   const mcpUrl = `${creds.url.replace(/\/+$/, "")}/mcp`;
+  // Identity comes from the Bearer key (user-scoped, non-trusted mode). The OV
+  // contract 403s on X-OpenViking-Account/User in API-key mode and dropped
+  // -Agent entirely, so we send none of them.
   const headers = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
     "Authorization": `Bearer ${creds.apiKey}`,
-    "X-OpenViking-Account": creds.account || "",
-    "X-OpenViking-User": creds.user || "",
-    "X-OpenViking-Agent": creds.agentId || "",
   };
 
   const sessKey = `${creds.url}:${creds.user || ""}`;

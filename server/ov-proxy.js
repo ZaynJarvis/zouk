@@ -51,11 +51,14 @@ function createOvProxy({ agentAuth, getAgentOvCreds, resolveOvUrl }) {
     console.log(`[ov-proxy] ${agent.agentId} ${req.method} ${ovPath} → ${agent.ovUrl}`);
 
     const headers = { ...req.headers };
-    // Replace auth headers
+    // Swap in the agent's OV key. Identity is derived from that Bearer key
+    // (user-scoped, non-trusted mode), so strip any X-OpenViking-* identity
+    // headers the agent forwarded and add none of our own — the OV contract
+    // 403s on Account/User in API-key mode and dropped -Agent entirely.
     headers["authorization"] = `Bearer ${agent.ovApiKey}`;
-    headers["x-openviking-account"] = agent.ovAccount;
-    headers["x-openviking-user"] = agent.ovUserId;
-    headers["x-openviking-agent"] = agent.agentId;
+    delete headers["x-openviking-account"];
+    delete headers["x-openviking-user"];
+    delete headers["x-openviking-agent"];
     // Remove hop-by-hop headers
     delete headers["host"];
     delete headers["connection"];

@@ -21,34 +21,36 @@ function captureFetch() {
   return { calls, restore: () => { global.fetch = orig; } };
 }
 
+// Identity is always derived from the Bearer key; the X-OpenViking-* headers
+// are never sent regardless of peerEnabled (zouk is always non-trusted mode).
 const PEER_CREDS = { url: 'http://ov.local', apiKey: 'bearer-key', account: 'acc', user: 'usr', agent: 'agent1', peerEnabled: true };
 const LEGACY_CREDS = { url: 'http://ov.local', apiKey: 'bearer-key', account: 'acc', user: 'usr', agent: 'agent1' };
 
-test('ovCall drops X-OpenViking identity headers under the peer contract', async () => {
+function assertNoIdentityHeaders(headers) {
+  assert.equal(headers['Authorization'], 'Bearer bearer-key', 'Bearer auth retained');
+  assert.equal(headers['X-OpenViking-Account'], undefined);
+  assert.equal(headers['X-OpenViking-User'], undefined);
+  assert.equal(headers['X-OpenViking-Agent'], undefined);
+}
+
+test('ovCall never sends X-OpenViking identity headers (peer on)', async () => {
   const { calls, restore } = captureFetch();
   try {
     await ovApi.appendSessionMessage(PEER_CREDS, 'sess', { role: 'user', content: 'hi' });
   } finally {
     restore();
   }
-  const headers = calls[0].opts.headers;
-  assert.equal(headers['Authorization'], 'Bearer bearer-key', 'Bearer auth retained');
-  assert.equal(headers['X-OpenViking-Account'], undefined);
-  assert.equal(headers['X-OpenViking-User'], undefined);
-  assert.equal(headers['X-OpenViking-Agent'], undefined);
+  assertNoIdentityHeaders(calls[0].opts.headers);
 });
 
-test('ovCall keeps legacy identity headers when peer is off', async () => {
+test('ovCall never sends X-OpenViking identity headers (peer off)', async () => {
   const { calls, restore } = captureFetch();
   try {
     await ovApi.appendSessionMessage(LEGACY_CREDS, 'sess', { role: 'user', content: 'hi' });
   } finally {
     restore();
   }
-  const headers = calls[0].opts.headers;
-  assert.equal(headers['X-OpenViking-Account'], 'acc');
-  assert.equal(headers['X-OpenViking-User'], 'usr');
-  assert.equal(headers['X-OpenViking-Agent'], 'agent1');
+  assertNoIdentityHeaders(calls[0].opts.headers);
 });
 
 test('appendSessionMessage sets peer_id on the body when provided', async () => {
