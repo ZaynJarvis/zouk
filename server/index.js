@@ -1842,8 +1842,13 @@ const promptEngine = createPromptTemplateEngine({
 // it's in 'custom' (user-supplied URL+key) or 'provisioned' (server-minted)
 // mode. All runtime paths that hit OV must go through this — the proxy, the
 // lifecycle manager, the tool endpoint, and the memory panel.
+// Workspace-level opt-in to OV's new peer contract (peer_id + memory_policy +
+// dropped identity headers). Resolved per-agent via the agent's workspace.
+function isWorkspacePeerEnabled(workspaceId) {
+  return !!workspaceOvSettings.get(normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID)).peerEnabled;
+}
 const resolveAgentOvCreds = makeResolveAgentOvCreds({
-  decodeOvKey, deriveOvUserId, OPENVIKING_URL, OPENVIKING_ACCOUNT,
+  decodeOvKey, deriveOvUserId, OPENVIKING_URL, OPENVIKING_ACCOUNT, isWorkspacePeerEnabled,
 });
 function getAgentOvCredsById(agentId) {
   return resolveAgentOvCreds(agentConfigs.find((c) => c.id === agentId));

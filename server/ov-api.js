@@ -6,9 +6,9 @@
 // when the OV contract changes (or our assumption turns out to have been a
 // hallucination), the fix lands in one file.
 //
-// Auth: callers pass a `creds` object with at least `{ url, apiKey }`.
-//       `account` / `user` / `agent` are optional and pass through as the
-//       corresponding X-OpenViking-* headers.
+// Auth: callers pass a `creds` object with at least `{ url, apiKey }`. Identity
+//       is derived from the Bearer key (zouk uses user-scoped keys, non-trusted
+//       mode), so no X-OpenViking-* identity headers are sent.
 //
 // Errors: low-level `ovCall` throws on non-2xx (with `.status` and `.body`
 //         attached). Typed wrappers re-throw — caller decides whether to
@@ -20,13 +20,15 @@ async function ovCall(creds, path, opts = {}) {
   }
   const baseUrl = creds.url.replace(/\/+$/, "");
   const url = `${baseUrl}${path}`;
+  // Identity is derived from the Bearer key alone. zouk always uses user-scoped
+  // OV API keys (account.user.secret) and never OV's "trusted" mode, so the
+  // X-OpenViking-Account/User/Agent headers are redundant — and the current OV
+  // contract 403s on them in API-key mode ("can only assert identity in trusted
+  // mode"). Never send them.
   const headers = {
     "Accept": "application/json",
     "Content-Type": "application/json",
     "Authorization": `Bearer ${creds.apiKey}`,
-    "X-OpenViking-Account": creds.account || "",
-    "X-OpenViking-User": creds.user || creds.userId || "",
-    ...(creds.agent ? { "X-OpenViking-Agent": creds.agent } : {}),
     ...(opts.headers || {}),
   };
 
@@ -109,8 +111,11 @@ async function getSession(creds, sessionId, { autoCreate = false, timeout } = {}
 // Body: { role: "user" | "assistant", content } OR { role, parts: [...] }
 // Parts-mode carries structured tool call/result parts so the server can
 // process them separately from prose; takes precedence over `content`.
-async function appendSessionMessage(creds, sessionId, { role, content, parts, timeout } = {}) {
+// `peerId` (new peer contract) tags the message with the stable id of "the
+// other party" — set it on incoming messages so commit can extract peer memory.
+async function appendSessionMessage(creds, sessionId, { role, content, parts, peerId, timeout } = {}) {
   const body = parts ? { role, parts } : { role, content };
+  if (peerId) body.peer_id = peerId;
   await ovCall(creds, `/api/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: "POST",
     body,
@@ -120,10 +125,12 @@ async function appendSessionMessage(creds, sessionId, { role, content, parts, ti
 
 // ─── POST /api/v1/sessions/{id}/commit ──────────────────────────────
 // Empty body forces a commit regardless of pending_tokens threshold.
-async function commitSession(creds, sessionId, { timeout } = {}) {
+// `memoryPolicy` (new peer contract) overrides the session's default policy
+// for this commit, e.g. { self: {enabled}, peer: {enabled} }.
+async function commitSession(creds, sessionId, { memoryPolicy, timeout } = {}) {
   await ovCall(creds, `/api/v1/sessions/${encodeURIComponent(sessionId)}/commit`, {
     method: "POST",
-    body: {},
+    body: memoryPolicy ? { memory_policy: memoryPolicy } : {},
     timeout,
   });
 }
