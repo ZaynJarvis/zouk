@@ -399,6 +399,9 @@ export async function fetchAuthMe(token: string): Promise<AuthUser> {
 export type LoginResponse = {
   token: string;
   user: AuthUser;
+  // True the first time this email signs in — the client offers a one-time
+  // username customization. Returning emails keep their last chosen name.
+  firstLogin?: boolean;
   requestedWorkspaceId?: string;
   accessibleWorkspaces?: Workspace[];
 };
@@ -473,7 +476,7 @@ export async function logout(token: string): Promise<void> {
   });
 }
 
-export async function registerGuestSession(name: string): Promise<{ token?: string; user?: AuthUser }> {
+export async function registerGuestSession(name: string): Promise<{ token?: string; user?: AuthUser; name?: string }> {
   const res = await fetch(`${getBaseUrl()}/api/auth/guest-session`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getWorkspaceHeaders() },
@@ -649,6 +652,8 @@ export async function saveOpenvikingSettings(input: {
   // Empty string clears the explicit account (server will decode from key).
   // Omit the field entirely to leave the stored account unchanged.
   account?: string;
+  // Opt into the new OV peer contract. Omit to leave the stored flag unchanged.
+  peerEnabled?: boolean;
 }): Promise<WorkspaceOpenvikingSettings> {
   const res = await fetch(`${getBaseUrl()}/api/settings/openviking`, {
     method: 'PUT',

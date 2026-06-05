@@ -9,17 +9,35 @@ const require = createRequire(import.meta.url);
 const ovApi = require('./ov-api.js');
 const { createOvLifecycleManager } = require('./ov-lifecycle.js');
 
-function makeManager(captured) {
-  const orig = ovApi.appendSessionMessage;
+function makeManager(captured, { creds, commits } = {}) {
+  const origAppend = ovApi.appendSessionMessage;
+  const origCommit = ovApi.commitSession;
+  const origGet = ovApi.getSession;
   ovApi.appendSessionMessage = async (_creds, sessionId, payload) => {
     captured.push({ sessionId, payload });
   };
+  ovApi.commitSession = async (_creds, sessionId, opts = {}) => {
+    if (commits) commits.push({ sessionId, opts });
+  };
+  // autoCapture fires a best-effort autoCommit; stub getSession so it returns
+  // early (null) instead of hitting the network during these unit tests.
+  ovApi.getSession = async () => null;
   const manager = createOvLifecycleManager({
-    getAgentOvCreds: () => ({ apiKey: 'k', url: 'http://ov.local', userId: 'u', account: 'a' }),
+    getAgentOvCreds: () => creds || { apiKey: 'k', url: 'http://ov.local', userId: 'u', account: 'a' },
     resolveOvUrl: () => 'http://ov.local',
   });
-  return { manager, restore: () => { ovApi.appendSessionMessage = orig; } };
+  return {
+    manager,
+    restore: () => {
+      ovApi.appendSessionMessage = origAppend;
+      ovApi.commitSession = origCommit;
+      ovApi.getSession = origGet;
+    },
+  };
 }
+
+const PEER_CREDS = { apiKey: 'k', url: 'http://ov.local', userId: 'u', account: 'a', peerEnabled: true };
+const NON_PEER_CREDS = { apiKey: 'k', url: 'http://ov.local', userId: 'u', account: 'a' };
 
 test('captureToolCalls emits a structured running tool part for a call', async () => {
   const captured = [];
@@ -109,4 +127,80 @@ test('captureToolCalls falls back to toolInputSummary when toolInput is absent',
     restore();
   }
   assert.equal(captured[0].payload.parts[0].tool_input, '{"k":1}');
+});
+
+// ─── Peer contract (workspace peerEnabled) ──────────────────────────
+
+test('autoCapture tags the incoming message with peer_id when peer is enabled', async () => {
+  const captured = [];
+  const { manager, restore } = makeManager(captured, { creds: PEER_CREDS });
+  try {
+    await manager.autoCapture('agent1', 'hello there', null, { senderName: 'alice', senderType: 'human' });
+  } finally {
+    restore();
+  }
+  // ov-api (stubbed here) is what renames peerId → peer_id on the wire; at the
+  // lifecycle boundary we assert the camelCase field the manager hands off.
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].payload.role, 'user');
+  assert.equal(captured[0].payload.peerId, 'alice');
+});
+
+test('autoCapture omits peer_id when peer is disabled', async () => {
+  const captured = [];
+  const { manager, restore } = makeManager(captured, { creds: NON_PEER_CREDS });
+  try {
+    await manager.autoCapture('agent1', 'hello', null, { senderName: 'alice', senderType: 'human' });
+  } finally {
+    restore();
+  }
+  assert.equal(captured[0].payload.peerId, undefined);
+});
+
+test('autoCapture strips path separators from peer_id', async () => {
+  const captured = [];
+  const { manager, restore } = makeManager(captured, { creds: PEER_CREDS });
+  try {
+    await manager.autoCapture('agent1', 'hi', null, { senderName: 'a/b\\c', senderType: 'human' });
+  } finally {
+    restore();
+  }
+  assert.equal(captured[0].payload.peerId, 'abc');
+});
+
+test('the agent reply (self) carries no peer_id even when peer is enabled', async () => {
+  const captured = [];
+  const { manager, restore } = makeManager(captured, { creds: PEER_CREDS });
+  try {
+    await manager.autoCapture('agent1', null, 'sure, done', { agentName: 'bot', senderType: 'agent' });
+  } finally {
+    restore();
+  }
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].payload.role, 'assistant');
+  assert.equal(captured[0].payload.peerId, undefined);
+});
+
+test('force commitSession sends peer memory_policy when enabled', async () => {
+  const commits = [];
+  const { manager, restore } = makeManager([], { creds: PEER_CREDS, commits });
+  try {
+    await manager.commitSession('agent1');
+  } finally {
+    restore();
+  }
+  assert.equal(commits.length, 1);
+  assert.deepEqual(commits[0].opts.memoryPolicy, { self: { enabled: true }, peer: { enabled: true } });
+});
+
+test('force commitSession sends no memory_policy when disabled', async () => {
+  const commits = [];
+  const { manager, restore } = makeManager([], { creds: NON_PEER_CREDS, commits });
+  try {
+    await manager.commitSession('agent1');
+  } finally {
+    restore();
+  }
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0].opts.memoryPolicy, undefined);
 });

@@ -17,10 +17,14 @@
 
 const fs = require("fs");
 
-function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, OPENVIKING_ACCOUNT }) {
+function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, OPENVIKING_ACCOUNT, isWorkspacePeerEnabled }) {
   return function resolveAgentOvCreds(cfg) {
     if (!cfg) return null;
     const mode = cfg.openvikingMode === "custom" ? "custom" : "provisioned";
+    // Workspace-level opt-in to the new OV peer contract. Threaded onto every
+    // resolved creds object so all downstream paths (lifecycle, proxy, tool
+    // endpoint) adapt uniformly without extra plumbing.
+    const peerEnabled = !!(isWorkspacePeerEnabled && isWorkspacePeerEnabled(cfg.workspaceId));
 
     if (mode === "custom") {
       // Custom mode: the user supplied URL + key directly. The key encodes
@@ -34,6 +38,7 @@ function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, 
           account: decoded.account || "",
           userId: decoded.user || cfg.openvikingUserId || deriveOvUserId(cfg.id),
           sessionId: cfg.openvikingSessionId || null,
+          peerEnabled,
           source: "custom",
         };
       }
@@ -57,6 +62,7 @@ function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, 
           account: decodedAccount || OPENVIKING_ACCOUNT || "",
           userId: cfg.openvikingUserId || deriveOvUserId(cfg.id),
           sessionId: cfg.openvikingSessionId || null,
+          peerEnabled,
           source: "provisioned",
         };
       }
@@ -89,6 +95,7 @@ function makeResolveAgentOvCreds({ decodeOvKey, deriveOvUserId, OPENVIKING_URL, 
       account,
       userId: user,
       sessionId: cfg.openvikingSessionId || null,
+      peerEnabled,
       source: "env",
     };
   };
