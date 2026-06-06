@@ -32,6 +32,13 @@ test('default prompt discourages redundant self-addressing mentions in DMs', () 
   assert.match(prompt, /Do not prefix every channel message by default/);
 });
 
+test('default prompt prevents startup and empty-inbox status spam', () => {
+  const prompt = assembledPrompt();
+  assert.match(prompt, /On startup, do not send a greeting, readiness\/status update, or "no new messages" report/);
+  assert.match(prompt, /If inbox returns no messages/);
+  assert.match(prompt, /Do not call send just to say you are standing by/);
+});
+
 test('send tool definition repeats routing and DM mention guidance', () => {
   const sendTool = generateToolDefinitions().find((tool) => tool.name === 'send');
   assert.ok(sendTool);
@@ -39,4 +46,10 @@ test('send tool definition repeats routing and DM mention guidance', () => {
   assert.match(sendTool.description, /Do not prefix DM messages/);
   assert.match(sendTool.inputSchema.properties.target.description, /keep the incoming thread target/);
   assert.match(sendTool.inputSchema.properties.content.description, /In DMs, do not prefix/);
+});
+
+test('inbox tool definition says empty checks are not a reason to send', () => {
+  const inboxTool = generateToolDefinitions().find((tool) => tool.name === 'inbox');
+  assert.ok(inboxTool);
+  assert.match(inboxTool.description, /do not send a status or standing-by message/);
 });
