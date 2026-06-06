@@ -2442,8 +2442,18 @@ app.use("/internal/agent", createAgentInternalRouter({
   ovLifecycle, isOvPluginForAgent, agentConfigs,
 }));
 
-// view_file (attachment download)
-app.get("/api/attachments/:attachmentId", (req, res) => {
+function attachmentDispositionFilename(filename) {
+  const fallback = String(filename || "attachment")
+    .replace(/[\\/\r\n\t"]/g, "_")
+    .trim() || "attachment";
+  const encoded = encodeURIComponent(String(filename || fallback))
+    .replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
+// view_file (attachment download). The filename suffix is optional, but keeping
+// it in generated URLs helps browsers and chat clients preserve file extensions.
+app.get(["/api/attachments/:attachmentId", "/api/attachments/:attachmentId/:filename"], (req, res) => {
   const id = req.params.attachmentId;
   const meta = attachmentStorage.statSync(id);
   if (!meta || !attachmentStorage.existsSync(id)) {
@@ -2451,6 +2461,7 @@ app.get("/api/attachments/:attachmentId", (req, res) => {
 
   }
   res.set("Content-Type", meta.contentType || "application/octet-stream");
+  res.set("Content-Disposition", attachmentDispositionFilename(meta.filename));
   attachmentStorage.stream(id).on("error", () => {
     if (!res.headersSent) res.status(500).end();
     else res.destroy();

@@ -399,6 +399,15 @@ test('POST /api/attachments + POST /api/messages: image rides along as attachmen
   const getRes = await fetch(`${BASE}/api/attachments/${upload.id}`);
   assert.equal(getRes.status, 200);
   assert.equal(getRes.headers.get('content-type'), 'image/png');
+  const disposition = getRes.headers.get('content-disposition') || '';
+  assert.match(disposition, /^inline;/);
+  assert.match(disposition, /filename="pixel\.png"/);
+  assert.match(disposition, /filename\*=UTF-8''pixel\.png/);
+
+  const getByFilenameRes = await fetch(`${BASE}/api/attachments/${upload.id}/pixel.png`);
+  assert.equal(getByFilenameRes.status, 200);
+  assert.equal(getByFilenameRes.headers.get('content-type'), 'image/png');
+  assert.match(getByFilenameRes.headers.get('content-disposition') || '', /filename="pixel\.png"/);
 });
 
 test('POST /api/attachments without auth: returns 403', async () => {

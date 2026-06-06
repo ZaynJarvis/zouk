@@ -366,7 +366,7 @@ export default function MessageItem({
                   aria-label={`Open ${att.filename}`}
                 >
                   <FailableImage
-                    src={getAttachmentUrl(att.id)}
+                    src={getAttachmentUrl(att.id, att.filename)}
                     alt={att.filename}
                     className="block"
                     width={att.width}
@@ -390,9 +390,10 @@ export default function MessageItem({
               {fileAttachments.map((att) => (
                 <a
                   key={att.id}
-                  href={getAttachmentUrl(att.id)}
+                  href={getAttachmentUrl(att.id, att.filename)}
                   target="_blank"
                   rel="noopener noreferrer"
+                  download={att.filename}
                   className="zk-row"
                   title={att.filename}
                   style={{
@@ -430,7 +431,7 @@ export default function MessageItem({
             <ImageLightbox
               images={imageAttachments.map((a) => ({
                 id: a.id,
-                src: getAttachmentUrl(a.id),
+                src: getAttachmentUrl(a.id, a.filename),
                 alt: a.filename,
                 width: a.width,
                 height: a.height,

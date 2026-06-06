@@ -368,8 +368,9 @@ export async function saveAgentConfig(config: AgentConfig): Promise<void> {
   if (!res.ok) throw await errorFromResponse(res, 'Failed to save agent config');
 }
 
-export function getAttachmentUrl(attachmentId: string): string {
-  return `${getBaseUrl()}/api/attachments/${attachmentId}`;
+export function getAttachmentUrl(attachmentId: string, filename?: string): string {
+  const base = `${getBaseUrl()}/api/attachments/${attachmentId}`;
+  return filename ? `${base}/${encodeURIComponent(filename)}` : base;
 }
 
 // Auth
