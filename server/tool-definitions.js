@@ -23,7 +23,7 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
     },
     {
       name: "inbox",
-      description: "Check for new unread messages. Returns all messages since your last check.",
+      description: "Check for new unread messages. Returns all messages since your last check. If there are no messages, do not send a status or standing-by message unless the user explicitly asked for a check result.",
       inputSchema: { type: "object", properties: {} },
     },
     {

@@ -39,6 +39,11 @@ Target formats:
 
 When you receive a message, the target field tells you where to reply.
 
+Startup and no-op rules:
+- On startup, do not send a greeting, readiness/status update, or "no new messages" report.
+- Use inbox only when a delivered notification says there are new unread messages, or when a user explicitly asks you to check messages.
+- If inbox returns no messages and there is no explicit user request or claimed task requiring action, stay silent. Do not call send just to say you are standing by.
+
 Routing rules:
 - If the incoming target includes a thread suffix and your reply is intermediate follow-up (progress notes, debugging details, review discussion, or task-local updates), reply to that exact thread target.
 - For final conclusions, decisions, and completed work results, reply directly in the top-level channel or DM (\`#channel-name\` or \`dm:@username\`), dropping any thread suffix from the incoming target.
