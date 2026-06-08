@@ -849,7 +849,7 @@ function OpenvikingSection({
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<WorkspaceOpenvikingSettings | null>(null);
   const [enabled, setEnabled] = useState(false);
-  const [peerEnabled, setPeerEnabled] = useState(false);
+  const [peerEnabled, setPeerEnabled] = useState(true);
   const [url, setUrl] = useState('');
   const [rootApiKey, setRootApiKey] = useState('');
   const [keyDirty, setKeyDirty] = useState(false);
@@ -997,6 +997,19 @@ function OpenvikingSection({
         />
       </label>
 
+      <label className="flex items-center justify-between gap-3 cyber-panel-elevated p-3 cursor-pointer">
+        <span>
+          <span className="block text-sm font-bold text-nc-text-bright">Peer memory</span>
+          <span className="block text-xs font-mono text-nc-muted mt-0.5">On by default: the server-managed lifecycle tags incoming messages with the sender as <code>peer_id</code> and commits with a peer-enabled <code>memory_policy</code>, so each agent builds a profile of the people it talks to. Turn off to attribute all memory to the agent itself.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={peerEnabled}
+          onChange={(e) => setPeerEnabled(e.target.checked)}
+          className="w-5 h-5 accent-cyan-400"
+        />
+      </label>
+
       <div>
         <label className="block text-xs font-bold text-nc-muted mb-1.5 uppercase tracking-wider">OpenViking URL</label>
         <input
@@ -1049,19 +1062,6 @@ function OpenvikingSection({
         <p>Memory namespace is derived from the agent <em>name</em>: <code>alice</code> → <code>zouk-alice</code>; <code>alice[1]</code> shares with <code>alice</code>.</p>
         <p>Existing provisioned agents keep their stored <code>user_id</code> — renaming or switching workspace URL does not migrate their OV memory; re-provision (clear + restart) if you want to move them.</p>
       </div>
-
-      <label className="flex items-center justify-between gap-3 cyber-panel-elevated p-3 cursor-pointer">
-        <span>
-          <span className="block text-sm font-bold text-nc-text-bright">Peer memory (new contract)</span>
-          <span className="block text-xs font-mono text-nc-muted mt-0.5">Requires an OV deployment on the peer-capable build. Server-managed agents tag incoming messages with the sender as <code>peer_id</code> and commit with a peer-enabled <code>memory_policy</code>, so each agent builds a profile of the people it talks to. Identity moves to the Bearer key (legacy <code>X-OpenViking-*</code> headers are dropped).</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={peerEnabled}
-          onChange={(e) => setPeerEnabled(e.target.checked)}
-          className="w-5 h-5 accent-cyan-400"
-        />
-      </label>
 
       <div className="flex items-center gap-3 flex-wrap">
         <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>

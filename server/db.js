@@ -969,24 +969,25 @@ function loadWorkspaceEmbedSettings() {
 
 function saveWorkspaceOpenvikingSettings(settings) {
   return dbExec("saveWorkspaceOpenvikingSettings",
-    `INSERT INTO workspace_openviking_settings (workspace_id, enabled, url, root_api_key, account, peer_enabled, updated_at, updated_by)
+    `INSERT INTO workspace_openviking_settings (workspace_id, enabled, url, root_api_key, account, peer_disabled, updated_at, updated_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
      ON CONFLICT (workspace_id) DO UPDATE SET enabled = EXCLUDED.enabled, url = EXCLUDED.url,
-       root_api_key = EXCLUDED.root_api_key, account = EXCLUDED.account, peer_enabled = EXCLUDED.peer_enabled,
+       root_api_key = EXCLUDED.root_api_key, account = EXCLUDED.account, peer_disabled = EXCLUDED.peer_disabled,
        updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by`,
     [settings.workspaceId || DEFAULT_WORKSPACE_ID, !!settings.enabled, settings.url || null,
-     settings.rootApiKey || null, settings.account || null, !!settings.peerEnabled,
+     settings.rootApiKey || null, settings.account || null, settings.peerEnabled === false,
      settings.updatedAt || new Date().toISOString(), settings.updatedBy || null]);
 }
 
 function loadWorkspaceOpenvikingSettings() {
   return dbQuery("loadWorkspaceOpenvikingSettings",
-    `SELECT workspace_id, enabled, url, root_api_key, account, peer_enabled, updated_at, updated_by
+    `SELECT workspace_id, enabled, url, root_api_key, account, peer_disabled, updated_at, updated_by
      FROM workspace_openviking_settings ORDER BY workspace_id ASC`, [],
     (row) => ({
       workspaceId: row.workspace_id || DEFAULT_WORKSPACE_ID, enabled: !!row.enabled,
       url: row.url || '', rootApiKey: row.root_api_key || '', account: row.account || '',
-      peerEnabled: !!row.peer_enabled,
+      // peer_disabled is the inverted store; absent/false → peer enabled (default on).
+      peerEnabled: !row.peer_disabled,
       updatedAt: row.updated_at, updatedBy: row.updated_by || null,
     }), null);
 }
