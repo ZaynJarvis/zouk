@@ -67,7 +67,7 @@ export default function TopBar() {
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 2 }}>
               <h1
                 className="zk-display zk-truncate"
-                style={{ margin: 0, fontWeight: 600, fontSize: 19, letterSpacing: '-0.012em', color: 'var(--zk-ink)' }}
+                style={{ margin: 0, fontWeight: 700, fontSize: 20, letterSpacing: 0, color: 'var(--zk-ink)' }}
               >
                 {isDm ? (
                   <span style={{ color: 'var(--zk-ink-mute)' }}>
@@ -89,8 +89,10 @@ export default function TopBar() {
                 <span
                   className="hidden lg:inline"
                   style={{
-                    color: 'var(--zk-ink-mute)', fontSize: 12,
-                    fontFamily: 'var(--zk-font-mono)',
+                    color: 'var(--zk-ink-mute)',
+                    fontSize: 12,
+                    fontFamily: 'var(--zk-font-sans)',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
                   {channelAgents.length} agents · {humans.length} humans

@@ -51,7 +51,7 @@
 
   /* Type stack */
   --zk-font-sans:    'Inter', system-ui, -apple-system, 'SF Pro Text', sans-serif;
-  --zk-font-display: 'Fraunces', 'Inter', Georgia, serif;
+  --zk-font-display: 'Inter Display', 'SF Pro Display', 'Inter', system-ui, -apple-system, sans-serif;
   --zk-font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
   --zk-r-sm: 5px;
@@ -78,14 +78,14 @@ html[data-theme="atlas"][data-mode="light"] {
   --zk-bg-4:     #e7e5e4;
   --zk-bg-glass: rgba(255, 255, 255, 0.78);
 
-  --zk-line:        rgba(28, 25, 23, 0.06);
-  --zk-line-2:      rgba(28, 25, 23, 0.10);
-  --zk-line-bright: rgba(28, 25, 23, 0.18);
+  --zk-line:        rgba(28, 25, 23, 0.09);
+  --zk-line-2:      rgba(28, 25, 23, 0.14);
+  --zk-line-bright: rgba(28, 25, 23, 0.24);
 
   --zk-ink:     #1c1917;
-  --zk-ink-dim: #44403c;
-  --zk-ink-mute:#78716c;
-  --zk-ink-low: #a8a29e;
+  --zk-ink-dim: #3f3a35;
+  --zk-ink-mute:#625c55;
+  --zk-ink-low: #8f8780;
 
   --zk-ember:        #a05a44;
   --zk-ember-bright: #b06a52;
@@ -133,15 +133,15 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
    Typography utilities
    ────────────────────────────────────────────────────────────────────── */
 
-.zk-display { font-family: var(--zk-font-display); font-weight: 500; letter-spacing: -0.015em; font-feature-settings: 'opsz' 144; }
+.zk-display { font-family: var(--zk-font-display); font-weight: 650; letter-spacing: 0; font-feature-settings: 'opsz' 144; }
 .zk-mono    { font-family: var(--zk-font-mono); font-feature-settings: 'calt'; }
 .zk-sans    { font-family: var(--zk-font-sans); }
 
 .zk-eyebrow {
-  font-family: var(--zk-font-mono);
+  font-family: var(--zk-font-sans);
   font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
+  font-weight: 650;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--zk-ink-mute);
   font-feature-settings: 'tnum';
@@ -182,7 +182,7 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
 }
 .zk-seg button {
   padding: 4px 10px; font-size: 11px;
-  font-family: var(--zk-font-mono); letter-spacing: 0.04em;
+  font-family: var(--zk-font-sans); letter-spacing: 0;
   background: transparent; border: 0; border-radius: 5px;
   color: var(--zk-ink-mute); cursor: pointer;
   transition: background 160ms var(--zk-ease-out), color 160ms var(--zk-ease-out), box-shadow 160ms var(--zk-ease-out);
@@ -316,7 +316,7 @@ html[data-theme="atlas"][data-mode="light"] .zk-bg-grid {
   padding: 5px 11px;
   font-size: 12px; font-weight: 500;
   font-family: var(--zk-font-sans);
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   border-radius: var(--zk-r-md);
   border: 1px solid var(--zk-line-2);
   background: var(--zk-bg-2);

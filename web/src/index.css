@@ -161,7 +161,7 @@
     touch-action: manipulation;
     font-size: 13px;
     line-height: 1.55;
-    letter-spacing: -0.005em;
+    letter-spacing: 0;
   }
 
   #root {
@@ -532,7 +532,7 @@ html.visual-viewport-active body {
 
 html[data-theme="atlas"] body {
   background: rgb(var(--nc-black));
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -591,6 +591,12 @@ html[data-theme="atlas"] .composer-surface {
   border-radius: 14px;
   box-shadow: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+html[data-theme="atlas"] .composer-surface:focus-within,
+html[data-theme="atlas"] .composer-surface--ready {
+  border-color: var(--zk-ember-line);
+  box-shadow: 0 0 0 1px var(--zk-ember-soft), var(--zk-shadow-1);
 }
 
 @media (max-width: 1023.98px) {

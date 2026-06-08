@@ -341,9 +341,9 @@ export default function AgentsView() {
                 <Monitor size={10} color="var(--zk-ok)" />
                 <span
                   style={{
-                    fontFamily: 'var(--zk-font-mono)', fontSize: 10,
-                    fontWeight: 500, letterSpacing: '0.16em',
-                    color: 'var(--zk-ink-mute)', textTransform: 'uppercase',
+                    fontFamily: 'var(--zk-font-sans)', fontSize: 11,
+                    fontWeight: 650, letterSpacing: 0,
+                    color: 'var(--zk-ink-mute)',
                   }}
                 >
                   Machines ({machines.length})
