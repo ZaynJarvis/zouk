@@ -24,11 +24,11 @@ function normalizeSettings(input, workspaceId, now) {
     url: typeof input.url === 'string' ? input.url.trim().replace(/\/+$/, '') : '',
     rootApiKey: typeof input.rootApiKey === 'string' ? input.rootApiKey : '',
     account: typeof input.account === 'string' ? input.account.trim() : '',
-    // Opt this workspace's OV deployment into the new peer contract: messages
-    // carry peer_id, sessions commit with a peer-enabled memory_policy, and the
-    // legacy X-OpenViking-* identity headers are dropped. Independent of
-    // `enabled` (which only governs the provisioning URL/key override).
-    peerEnabled: !!(input.peerEnabled ?? input.peer_enabled),
+    // Peer memory: messages carry peer_id and commits use a peer-enabled
+    // memory_policy, so each agent builds a per-peer profile. Defaults ON (only
+    // an explicit `false` turns it off). Independent of `enabled` (which only
+    // governs the provisioning URL/key override).
+    peerEnabled: (input.peerEnabled ?? input.peer_enabled ?? true) !== false,
     updatedAt: input.updatedAt || input.updated_at || now(),
     updatedBy: input.updatedBy || input.updated_by || null,
   };
