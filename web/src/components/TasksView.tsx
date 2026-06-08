@@ -2,6 +2,7 @@
    tmp/.../zouk-rethink/v3-bold.jsx, wired to real /api/tasks data. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ClipboardList } from 'lucide-react';
 import { useApp } from '../store/AppContext';
 import type { TaskRecord, TaskStatus } from '../types';
 import * as api from '../lib/api';
@@ -11,10 +12,10 @@ import ViewHeader from './ViewHeader';
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 const KANBAN_COLS: { key: TaskStatus; label: string; dot: string }[] = [
-  { key: 'todo',        label: 'TODO',        dot: 'var(--zk-ink-mute)' },
-  { key: 'in_progress', label: 'IN PROGRESS', dot: 'var(--zk-info)' },
-  { key: 'in_review',   label: 'IN REVIEW',   dot: 'var(--zk-warn)' },
-  { key: 'done',        label: 'DONE · 7D',   dot: 'var(--zk-ok)' },
+  { key: 'todo',        label: 'Todo',        dot: 'var(--zk-ink-mute)' },
+  { key: 'in_progress', label: 'In progress', dot: 'var(--zk-info)' },
+  { key: 'in_review',   label: 'In review',   dot: 'var(--zk-warn)' },
+  { key: 'done',        label: 'Done · 7d',   dot: 'var(--zk-ok)' },
 ];
 
 function relTime(iso?: string | null) {
@@ -49,6 +50,7 @@ function KanbanCard({ task }: { task: TaskRecord }) {
         border: '1px solid var(--zk-line)',
         borderRadius: 8,
         cursor: 'pointer',
+        textAlign: 'left',
         transition: 'border-color 180ms var(--zk-ease-out), background 180ms var(--zk-ease-out)',
       }}
       onMouseEnter={(e) => {
@@ -60,19 +62,18 @@ function KanbanCard({ task }: { task: TaskRecord }) {
         e.currentTarget.style.background = 'var(--zk-bg-1)';
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ display: 'grid', gap: 5 }}>
         <span
           style={{
             fontFamily: 'var(--zk-font-mono)',
             fontSize: 10,
             color: 'var(--zk-ink-low)',
-            flexShrink: 0,
             letterSpacing: '0.04em',
           }}
         >
           #{task.taskNumber}
         </span>
-        <span style={{ fontSize: 13, lineHeight: 1.45, color: 'var(--zk-ink)' }}>
+        <span style={{ display: 'block', fontSize: 13, lineHeight: 1.4, color: 'var(--zk-ink)' }}>
           {task.title}
         </span>
       </div>
@@ -100,6 +101,13 @@ function KanbanCard({ task }: { task: TaskRecord }) {
   );
 }
 
+function emptyCopyForStatus(label: string) {
+  if (label.startsWith('Todo')) return 'No queued tasks';
+  if (label.startsWith('In progress')) return 'Nothing running';
+  if (label.startsWith('In review')) return 'No review queue';
+  return 'No recent completions';
+}
+
 function KanbanColumn({
   label, dot, items,
 }: { label: string; dot: string; items: TaskRecord[] }) {
@@ -116,7 +124,7 @@ function KanbanColumn({
           <span
             style={{
               fontFamily: 'var(--zk-font-mono)', fontSize: 10,
-              letterSpacing: '0.16em', color: 'var(--zk-ink-dim)', fontWeight: 500,
+              letterSpacing: 0, color: 'var(--zk-ink-dim)', fontWeight: 650,
             }}
           >
             {label}
@@ -144,16 +152,70 @@ function KanbanColumn({
         {items.length === 0 ? (
           <div
             style={{
-              padding: '32px 4px', textAlign: 'center',
-              fontFamily: 'var(--zk-font-mono)', fontSize: 11,
+              padding: '28px 10px',
+              textAlign: 'left',
+              fontFamily: 'var(--zk-font-sans)',
+              fontSize: 12,
               color: 'var(--zk-ink-low)',
+              border: '1px dashed var(--zk-line-2)',
+              borderRadius: 8,
+              background: 'var(--zk-bg-1)',
             }}
           >
-            —
+            {emptyCopyForStatus(label)}
           </div>
         ) : (
           items.map((t) => <KanbanCard key={t.taskNumber} task={t} />)
         )}
+      </div>
+    </div>
+  );
+}
+
+function BoardEmptyState() {
+  return (
+    <div
+      className="zk-grow"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+        background: 'var(--zk-bg-0)',
+      }}
+    >
+      <div
+        style={{
+          width: 'min(420px, 100%)',
+          padding: 24,
+          border: '1px solid var(--zk-line)',
+          borderRadius: 10,
+          background: 'var(--zk-bg-1)',
+          boxShadow: 'var(--zk-shadow-1)',
+          textAlign: 'left',
+        }}
+      >
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 8,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'var(--zk-bg-2)',
+            border: '1px solid var(--zk-line-2)',
+            marginBottom: 14,
+          }}
+        >
+          <ClipboardList size={18} color="var(--zk-ink-mute)" />
+        </div>
+        <h2 className="zk-display" style={{ margin: 0, fontSize: 18, color: 'var(--zk-ink)' }}>
+          No tasks yet
+        </h2>
+        <p style={{ margin: '7px 0 0', fontSize: 13, lineHeight: 1.5, color: 'var(--zk-ink-mute)' }}>
+          Claimed work will appear here as it moves from todo to review and done.
+        </p>
       </div>
     </div>
   );
@@ -264,6 +326,8 @@ export default function TasksView() {
             loading…
           </span>
         </div>
+      ) : view === 'board' && total === 0 ? (
+        <BoardEmptyState />
       ) : view === 'board' ? (
         <div
           style={{

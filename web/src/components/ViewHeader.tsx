@@ -43,8 +43,8 @@ const SIDEBAR_HEADER_STYLE: CSSProperties = {
 
 const TITLE_BASE: CSSProperties = {
   margin: '2px 0 0',
-  fontWeight: 600,
-  letterSpacing: '-0.012em',
+  fontWeight: 700,
+  letterSpacing: 0,
   color: 'var(--zk-ink)',
   minWidth: 0,
   overflow: 'hidden',
@@ -72,7 +72,7 @@ export default function ViewHeader({
   const shouldShowMobile = showMobileMenu ?? variant === 'canvas';
   const headerStyle = variant === 'canvas' ? CANVAS_HEADER_STYLE : SIDEBAR_HEADER_STYLE;
   const titleSize = variant === 'canvas' ? 19 : 17;
-  const workspaceLabel = (activeWorkspace.name || 'Default').toUpperCase();
+  const workspaceLabel = activeWorkspace.name || 'Default';
   const inlineWorkspaceSelector = showWorkspaceSwitcher && mergeWorkspaceTitle;
   const titleText = title;
 
@@ -99,7 +99,8 @@ export default function ViewHeader({
                 style={{
                   fontSize: 12,
                   color: 'var(--zk-ink-mute)',
-                  fontFamily: 'var(--zk-font-mono)',
+                  fontFamily: 'var(--zk-font-sans)',
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               >
                 · {meta}
@@ -128,7 +129,8 @@ export default function ViewHeader({
                   marginTop: 4,
                   fontSize: 10,
                   color: 'var(--zk-ink-mute)',
-                  fontFamily: 'var(--zk-font-mono)',
+                  fontFamily: 'var(--zk-font-sans)',
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               >
                 {meta}

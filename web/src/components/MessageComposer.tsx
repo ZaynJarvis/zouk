@@ -86,6 +86,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
   const showCloseThreadBtn = isMobileSurface && !!threadTarget && !text.trim();
   const showAttachBtn = !text.trim();
   const showSendBtn = !isMobileSurface;
+  const hasPayload = text.trim().length > 0 || pendingAttachments.length > 0;
   // After the user presses Escape we stash the anchor @ index so we can
   // suppress the dropdown until they move past it or start a fresh @.
   const [suppressedAtPos, setSuppressedAtPos] = useState<number | null>(null);
@@ -534,10 +535,12 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
           <div
             className={`composer-surface flex-1 min-w-0 flex flex-col cursor-text transition-[border-color,background-color] duration-150 ${
               isDragOver ? 'composer-surface--drag' : ''
+            } ${hasPayload ? 'composer-surface--ready' : ''
             }`}
             style={{
               background: 'var(--zk-bg-1)',
-              border: `1px solid ${isDragOver ? 'var(--zk-ember)' : 'var(--zk-line-2)'}`,
+              border: `1px solid ${isDragOver || hasPayload ? 'var(--zk-ember-line)' : 'var(--zk-line-2)'}`,
+              boxShadow: hasPayload ? '0 0 0 1px var(--zk-ember-soft), var(--zk-shadow-1)' : 'var(--zk-shadow-1)',
               // No inline border-radius — the CSS rules drive it. The mobile
               // @media rule sets 22px (atlas), which is half the single-line
               // surface height: single-line renders as a pill, multi-line
@@ -629,7 +632,7 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isGuest || (!text.trim() && pendingAttachments.length === 0) || isSending}
+              disabled={isGuest || !hasPayload || isSending}
               aria-label="Send message"
               className="zk-btn zk-btn--primary zk-btn--icon flex-shrink-0 self-center"
               style={{ borderRadius: 9999 }}
