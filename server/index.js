@@ -2702,11 +2702,14 @@ app.use("/api", createWebApiRouter(webApiCtx));
 const { createOvMemoryRouter } = require("./routes/ov-memory");
 const ovMemory = createOvMemoryRouter({
   requireWorkspaceRead,
+  requireWorkspaceAdmin,
   agentConfigs, store,
   DEFAULT_WORKSPACE_ID,
   workspaceIdFromAgent,
   isOvEnabledForAgent,
   resolveAgentOvCreds,
+  agentAuth,
+  PUBLIC_URL,
 });
 const {
   resolveOvCredentials, isLocalUrl, ovHttpList,

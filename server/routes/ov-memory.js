@@ -11,11 +11,14 @@ function createOvMemoryRouter(ctx) {
 
   const {
     requireWorkspaceRead,
+    requireWorkspaceAdmin,
     agentConfigs, store,
     DEFAULT_WORKSPACE_ID,
     workspaceIdFromAgent,
     isOvEnabledForAgent,
     resolveAgentOvCreds,
+    agentAuth,
+    PUBLIC_URL,
   } = ctx;
 
   // ─── Helpers ──────────────────────────────────────────────────────
@@ -99,11 +102,16 @@ function createOvMemoryRouter(ctx) {
     res.json({ enabled: !!creds, user: creds?.user || null, url: creds?.url || null, local: creds ? isLocalUrl(creds.url) : false });
   });
 
-  // Reveal the resolved OV credentials for an agent — used by the config UI's
-  // "eye toggle" to copy the URL + API key into other tools (ovcli, custom
-  // clients). Stripped from the WS broadcast payload so we don't leak the key
-  // to every workspace member; this endpoint requires the explicit fetch.
-  router.get("/agents/:id/ov/creds", requireWorkspaceRead, (req, res) => {
+  // Reveal the OV credentials an external tool (ovcli, plugins, custom clients)
+  // should use for this agent. These are the *proxy* creds — the server's /ov
+  // proxy URL plus the agent's Zouk token — identical to what the daemon gets,
+  // so the real OV key never leaves the server. The proxy swaps the token for
+  // the real key on each request (see ov-proxy.js).
+  //
+  // Admin-gated: only workspace root/owner/admin can reveal the token, since it
+  // grants OV access as this agent. Stripped from the WS broadcast payload; this
+  // endpoint requires the explicit, authorized fetch.
+  router.get("/agents/:id/ov/creds", requireWorkspaceRead, requireWorkspaceAdmin, (req, res) => {
     if (workspaceIdFromAgent(req.params.id) !== (req.workspaceId || DEFAULT_WORKSPACE_ID)) {
       return res.status(404).json({ error: "unknown agent" });
     }
@@ -116,9 +124,16 @@ function createOvMemoryRouter(ctx) {
     if (!resolved) {
       return res.status(404).json({ error: "not_configured" });
     }
+    // The proxy authenticates the agent by its Zouk token. No token means the
+    // agent has never started, so the proxy can't resolve it — surface that
+    // rather than handing back an unusable blank key.
+    const agentToken = agentAuth?.getTokenForAgent(req.params.id) || null;
+    if (!agentToken) {
+      return res.status(409).json({ error: "not_started" });
+    }
     res.json({
-      url: resolved.url,
-      apiKey: resolved.apiKey,
+      url: `${(PUBLIC_URL || "").replace(/\/+$/, "")}/ov`,
+      apiKey: agentToken,
       account: resolved.account,
       userId: resolved.userId,
       source: resolved.source,

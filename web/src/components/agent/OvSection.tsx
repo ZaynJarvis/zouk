@@ -29,11 +29,14 @@ export interface OvSectionProps {
   ovUserId?: string | null;
   ovCustomValid?: boolean;
 
-  // Provisioned-mode display data (read-only). The URL ships with the agent
-  // config payload (not secret); the API key is fetched on demand via the
-  // reveal endpoint, never broadcast over WS.
+  // Provisioned-mode display data (read-only). The URL is the server /ov proxy
+  // (not secret); the API key is the agent's Zouk token, fetched on demand via
+  // the admin-gated reveal endpoint, never broadcast over WS.
   agentId?: string;
   provisionedUrl?: string | null;
+  // Whether the current viewer may reveal the provisioned key (workspace admin+).
+  // Non-admins see the masked field but cannot reveal or fetch it.
+  canRevealKey?: boolean;
 
   mode: 'create' | 'config';
 }
@@ -50,6 +53,7 @@ function CredentialFields({
   url, onUrlChange,
   apiKey, onApiKeyChange,
   apiKeyPlaceholder,
+  canReveal = true,
 }: {
   agentId?: string;
   editable: boolean;
@@ -58,6 +62,9 @@ function CredentialFields({
   apiKey: string;
   onApiKeyChange?: (v: string) => void;
   apiKeyPlaceholder: string;
+  // Provisioned mode only: gates the reveal/fetch of the (admin-only) key.
+  // Ignored when editable (custom mode shows the user's own typed key).
+  canReveal?: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
   const [fetchedKey, setFetchedKey] = useState<string | null>(null);
@@ -69,12 +76,16 @@ function CredentialFields({
   // we cache the result of the reveal fetch locally so a re-show doesn't
   // re-hit the server.
   const displayKey = editable ? apiKey : (fetchedKey ?? '');
+  // Provisioned key is admin-only: lock the reveal control for non-admins.
+  const revealLocked = !editable && !canReveal;
 
   const handleToggleReveal = async () => {
     if (revealed) { setRevealed(false); return; }
     // Editable mode: just toggle visibility, the value's already in form state.
     if (editable) { setRevealed(true); return; }
-    // Provisioned mode: lazy-fetch on first reveal.
+    // Provisioned mode: admin-gated. Non-admins can't reveal or fetch the key.
+    if (!canReveal) { setFetchError('Admin access required to reveal the key'); return; }
+    // Lazy-fetch on first reveal.
     if (fetchedKey != null) { setRevealed(true); return; }
     if (!agentId) { setFetchError('agent id missing'); return; }
     setFetching(true);
@@ -146,9 +157,9 @@ function CredentialFields({
           <button
             type="button"
             onClick={handleToggleReveal}
-            disabled={fetching}
-            title={revealed ? 'Hide' : 'Show'}
-            style={iconBtnStyle}
+            disabled={fetching || revealLocked}
+            title={revealLocked ? 'Admin access required' : revealed ? 'Hide' : 'Show'}
+            style={{ ...iconBtnStyle, opacity: revealLocked ? 0.4 : 1 }}
           >
             {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
           </button>
@@ -210,7 +221,7 @@ export function OvAdvancedSection(props: OvSectionProps) {
     ovCustomUrl, onOvCustomUrlChange,
     ovCustomApiKey, onOvCustomApiKeyChange,
     ovCustomConfigured, ovUserId, ovCustomValid,
-    agentId, provisionedUrl,
+    agentId, provisionedUrl, canRevealKey,
     mode,
   } = props;
 
@@ -287,11 +298,13 @@ export function OvAdvancedSection(props: OvSectionProps) {
           )}
 
           {/* URL + API key are shown in both modes. Custom is editable; provisioned
-              displays the server-minted creds so the user can copy them into
-              ovcli, plugins, or other tools. */}
+              displays the server /ov proxy URL + the agent's Zouk token (the same
+              creds the daemon uses) so the user can copy them into ovcli, plugins,
+              or other tools. The provisioned key is admin-only to reveal. */}
           <CredentialFields
             agentId={agentId}
             editable={ovMode === 'custom'}
+            canReveal={canRevealKey !== false}
             url={ovMode === 'custom' ? (ovCustomUrl || '') : (provisionedUrl || '')}
             onUrlChange={onOvCustomUrlChange}
             apiKey={ovMode === 'custom' ? (ovCustomApiKey || '') : ''}
@@ -299,7 +312,9 @@ export function OvAdvancedSection(props: OvSectionProps) {
             apiKeyPlaceholder={
               ovMode === 'custom'
                 ? (ovCustomConfigured ? '•••••••••• (configured — leave blank to keep)' : 'Paste API key')
-                : (isProvisioned ? '•••••••••• (click eye to reveal)' : '(not yet provisioned)')
+                : (isProvisioned
+                    ? (canRevealKey === false ? '•••••••••• (admin only)' : '•••••••••• (click eye to reveal)')
+                    : '(not yet provisioned)')
             }
           />
           {ovMode === 'custom' && ovCustomValid === false && (

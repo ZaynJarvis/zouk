@@ -8,7 +8,7 @@ import { useApp } from '../../store/AppContext';
 import { formatRuntime } from '../../lib/runtimeLabels';
 import { resizeAndEncode } from '../../lib/imageEncode';
 import AgentSettingsFields from './AgentSettingsFields';
-import { fetchRuntimeModels, fetchAgentChannels, type RuntimeModel } from '../../lib/api';
+import { fetchRuntimeModels, fetchAgentChannels, ovProxyUrl, type RuntimeModel } from '../../lib/api';
 import ZkField from '../zk/ZkField';
 import ZkCallout from '../zk/ZkCallout';
 
@@ -25,7 +25,7 @@ export default function AgentConfigForm({
   onDelete: () => void;
   compact?: boolean;
 }) {
-  const { configs, profilePresets, isGuest, startAgent, updateAgentConfig } = useApp();
+  const { configs, profilePresets, isGuest, startAgent, updateAgentConfig, canAdminWorkspace } = useApp();
 
   const savedConfig = configs.find((c) => c.id === agent.id);
   const persistedDisplayName = savedConfig?.displayName ?? agent.displayName ?? agent.name;
@@ -400,7 +400,11 @@ export default function AgentConfigForm({
               ovUserId: savedConfig?.openvikingUserId,
               ovCustomValid,
               agentId: agent.id,
-              provisionedUrl: savedConfig?.openvikingUrl ?? null,
+              // Copyable creds route through the server /ov proxy, not the real
+              // OV endpoint — the URL is the proxy, the key (admin-only) is the
+              // agent token.
+              provisionedUrl: savedConfig?.openvikingProvisioned ? ovProxyUrl() : null,
+              canRevealKey: !!canAdminWorkspace,
             }}
           />
         </div>

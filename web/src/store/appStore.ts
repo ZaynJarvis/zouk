@@ -1240,7 +1240,10 @@ export function useAppStore() {
     runtime: string; model?: string; machineId?: string; channels?: string[];
     lifecycle?: 'persistent' | 'ephemeral';
     openvikingEnabled?: boolean;
+    ovMcpEnabled?: boolean;
+    disableLocalOvPlugin?: boolean;
     customLauncher?: string;
+    envVars?: Record<string, string>;
   }) => {
     try {
       await api.startAgent(config);
