@@ -244,7 +244,9 @@ export async function startAgent(config: {
   lifecycle?: 'persistent' | 'ephemeral';
   openvikingEnabled?: boolean;
   ovMcpEnabled?: boolean;
+  disableLocalOvPlugin?: boolean;
   customLauncher?: string;
+  envVars?: Record<string, string>;
 }): Promise<{ agent: { id: string; name: string } }> {
   const url = `${getBaseUrl()}/api/agents/start`;
   const res = await fetch(url, {
@@ -333,6 +335,17 @@ export interface AgentOvCreds {
   source: 'provisioned' | 'custom' | 'env';
 }
 
+// The OV proxy endpoint on the Zouk server. External tools (ovcli, plugins)
+// point here with the agent's Zouk token; the server swaps in the real OV key.
+// Mirrors `${PUBLIC_URL}/ov` server-side. Falls back to the page origin when no
+// explicit server URL is configured (same-origin production deploys).
+export function ovProxyUrl(): string {
+  const base = getBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
+  return `${base.replace(/\/+$/, '')}/ov`;
+}
+
+// Reveal the proxy OV creds (URL + agent token) for copying into ovcli/plugins.
+// Admin-gated server-side — non-admins get 403.
 export async function fetchAgentOvCreds(agentId: string): Promise<AgentOvCreds> {
   const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/ov/creds`;
   const res = await fetch(url, { headers: getAuthHeaders(), cache: 'no-store' });

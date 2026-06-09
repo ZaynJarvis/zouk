@@ -6,7 +6,7 @@ import type { ServerAgent, ServerMachine } from '../types';
 
 import { isMobileViewport } from '../lib/layout';
 import AgentDetail from './AgentDetail';
-import CreateAgentDialog from './CreateAgentDialog';
+import CreateAgentDialog, { type CreateAgentConfig } from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
 import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 import { AgentAvatar } from './zk/primitives';
@@ -187,16 +187,7 @@ export default function AgentsView() {
     setSelectedAgentId((current) => (current === agentId ? null : current));
   };
 
-  const handleCreateAgent = async (config: {
-    name: string;
-    description: string;
-    runtime: string;
-    model: string;
-    machineId?: string;
-    lifecycle?: 'persistent' | 'ephemeral';
-    openvikingEnabled?: boolean;
-    customLauncher?: string;
-  }) => {
+  const handleCreateAgent = async (config: CreateAgentConfig) => {
     await startAgent({
       name: config.name,
       description: config.description,
@@ -205,7 +196,10 @@ export default function AgentsView() {
       machineId: config.machineId,
       lifecycle: config.lifecycle,
       openvikingEnabled: config.openvikingEnabled,
+      ovMcpEnabled: config.ovMcpEnabled,
+      disableLocalOvPlugin: config.disableLocalOvPlugin,
       customLauncher: config.customLauncher,
+      envVars: config.envVars,
     });
     setShowCreate(false);
   };
