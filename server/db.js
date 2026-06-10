@@ -18,6 +18,12 @@ const DATABASE_URL = process.env.DATABASE_URL || '';
 // is enough to cover recent active threads / agents without slowing startup.
 const MESSAGE_BOOTSTRAP_LIMIT = parseInt(process.env.MESSAGE_BOOTSTRAP_LIMIT || '500', 10);
 const DEFAULT_WORKSPACE_ID = 'default';
+// Test-only fault-injection state for saveWorkspaceMemberStrict. Module-scoped
+// counters so a test can pre-set the fail-at threshold via env at spawn time,
+// then drive the call sequence through real HTTP/WS endpoints. Both branches
+// in saveWorkspaceMemberStrict are gated on NODE_ENV=test.
+const testSaveMemberFailAtCall = parseInt(process.env.ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL_AT || '0', 10);
+let testSaveMemberCallCount = 0;
 
 // pg 8.x's connection-string parser leaks the surrounding `[...]` brackets
 // of an IPv6 literal into the host string, and getaddrinfo then refuses
@@ -912,12 +918,27 @@ function saveWorkspaceMember(member) {
 // leave the post-restart state inconsistent (allowlist row present, member
 // row missing) and re-introduce the bouncing bug from the other side.
 async function saveWorkspaceMemberStrict(member) {
-  // Test-only fault-injection hook. Lets the invite-atomicity regression
-  // test exercise the strict-fail rollback branch without needing a live DB
-  // (the test runs with DATABASE_URL='', so pool is null). Gated on
-  // NODE_ENV=test so the prod hot path can never trip it.
-  if (process.env.NODE_ENV === 'test' && process.env.ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL === '1') {
-    throw new Error('test-injected member persist failure');
+  // Test-only fault-injection hooks. Let the invite-atomicity regression
+  // tests exercise the strict-fail rollback branches without needing a live
+  // DB (the tests run with DATABASE_URL='', so pool is null). Both hooks are
+  // gated on NODE_ENV=test so the prod hot path can never trip them.
+  if (process.env.NODE_ENV === 'test') {
+    // (a) Unconditional fail — used by the "all invites bomb the rollback"
+    //     test that just needs to see 500s.
+    if (process.env.ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL === '1') {
+      throw new Error('test-injected member persist failure');
+    }
+    // (b) Fail at call #N — lets a test set up real state (workspace create,
+    //     initial invite, removal) before flipping the switch on the
+    //     re-invite. Counter is module-scoped so the test reads/sets it via
+    //     env and we tick it inside the call. Used by the tombstone-clear
+    //     ordering regression for louise post-#395 review.
+    if (testSaveMemberFailAtCall > 0) {
+      testSaveMemberCallCount++;
+      if (testSaveMemberCallCount >= testSaveMemberFailAtCall) {
+        throw new Error('test-injected member persist failure at call #' + testSaveMemberCallCount);
+      }
+    }
   }
   if (!pool) return; // no DB configured: in-memory state is authoritative
   await pool.query(

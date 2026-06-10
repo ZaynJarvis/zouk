@@ -986,10 +986,6 @@ async function inviteWorkspaceMember({ workspaceId, email, role = "member", name
   // our rollback completed — recreating the very member-without-allowlist
   // half-state we are trying to prevent. The strict persist below is the
   // single source of truth for the member row.
-  // clearWorkspaceMemberRemoval is normally called inside setWorkspaceMember
-  // when persist=true; we replicate it here so a re-invite of a previously
-  // removed user still clears the tombstone.
-  clearWorkspaceMemberRemoval(id, normalized);
   const member = setWorkspaceMember({ workspaceId: id, email: normalized, role, name }, { persist: false });
   try {
     // saveWorkspaceMemberStrict no-ops when DB is disabled, so this call is
@@ -1000,6 +996,9 @@ async function inviteWorkspaceMember({ workspaceId, email, role = "member", name
     // Drop the in-memory member row + allowlist row so the system stays
     // consistent. The admin sees a 5xx and can retry; what they must not
     // see is "invite succeeded" while the invitee gets bounced on login.
+    // NOTE: the removal tombstone is intentionally NOT cleared until AFTER
+    // this try-block succeeds, so a failed re-invite of a removed user
+    // leaves the tombstone intact and the user stays out.
     try { workspaceMembersFor(id).delete(normalized); } catch { /* ignore */ }
     if (allowlistWritten && allowlistRow) {
       try { await db.removeEmailAllowlist(allowlistRow.email, allowlistRow.workspaceId); } catch { /* best-effort */ }
@@ -1009,6 +1008,14 @@ async function inviteWorkspaceMember({ workspaceId, email, role = "member", name
     err.code = "member_persist_failed";
     throw err;
   }
+  // Strict persist succeeded — only now is it safe to clear the removal
+  // tombstone. clearWorkspaceMemberRemoval would normally run inside
+  // setWorkspaceMember when persist=true; we replicate it here, but gated
+  // on a successful strict write so a failed re-invite of a previously
+  // removed user does NOT silently re-admit them via the allowlist path
+  // (`userWorkspaceRole` falls through to `isEmailAllowed(...) ? 'member' : null`
+  // for default workspaces once the tombstone is gone).
+  clearWorkspaceMemberRemoval(id, normalized);
   return member;
 }
 
