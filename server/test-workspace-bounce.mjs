@@ -367,14 +367,20 @@ test('failed re-invite of removed user keeps tombstone intact (louise post-#395 
   // We exercise that by:
   //   1. seed ALLOW=alice@…,bob@… → restricted default with bob
   //      allowlist-eligible (the dangerous shape)
-  //   2. alice WS-connects → auto-enrolled as root of default
-  //   3. alice invites bob → saveWorkspaceMemberStrict call #1 succeeds
-  //   4. alice removes bob → tombstone set
-  //   5. ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL_AT=2 → next strict call throws
-  //   6. alice re-invites bob → saveWorkspaceMemberStrict call #2 throws,
-  //      catch rolls back the member row + allowlist row, tombstone MUST
-  //      stay intact
-  //   7. bob WS-connects to default → requestedWorkspaceAccess === 'denied'
+  //   2. server startup auto-enrolls both alice and bob in default via
+  //      visibleWorkspacesForUser's fallback (index.js:3168). This uses
+  //      setWorkspaceMember(persist:true) which goes through the
+  //      fire-and-forget db.saveWorkspaceMember — NOT through
+  //      saveWorkspaceMemberStrict — so the strict-call counter is still 0
+  //      when the test body starts.
+  //   3. alice (superuser, deterministic admin) removes bob → tombstone set,
+  //      bob is denied on the next WS connect (sanity check)
+  //   4. ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL_AT=1 → the next (i.e. first)
+  //      saveWorkspaceMemberStrict call throws
+  //   5. alice re-invites bob → saveWorkspaceMemberStrict throws on call #1,
+  //      catch rolls back the member row + allowlist row; tombstone MUST
+  //      stay intact (this is the bug being fixed)
+  //   6. bob WS-connects to default → requestedWorkspaceAccess === 'denied'
   const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-tombstone-cfg-'));
   const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-tombstone-up-'));
   const port = 17904;
