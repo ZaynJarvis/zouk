@@ -571,14 +571,19 @@ function createAuthModule(ctx) {
     await db.saveWorkspace(workspace);
     if (ownerEmail) {
       try {
-        const member = await inviteWorkspaceMember({
+        // inviteWorkspaceMember writes the member row via
+        // saveWorkspaceMemberStrict (single source of truth, awaited).
+        // The previous redundant `await db.saveWorkspaceMember(member)`
+        // here ran through dbExec which swallows errors — it looked like
+        // belt-and-suspenders but actually defeated strict atomicity by
+        // queueing a second write that could land after a rollback.
+        await inviteWorkspaceMember({
           workspaceId: id,
           email: ownerEmail,
           role: "root",
           name: req.user.name,
           addedBy: ownerEmail,
         });
-        await db.saveWorkspaceMember(member);
       } catch (e) {
         // Roll back the new workspace row so the creator isn't stranded
         // owning a server they can't enter (allowlist missing → bounce).

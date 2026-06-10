@@ -980,28 +980,42 @@ async function inviteWorkspaceMember({ workspaceId, email, role = "member", name
     });
     allowlistWritten = true;
   }
-  // setWorkspaceMember writes the in-memory row and queues a fire-and-forget
-  // saveWorkspaceMember(). For invite atomicity we additionally call
-  // saveWorkspaceMemberStrict() so we can detect a DB-side failure and roll
-  // back the half-state instead of returning 200 to the admin.
-  const member = setWorkspaceMember({ workspaceId: id, email: normalized, role, name });
-  if (db.enabled) {
-    try {
-      await db.saveWorkspaceMemberStrict(member);
-    } catch (e) {
-      // Drop the in-memory member row + allowlist row so the system stays
-      // consistent. The admin sees a 5xx and can retry; what they must not
-      // see is "invite succeeded" while the invitee gets bounced on login.
-      try { workspaceMembersFor(id).delete(normalized); } catch { /* ignore */ }
-      if (allowlistWritten && allowlistRow) {
-        try { await db.removeEmailAllowlist(allowlistRow.email, allowlistRow.workspaceId); } catch { /* best-effort */ }
-        try { dbAllowEmails.delete(allowlistKey(allowlistRow.workspaceId, allowlistRow.email)); } catch { /* ignore */ }
-      }
-      const err = new Error(e?.message || "Failed to persist workspace member row");
-      err.code = "member_persist_failed";
-      throw err;
+  // Use { persist: false } so setWorkspaceMember does NOT queue the legacy
+  // fire-and-forget db.saveWorkspaceMember(). If that unawaited write were
+  // allowed to run alongside the strict path, it could land in the DB AFTER
+  // our rollback completed — recreating the very member-without-allowlist
+  // half-state we are trying to prevent. The strict persist below is the
+  // single source of truth for the member row.
+  const member = setWorkspaceMember({ workspaceId: id, email: normalized, role, name }, { persist: false });
+  try {
+    // saveWorkspaceMemberStrict no-ops when DB is disabled, so this call is
+    // safe to make unconditionally; we want the strict path to be the ONLY
+    // member DB write in the invite flow.
+    await db.saveWorkspaceMemberStrict(member);
+  } catch (e) {
+    // Drop the in-memory member row + allowlist row so the system stays
+    // consistent. The admin sees a 5xx and can retry; what they must not
+    // see is "invite succeeded" while the invitee gets bounced on login.
+    // NOTE: the removal tombstone is intentionally NOT cleared until AFTER
+    // this try-block succeeds, so a failed re-invite of a removed user
+    // leaves the tombstone intact and the user stays out.
+    try { workspaceMembersFor(id).delete(normalized); } catch { /* ignore */ }
+    if (allowlistWritten && allowlistRow) {
+      try { await db.removeEmailAllowlist(allowlistRow.email, allowlistRow.workspaceId); } catch { /* best-effort */ }
+      try { dbAllowEmails.delete(allowlistKey(allowlistRow.workspaceId, allowlistRow.email)); } catch { /* ignore */ }
     }
+    const err = new Error(e?.message || "Failed to persist workspace member row");
+    err.code = "member_persist_failed";
+    throw err;
   }
+  // Strict persist succeeded — only now is it safe to clear the removal
+  // tombstone. clearWorkspaceMemberRemoval would normally run inside
+  // setWorkspaceMember when persist=true; we replicate it here, but gated
+  // on a successful strict write so a failed re-invite of a previously
+  // removed user does NOT silently re-admit them via the allowlist path
+  // (`userWorkspaceRole` falls through to `isEmailAllowed(...) ? 'member' : null`
+  // for default workspaces once the tombstone is gone).
+  clearWorkspaceMemberRemoval(id, normalized);
   return member;
 }
 

@@ -224,6 +224,81 @@ test('invite endpoint puts member+allowlist behind one atomic boundary (no-DB ha
   }
 });
 
+test('invite path rolls back on strict member-persist failure (louise post-#394 review)', async () => {
+  // Reproduces louise's concern about PR #394's invite-atomicity gap:
+  // setWorkspaceMember(persist:true) used to queue a fire-and-forget DB
+  // write that could race past the strict await + rollback and re-create
+  // the bad half-state. The follow-up PR switched the invite path to
+  // setWorkspaceMember(persist:false) so the strict path is the ONLY DB
+  // write for the member row.
+  //
+  // We exercise the strict-fail branch via a test-only env hook
+  // (ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL=1, gated on NODE_ENV=test) so we
+  // don't need a live DB. The fault hits both the workspace-create owner
+  // invite and the explicit POST /api/workspaces/:id/members invite — same
+  // helper, same single strict write — so verifying the workspace-create
+  // path covers both. We additionally assert workspace state is fully
+  // rolled back (no lingering visible workspace, no in-memory member).
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-fail-cfg-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-fail-up-'));
+  const port = 17903;
+  const base = `http://localhost:${port}`;
+  const aliceToken = 'invite-fail-alice-token';
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL: '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const ready = await waitForReady(base);
+    assert.equal(ready, true, 'rollback regression server must become ready');
+
+    const created = await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
+      body: JSON.stringify({ name: 'RollbackFoo' }),
+    });
+    assert.equal(created.status, 500, 'workspace creation must fail loudly when strict member persist fails');
+
+    // The workspace must be fully rolled back: alice's accessible-workspace
+    // list returned by the WS init should not contain RollbackFoo. We
+    // connect to the default workspace and inspect the `workspaces` array.
+    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${aliceToken}&workspaceId=default`);
+    await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+    const init = await waitForInit(ws);
+    ws.close();
+    assert.ok(init, 'default-workspace init must arrive after the failed create');
+    const visibleIds = new Set((init.workspaces || []).map(w => w.id));
+    assert.ok(!visibleIds.has('rollbackfoo'), 'failed-create workspace must not be visible to alice (in-memory rollback)');
+
+    // Also confirm: hitting /z/rollbackfoo as alice now reports 'missing',
+    // not 'denied' — the workspace was fully removed, not just hidden.
+    const missingWs = new WebSocket(`ws://localhost:${port}/ws?token=${aliceToken}&workspaceId=rollbackfoo`);
+    await new Promise((resolve, reject) => { missingWs.once('open', resolve); missingWs.once('error', reject); });
+    const missingInit = await waitForInit(missingWs);
+    missingWs.close();
+    assert.equal(missingInit?.requestedWorkspaceAccess, 'missing', 'rolled-back workspace must not exist server-side');
+  } finally {
+    proc.kill('SIGKILL');
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
 test('WS init surfaces missing-workspace requests', async () => {
   const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-cfg-'));
   const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-up-'));
@@ -264,6 +339,159 @@ test('WS init surfaces missing-workspace requests', async () => {
     assert.equal(init.workspaceId, 'default');
     assert.equal(init.requestedWorkspaceId, 'does-not-exist');
     assert.equal(init.requestedWorkspaceAccess, 'missing');
+  } finally {
+    proc.kill('SIGKILL');
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
+test('failed re-invite of removed user keeps tombstone intact (louise post-#395 review)', async () => {
+  // Reproduces louise's concern about the clearWorkspaceMemberRemoval
+  // ordering inside inviteWorkspaceMember.
+  //
+  // Before this fix, clearWorkspaceMemberRemoval(id, normalized) ran
+  // BEFORE the strict member persist. A failed re-invite of a previously
+  // removed user would roll back the in-memory member row + allowlist row
+  // in the catch block, but the tombstone had already been cleared and was
+  // NOT restored. For a restricted default workspace where the removed
+  // user was on the ALLOW env allowlist, this re-admitted them silently
+  // via userWorkspaceRole's allowlist fall-through path (line 1081 of
+  // server/index.js: `return isEmailAllowed(...) ? 'member' : null`).
+  //
+  // After this fix, clearWorkspaceMemberRemoval runs ONLY after the strict
+  // persist resolves. The failed re-invite leaves the tombstone in place,
+  // and userWorkspaceRole short-circuits at the isWorkspaceMemberRemoved
+  // check (line 1076) before ever reaching the allowlist fall-through.
+  //
+  // We exercise that by:
+  //   1. seed ALLOW=alice@…,bob@… → restricted default with bob
+  //      allowlist-eligible (the dangerous shape)
+  //   2. server startup auto-enrolls both alice and bob in default via
+  //      visibleWorkspacesForUser's fallback (index.js:3168). This uses
+  //      setWorkspaceMember(persist:true) which goes through the
+  //      fire-and-forget db.saveWorkspaceMember — NOT through
+  //      saveWorkspaceMemberStrict — so the strict-call counter is still 0
+  //      when the test body starts.
+  //   3. alice (superuser, deterministic admin) removes bob → tombstone set,
+  //      bob is denied on the next WS connect (sanity check)
+  //   4. ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL_AT=1 → the next (i.e. first)
+  //      saveWorkspaceMemberStrict call throws
+  //   5. alice re-invites bob → saveWorkspaceMemberStrict throws on call #1,
+  //      catch rolls back the member row + allowlist row; tombstone MUST
+  //      stay intact (this is the bug being fixed)
+  //   6. bob WS-connects to default → requestedWorkspaceAccess === 'denied'
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-tombstone-cfg-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-tombstone-up-'));
+  const port = 17904;
+  const base = `http://localhost:${port}`;
+  const aliceToken = 'tombstone-alice-token';
+  const bobToken = 'tombstone-bob-token';
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
+    [bobToken, { name: 'bob', email: 'bob@example.com', picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ALLOW: 'alice@example.com,bob@example.com',
+      // Make alice a superuser so her admin role is deterministic regardless
+      // of which session got enrolled first at startup. The bug we're testing
+      // lives inside inviteWorkspaceMember + tombstone logic, not the
+      // admin-gating front door — so it's safe to bypass the latter for
+      // setup determinism.
+      ZOUK_SUPERUSERS: 'alice@example.com',
+      // Server startup auto-enrolls both sessions in default (via the
+      // visibleWorkspacesForUser fallback at index.js:3168). That means bob
+      // is already a member by the time the test runs; no "first invite" is
+      // needed. The only strict-persist call that happens in this test is
+      // the re-invite below — so fail on call #1.
+      ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL_AT: '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    // ALLOW env makes /api/channels return 401 to unauth probes, so the
+    // default waitForReady() can't see ready. /api/auth/config is always
+    // public — poll that instead.
+    const ready = await (async () => {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        try {
+          const res = await fetch(`${base}/api/auth/config`);
+          if (res.ok) return true;
+        } catch (_) { /* not yet up */ }
+        await new Promise(r => setTimeout(r, 150));
+      }
+      return false;
+    })();
+    assert.equal(ready, true, 'tombstone regression server must become ready');
+
+    // Step 1: Confirm bob is auto-enrolled (visibleWorkspacesForUser
+    // fallback at boot). This is our starting "bob is a member" state — no
+    // explicit invite needed.
+
+    // Step 2: Remove bob → tombstone set.
+    const removed = await fetch(`${base}/api/workspaces/default/members/${encodeURIComponent('bob@example.com')}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${aliceToken}`,
+        'X-Workspace-Id': 'default',
+      },
+    });
+    assert.equal(removed.status, 200, 'bob removal must succeed');
+
+    // Sanity: bob is denied immediately after removal — tombstone short-circuit
+    // at line 1076 of server/index.js wins over the allowlist eligibility on
+    // line 1077. If this passes, our pre-condition is correct.
+    {
+      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=default`);
+      await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+      const init = await waitForInit(ws);
+      ws.close();
+      assert.equal(init?.requestedWorkspaceAccess, 'denied', 'tombstoned bob must be denied pre re-invite');
+    }
+
+    // Step 3: Re-invite bob — strict call #1 (counter starts at 0 because
+    // boot auto-enroll uses setWorkspaceMember(persist:true) which goes
+    // through the fire-and-forget db.saveWorkspaceMember, NOT through
+    // saveWorkspaceMemberStrict). The fault injection throws on this call,
+    // the inviteWorkspaceMember catch block rolls back the in-memory member
+    // row + (no-op) allowlist row. The fix under test is that the tombstone
+    // is NOT touched in this catch path.
+    const reinvited = await fetch(`${base}/api/workspaces/default/members`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+        'X-Workspace-Id': 'default',
+      },
+      body: JSON.stringify({ email: 'bob@example.com', role: 'member', name: 'Bob' }),
+    });
+    assert.equal(reinvited.status, 500, 're-invite must surface strict-persist failure as 5xx');
+
+    // Step 5: The invariant under test — bob MUST still be denied. If the
+    // tombstone-clear ran pre-strict (the old buggy ordering), bob would now
+    // get requestedWorkspaceAccess: 'granted' here via the allowlist
+    // fall-through. That is precisely the silent re-admission louise flagged.
+    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=default`);
+    await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+    const init = await waitForInit(ws);
+    ws.close();
+    assert.equal(
+      init?.requestedWorkspaceAccess,
+      'denied',
+      'failed re-invite must NOT silently re-admit a removed allowlisted user — tombstone must be intact',
+    );
   } finally {
     proc.kill('SIGKILL');
     fs.rmSync(tmpConfigDir, { recursive: true, force: true });
