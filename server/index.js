@@ -949,10 +949,12 @@ function setWorkspaceMember(member, { persist = true } = {}) {
   return next;
 }
 
-// Atomic invite: persist the per-workspace email_allowlist row first; only
-// write the member row after that succeeds. Bouncing the order keeps the
-// admin from seeing "invited" while the DB silently dropped the allowlist
-// — the symptom that traps the invitee in `/z/default` until restart.
+// Atomic invite: write the per-workspace email_allowlist row first, then
+// await a *strict* member-row persist that throws on DB failure. If the
+// member write fails, roll back the allowlist row so the post-restart
+// state stays consistent — without the rollback, the next server restart
+// would re-hydrate an allowlist-without-member half-state that bounces the
+// invitee from the other side of `userWorkspaceRole`.
 async function inviteWorkspaceMember({ workspaceId, email, role = "member", name = null, addedBy = null }) {
   const id = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
   if (!email) {
@@ -961,21 +963,46 @@ async function inviteWorkspaceMember({ workspaceId, email, role = "member", name
     throw err;
   }
   const normalized = String(email).trim().toLowerCase();
+  let allowlistWritten = false;
+  let allowlistRow = null;
   if (db.enabled && id !== DEFAULT_WORKSPACE_ID) {
-    const row = await db.addEmailAllowlist(normalized, addedBy || null, id);
-    if (!row || row.dbError) {
-      const err = new Error(row?.dbError || "Failed to persist email allowlist row");
+    allowlistRow = await db.addEmailAllowlist(normalized, addedBy || null, id);
+    if (!allowlistRow || allowlistRow.dbError) {
+      const err = new Error(allowlistRow?.dbError || "Failed to persist email allowlist row");
       err.code = "allowlist_persist_failed";
       throw err;
     }
-    dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
-      workspaceId: row.workspaceId,
-      email: row.email,
-      addedAt: row.addedAt,
-      addedBy: row.addedBy,
+    dbAllowEmails.set(allowlistKey(allowlistRow.workspaceId, allowlistRow.email), {
+      workspaceId: allowlistRow.workspaceId,
+      email: allowlistRow.email,
+      addedAt: allowlistRow.addedAt,
+      addedBy: allowlistRow.addedBy,
     });
+    allowlistWritten = true;
   }
-  return setWorkspaceMember({ workspaceId: id, email: normalized, role, name });
+  // setWorkspaceMember writes the in-memory row and queues a fire-and-forget
+  // saveWorkspaceMember(). For invite atomicity we additionally call
+  // saveWorkspaceMemberStrict() so we can detect a DB-side failure and roll
+  // back the half-state instead of returning 200 to the admin.
+  const member = setWorkspaceMember({ workspaceId: id, email: normalized, role, name });
+  if (db.enabled) {
+    try {
+      await db.saveWorkspaceMemberStrict(member);
+    } catch (e) {
+      // Drop the in-memory member row + allowlist row so the system stays
+      // consistent. The admin sees a 5xx and can retry; what they must not
+      // see is "invite succeeded" while the invitee gets bounced on login.
+      try { workspaceMembersFor(id).delete(normalized); } catch { /* ignore */ }
+      if (allowlistWritten && allowlistRow) {
+        try { await db.removeEmailAllowlist(allowlistRow.email, allowlistRow.workspaceId); } catch { /* best-effort */ }
+        try { dbAllowEmails.delete(allowlistKey(allowlistRow.workspaceId, allowlistRow.email)); } catch { /* ignore */ }
+      }
+      const err = new Error(e?.message || "Failed to persist workspace member row");
+      err.code = "member_persist_failed";
+      throw err;
+    }
+  }
+  return member;
 }
 
 function removeWorkspaceMember(workspaceId, email) {

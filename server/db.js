@@ -906,6 +906,20 @@ function saveWorkspaceMember(member) {
     [member.workspaceId || DEFAULT_WORKSPACE_ID, member.email, member.role || 'member', member.name || null, member.joinedAt || new Date().toISOString()]);
 }
 
+// Same write as saveWorkspaceMember but rethrows the DB error instead of
+// swallowing it. The invite path uses this to keep the member row + the
+// allowlist row in lock-step: a silent DB failure on the member row would
+// leave the post-restart state inconsistent (allowlist row present, member
+// row missing) and re-introduce the bouncing bug from the other side.
+async function saveWorkspaceMemberStrict(member) {
+  if (!pool) return; // no DB configured: in-memory state is authoritative
+  await pool.query(
+    `INSERT INTO workspace_members (workspace_id, email, role, name, joined_at) VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (workspace_id, email) DO UPDATE SET role = EXCLUDED.role, name = EXCLUDED.name`,
+    [member.workspaceId || DEFAULT_WORKSPACE_ID, member.email, member.role || 'member', member.name || null, member.joinedAt || new Date().toISOString()],
+  );
+}
+
 function deleteWorkspaceMember(workspaceId, email) {
   return dbExec("deleteWorkspaceMember",
     'DELETE FROM workspace_members WHERE workspace_id=$1 AND email=$2',
@@ -1158,6 +1172,7 @@ module.exports = {
   loadWorkspaces,
   deleteWorkspace,
   saveWorkspaceMember,
+  saveWorkspaceMemberStrict,
   deleteWorkspaceMember,
   loadWorkspaceMembers,
   saveWorkspaceMemberRemoval,
