@@ -35,7 +35,7 @@ function createWorkspaceRouter(ctx) {
     getAuthSession, hasAuthSession, authSessions,
     isEmbedSessionUser, publicAuthUser,
     persistSession, removeSession,
-    getWorkspaceMember, setWorkspaceMember, listWorkspaceMembers,
+    getWorkspaceMember, setWorkspaceMember, inviteWorkspaceMember, listWorkspaceMembers,
     workspaceMemberPayload, workspaceMembersFor,
     userWorkspaceRole, removeWorkspaceMember, markWorkspaceMemberRemoved,
     closeWorkspaceSocketsForEmail, removeAllTimeHumanIfInaccessible,
@@ -82,27 +82,23 @@ function createWorkspaceRouter(ctx) {
       return res.status(409).json({ error: "Already a member", member: workspaceMemberPayload(existing) });
     }
     const rawName = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 100) : null;
-    const member = setWorkspaceMember({
-      workspaceId,
-      email,
-      role: rawRole,
-      name: rawName || null,
-    });
 
-    // Non-default workspaces gate on per-workspace email_allowlist; without
-    // this row requireAuth would still reject the invitee on their next login.
-    // Default workspace does not require this — `userWorkspaceRole` falls back
-    // to "member" for any authenticated email when no allowlist is active.
-    if (db.enabled && workspaceId !== DEFAULT_WORKSPACE_ID) {
-      const row = await db.addEmailAllowlist(email, req.user.email || null, workspaceId);
-      if (row && !row.dbError) {
-        dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
-          workspaceId: row.workspaceId,
-          email: row.email,
-          addedAt: row.addedAt,
-          addedBy: row.addedBy,
-        });
-      }
+    // Non-default workspaces gate on the per-workspace email_allowlist; the
+    // helper writes allowlist first and only commits the member row on
+    // success, so a transient DB failure can't leave the invitee in a
+    // member-without-allowlist state (which `userWorkspaceRole` would treat
+    // as "no access" and silently bounce on every WS connect).
+    let member;
+    try {
+      member = await inviteWorkspaceMember({
+        workspaceId,
+        email,
+        role: rawRole,
+        name: rawName,
+        addedBy: req.user?.email || null,
+      });
+    } catch (e) {
+      return res.status(500).json({ error: `Failed to invite member: ${e.message}` });
     }
 
     broadcastWorkspaceMembers(workspaceId);

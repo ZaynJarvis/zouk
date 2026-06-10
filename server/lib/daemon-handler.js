@@ -821,9 +821,25 @@ function createDaemonHandler(ctx) {
     if (user && !ctx.isEmbedSessionUser(user) && ws._workspaceId === DEFAULT_WORKSPACE_ID && ctx.findWorkspace(ws._workspaceId) && ctx.isEmailAllowed(user.email, ws._workspaceId)) {
       ctx.ensureWorkspaceMemberForUser(user, ws._workspaceId);
     }
-    if ((!user && ws._workspaceId !== DEFAULT_WORKSPACE_ID) || (user && !ctx.userCanAccessWorkspace(user, ws._workspaceId)) || !ctx.findWorkspace(ws._workspaceId)) {
+    // Track the workspace the client *asked* for so init can report whether
+    // we honoured it. Previously we silently rewrote to default and the
+    // client treated that as "user moved", which then triggered a
+    // history.replaceState back to /z/default — the bounce loop that traps
+    // invitees whose allowlist row got dropped.
+    const requestedWorkspaceId = ws._workspaceId;
+    let requestedWorkspaceAccess = "granted";
+    if (!ctx.findWorkspace(ws._workspaceId)) {
+      requestedWorkspaceAccess = "missing";
+      ws._workspaceId = DEFAULT_WORKSPACE_ID;
+    } else if (!user && ws._workspaceId !== DEFAULT_WORKSPACE_ID) {
+      requestedWorkspaceAccess = "unauthenticated";
+      ws._workspaceId = DEFAULT_WORKSPACE_ID;
+    } else if (user && !ctx.userCanAccessWorkspace(user, ws._workspaceId)) {
+      requestedWorkspaceAccess = "denied";
       ws._workspaceId = DEFAULT_WORKSPACE_ID;
     }
+    ws._requestedWorkspaceId = requestedWorkspaceId;
+    ws._requestedWorkspaceAccess = requestedWorkspaceAccess;
     // Seed from the auth session so DM broadcasts can be filtered immediately;
     // setWebPresence() will overwrite this with the canonical presence identity.
     ws._humanName = user?.name || null;
@@ -857,6 +873,12 @@ function createDaemonHandler(ctx) {
         ws.send(JSON.stringify({
           type: "init",
           workspaceId: ws._workspaceId,
+          // Honour the URL the client asked for: when access was denied (or
+          // the workspace doesn't exist), the client should keep the user on
+          // that URL with an "access denied" surface instead of being silently
+          // moved to /z/default — which was the workspace-bounce loop.
+          requestedWorkspaceId: ws._requestedWorkspaceId || ws._workspaceId,
+          requestedWorkspaceAccess: ws._requestedWorkspaceAccess || "granted",
           workspaces: ctx.visibleWorkspacesForUser(user),
           workspaceMembers: canReadWorkspace && !embedUser ? ctx.listWorkspaceMembers(ws._workspaceId) : [],
           workspaceAllowlistActive: ctx.allowlistActive(ws._workspaceId),

@@ -24,7 +24,7 @@ function createAuthModule(ctx) {
     workspaceIdFromReq, normalizeWorkspaceId, allocateWorkspaceId,
     userCanAccessWorkspace, userCanAdminWorkspace, userCanRootWorkspace,
     visibleWorkspacesForUser, ensureWorkspaceMemberForUser,
-    setWorkspaceMember, dbAllowEmails, allowlistKey, broadcastWorkspaceMembers,
+    setWorkspaceMember, inviteWorkspaceMember, dbAllowEmails, allowlistKey, broadcastWorkspaceMembers,
     findOrCreateChannel, now,
     requireAuth, requireSessionAuth,
   } = ctx;
@@ -570,23 +570,21 @@ function createAuthModule(ctx) {
     const workspace = ensureWorkspace({ id, name, icon, ownerEmail, createdAt: now() });
     await db.saveWorkspace(workspace);
     if (ownerEmail) {
-      const member = setWorkspaceMember({
-        workspaceId: id,
-        email: ownerEmail,
-        name: req.user.name,
-        role: "root",
-      });
-      await db.saveWorkspaceMember(member);
-      if (db.enabled) {
-        const row = await db.addEmailAllowlist(ownerEmail.trim().toLowerCase(), ownerEmail, id);
-        if (row && !row.dbError) {
-          dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
-            workspaceId: row.workspaceId,
-            email: row.email,
-            addedAt: row.addedAt,
-            addedBy: row.addedBy,
-          });
-        }
+      try {
+        const member = await inviteWorkspaceMember({
+          workspaceId: id,
+          email: ownerEmail,
+          role: "root",
+          name: req.user.name,
+          addedBy: ownerEmail,
+        });
+        await db.saveWorkspaceMember(member);
+      } catch (e) {
+        // Roll back the new workspace row so the creator isn't stranded
+        // owning a server they can't enter (allowlist missing → bounce).
+        try { removeWorkspaceFromMemory(id); } catch { /* ignore */ }
+        try { await db.deleteWorkspace(id); } catch { /* ignore */ }
+        return res.status(500).json({ error: `Failed to provision workspace membership: ${e.message}` });
       }
     }
     const all = findOrCreateChannel("all", "channel", id);
