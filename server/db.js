@@ -912,6 +912,13 @@ function saveWorkspaceMember(member) {
 // leave the post-restart state inconsistent (allowlist row present, member
 // row missing) and re-introduce the bouncing bug from the other side.
 async function saveWorkspaceMemberStrict(member) {
+  // Test-only fault-injection hook. Lets the invite-atomicity regression
+  // test exercise the strict-fail rollback branch without needing a live DB
+  // (the test runs with DATABASE_URL='', so pool is null). Gated on
+  // NODE_ENV=test so the prod hot path can never trip it.
+  if (process.env.NODE_ENV === 'test' && process.env.ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL === '1') {
+    throw new Error('test-injected member persist failure');
+  }
   if (!pool) return; // no DB configured: in-memory state is authoritative
   await pool.query(
     `INSERT INTO workspace_members (workspace_id, email, role, name, joined_at) VALUES ($1,$2,$3,$4,$5)

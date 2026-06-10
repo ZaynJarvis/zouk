@@ -224,6 +224,81 @@ test('invite endpoint puts member+allowlist behind one atomic boundary (no-DB ha
   }
 });
 
+test('invite path rolls back on strict member-persist failure (louise post-#394 review)', async () => {
+  // Reproduces louise's concern about PR #394's invite-atomicity gap:
+  // setWorkspaceMember(persist:true) used to queue a fire-and-forget DB
+  // write that could race past the strict await + rollback and re-create
+  // the bad half-state. The follow-up PR switched the invite path to
+  // setWorkspaceMember(persist:false) so the strict path is the ONLY DB
+  // write for the member row.
+  //
+  // We exercise the strict-fail branch via a test-only env hook
+  // (ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL=1, gated on NODE_ENV=test) so we
+  // don't need a live DB. The fault hits both the workspace-create owner
+  // invite and the explicit POST /api/workspaces/:id/members invite — same
+  // helper, same single strict write — so verifying the workspace-create
+  // path covers both. We additionally assert workspace state is fully
+  // rolled back (no lingering visible workspace, no in-memory member).
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-fail-cfg-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-fail-up-'));
+  const port = 17903;
+  const base = `http://localhost:${port}`;
+  const aliceToken = 'invite-fail-alice-token';
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+      ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL: '1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const ready = await waitForReady(base);
+    assert.equal(ready, true, 'rollback regression server must become ready');
+
+    const created = await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
+      body: JSON.stringify({ name: 'RollbackFoo' }),
+    });
+    assert.equal(created.status, 500, 'workspace creation must fail loudly when strict member persist fails');
+
+    // The workspace must be fully rolled back: alice's accessible-workspace
+    // list returned by the WS init should not contain RollbackFoo. We
+    // connect to the default workspace and inspect the `workspaces` array.
+    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${aliceToken}&workspaceId=default`);
+    await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+    const init = await waitForInit(ws);
+    ws.close();
+    assert.ok(init, 'default-workspace init must arrive after the failed create');
+    const visibleIds = new Set((init.workspaces || []).map(w => w.id));
+    assert.ok(!visibleIds.has('rollbackfoo'), 'failed-create workspace must not be visible to alice (in-memory rollback)');
+
+    // Also confirm: hitting /z/rollbackfoo as alice now reports 'missing',
+    // not 'denied' — the workspace was fully removed, not just hidden.
+    const missingWs = new WebSocket(`ws://localhost:${port}/ws?token=${aliceToken}&workspaceId=rollbackfoo`);
+    await new Promise((resolve, reject) => { missingWs.once('open', resolve); missingWs.once('error', reject); });
+    const missingInit = await waitForInit(missingWs);
+    missingWs.close();
+    assert.equal(missingInit?.requestedWorkspaceAccess, 'missing', 'rolled-back workspace must not exist server-side');
+  } finally {
+    proc.kill('SIGKILL');
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
 test('WS init surfaces missing-workspace requests', async () => {
   const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-cfg-'));
   const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-up-'));
