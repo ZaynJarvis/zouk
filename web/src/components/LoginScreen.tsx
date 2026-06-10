@@ -149,7 +149,12 @@ export default function LoginScreen() {
     setMagicChallenge(null);
     try {
       const challenge = await createMagicLoginChallenge(magicEmail.trim());
-      const redirectUrl = new URL(window.location.origin);
+      // Preserve the path so an invite link like /z/foo survives the
+      // magic-link round-trip. Without this Supabase rewrites to "/" and the
+      // post-login workspace picker (which only sees the stored last-active
+      // workspace, never the URL the user actually came from) silently sends
+      // the new invitee to /z/default — the bouncing UX zayn reported.
+      const redirectUrl = new URL(window.location.origin + window.location.pathname);
       redirectUrl.searchParams.set('magic_challenge', challenge.challengeId);
       const supabase = initSupabase(supabaseConfig.url, supabaseConfig.anonKey);
       const { error: otpError } = await supabase.auth.signInWithOtp({

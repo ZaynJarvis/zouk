@@ -59,8 +59,43 @@ function OvDenylistSync({ denylist, mcpDenylist }: { denylist: string[]; mcpDeny
   return null;
 }
 
+function WorkspaceAccessDeniedView() {
+  const { workspaceAccessDenial, workspaces, setActiveWorkspaceId } = useApp();
+  if (!workspaceAccessDenial) return null;
+  const { requestedWorkspaceId, reason } = workspaceAccessDenial;
+  const headline = reason === 'missing'
+    ? 'This server does not exist.'
+    : reason === 'unauthenticated'
+      ? 'Sign in to access this server.'
+      : 'You do not have access to this server yet.';
+  const detail = reason === 'denied'
+    ? 'Ask the workspace owner to invite your account. Once they do, this page will load on the next refresh.'
+    : reason === 'missing'
+      ? 'The link you followed points to a workspace that has been deleted or renamed.'
+      : 'You need to sign in with an invited account to view this workspace.';
+  const fallback = workspaces.find(w => w.id === 'default') || workspaces[0];
+  return (
+    <div className="flex-1 flex items-center justify-center px-6 py-12" role="status">
+      <div className="max-w-md w-full rounded-lg border border-nc-border-bright/60 bg-transparent text-nc-muted p-6 text-center">
+        <div className="text-sm uppercase tracking-wide text-nc-muted/70 mb-2">/z/{requestedWorkspaceId}</div>
+        <div className="text-lg text-nc-text mb-3">{headline}</div>
+        <div className="text-sm text-nc-muted mb-4">{detail}</div>
+        {fallback && (
+          <button
+            type="button"
+            onClick={() => setActiveWorkspaceId(fallback.id)}
+            className="inline-flex items-center justify-center rounded-md border border-nc-border-bright/60 px-3 py-1.5 text-sm text-nc-text hover:bg-nc-bg-2 transition"
+          >
+            Go to {fallback.name || fallback.id}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AppShell() {
-  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId, usernameSetup, dismissUsernameSetup, updateProfile } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId, usernameSetup, dismissUsernameSetup, updateProfile, workspaceAccessDenial } = useApp();
   const threadRailRef = useRef<HTMLDivElement | null>(null);
   const [mobileSurface, setMobileSurface] = useState(() => isMobileViewport());
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
@@ -199,16 +234,22 @@ function AppShell() {
         <div className="flex-1 relative min-h-0 flex">
           <div className="flex-1 min-w-0 relative">
             <div className="absolute inset-0 flex flex-col min-w-0">
-              {showMessageView && (
+              {workspaceAccessDenial ? (
+                <WorkspaceAccessDeniedView />
+              ) : (
                 <>
-                  <PinnedRail />
-                  <MessageList />
-                  <MessageComposer />
+                  {showMessageView && (
+                    <>
+                      <PinnedRail />
+                      <MessageList />
+                      <MessageComposer />
+                    </>
+                  )}
+                  {viewMode === 'agents' && <AgentsView />}
+                  {viewMode === 'tasks' && <TasksView />}
+                  {viewMode === 'memory' && <MemoryView />}
                 </>
               )}
-              {viewMode === 'agents' && <AgentsView />}
-              {viewMode === 'tasks' && <TasksView />}
-              {viewMode === 'memory' && <MemoryView />}
             </div>
             {/* Contextual right panels (details / settings / mobile thread). On phone
                 we position fixed inset-0 so the panel covers TopBar (z-30)
@@ -370,6 +411,10 @@ function AppWithAuth() {
             }
 
             if (accessToken) {
+              // Strip `?code=` / `?magic_challenge=` but keep `/z/<ws>` —
+              // otherwise the workspace the invitee actually clicked on is
+              // lost the moment we hand off to AppProvider, and the store
+              // mount falls through to the alphabetical fallback.
               window.history.replaceState({}, '', window.location.pathname);
               const result = await api.supabaseLogin(accessToken, magicLoginChallengeId);
               setStoredAuth(result.token, result.user);
@@ -379,16 +424,34 @@ function AppWithAuth() {
               if (result.firstLogin) setPendingUsernameSetup(result.user.name);
               const accessible = result.accessibleWorkspaces || [];
               if (accessible.length > 0) {
-                const stored = getStoredActiveWorkspaceIdOrNull();
                 const accessibleIds = new Set(accessible.map(w => w.id));
-                if (stored && accessibleIds.has(normalizeWorkspaceId(stored))) {
-                  setStoredActiveWorkspaceId(stored);
-                } else {
+                // Priority: URL path → server's read of requestedWorkspaceId
+                // (X-Workspace-Id header) → stored → alphabetical fallback.
+                // Same priority as `routePostLoginWorkspace` to keep the two
+                // login entry points in lock-step.
+                const candidates: (string | null | undefined)[] = [
+                  (() => {
+                    const match = window.location.pathname.match(/^\/z\/([^/]+)/);
+                    return match ? match[1] : null;
+                  })(),
+                  result.requestedWorkspaceId || null,
+                  getStoredActiveWorkspaceIdOrNull(),
+                ];
+                let chosen: string | null = null;
+                for (const candidate of candidates) {
+                  if (!candidate) continue;
+                  if (accessibleIds.has(normalizeWorkspaceId(candidate))) {
+                    chosen = candidate;
+                    break;
+                  }
+                }
+                if (!chosen) {
                   const sortedByName = [...accessible].sort((a, b) =>
                     (a.name || a.id || '').localeCompare(b.name || b.id || '')
                   );
-                  setStoredActiveWorkspaceId(sortedByName[0].id);
+                  chosen = sortedByName[0].id;
                 }
+                setStoredActiveWorkspaceId(chosen);
               }
             }
           } catch (e) {

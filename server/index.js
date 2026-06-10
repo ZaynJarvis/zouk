@@ -949,6 +949,35 @@ function setWorkspaceMember(member, { persist = true } = {}) {
   return next;
 }
 
+// Atomic invite: persist the per-workspace email_allowlist row first; only
+// write the member row after that succeeds. Bouncing the order keeps the
+// admin from seeing "invited" while the DB silently dropped the allowlist
+// — the symptom that traps the invitee in `/z/default` until restart.
+async function inviteWorkspaceMember({ workspaceId, email, role = "member", name = null, addedBy = null }) {
+  const id = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
+  if (!email) {
+    const err = new Error("Invalid email address");
+    err.code = "invalid_email";
+    throw err;
+  }
+  const normalized = String(email).trim().toLowerCase();
+  if (db.enabled && id !== DEFAULT_WORKSPACE_ID) {
+    const row = await db.addEmailAllowlist(normalized, addedBy || null, id);
+    if (!row || row.dbError) {
+      const err = new Error(row?.dbError || "Failed to persist email allowlist row");
+      err.code = "allowlist_persist_failed";
+      throw err;
+    }
+    dbAllowEmails.set(allowlistKey(row.workspaceId, row.email), {
+      workspaceId: row.workspaceId,
+      email: row.email,
+      addedAt: row.addedAt,
+      addedBy: row.addedBy,
+    });
+  }
+  return setWorkspaceMember({ workspaceId: id, email: normalized, role, name });
+}
+
 function removeWorkspaceMember(workspaceId, email) {
   if (!email) return false;
   const id = normalizeWorkspaceId(workspaceId);
@@ -2785,7 +2814,7 @@ const authModule = createAuthModule({
   workspaceIdFromReq, normalizeWorkspaceId, allocateWorkspaceId,
   userCanAccessWorkspace, userCanAdminWorkspace, userCanRootWorkspace,
   visibleWorkspacesForUser, ensureWorkspaceMemberForUser,
-  setWorkspaceMember, dbAllowEmails, allowlistKey, broadcastWorkspaceMembers,
+  setWorkspaceMember, inviteWorkspaceMember, dbAllowEmails, allowlistKey, broadcastWorkspaceMembers,
   findOrCreateChannel, now,
   requireAuth, requireSessionAuth,
 });
@@ -2816,7 +2845,7 @@ app.use(createWorkspaceRouter({
   getAuthSession, hasAuthSession, authSessions,
   isEmbedSessionUser, publicAuthUser,
   persistSession, removeSession,
-  getWorkspaceMember, setWorkspaceMember, listWorkspaceMembers,
+  getWorkspaceMember, setWorkspaceMember, inviteWorkspaceMember, listWorkspaceMembers,
   workspaceMemberPayload, workspaceMembersFor,
   userWorkspaceRole, removeWorkspaceMember, markWorkspaceMemberRemoved,
   closeWorkspaceSocketsForEmail, removeAllTimeHumanIfInaccessible,

@@ -77,19 +77,34 @@ function chooseWorkspaceId(workspaces: Workspace[], candidates: Array<string | n
   return workspaces[0]?.id || 'default';
 }
 
-// Route post-login: prefer the locally-stored last active workspace if the
-// user can still access it; otherwise fall back to the accessible workspace
-// whose name sorts first. Per @zhiheng.liu 2026-05-15 spec.
+// Route post-login: priority is
+//   1. workspace embedded in the URL the user actually clicked from
+//   2. workspace the auth API said the request was for (`requestedWorkspaceId`,
+//      surfaced from the `X-Workspace-Id` header — i.e. the server's read of
+//      the magic-link / OAuth callback host)
+//   3. locally-stored last active workspace
+//   4. alphabetical fallback over the accessible set
+// (Originally the function only used 3/4, which is why a freshly-invited user
+// who clicked a `/z/foo` link kept landing on `/z/default`: their stored value
+// was stale and the URL path was never consulted.)
 function routePostLoginWorkspace(
   accessible: Workspace[] | undefined,
   commit: (workspaceId: string, routeMode?: WorkspaceRouteMode) => void,
+  hints: { requestedWorkspaceId?: string | null } = {},
 ) {
   if (!accessible || accessible.length === 0) return;
-  const stored = getStoredActiveWorkspaceIdOrNull();
   const accessibleIds = new Set(accessible.map(w => w.id));
-  if (stored && accessibleIds.has(normalizeWorkspaceId(stored))) {
-    commit(stored, 'replace');
-    return;
+  const candidates: (string | null | undefined)[] = [
+    getWorkspaceIdFromPath(),
+    hints.requestedWorkspaceId || null,
+    getStoredActiveWorkspaceIdOrNull(),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (accessibleIds.has(normalizeWorkspaceId(candidate))) {
+      commit(candidate, 'replace');
+      return;
+    }
   }
   const sortedByName = [...accessible].sort((a, b) =>
     (a.name || a.id || '').localeCompare(b.name || b.id || '')
@@ -170,6 +185,15 @@ export function useAppStore() {
   const [workspaceAllowlistActive, setWorkspaceAllowlistActive] = useState(false);
   const [viewerRole, setViewerRole] = useState<WorkspaceRole | null>(null);
   const [isSuperuser, setIsSuperuser] = useState<boolean>(false);
+  // When the WS init reports that the workspace in the URL was denied
+  // (allowlist gate, missing membership, or workspace doesn't exist), we
+  // keep the URL where the user asked to be and surface a denial banner
+  // instead of silently kicking them to /z/default — the old behaviour
+  // trapped invitees whose allowlist row got dropped on every WS connect.
+  const [workspaceAccessDenial, setWorkspaceAccessDenial] = useState<{
+    requestedWorkspaceId: string;
+    reason: 'denied' | 'missing' | 'unauthenticated';
+  } | null>(null);
   const [channels, setChannels] = useState<ServerChannel[]>([]);
   const [agents, setAgents] = useState<ServerAgent[]>([]);
   const [humans, setHumans] = useState<ServerHuman[]>([]);
@@ -288,6 +312,7 @@ export function useAppStore() {
     setProfilePresets([]);
     setWorkspaceMembers([]);
     setViewerRole(null);
+    setWorkspaceAccessDenial(null);
     setMessages([]);
     setThreadMessages([]);
     setUnreadCounts({});
@@ -415,7 +440,7 @@ export function useAppStore() {
         setWsConnected(false);
         break;
       case 'init': {
-        const e = event as { workspaceId?: string; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; workspaceAllowlistActive?: boolean; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
+        const e = event as { workspaceId?: string; requestedWorkspaceId?: string; requestedWorkspaceAccess?: 'granted' | 'denied' | 'missing' | 'unauthenticated'; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; workspaceAllowlistActive?: boolean; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
         const nextChannels = e.channels || [];
         const nextAgents = e.agents || [];
         const nextHumans = e.humans || [];
@@ -424,6 +449,21 @@ export function useAppStore() {
         setWorkspaceAllowlistActive(!!e.workspaceAllowlistActive);
         setViewerRole(e.viewerRole ?? null);
         setIsSuperuser(!!e.isSuperuser);
+        // Server reports both what we asked for and what it granted. If those
+        // differ, the workspace gate (allowlist / membership) blocked us. Don't
+        // rewrite the URL to default — that's the bounce loop. Instead keep
+        // the URL the user navigated to, surface a denial state, and avoid
+        // clobbering local state with the default-workspace channel list.
+        const requestedAccess = e.requestedWorkspaceAccess || 'granted';
+        const requestedId = e.requestedWorkspaceId || e.workspaceId || '';
+        if (requestedAccess !== 'granted' && requestedId) {
+          setWorkspaceAccessDenial({ requestedWorkspaceId: requestedId, reason: requestedAccess as 'denied' | 'missing' | 'unauthenticated' });
+          // Don't update channels/agents/etc with the default-workspace
+          // snapshot. The user is parked on the requested URL waiting to be
+          // invited / for the allowlist to be repaired.
+          break;
+        }
+        setWorkspaceAccessDenial(null);
         const workspaceChanged = !!(e.workspaceId && e.workspaceId !== activeWorkspaceRef.current);
         if (workspaceChanged && e.workspaceId) {
           commitWorkspaceSelection(e.workspaceId, 'replace');
@@ -1417,7 +1457,7 @@ export function useAppStore() {
   }, [authUser, addToast]);
 
   const completeAuthenticatedLogin = useCallback((result: api.LoginResponse) => {
-    const { token, user, accessibleWorkspaces } = result;
+    const { token, user, accessibleWorkspaces, requestedWorkspaceId } = result;
     // Server already uses email prefix (or the email's last chosen name) as the
     // display name; use it as display name.
     setStoredAuth(token, user);
@@ -1426,7 +1466,7 @@ export function useAppStore() {
     setAuthUser(user);
     setIsLoggedIn(true);
     setCurrentUser(user.name);
-    routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection);
+    routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection, { requestedWorkspaceId });
     // First sign-in for this email → offer a one-time username customization,
     // pre-filled with the @-prefix default.
     if (result.firstLogin) setUsernameSetup({ defaultValue: user.name });
@@ -1547,7 +1587,7 @@ export function useAppStore() {
     nowRailHidden, setNowRailHidden,
     currentUser, updateCurrentUser, updateProfile: updateCurrentUser,
     workspaces, activeWorkspaceId, setActiveWorkspaceId, createWorkspace, updateWorkspace, deleteWorkspace,
-    workspaceMembers, workspaceAllowlistActive, viewerRole, isSuperuser,
+    workspaceMembers, workspaceAllowlistActive, viewerRole, isSuperuser, workspaceAccessDenial,
     canRootWorkspace: viewerRole === 'root' || isSuperuser,
     canAdminWorkspace: viewerRole === 'root' || viewerRole === 'owner' || viewerRole === 'admin' || isSuperuser,
     inviteWorkspaceMember, updateWorkspaceMemberRole, removeWorkspaceMember,
