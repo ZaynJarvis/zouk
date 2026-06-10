@@ -91,11 +91,19 @@ function routePostLoginWorkspace(
   accessible: Workspace[] | undefined,
   commit: (workspaceId: string, routeMode?: WorkspaceRouteMode) => void,
   hints: { requestedWorkspaceId?: string | null } = {},
-) {
+): { accessDenied?: { requestedWorkspaceId: string } } | void {
   if (!accessible || accessible.length === 0) return;
   const accessibleIds = new Set(accessible.map(w => w.id));
+  const pathWorkspaceId = getWorkspaceIdFromPath();
+  // If the user explicitly came from /z/foo (URL path), and foo isn't in the
+  // accessible set, do NOT alphabetically fall back and 'replace' the URL —
+  // that's the second bounce path louise flagged. Tell the caller so it can
+  // surface the access denial banner; the URL stays at /z/foo.
+  if (pathWorkspaceId && !accessibleIds.has(normalizeWorkspaceId(pathWorkspaceId))) {
+    return { accessDenied: { requestedWorkspaceId: pathWorkspaceId } };
+  }
   const candidates: (string | null | undefined)[] = [
-    getWorkspaceIdFromPath(),
+    pathWorkspaceId,
     hints.requestedWorkspaceId || null,
     getStoredActiveWorkspaceIdOrNull(),
   ];
@@ -977,8 +985,25 @@ export function useAppStore() {
         if (cancelled || activeWorkspaceRef.current !== workspaceId) return;
         const nextWorkspaces = res.workspaces || [];
         if (nextWorkspaces.length) setWorkspaces(nextWorkspaces);
+        const ids = new Set(nextWorkspaces.map(w => w.id).filter(Boolean));
+        // If the user explicitly navigated to /z/foo, never let this REST
+        // fallback rewrite that to /z/default. The WS-level denial handler
+        // already surfaces "denied" without rewriting; this effect ran in
+        // parallel and re-introduced the bounce by calling
+        // commitWorkspaceSelection(default, 'replace') whenever /z/foo
+        // wasn't in the accessible list. Treat that case the same way the
+        // WS init handler does: keep the URL, set workspaceAccessDenial.
+        const pathWorkspaceId = getWorkspaceIdFromPath();
+        if (
+          pathWorkspaceId
+          && ids.size > 0
+          && !ids.has(normalizeWorkspaceId(pathWorkspaceId))
+        ) {
+          setWorkspaceAccessDenial({ requestedWorkspaceId: pathWorkspaceId, reason: 'denied' });
+          return;
+        }
         const nextWorkspaceId = chooseWorkspaceId(nextWorkspaces, [
-          getWorkspaceIdFromPath(),
+          pathWorkspaceId,
           getStoredActiveWorkspaceIdOrNull(),
           res.activeWorkspaceId,
           activeWorkspaceRef.current,
@@ -1466,7 +1491,13 @@ export function useAppStore() {
     setAuthUser(user);
     setIsLoggedIn(true);
     setCurrentUser(user.name);
-    routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection, { requestedWorkspaceId });
+    const routeResult = routePostLoginWorkspace(accessibleWorkspaces, commitWorkspaceSelection, { requestedWorkspaceId });
+    if (routeResult?.accessDenied) {
+      setWorkspaceAccessDenial({
+        requestedWorkspaceId: routeResult.accessDenied.requestedWorkspaceId,
+        reason: 'denied',
+      });
+    }
     // First sign-in for this email → offer a one-time username customization,
     // pre-filled with the @-prefix default.
     if (result.firstLogin) setUsernameSetup({ defaultValue: user.name });

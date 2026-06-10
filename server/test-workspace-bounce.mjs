@@ -139,6 +139,91 @@ test('WS init reports requestedWorkspaceAccess instead of silently bouncing to d
   }
 });
 
+test('invite endpoint puts member+allowlist behind one atomic boundary (no-DB happy path)', async () => {
+  // No DATABASE_URL → db.enabled is false in this run, so the allowlist row
+  // path is skipped and saveWorkspaceMemberStrict no-ops. The point of this
+  // test is the happy-path contract: after POST /api/workspaces/:id/members,
+  // the invitee must immediately be able to WS-connect with that workspace
+  // and receive `requestedWorkspaceAccess: granted`. If a future refactor of
+  // inviteWorkspaceMember accidentally rolls back the in-memory member row
+  // on the no-DB path (or forgets to write it at all), this test fails.
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-cfg-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-up-'));
+  const port = 17902;
+  const base = `http://localhost:${port}`;
+  const aliceToken = 'invite-alice-token';
+  const bobToken = 'invite-bob-token';
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
+    [bobToken, { name: 'bob', email: 'bob@example.com', picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  try {
+    const ready = await waitForReady(base);
+    assert.equal(ready, true, 'invite atomicity server must become ready');
+
+    const created = await fetch(`${base}/api/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
+      body: JSON.stringify({ name: 'AtomicFoo' }),
+    });
+    assert.equal(created.status, 200);
+    const workspaceId = (await created.json()).workspace.id;
+
+    // Pre-invite: bob is denied.
+    {
+      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=${encodeURIComponent(workspaceId)}`);
+      await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+      const init = await waitForInit(ws);
+      ws.close();
+      assert.equal(init?.requestedWorkspaceAccess, 'denied', 'bob must be denied before invite');
+    }
+
+    // Alice invites bob.
+    const invited = await fetch(`${base}/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+        'X-Workspace-Id': encodeURIComponent(workspaceId),
+      },
+      body: JSON.stringify({ email: 'bob@example.com', role: 'member', name: 'Bob' }),
+    });
+    assert.equal(invited.status, 200, 'invite endpoint must succeed');
+    const invitedBody = await invited.json();
+    assert.equal(invitedBody.member.email, 'bob@example.com');
+
+    // Post-invite: bob is granted.
+    {
+      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=${encodeURIComponent(workspaceId)}`);
+      await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
+      const init = await waitForInit(ws);
+      ws.close();
+      assert.equal(init?.workspaceId, workspaceId, 'invited bob must land on the requested workspace');
+      assert.equal(init?.requestedWorkspaceId, workspaceId);
+      assert.equal(init?.requestedWorkspaceAccess, 'granted', 'invited bob must be granted access');
+    }
+  } finally {
+    proc.kill('SIGKILL');
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
 test('WS init surfaces missing-workspace requests', async () => {
   const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-cfg-'));
   const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-up-'));
