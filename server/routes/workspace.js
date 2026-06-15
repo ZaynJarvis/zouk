@@ -26,7 +26,7 @@ function createWorkspaceRouter(ctx) {
     GOOGLE_CLIENT_ID,
     OV_ENV_PROVISIONING_ENABLED, OPENVIKING_URL, OPENVIKING_ACCOUNT,
     normalizeWorkspaceId, normalizeEmailInput,
-    isReservedName, isSuperuser, allowlistActive,
+    isReservedName, isValidUsername, isSuperuser, allowlistActive,
     dbAllowEmails, allowlistKey, ENV_ALLOW_EMAILS,
     onlineHumans, webSockets, daemonSockets, pendingDeliveries,
     messagesById, messagesByShortId, repliesByThreadId,
@@ -692,6 +692,12 @@ function createWorkspaceRouter(ctx) {
     const base = name.trim().replace(/^(?:guest-+)+/i, "").trim();
     const guestName = base ? `guest-${base}` : `guest-${crypto.randomBytes(3).toString("hex")}`;
     if (guestName.length > 100) return res.status(400).json({ error: "name too long (max 100)" });
+    // The chosen name becomes this guest's OV peer_id verbatim, so it must fit the
+    // peer_id charset. Reject (rather than silently rewrite) so the picker can
+    // surface the rule instead of a guest discovering a mangled name later.
+    if (!isValidUsername(guestName)) {
+      return res.status(400).json({ error: "Username may only contain letters, digits, and _ . @ - (no spaces)." });
+    }
     if (isReservedName(guestName)) {
       return res.status(400).json({ error: `"${guestName}" is a reserved username and cannot be used.` });
     }

@@ -66,6 +66,9 @@ export default function SettingsModal() {
   const nc = false;
   const brutalist = false;
   const [displayName, setDisplayName] = useState(currentUser);
+  // The display name doubles as the user's OV peer_id, so it must fit the same
+  // charset the server enforces (USERNAME_CHARSET in server/index.js).
+  const displayNameInvalid = displayName.trim().length > 0 && !/^[a-zA-Z0-9_.@-]+$/.test(displayName.trim());
   const [glitchActive, setGlitchActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const presetInputRef = useRef<HTMLInputElement>(null);
@@ -308,16 +311,22 @@ export default function SettingsModal() {
                     onChange={e => setDisplayName(e.target.value)}
                     className="cyber-input w-full px-3 py-2 text-sm"
                   />
+                  {displayNameInvalid && (
+                    <p className="text-xs text-nc-red mt-1.5">
+                      Only letters, digits, and _ . @ - (no spaces).
+                    </p>
+                  )}
                 </div>
 
                 <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                   <button
                     onClick={() => {
-                      if (displayName.trim() && displayName !== currentUser) {
+                      if (displayName.trim() && displayName !== currentUser && !displayNameInvalid) {
                         updateProfile(displayName.trim());
                       }
                     }}
-                    className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider"
+                    disabled={displayNameInvalid}
+                    className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider disabled:opacity-50"
                   >
                     Update Profile
                   </button>

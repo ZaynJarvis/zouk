@@ -613,6 +613,27 @@ function isReservedName(name) {
   return RESERVED_USER_NAMES.has(String(name || "").trim().toLowerCase());
 }
 
+// A human's display name is used verbatim as its OV peer_id
+// (viking://user/{owner}/peers/{peer_id}/), whose namespace only accepts this
+// charset. Enforcing it at every naming entry point (guest session, profile
+// rename) keeps the name→peer_id mapping injective: two distinct registered
+// names can never fold to the same peer_id, so peer memory can't silently merge
+// two people. safePeerId() in ov-lifecycle.js stays as a defensive backstop, but
+// for any name minted through these routes the fold is a no-op.
+const USERNAME_CHARSET = /^[a-zA-Z0-9_.@-]+$/;
+function isValidUsername(name) {
+  return USERNAME_CHARSET.test(String(name || "").trim());
+}
+// Fold an arbitrary string into USERNAME_CHARSET — used only where there is no
+// user-input moment to reject at (the email-prefix default). Out-of-charset runs
+// collapse to a single '-'; stray edge separators (and bare '.'/'..') are
+// trimmed. Returns "" when nothing maps (e.g. an all-non-ASCII local part).
+function normalizeToUsernameCharset(name) {
+  return String(name || "")
+    .replace(/[^a-zA-Z0-9_.@-]+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+}
+
 const MACHINE_ARCH_SUFFIXES = [
   "arm64",
   "aarch64",
@@ -2959,7 +2980,7 @@ const authModule = createAuthModule({
   feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
   OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
   DEFAULT_WORKSPACE_ID,
-  gravatarUrl, isReservedName, normalizeEmailInput,
+  gravatarUrl, isReservedName, isValidUsername, normalizeToUsernameCharset, normalizeEmailInput,
   isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
   onlineHumans, allTimeHumans, webSockets,
   upsertAllTimeHuman, broadcastHumans, broadcastToWeb,
@@ -2990,7 +3011,7 @@ app.use(createWorkspaceRouter({
   GOOGLE_CLIENT_ID,
   OV_ENV_PROVISIONING_ENABLED, OPENVIKING_URL, OPENVIKING_ACCOUNT,
   normalizeWorkspaceId, normalizeEmailInput,
-  isReservedName, isSuperuser, allowlistActive,
+  isReservedName, isValidUsername, isSuperuser, allowlistActive,
   dbAllowEmails, allowlistKey, ENV_ALLOW_EMAILS,
   onlineHumans, webSockets, daemonSockets, pendingDeliveries,
   messagesById, messagesByShortId, repliesByThreadId,

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
+// Must mirror USERNAME_CHARSET in the server (server/index.js): a display name
+// is used verbatim as the user's OV peer_id, so it can only contain these chars.
+const USERNAME_CHARSET = /^[a-zA-Z0-9_.@-]+$/;
+
 interface Props {
   open: boolean;
   // 'email' shows a plain name field; 'guest' locks a non-editable `guest-`
@@ -34,9 +38,11 @@ export default function UsernameSetupModal({ open, kind, defaultValue, onConfirm
 
   const isGuest = kind === 'guest';
   const trimmed = value.trim();
-  // Guests can confirm an empty suffix (the server falls back to a random one);
-  // email users must keep a non-empty name.
-  const canConfirm = isGuest || trimmed.length > 0;
+  // Any non-empty value must fit the peer_id charset; an empty suffix is fine for
+  // guests (the server falls back to a random one) but email users must keep a
+  // non-empty name.
+  const charsetViolation = trimmed.length > 0 && !USERNAME_CHARSET.test(trimmed);
+  const canConfirm = (isGuest || trimmed.length > 0) && !charsetViolation;
 
   const submit = () => {
     if (!canConfirm) return;
@@ -83,6 +89,12 @@ export default function UsernameSetupModal({ open, kind, defaultValue, onConfirm
             onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
             className="cyber-input w-full px-3 py-2 text-sm"
           />
+        )}
+
+        {charsetViolation && (
+          <p className="text-xs text-nc-red mt-1.5">
+            Only letters, digits, and _ . @ - (no spaces).
+          </p>
         )}
 
         <div className="flex justify-end gap-2 mt-6">

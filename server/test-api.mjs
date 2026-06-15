@@ -2024,6 +2024,58 @@ test('reserved username: profile rename to "system" is rejected', async () => {
   assert.equal(res.status, 400);
 });
 
+// ─── username charset (OV peer_id contract) ───────────────────────────────────
+// A human's display name is used verbatim as its OV peer_id, so every naming
+// entry point must reject names outside [a-zA-Z0-9_.@-] — otherwise two distinct
+// names could fold to one peer_id and merge two people's peer memory.
+const CHARSET = /^[a-zA-Z0-9_.@-]+$/;
+
+for (const bad of ['bob smith', 'José', 'user+tag', 'emoji😀', 'a/b']) {
+  test(`guest-session rejects out-of-charset name ${JSON.stringify(bad)}`, async () => {
+    const res = await fetch(`${BASE}/api/auth/guest-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: bad }),
+    });
+    assert.equal(res.status, 400);
+  });
+}
+
+test('guest-session accepts every allowed punctuation char', async () => {
+  const res = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'a_b.c@d-e' }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.name, 'guest-a_b.c@d-e');
+  assert.match(body.name, CHARSET);
+});
+
+test('profile rename rejects an out-of-charset name and keeps it on accept', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-charset-probe' }),
+  });
+  const { token } = await authRes.json();
+  const reject = await fetch(`${BASE}/api/auth/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: 'has space' }),
+  });
+  assert.equal(reject.status, 400);
+  const ok = await fetch(`${BASE}/api/auth/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: 'renamed_user.1' }),
+  });
+  assert.equal(ok.status, 200);
+  const body = await ok.json();
+  assert.match(body.user.name, CHARSET);
+});
+
 // ─── update_profile (agent self-edit) ─────────────────────────────────────────
 // These tests exercise POST /internal/agent/:agentId/profile, the endpoint the
 // chat-bridge `update_profile` MCP tool calls. The endpoint must:

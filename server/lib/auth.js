@@ -15,7 +15,7 @@ function createAuthModule(ctx) {
     feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
     OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
     DEFAULT_WORKSPACE_ID,
-    gravatarUrl, isReservedName, normalizeEmailInput,
+    gravatarUrl, isReservedName, isValidUsername, normalizeToUsernameCharset, normalizeEmailInput,
     isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
     onlineHumans, allTimeHumans, webSockets,
     upsertAllTimeHuman, broadcastHumans, broadcastToWeb,
@@ -210,7 +210,14 @@ function createAuthModule(ctx) {
       err.statusCode = 403;
       throw err;
     }
-    const emailPrefix = normalizedEmail.split("@")[0];
+    // The @-prefix becomes the default display name (and thus the OV peer_id), so
+    // fold it into the username charset — an address like `alice+tag@x.com` would
+    // otherwise default to an invalid `alice+tag`. There is no user-input moment
+    // to reject at here; the first-login customization (PUT /api/auth/profile)
+    // does the rejecting. Fall back to a stable, charset-safe id if nothing maps.
+    const rawPrefix = normalizedEmail.split("@")[0];
+    const emailPrefix = normalizeToUsernameCharset(rawPrefix)
+      || `user-${crypto.createHash("sha256").update(normalizedEmail).digest("hex").slice(0, 8)}`;
     if (isReservedName(emailPrefix)) {
       const err = new Error("Reserved username — please contact an admin.");
       err.statusCode = 403;
@@ -452,6 +459,12 @@ function createAuthModule(ctx) {
       return res.status(400).json({ error: "name required" });
     }
     const trimmed = name.trim();
+    // The display name doubles as this user's OV peer_id, so it must fit the
+    // peer_id charset (see USERNAME_CHARSET in index.js). This also covers the
+    // first-login username picker, which posts here.
+    if (!isValidUsername(trimmed)) {
+      return res.status(400).json({ error: "Username may only contain letters, digits, and _ . @ - (no spaces)." });
+    }
     if (isReservedName(trimmed)) {
       return res.status(400).json({ error: `"${trimmed}" is a reserved username and cannot be used.` });
     }
