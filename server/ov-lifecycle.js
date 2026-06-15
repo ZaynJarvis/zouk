@@ -27,12 +27,19 @@ function deriveSessionId(agentId) {
 }
 
 // Peer contract: the stable id of "the other party" on an incoming message.
-// OV rejects path separators (they'd cross into another namespace), so strip
-// them. The sender's display name is unique within a workspace and human-
-// readable, which is exactly the kind of id the contract wants.
+// OV's peer_id namespace (viking://user/{owner}/peers/{peer_id}/) only accepts
+// the charset [a-zA-Z0-9_.@-]. Display names are free-form though — guest names,
+// email prefixes, and self-chosen profile names can carry spaces, '+', non-ASCII,
+// or path separators (which would cross into another namespace). So fold every
+// run of out-of-charset characters into a single '-' and trim stray edge
+// separators (this also kills bare '.'/'..' segments that could escape the peer
+// namespace). A name with nothing representable collapses to empty → undefined,
+// leaving the message untagged rather than mapped to a colliding placeholder id.
 function safePeerId(name) {
   if (!name) return undefined;
-  const cleaned = String(name).replace(/[\\/]/g, "").trim();
+  const cleaned = String(name)
+    .replace(/[^a-zA-Z0-9_.@-]+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
   return cleaned || undefined;
 }
 

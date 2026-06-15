@@ -157,15 +157,42 @@ test('autoCapture omits peer_id when peer is disabled', async () => {
   assert.equal(captured[0].payload.peerId, undefined);
 });
 
-test('autoCapture strips path separators from peer_id', async () => {
+test('autoCapture converges out-of-charset peer_id to [a-zA-Z0-9_.@-]', async () => {
+  const charset = /^[a-zA-Z0-9_.@-]+$/;
+  // [input displayName, expected peer_id] — path separators, spaces, '+', and
+  // non-ASCII all fold to '-'; allowed chars (_ . @ -) survive untouched.
+  const cases = [
+    ['a/b\\c', 'a-b-c'],            // path separators no longer cross namespaces
+    ['Renamed Reviewer', 'Renamed-Reviewer'], // self-chosen name with a space
+    ['user+tag', 'user-tag'],       // '+' is a valid email local-part char, not in charset
+    ['guest-Bob', 'guest-Bob'],     // common guest name passes through unchanged
+    ['name_.@-ok', 'name_.@-ok'],   // every allowed punctuation survives
+    ['  spaced  ', 'spaced'],       // edge whitespace folds then trims away
+  ];
+  for (const [input, expected] of cases) {
+    const captured = [];
+    const { manager, restore } = makeManager(captured, { creds: PEER_CREDS });
+    try {
+      await manager.autoCapture('agent1', 'hi', null, { senderName: input, senderType: 'human' });
+    } finally {
+      restore();
+    }
+    assert.equal(captured[0].payload.peerId, expected, `peerId for ${JSON.stringify(input)}`);
+    assert.match(captured[0].payload.peerId, charset, `charset for ${JSON.stringify(input)}`);
+  }
+});
+
+test('autoCapture omits peer_id for a name with no representable character', async () => {
+  // An all-non-ASCII name collapses to empty → undefined, so the message is left
+  // untagged instead of mapped to a colliding '-' placeholder.
   const captured = [];
   const { manager, restore } = makeManager(captured, { creds: PEER_CREDS });
   try {
-    await manager.autoCapture('agent1', 'hi', null, { senderName: 'a/b\\c', senderType: 'human' });
+    await manager.autoCapture('agent1', 'hi', null, { senderName: '张三', senderType: 'human' });
   } finally {
     restore();
   }
-  assert.equal(captured[0].payload.peerId, 'abc');
+  assert.equal(captured[0].payload.peerId, undefined);
 });
 
 test('the agent reply (self) carries no peer_id even when peer is enabled', async () => {
