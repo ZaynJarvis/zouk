@@ -6,6 +6,7 @@ import ScanlineTear from './glitch/ScanlineTear';
 import { themes, themeSupportsColorMode, type ThemeId } from '../themes';
 import type { ColorMode } from '../types';
 import { resizeAndEncode } from '../lib/imageEncode';
+import { isValidUsername, takenNameSet, isNameTakenLocally } from '../lib/usernames';
 import * as api from '../lib/api';
 import type { WsClientStats } from '../lib/api';
 import type { ServerChannel, WorkspaceEmbedSettings, WorkspaceOpenvikingSettings } from '../types';
@@ -57,7 +58,7 @@ export default function SettingsModal() {
   const {
     settingsOpen, setSettingsOpen, theme, setTheme, colorMode, setColorMode,
     currentUser, updateProfile, logout,
-    wsConnected, agents, machines, configs, authUser,
+    wsConnected, agents, humans, machines, configs, authUser,
     profilePresets, addProfilePreset, removeProfilePreset,
     workspaces, activeWorkspaceId, setActiveWorkspaceId,
     channels, canAdminWorkspace,
@@ -66,9 +67,14 @@ export default function SettingsModal() {
   const nc = false;
   const brutalist = false;
   const [displayName, setDisplayName] = useState(currentUser);
-  // The display name doubles as the user's OV peer_id, so it must fit the same
-  // charset the server enforces (USERNAME_CHARSET in server/index.js).
-  const displayNameInvalid = displayName.trim().length > 0 && !/^[a-zA-Z0-9_.@-]+$/.test(displayName.trim());
+  // The display name doubles as the user's OV peer_id: it must fit the charset and
+  // stay unique. Both are server-enforced; these mirror the rules for instant
+  // feedback (see lib/usernames.ts / server index.js).
+  const trimmedName = displayName.trim();
+  const displayNameInvalid = trimmedName.length > 0 && !isValidUsername(trimmedName);
+  const displayNameTaken = !displayNameInvalid && trimmedName.length > 0
+    && isNameTakenLocally(trimmedName, takenNameSet(humans, agents), currentUser);
+  const displayNameBlocked = displayNameInvalid || displayNameTaken;
   const [glitchActive, setGlitchActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const presetInputRef = useRef<HTMLInputElement>(null);
@@ -316,16 +322,21 @@ export default function SettingsModal() {
                       Only letters, digits, and _ . @ - (no spaces).
                     </p>
                   )}
+                  {displayNameTaken && (
+                    <p className="text-xs text-nc-red mt-1.5">
+                      That name is already taken — choose another.
+                    </p>
+                  )}
                 </div>
 
                 <ScanlineTear config={{ trigger: 'hover', minInterval: 200, maxInterval: 600, minSeverity: 0.3, maxSeverity: 0.8 }}>
                   <button
                     onClick={() => {
-                      if (displayName.trim() && displayName !== currentUser && !displayNameInvalid) {
-                        updateProfile(displayName.trim());
+                      if (trimmedName && displayName !== currentUser && !displayNameBlocked) {
+                        updateProfile(trimmedName);
                       }
                     }}
-                    disabled={displayNameInvalid}
+                    disabled={displayNameBlocked}
                     className="cyber-btn px-4 py-2 bg-nc-cyan/10 border border-nc-cyan/50 text-nc-cyan font-bold text-sm tracking-wider disabled:opacity-50"
                   >
                     Update Profile

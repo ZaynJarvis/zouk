@@ -26,7 +26,7 @@ function createWorkspaceRouter(ctx) {
     GOOGLE_CLIENT_ID,
     OV_ENV_PROVISIONING_ENABLED, OPENVIKING_URL, OPENVIKING_ACCOUNT,
     normalizeWorkspaceId, normalizeEmailInput,
-    isReservedName, isValidUsername, isSuperuser, allowlistActive,
+    isReservedName, isValidUsername, isNameTaken, isSuperuser, allowlistActive,
     dbAllowEmails, allowlistKey, ENV_ALLOW_EMAILS,
     onlineHumans, webSockets, daemonSockets, pendingDeliveries,
     messagesById, messagesByShortId, repliesByThreadId,
@@ -700,6 +700,16 @@ function createWorkspaceRouter(ctx) {
     }
     if (isReservedName(guestName)) {
       return res.status(400).json({ error: `"${guestName}" is a reserved username and cannot be used.` });
+    }
+    // Uniqueness. In open/dev mode guests get a token, can post (so they become an
+    // OV peer), and guest-session is a one-shot claim — enforce strict uniqueness
+    // incl. other online guests. In production guests are read-only (never a peer)
+    // and re-POST this route on every reconnect to refresh presence, so a strict
+    // online-guest check would self-reject the same browser; only block names held
+    // by an agent or a registered human there.
+    const claimMode = !GOOGLE_CLIENT_ID;
+    if (isNameTaken(guestName, { workspaceId, includeOnlineGuests: claimMode })) {
+      return res.status(409).json({ error: `"${guestName}" is already taken — pick another name.` });
     }
 
     // In open/dev mode (no Google OAuth), mint a real session so guests aren't

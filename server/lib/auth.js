@@ -15,7 +15,7 @@ function createAuthModule(ctx) {
     feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
     OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
     DEFAULT_WORKSPACE_ID,
-    gravatarUrl, isReservedName, isValidUsername, normalizeToUsernameCharset, normalizeEmailInput,
+    gravatarUrl, isReservedName, isValidUsername, normalizeToUsernameCharset, isNameTaken, uniquifyUsername, normalizeEmailInput,
     isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
     onlineHumans, allTimeHumans, webSockets,
     upsertAllTimeHuman, broadcastHumans, broadcastToWeb,
@@ -228,7 +228,10 @@ function createAuthModule(ctx) {
     // name they last chose so a fresh OAuth round-trip doesn't reset it.
     const existingName = findExistingDisplayNameForEmail(normalizedEmail);
     const firstLogin = !existingName;
-    const name = existingName || emailPrefix;
+    // OAuth login can't reject + re-prompt, so a first-login default that collides
+    // with an existing name (another registered user or an agent) is auto-suffixed
+    // instead. Returning users keep their own previously chosen name verbatim.
+    const name = existingName || uniquifyUsername(emailPrefix, { workspaceId: DEFAULT_WORKSPACE_ID });
     const grav = gravatarUrl(normalizedEmail);
     const user = {
       name,
@@ -470,6 +473,12 @@ function createAuthModule(ctx) {
     }
     const user = getAuthSession(token);
     if (!user) return res.status(401).json({ error: "Not authenticated" });
+    // Uniqueness: a rename can't shadow an agent, a registered human, or anyone
+    // currently online. selfName excludes the caller's own name (a no-op or
+    // case-only rename is allowed).
+    if (isNameTaken(trimmed, { selfName: user.name })) {
+      return res.status(409).json({ error: `"${trimmed}" is already taken — choose another name.` });
+    }
     const oldName = user.name;
     user.name = trimmed;
     // Update avatar if provided (base64 string, max ~50KB)

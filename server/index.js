@@ -2189,6 +2189,47 @@ function removeHumanPresence(name) {
   broadcastHumans();
 }
 
+// Username uniqueness across the shared @mention / DM / OV peer_id namespace.
+// A name is "taken" (case-insensitive) if a *different* participant owns it:
+//   - any agent in the workspace (they share the namespace and are peers too),
+//   - any registered (all-time) human — these persistently occupy their name even
+//     while offline, so two different emails can't both resolve to "alice",
+//   - any currently-online human; online *guests* count only when
+//     `includeOnlineGuests` is set. Production guests are read-only (never an OV
+//     peer) and re-assert their own name on every reconnect, so the guest-session
+//     path passes false there to avoid self-rejection; the writable open-mode
+//     claim passes true.
+// `selfName` is the caller's current name — never a collision with itself (covers
+// no-op renames and a user re-claiming the name they already hold).
+function isNameTaken(name, { selfName = null, workspaceId = DEFAULT_WORKSPACE_ID, includeOnlineGuests = true } = {}) {
+  const lowered = String(name || "").trim().toLowerCase();
+  if (!lowered) return false;
+  const self = selfName ? String(selfName).trim().toLowerCase() : null;
+  if (self && lowered === self) return false;
+  if (isAgentNameTaken(name, null, workspaceId)) return true;
+  for (const h of allTimeHumans.values()) {
+    if (String(h.name || "").trim().toLowerCase() === lowered) return true;
+  }
+  for (const h of onlineHumans.values()) {
+    if (String(h.name || "").trim().toLowerCase() !== lowered) continue;
+    if (h.guest && !includeOnlineGuests) continue;
+    return true;
+  }
+  return false;
+}
+
+// Append a numeric suffix until the name is free. Used only where we cannot reject
+// and re-prompt — the email @-prefix default minted at OAuth login. '-' is in the
+// username charset, so the result stays valid.
+function uniquifyUsername(base, opts = {}) {
+  if (!isNameTaken(base, opts)) return base;
+  for (let i = 2; i <= 50; i++) {
+    const candidate = `${base}-${i}`;
+    if (!isNameTaken(candidate, opts)) return candidate;
+  }
+  return `${base}-${crypto.randomBytes(2).toString("hex")}`;
+}
+
 function removeAllTimeHumanIfInaccessible(email) {
   const normalized = String(email || "").trim().toLowerCase();
   if (!normalized) return false;
@@ -2980,7 +3021,7 @@ const authModule = createAuthModule({
   feishuEnabled, FEISHU_APP_ID, FEISHU_REDIRECT_URI, FEISHU_AUTHORIZE_URL, FEISHU_SCOPE, getLarkClient,
   OV_RUNTIME_DENYLIST, OV_MCP_RUNTIME_DENYLIST,
   DEFAULT_WORKSPACE_ID,
-  gravatarUrl, isReservedName, isValidUsername, normalizeToUsernameCharset, normalizeEmailInput,
+  gravatarUrl, isReservedName, isValidUsername, normalizeToUsernameCharset, isNameTaken, uniquifyUsername, normalizeEmailInput,
   isEmailAllowedAnyWorkspace, allowlistActiveAnywhere,
   onlineHumans, allTimeHumans, webSockets,
   upsertAllTimeHuman, broadcastHumans, broadcastToWeb,
@@ -3011,7 +3052,7 @@ app.use(createWorkspaceRouter({
   GOOGLE_CLIENT_ID,
   OV_ENV_PROVISIONING_ENABLED, OPENVIKING_URL, OPENVIKING_ACCOUNT,
   normalizeWorkspaceId, normalizeEmailInput,
-  isReservedName, isValidUsername, isSuperuser, allowlistActive,
+  isReservedName, isValidUsername, isNameTaken, isSuperuser, allowlistActive,
   dbAllowEmails, allowlistKey, ENV_ALLOW_EMAILS,
   onlineHumans, webSockets, daemonSockets, pendingDeliveries,
   messagesById, messagesByShortId, repliesByThreadId,

@@ -7,6 +7,7 @@ import ScanlineTear from './glitch/ScanlineTear';
 import { initSupabase } from '../lib/supabase';
 import { createMagicLoginChallenge, pollMagicLoginChallenge, type MagicLoginChallenge } from '../lib/api';
 import UsernameSetupModal from './UsernameSetupModal';
+import { takenNameSet } from '../lib/usernames';
 import { getGuestNamed, setGuestNamed, getStoredCurrentUser } from '../store/storage';
 
 const GLITCH_CHARS = '!<>-_\\/[]{}#$%^&*=+|;:0123456789ABCDEF';
@@ -76,6 +77,9 @@ export default function LoginScreen() {
     supabaseConfig,
     allowlistActive,
     feishuEnabled,
+    humans,
+    agents,
+    currentUser,
   } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -316,6 +320,8 @@ export default function LoginScreen() {
         open={showGuestSetup}
         kind="guest"
         defaultValue={guestSuffixDefault}
+        takenNames={takenNameSet(humans, agents)}
+        selfName={currentUser}
         onConfirm={handleGuestSetupConfirm}
         onSkip={handleGuestSetupSkip}
       />

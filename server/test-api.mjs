@@ -2076,6 +2076,52 @@ test('profile rename rejects an out-of-charset name and keeps it on accept', asy
   assert.match(body.user.name, CHARSET);
 });
 
+// ─── username uniqueness (查重) ────────────────────────────────────────────────
+// A name claimed by one participant can't be reused by another — otherwise two
+// people share one OV peer_id and their peer memory merges. Renames reject with
+// 409; a successful rename seeds allTimeHumans, which is what later claims hit.
+async function guestToken(name) {
+  const res = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return (await res.json()).token;
+}
+async function renameTo(token, name) {
+  return fetch(`${BASE}/api/auth/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+}
+
+test('rename: a name owned by another user is rejected (409); a free one is accepted', async () => {
+  const a = await guestToken('dedup-a');
+  const b = await guestToken('dedup-b');
+  assert.equal((await renameTo(a, 'dedup-owner')).status, 200);   // A registers the name
+  assert.equal((await renameTo(b, 'dedup-owner')).status, 409);   // B cannot shadow it
+  assert.equal((await renameTo(b, 'dedup-other')).status, 200);   // B takes a free name
+});
+
+test('rename: re-claiming your own name (incl. case-only change) is allowed', async () => {
+  const a = await guestToken('dedup-self');
+  assert.equal((await renameTo(a, 'dedup-self-name')).status, 200);
+  assert.equal((await renameTo(a, 'dedup-self-name')).status, 200); // no-op
+  assert.equal((await renameTo(a, 'DEDUP-SELF-NAME')).status, 200); // case-only
+});
+
+test('guest-session: a name already registered by a human is rejected (409)', async () => {
+  const a = await guestToken('dedup-seed');
+  assert.equal((await renameTo(a, 'guest-dedupclaim')).status, 200); // lands in allTimeHumans
+  const res = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'dedupclaim' }),                    // → guest-dedupclaim
+  });
+  assert.equal(res.status, 409);
+});
+
 // ─── update_profile (agent self-edit) ─────────────────────────────────────────
 // These tests exercise POST /internal/agent/:agentId/profile, the endpoint the
 // chat-bridge `update_profile` MCP tool calls. The endpoint must:

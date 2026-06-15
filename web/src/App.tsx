@@ -15,6 +15,7 @@ import PinnedRail from './components/PinnedRail';
 import SettingsModal from './components/SettingsModal';
 import ChannelSettingsModal from './components/ChannelSettingsModal';
 import UsernameSetupModal from './components/UsernameSetupModal';
+import { takenNameSet } from './lib/usernames';
 import ToastContainer from './components/ToastContainer';
 import AgentsView from './components/AgentPanel';
 import TasksView from './components/TasksView';
@@ -95,7 +96,7 @@ function WorkspaceAccessDeniedView() {
 }
 
 function AppShell() {
-  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId, usernameSetup, dismissUsernameSetup, updateProfile, workspaceAccessDenial } = useApp();
+  const { viewMode, sidebarOpen, setSidebarOpen, isLoggedIn, rightPanel, closeRightPanel, nowRailHidden, agentProfileId, usernameSetup, dismissUsernameSetup, updateProfile, workspaceAccessDenial, humans, agents, currentUser } = useApp();
   const threadRailRef = useRef<HTMLDivElement | null>(null);
   const [mobileSurface, setMobileSurface] = useState(() => isMobileViewport());
   const [mobileSidebarClosing, setMobileSidebarClosing] = useState(false);
@@ -321,6 +322,8 @@ function AppShell() {
         open={!!usernameSetup}
         kind="email"
         defaultValue={usernameSetup?.defaultValue || ''}
+        takenNames={takenNameSet(humans, agents)}
+        selfName={currentUser}
         onConfirm={(name) => { updateProfile(name); dismissUsernameSetup(); }}
         onSkip={dismissUsernameSetup}
       />

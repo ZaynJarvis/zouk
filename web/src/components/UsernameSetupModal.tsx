@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-
-// Must mirror USERNAME_CHARSET in the server (server/index.js): a display name
-// is used verbatim as the user's OV peer_id, so it can only contain these chars.
-const USERNAME_CHARSET = /^[a-zA-Z0-9_.@-]+$/;
+import { USERNAME_CHARSET, isNameTakenLocally } from '../lib/usernames';
 
 interface Props {
   open: boolean;
@@ -15,9 +12,13 @@ interface Props {
   // Confirm yields the full name for 'email' and the suffix for 'guest'.
   onConfirm: (value: string) => void;
   onSkip: () => void;
+  // Lowercased names already owned by a participant, for instant "taken" feedback.
+  takenNames?: Set<string>;
+  // The caller's own current name — never flagged as taken against itself.
+  selfName?: string;
 }
 
-export default function UsernameSetupModal({ open, kind, defaultValue, onConfirm, onSkip }: Props) {
+export default function UsernameSetupModal({ open, kind, defaultValue, onConfirm, onSkip, takenNames, selfName }: Props) {
   const [value, setValue] = useState(defaultValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -38,11 +39,15 @@ export default function UsernameSetupModal({ open, kind, defaultValue, onConfirm
 
   const isGuest = kind === 'guest';
   const trimmed = value.trim();
+  // For guests the claimed name is the suffix under a fixed `guest-` prefix.
+  const fullName = isGuest ? (trimmed ? `guest-${trimmed}` : '') : trimmed;
   // Any non-empty value must fit the peer_id charset; an empty suffix is fine for
   // guests (the server falls back to a random one) but email users must keep a
   // non-empty name.
   const charsetViolation = trimmed.length > 0 && !USERNAME_CHARSET.test(trimmed);
-  const canConfirm = (isGuest || trimmed.length > 0) && !charsetViolation;
+  const nameTaken = !charsetViolation && fullName.length > 0 && !!takenNames
+    && isNameTakenLocally(fullName, takenNames, selfName);
+  const canConfirm = (isGuest || trimmed.length > 0) && !charsetViolation && !nameTaken;
 
   const submit = () => {
     if (!canConfirm) return;
@@ -94,6 +99,11 @@ export default function UsernameSetupModal({ open, kind, defaultValue, onConfirm
         {charsetViolation && (
           <p className="text-xs text-nc-red mt-1.5">
             Only letters, digits, and _ . @ - (no spaces).
+          </p>
+        )}
+        {nameTaken && (
+          <p className="text-xs text-nc-red mt-1.5">
+            That name is already taken — pick another.
           </p>
         )}
 
