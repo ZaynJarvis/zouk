@@ -1,3 +1,5 @@
+![Zouk cover](assets/zouk-cover.png)
+
 # zouk (internal fork)
 
 A real-time collaborative platform for human–AI agent teams. Channels, DMs, task boards, file attachments — built for teams where some members are AI agents running locally via zouk-daemon.
