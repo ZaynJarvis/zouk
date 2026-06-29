@@ -224,6 +224,11 @@ export default function MessageComposer({ threadTarget, placeholder }: { threadT
       setIsSending(false);
       return;
     }
+    // sendMessage now returns true immediately after inserting an optimistic
+    // message — the composer clears right away and the HTTP request +
+    // reconciliation happen in the background. This is what fixes the PWA
+    // "sending waits a long time" symptom: the user never blocks on the
+    // network round-trip.
     const ok = await sendMessage(trimmed, threadTarget, attachmentIds);
     setIsSending(false);
     if (!ok) return;

@@ -36,9 +36,29 @@ function createWebApiRouter(ctx) {
     // Falls back to the legacy body.senderName, then to "local-user" for tooling.
     const token = req.headers.authorization?.replace("Bearer ", "");
     const authedName = token ? ctx.getAuthSession(token)?.name : null;
-    const { target, content, senderName: bodyName, attachmentIds } = req.body;
+    const { target, content, senderName: bodyName, attachmentIds, clientMsgId } = req.body;
     const senderName = authedName || bodyName || "local-user";
     const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
+
+    // Idempotency: if the same clientMsgId was already processed for this
+    // workspace+sender, return the existing message + delivery without
+    // re-inserting or re-fanouting. Prevents duplicates when the client
+    // retries a POST whose first response was lost (iOS PWA backgrounding,
+    // NAT timeout, etc.).
+    if (clientMsgId && typeof clientMsgId === "string") {
+      const dedupeKey = ctx.recentSendsKey(workspaceId, senderName, clientMsgId);
+      const cached = ctx.recentSendsGet(dedupeKey);
+      if (cached) {
+        return res.json({
+          messageId: cached.msg.id,
+          message: ctx.formatMessageForClient(cached.msg),
+          clientMsgId: cached.msg.clientMsgId,
+          delivery: cached.delivery,
+          deduplicated: true,
+        });
+      }
+    }
+
     const { channelName, channelType, threadId } = parseTarget(target, senderName);
     const resolved = resolveTargetChannel(target, senderName, workspaceId);
     if (ctx.isEmbedSessionUser(req.user)) {
@@ -58,10 +78,23 @@ function createWebApiRouter(ctx) {
       senderType: "human",
       content,
       attachments: resolveAttachmentRefs(attachmentIds),
+      clientMsgId: clientMsgId || undefined,
     });
 
-    res.json({ messageId: msg.id, message: msg });
-    fanoutUserMessage(msg);
+    const delivery = fanoutUserMessage(msg);
+
+    // Cache for idempotent retry. TTL + cap are enforced by the server-side
+    // helper (evictExpiredRecentSends).
+    if (clientMsgId && typeof clientMsgId === "string") {
+      ctx.recentSendsSet(ctx.recentSendsKey(workspaceId, senderName, clientMsgId), msg, delivery);
+    }
+
+    res.json({
+      messageId: msg.id,
+      message: msg,
+      clientMsgId: msg.clientMsgId || null,
+      delivery,
+    });
   });
 
   // POST /api/trigger — let external systems inject a message that behaves

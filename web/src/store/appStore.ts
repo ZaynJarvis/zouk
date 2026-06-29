@@ -298,6 +298,18 @@ export function useAppStore() {
   activeThreadMessageRef.current = activeThreadMessage;
   const hasResolvedInitialViewRef = useRef(false);
   const hasConnectedOnceRef = useRef(false);
+  // Outbox: clientMsgId -> { content, target, senderName, attachmentIds, attempts, status }
+  // Tracks optimistic messages until they are reconciled by either the HTTP
+  // response or a matching WS broadcast. Survives across re-renders (it's a
+  // ref) but not across reloads (intentional — same as the RFC's non-goal).
+  const pendingSendsRef = useRef<Map<string, {
+    content: string;
+    target: string;
+    senderName: string;
+    attachmentIds?: string[];
+    attempts: number;
+    status: 'pending' | 'sent' | 'failed';
+  }>>(new Map());
   const channelListReady = channels.length > 0;
 
   const serverUrl = import.meta.env.VITE_SLOCK_SERVER_URL || '';
@@ -393,6 +405,37 @@ export function useAppStore() {
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4000);
+  }, []);
+
+  // Reconcile a pending optimistic send by clientMsgId. Called from either
+  // the HTTP response path or the WS message handler — whichever fires first.
+  // Removes the pending entry and replaces the optimistic bubble (if present)
+  // with the confirmed server message. Returns true if a pending send was
+  // found and reconciled (so the WS handler can skip duplicate insertion).
+  const reconcilePendingSend = useCallback((clientMsgId: string, confirmedMsg: MessageRecord): boolean => {
+    const pending = pendingSendsRef.current.get(clientMsgId);
+    if (!pending) return false;
+    pendingSendsRef.current.delete(clientMsgId);
+    pending.status = 'sent';
+    // Replace the optimistic message in the active conversation's message list.
+    // The optimistic message was inserted with a synthetic id matching
+    // clientMsgId; replace it with the real server message.
+    setMessages(prev => {
+      const idx = prev.findIndex(m => m.clientMsgId === clientMsgId && m._sendState === 'pending');
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = { ...confirmedMsg, _sendState: undefined };
+      return next;
+    });
+    // Also reconcile thread messages if the confirmed message is in an open thread.
+    setThreadMessages(prev => {
+      const idx = prev.findIndex(m => m.clientMsgId === clientMsgId && m._sendState === 'pending');
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = { ...confirmedMsg, _sendState: undefined };
+      return next;
+    });
+    return true;
   }, []);
 
   const handleWsEvent = useCallback((event: WsEvent) => {
@@ -566,6 +609,19 @@ export function useAppStore() {
         }
 
         recordAgentLastChannel(msg);
+
+        // Outbox reconciliation: if this WS echo carries a clientMsgId that
+        // matches a pending optimistic send, replace the pending bubble with
+        // the confirmed message. This handles the iOS PWA case where the WS
+        // broadcast arrives before (or instead of) the HTTP response.
+        if (msg.clientMsgId) {
+          const reconciled = reconcilePendingSend(msg.clientMsgId, msg);
+          if (reconciled) {
+            // The optimistic message was already in the list; we just replaced
+            // it. Skip the normal append to avoid a duplicate.
+            break;
+          }
+        }
 
         if (msg.channel_type === 'thread') {
           const parentId = msg.parent_message_id;
@@ -848,7 +904,7 @@ export function useAppStore() {
         break;
       }
     }
-  }, [addToast, commitWorkspaceSelection, recordAgentLastChannel]);
+  }, [addToast, commitWorkspaceSelection, recordAgentLastChannel, reconcilePendingSend]);
 
   const setActiveWorkspaceId = useCallback((workspaceId: string) => {
     commitWorkspaceSelection(workspaceId, 'replace');
@@ -1183,6 +1239,60 @@ export function useAppStore() {
     }
   }, []);
 
+  // Retry a pending send that previously failed or timed out. Uses the same
+  // clientMsgId so the server dedupes if the first attempt actually landed.
+  const retryPendingSend = useCallback(async (clientMsgId: string): Promise<void> => {
+    const pending = pendingSendsRef.current.get(clientMsgId);
+    if (!pending) return;
+    if (pending.status === 'sent') return;
+    pending.attempts += 1;
+    pending.status = 'pending';
+    // Mark the optimistic bubble as pending again (in case it was failed).
+    setMessages(prev => prev.map(m =>
+      m.clientMsgId === clientMsgId && m._sendState === 'failed'
+        ? { ...m, _sendState: 'pending' as const }
+        : m
+    ));
+    try {
+      const result = await api.sendMessage(
+        pending.content,
+        pending.target,
+        pending.senderName,
+        pending.attachmentIds,
+        clientMsgId,
+      );
+      // HTTP succeeded — reconcile. If the WS echo already reconciled, this
+      // is a no-op. Otherwise, replace the optimistic bubble with the real
+      // message using the server-confirmed id.
+      const reconciled = reconcilePendingSend(clientMsgId, normalizeMessage(result.message));
+      if (!reconciled) {
+        // WS hasn't echoed yet. Replace the optimistic bubble with the
+        // confirmed message directly.
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.clientMsgId === clientMsgId && m._sendState === 'pending');
+          if (idx === -1) return prev;
+          const next = [...prev];
+          next[idx] = { ...normalizeMessage(result.message), _sendState: undefined };
+          return next;
+        });
+        pendingSendsRef.current.delete(clientMsgId);
+      }
+    } catch {
+      pending.status = 'failed';
+      setMessages(prev => prev.map(m =>
+        m.clientMsgId === clientMsgId && m._sendState === 'pending'
+          ? { ...m, _sendState: 'failed' as const }
+          : m
+      ));
+      if (pending.attempts < 3) {
+        // Silent retry after a short delay — don't toast on every attempt.
+        setTimeout(() => { void retryPendingSend(clientMsgId); }, 2000 * pending.attempts);
+      } else {
+        addToast('Message could not be delivered — will retry when online', 'error');
+      }
+    }
+  }, [addToast, reconcilePendingSend]);
+
   const sendMessageAction = useCallback(async (
     content: string,
     threadTarget?: string,
@@ -1190,14 +1300,142 @@ export function useAppStore() {
   ): Promise<boolean> => {
     const isDm = viewModeRef.current === 'dm';
     const target = threadTarget || (isDm ? `dm:@${activeChannelRef.current}` : `#${activeChannelRef.current}`);
-    try {
-      await api.sendMessage(content, target, currentUser, attachmentIds);
-      return true;
-    } catch {
-      addToast('Failed to send message', 'error');
-      return false;
+    const clientMsgId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `cm-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    // Build the optimistic message. Uses the clientMsgId as the synthetic id
+    // so the list can find and replace it on reconciliation.
+    const isThread = !!threadTarget;
+    const optimisticMsg: MessageRecord = {
+      id: clientMsgId,
+      message_id: clientMsgId,
+      workspaceId: activeWorkspaceRef.current,
+      channel_type: isThread ? 'thread' : (isDm ? 'dm' : 'channel'),
+      channel_name: isThread ? threadTarget! : activeChannelRef.current,
+      ...(isThread ? {
+        parent_channel_name: activeChannelRef.current,
+        parent_channel_type: isDm ? 'dm' : 'channel',
+      } : {}),
+      timestamp: new Date().toISOString(),
+      sender_type: 'human',
+      sender_name: currentUser,
+      content,
+      attachments: [],
+      clientMsgId,
+      _sendState: 'pending',
+    };
+
+    // Track in the outbox.
+    pendingSendsRef.current.set(clientMsgId, {
+      content,
+      target,
+      senderName: currentUser,
+      attachmentIds,
+      attempts: 0,
+      status: 'pending',
+    });
+
+    // Insert the optimistic message immediately so the composer can clear and
+    // the user can continue typing.
+    if (isThread) {
+      setThreadMessages(prev => [...prev, optimisticMsg]);
+    } else {
+      setMessages(prev => [...prev, optimisticMsg]);
     }
-  }, [currentUser, addToast]);
+
+    // Fire the HTTP request in the background. The composer does NOT await
+    // this — it returns true immediately so the user can keep typing.
+    // Reconciliation happens via either the HTTP response or the WS echo,
+    // whichever arrives first.
+    void (async () => {
+      try {
+        const result = await api.sendMessage(content, target, currentUser, attachmentIds, clientMsgId);
+        // HTTP response arrived. If the WS echo already reconciled, this is a
+        // no-op. Otherwise, replace the optimistic bubble.
+        const reconciled = reconcilePendingSend(clientMsgId, normalizeMessage(result.message));
+        if (!reconciled) {
+          const confirmed = normalizeMessage(result.message);
+          setMessages(prev => {
+            const idx = prev.findIndex(m => m.clientMsgId === clientMsgId && m._sendState === 'pending');
+            if (idx === -1) return prev;
+            const next = [...prev];
+            next[idx] = { ...confirmed, _sendState: undefined };
+            return next;
+          });
+          setThreadMessages(prev => {
+            const idx = prev.findIndex(m => m.clientMsgId === clientMsgId && m._sendState === 'pending');
+            if (idx === -1) return prev;
+            const next = [...prev];
+            next[idx] = { ...confirmed, _sendState: undefined };
+            return next;
+          });
+          pendingSendsRef.current.delete(clientMsgId);
+        }
+        // If the server reports zero recipients, surface a subtle hint so the
+        // user knows the message was stored but no agent was targeted (routing
+        // issue, not a network issue).
+        if (result.delivery && result.delivery.recipientCount === 0) {
+          addToast('Message sent — no agent currently targeted in this channel', 'info');
+        }
+      } catch {
+        // HTTP failed or timed out. Mark the optimistic bubble as failed and
+        // schedule a retry with the same clientMsgId (server dedupes).
+        const pending = pendingSendsRef.current.get(clientMsgId);
+        if (pending) {
+          pending.status = 'failed';
+          pending.attempts = 1;
+        }
+        setMessages(prev => prev.map(m =>
+          m.clientMsgId === clientMsgId && m._sendState === 'pending'
+            ? { ...m, _sendState: 'failed' as const }
+            : m
+        ));
+        setThreadMessages(prev => prev.map(m =>
+          m.clientMsgId === clientMsgId && m._sendState === 'pending'
+            ? { ...m, _sendState: 'failed' as const }
+            : m
+        ));
+        // Silent retry after a short delay.
+        setTimeout(() => { void retryPendingSend(clientMsgId); }, 3000);
+      }
+    })();
+
+    return true;
+  }, [currentUser, addToast, reconcilePendingSend, retryPendingSend]);
+
+  // Outbox retry triggers: when the page becomes visible, regains focus, or
+  // the network comes back online, retry any failed pending sends. This is
+  // the recovery path for iOS PWA where the fetch may have been dropped when
+  // the tab was backgrounded. Also kicks the WebSocket as a recovery nudge
+  // (not the source of truth for sending — the HTTP outbox is).
+  useEffect(() => {
+    const retryFailed = () => {
+      for (const [clientMsgId, pending] of pendingSendsRef.current) {
+        if (pending.status === 'failed') {
+          void retryPendingSend(clientMsgId);
+        }
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') retryFailed();
+    };
+    const onPageShow = () => {
+      // bfcache restore (iOS PWA back-forward) — retry outbox + kick WS.
+      retryFailed();
+      wsRef.current?.forceReconnect('pageshow');
+    };
+    const onOnline = () => {
+      retryFailed();
+      wsRef.current?.forceReconnect('online');
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [retryPendingSend]);
 
   const openThread = useCallback((message: MessageRecord) => {
     setActiveThreadMessage(message);

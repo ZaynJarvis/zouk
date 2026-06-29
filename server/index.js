@@ -1720,6 +1720,7 @@ function formatMessageForClient(msg, viewerName, options = {}) {
     // Include parties so frontend can resolve peer without viewerName
     ...(parties && !viewerName ? { dmParties: parties } : {}),
   };
+  if (msg.clientMsgId) base.clientMsgId = msg.clientMsgId;
   if (includeReplies && !isThread) {
     const { replies, replyCount } = collectThreadReplies(msg, threadReplyOverride);
     base.replies = replies.map((r) => formatMessageForClient(r, viewerName));
@@ -2284,25 +2285,26 @@ async function deliverToAgent(agentId, message) {
       payload = JSON.stringify({ type: "agent:deliver", agentId, seq, message: formatted });
     } catch (e) {
       console.error(`[delivery] serialize failed agent=${agentId} message=${message?.id} channel=${message?.channelName}:`, e.message);
-      return;
+      return "queued";
     }
     try {
       ws.send(payload);
     } catch (e) {
       console.error(`[delivery] ws.send failed agent=${agentId} message=${message?.id} seq=${seq} readyState=${ws.readyState}:`, e.message);
       queuePendingDelivery(agentId, message);
-      return;
+      return "queued";
     }
     // Do NOT pre-mark as read here. Pre-marking was breaking mid-turn steering
     // for notification-mode drivers (Claude): the daemon would notify the agent
     // "N new messages waiting", the agent would call check_messages, and the
     // server would return nothing because the message was already marked read.
     // The agent's own check_messages call now advances the cursor via /receive.
-    return;
+    return "sent";
   }
   const reason = ws ? `ws_state_${ws.readyState}` : "no_socket";
   console.warn(`[delivery] daemon not ready agent=${agentId} message=${message?.id} channel=${message?.channelName} reason=${reason}; queueing`);
   queuePendingDelivery(agentId, message);
+  return "queued";
 }
 
 function deliveryAgentsById() {
@@ -2376,10 +2378,34 @@ function deliverToAllAgents(message, excludeAgent = null) {
     excludeAgentId: excludeAgent,
   });
 
+  let sentCount = 0;
+  let queuedCount = 0;
   for (const agentId of recipientIds) {
-    deliverToAgent(agentId, message);
+    const result = deliverToAgent(agentId, message);
+    if (result === "queued") queuedCount++;
+    else if (result === "sent") sentCount++;
   }
   agentDeliveryRouter.recordMessage(message, { agentsById });
+
+  const delivery = {
+    recipientIds,
+    recipientCount: recipientIds.length,
+    sentCount,
+    queuedCount,
+  };
+
+  // Log delivery outcome so "agents didn't start working" is distinguishable
+  // from PWA network failure. recipientCount=0 means routing found no eligible
+  // agent (large channel, no @mention, no recently active agent) — NOT a
+  // network issue on the client side.
+  console.log(
+    `[delivery] message=${message.id} clientMsgId=${message.clientMsgId || "-"}`
+    + ` channel=${message.channelName} recipients=${recipientIds.length}`
+    + ` sent=${sentCount} queued=${queuedCount}`
+    + (recipientIds.length === 0 ? " ZERO_RECIPIENT" : "")
+  );
+
+  return delivery;
 }
 
 // ─── Express app ──────────────────────────────────────────────────
@@ -2666,7 +2692,38 @@ function requireWorkspaceAdmin(req, res, next) {
 // despite the message being saved + delivered. Persisting first, responding,
 // then fanning out preserves all downstream behavior in the same tick while
 // removing that ordering trap.
-function persistUserMessage({ workspaceId, channelId, channelName, channelType, threadId, senderName, senderType, content, attachments }) {
+// Bounded in-memory dedupe map for clientMsgId idempotency. Key:
+// `${workspaceId}:${senderName}:${clientMsgId}`. Prevents duplicate inserts
+// and duplicate fanouts when the client retries a POST whose first attempt
+// actually reached the server but whose HTTP response was lost (iOS PWA
+// backgrounding, NAT timeout, etc.). Process-local; not persisted to SQLite.
+const RECENT_SENDS_CAP = 1000;
+const RECENT_SENDS_TTL_MS = 5 * 60 * 1000;
+const recentSends = new Map(); // key -> { msg, delivery, expiresAt }
+
+function recentSendsKey(workspaceId, senderName, clientMsgId) {
+  return `${normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID)}:${senderName}:${clientMsgId}`;
+}
+
+function evictExpiredRecentSends() {
+  const nowMs = Date.now();
+  if (recentSends.size < RECENT_SENDS_CAP) {
+    // Cheap path: only scan for TTL expiry when the map is small.
+    for (const [k, v] of recentSends) {
+      if (v.expiresAt < nowMs) recentSends.delete(k);
+    }
+    return;
+  }
+  // Over cap — evict oldest entries until under cap. Map preserves insertion
+  // order, so the first entries are the oldest.
+  let toRemove = recentSends.size - RECENT_SENDS_CAP + 1;
+  for (const k of recentSends.keys()) {
+    recentSends.delete(k);
+    if (--toRemove <= 0) break;
+  }
+}
+
+function persistUserMessage({ workspaceId, channelId, channelName, channelType, threadId, senderName, senderType, content, attachments, clientMsgId }) {
   const msg = {
     id: uuidv4(),
     seq: nextSeq(),
@@ -2681,6 +2738,7 @@ function persistUserMessage({ workspaceId, channelId, channelName, channelType, 
     createdAt: now(),
     attachments: attachments || [],
   };
+  if (clientMsgId) msg.clientMsgId = clientMsgId;
   appendMessage(msg);
   db.saveMessage(msg);
   return msg;
@@ -2689,9 +2747,10 @@ function persistUserMessage({ workspaceId, channelId, channelName, channelType, 
 function fanoutUserMessage(msg) {
   // Regular channel delivery uses channel_agents membership; DM delivery
   // resolves parties from the canonical channel name inside deliverToAllAgents.
-  deliverToAllAgents(msg);
+  const delivery = deliverToAllAgents(msg);
   // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
   broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, message: formatMessageForClient(msg) });
+  return delivery;
 }
 
 async function postSystemMessage({ workspaceId, channelName = "all", channelType = "channel", content }) {
@@ -2764,6 +2823,18 @@ const webApiCtx = {
   purgeChannelMemberships,
   validateApiKey, findMachineKeyRecord, saveMachineKeys,
   now, workspaceIdFromAgent, workspaceIdFromReq,
+  // clientMsgId idempotency helpers
+  recentSendsKey,
+  recentSendsGet: (key) => {
+    const v = recentSends.get(key);
+    if (!v) return null;
+    if (v.expiresAt < Date.now()) { recentSends.delete(key); return null; }
+    return v;
+  },
+  recentSendsSet: (key, msg, delivery) => {
+    evictExpiredRecentSends();
+    recentSends.set(key, { msg, delivery, expiresAt: Date.now() + RECENT_SENDS_TTL_MS });
+  },
 };
 app.use("/api", createWebApiRouter(webApiCtx));
 
