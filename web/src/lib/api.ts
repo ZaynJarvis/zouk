@@ -72,6 +72,7 @@ export function normalizeMessage(m: any): MessageRecord {
     dm_parties: dmParties,
     replies: rawReplies ? rawReplies.map(normalizeMessage) : undefined,
     reply_count: replyCount,
+    clientMsgId: m.clientMsgId || m.client_msg_id,
   };
 }
 
@@ -129,21 +130,51 @@ export async function fetchThreadMessages(
   return (data.messages || []).map(normalizeMessage);
 }
 
+// Default timeout for POST /api/messages. On iOS PWA, a backgrounded tab can
+// hold the fetch promise open indefinitely even though the server already
+// processed the request. The timeout lets the outbox retry logic kick in
+// instead of waiting forever.
+const SEND_TIMEOUT_MS = 15_000;
+
+export interface SendMessageResult {
+  messageId: string;
+  message: unknown;
+  clientMsgId: string | null;
+  delivery?: {
+    recipientIds: string[];
+    recipientCount: number;
+    sentCount?: number;
+    queuedCount?: number;
+  };
+  deduplicated?: boolean;
+}
+
 export async function sendMessage(
   content: string,
   target: string,
   senderName: string,
   attachmentIds?: string[],
-): Promise<void> {
+  clientMsgId?: string,
+): Promise<SendMessageResult> {
   const url = `${getBaseUrl()}/api/messages`;
   const body: Record<string, unknown> = { content, target, senderName };
   if (attachmentIds && attachmentIds.length > 0) body.attachmentIds = attachmentIds;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
+  if (clientMsgId) body.clientMsgId = clientMsgId;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Failed to send message: ${res.status}`);
+    return await res.json() as SendMessageResult;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export interface UploadedAttachment {

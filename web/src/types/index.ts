@@ -20,6 +20,13 @@ export interface MessageRecord {
   dm_parties?: string[];
   replies?: MessageRecord[];
   reply_count?: number;
+  // Client-generated UUID for optimistic send / dedupe reconciliation.
+  // Present on pending messages and on server-confirmed messages when the
+  // client supplied one at send time.
+  clientMsgId?: string;
+  // Local-only send state: "pending" | "sent" | "failed".
+  // Not set for messages received from the server.
+  _sendState?: 'pending' | 'sent' | 'failed';
 }
 
 export interface ServerChannel {

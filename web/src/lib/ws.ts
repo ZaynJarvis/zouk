@@ -576,4 +576,31 @@ export class SlockWebSocket {
     this.emit({ type: 'ws:disconnected' });
     this.connect();
   }
+
+  // Public kick: tear down the current socket and re-handshake immediately.
+  // Used as a belt-and-suspenders recovery nudge on pageshow / online / focus
+  // / send-time. NOT the source of truth for sending (the HTTP outbox is),
+  // but a quick way to unstick a zombie iOS PWA WebSocket without waiting for
+  // the visibilitychange handler or the 70s watchdog.
+  forceReconnect(reason: string): void {
+    if (!this.reconnectEnabled) return;
+    const state = this.ws?.readyState;
+    wsLog(this.instanceId, `forceReconnect reason=${reason} state=${state ?? 'null'}`);
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+      try { this.ws.close(); } catch { /* ignore */ }
+      this.ws = null;
+    }
+    this.clearWatchdog();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this._connected = false;
+    this.emit({ type: 'ws:disconnected' });
+    this.connect();
+  }
 }

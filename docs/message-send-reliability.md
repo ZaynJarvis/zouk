@@ -103,6 +103,38 @@ Server always echoes `clientMsgId` on the broadcast for messages that carried on
 - **P1 (small, lands the fix)**: clientMsgId + dual-channel reconcile on the client. No retry, no dedupe table. Removes the user-visible bug for the common iOS PWA case where the WS broadcast arrives but the HTTP ack is lost.
 - **P2 (defense in depth)**: silent single retry + in-memory ring-buffer dedupe. Catches harder failures (HTTP and WS both delayed, or user manually re-clicks send after toast) without producing duplicates.
 
+## Implementation status (2026-06)
+
+P1 + P2 are both shipped. The implementation extends the original RFC with:
+
+### Client outbox (beyond the RFC)
+
+- `sendMessageAction` inserts an optimistic message into the message list **synchronously** (before the HTTP request fires). The composer clears immediately, so the user never blocks on the network round-trip.
+- Pending sends are tracked in `pendingSendsRef` (a `Map<clientMsgId, { content, target, senderName, attachmentIds, attempts, status }>`).
+- Reconciliation happens via either the HTTP response or the WS `message` event carrying `clientMsgId` — whichever fires first. The `reconcilePendingSend` helper deduplicates: if the WS echo already reconciled, the HTTP path is a no-op, and vice versa.
+- On HTTP failure/timeout (15s AbortController), the optimistic bubble flips to `_sendState: 'failed'` and a silent retry fires after 3s with the same `clientMsgId` (server dedupes).
+- Retry triggers: `visibilitychange` (visible), `pageshow` (bfcache restore), `online` (network recovery). These also call `ws.forceReconnect()` as a WS recovery nudge.
+- The optimistic message uses `clientMsgId` as its synthetic `id` so the list can find and replace it on reconciliation.
+
+### Server idempotency (as designed)
+
+- In-memory `recentSends` map: `Map<workspaceId:senderName:clientMsgId, { msg, delivery, expiresAt }>`.
+- TTL: 5 minutes. Cap: 1000 entries (oldest evicted).
+- On duplicate `clientMsgId`: returns the existing message + cached delivery with `deduplicated: true`. No re-insert, no re-fanout.
+- `clientMsgId` is stored on the message object (in-memory only, not persisted to SQLite) and echoed in `formatMessageForClient` for WS broadcasts.
+
+### Delivery observability (extends the RFC)
+
+- `deliverToAllAgents` returns `{ recipientIds, recipientCount, sentCount, queuedCount }`.
+- `deliverToAgent` returns `"sent"` or `"queued"` (previously returned `undefined`).
+- `POST /api/messages` response now includes a `delivery` object: `{ messageId, message, clientMsgId, delivery: { recipientIds, recipientCount, sentCount?, queuedCount? } }`.
+- Server logs `[delivery] message=<id> clientMsgId=<id> channel=<name> recipients=<n> sent=<n> queued=<n>` (plus `ZERO_RECIPIENT` tag when `recipientCount=0`).
+- Client surfaces an info toast when `recipientCount === 0`: "Message sent — no agent currently targeted in this channel", so the user can distinguish routing no-recipient from PWA network failure.
+
+### WS reconnect polish
+
+- Added public `forceReconnect(reason)` method to `SlockWebSocket`. Called on `pageshow` / `online` as a recovery kick, not as the source of truth for sending. The existing `visibilitychange` handler and 70s watchdog remain the primary WS recovery paths.
+
 ## What we are deliberately NOT doing
 
 - Persisting `clientMsgId` to SQLite. Process-local dedupe is enough; durability buys us nothing because the failure modes we care about all complete inside the live process.

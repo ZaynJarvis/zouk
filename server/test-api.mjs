@@ -2224,3 +2224,120 @@ test('customLauncher: PUT with empty string clears the field', async () => {
   const cfg = configs.find((c) => c.id === LAUNCHER_AGENT);
   assert.equal(cfg.customLauncher ?? null, null);
 });
+
+// ─── clientMsgId idempotency + delivery observability ────────────────────────
+
+test('POST /api/messages with clientMsgId returns message.clientMsgId + delivery', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-cmid-echo' }),
+  });
+  const { token } = await authRes.json();
+  const clientMsgId = 'cm-test-' + Date.now();
+
+  const { status, body } = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content: 'ci-cmid-echo-msg', clientMsgId }),
+  }));
+
+  assert.equal(status, 200);
+  assert.ok(body.messageId, 'response must include messageId');
+  assert.equal(body.clientMsgId, clientMsgId, 'response must echo clientMsgId');
+  assert.ok(body.delivery, 'response must include delivery object');
+  assert.equal(typeof body.delivery.recipientCount, 'number', 'delivery.recipientCount must be a number');
+  assert.ok(Array.isArray(body.delivery.recipientIds), 'delivery.recipientIds must be an array');
+});
+
+test('Repeating same clientMsgId returns same messageId and does not create a duplicate', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-cmid-dedup' }),
+  });
+  const { token } = await authRes.json();
+  const clientMsgId = 'cm-dedup-' + Date.now();
+  const content = 'ci-dedup-probe-' + Date.now();
+
+  // First send
+  const first = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content, clientMsgId }),
+  }));
+  assert.equal(first.status, 200);
+  const firstMessageId = first.body.messageId;
+
+  // Second send with same clientMsgId
+  const second = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content, clientMsgId }),
+  }));
+  assert.equal(second.status, 200);
+  assert.equal(second.body.messageId, firstMessageId, 'duplicate clientMsgId must return same messageId');
+  assert.equal(second.body.deduplicated, true, 'duplicate response must be marked deduplicated');
+
+  // Verify only one message exists in the channel history
+  const history = await json(await fetch(`${BASE}/api/messages`, {
+    headers: { 'X-Channel': '#all', 'X-Limit': '100' },
+  }));
+  const matches = history.body.messages.filter(m => m.content === content);
+  assert.equal(matches.length, 1, 'must not create a duplicate message in history');
+});
+
+test('fanout/delivery is not repeated for duplicate clientMsgId', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-cmid-fanout' }),
+  });
+  const { token } = await authRes.json();
+  const clientMsgId = 'cm-fanout-' + Date.now();
+  const content = 'ci-fanout-probe-' + Date.now();
+
+  // First send — should have delivery info
+  const first = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content, clientMsgId }),
+  }));
+  assert.equal(first.status, 200);
+  assert.ok(first.body.delivery, 'first send must have delivery');
+
+  // Second send — deduplicated, delivery should be the cached version
+  const second = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content, clientMsgId }),
+  }));
+  assert.equal(second.status, 200);
+  assert.equal(second.body.deduplicated, true);
+  // The delivery object should be present (cached from first send)
+  assert.ok(second.body.delivery, 'deduplicated response must include cached delivery');
+  assert.deepEqual(
+    second.body.delivery.recipientIds,
+    first.body.delivery.recipientIds,
+    'deduplicated delivery must match original recipientIds',
+  );
+});
+
+test('POST /api/messages without clientMsgId still works (backward compat)', async () => {
+  const authRes = await fetch(`${BASE}/api/auth/guest-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'ci-no-cmid' }),
+  });
+  const { token } = await authRes.json();
+
+  const { status, body } = await json(await fetch(`${BASE}/api/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ target: '#all', content: 'ci-no-cmid-msg' }),
+  }));
+
+  assert.equal(status, 200);
+  assert.equal(body.clientMsgId, null, 'clientMsgId must be null when not provided');
+  assert.ok(body.delivery, 'delivery must still be present');
+});
