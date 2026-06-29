@@ -77,6 +77,17 @@ function chooseWorkspaceId(workspaces: Workspace[], candidates: Array<string | n
   return workspaces[0]?.id || 'default';
 }
 
+function isSameMessageIdentity(a: MessageRecord, b: MessageRecord): boolean {
+  if (a.id && b.id && a.id === b.id) return true;
+  if (a.message_id && b.message_id && a.message_id === b.message_id) return true;
+  if (a.clientMsgId && b.clientMsgId && a.clientMsgId === b.clientMsgId) return true;
+  return false;
+}
+
+function appendMessageIfMissing(messages: MessageRecord[], msg: MessageRecord): MessageRecord[] {
+  return messages.some(m => isSameMessageIdentity(m, msg)) ? messages : [...messages, msg];
+}
+
 // Route post-login: priority is
 //   1. workspace embedded in the URL the user actually clicked from
 //   2. workspace the auth API said the request was for (`requestedWorkspaceId`,
@@ -458,8 +469,7 @@ export function useAppStore() {
                 if (activeWorkspaceRef.current !== workspaceId) return;
                 if (res.messages.length === 0) return;
                 setMessages(prev => {
-                  const known = new Set(prev.map(m => m.id));
-                  const fresh = res.messages.filter(m => !known.has(m.id));
+                  const fresh = res.messages.filter(m => !prev.some(existing => isSameMessageIdentity(existing, m)));
                   return fresh.length > 0 ? [...prev, ...fresh] : prev;
                 });
               })
@@ -477,8 +487,7 @@ export function useAppStore() {
               .then(msgs => {
                 if (activeWorkspaceRef.current !== workspaceId) return;
                 setThreadMessages(prev => {
-                  const known = new Set(prev.map(m => m.id));
-                  const fresh = msgs.filter(m => !known.has(m.id));
+                  const fresh = msgs.filter(m => !prev.some(existing => isSameMessageIdentity(existing, m)));
                   return fresh.length > 0 ? [...prev, ...fresh] : prev;
                 });
               })
@@ -635,7 +644,7 @@ export function useAppStore() {
             || open.id.slice(0, 8) === threadShortId
           );
           if (threadIsOpen) {
-            setThreadMessages(prev => [...prev, msg]);
+            setThreadMessages(prev => appendMessageIfMissing(prev, msg));
           }
 
           // Append the reply onto its parent's inline preview so the channel list
@@ -644,6 +653,7 @@ export function useAppStore() {
           setMessages(prev => prev.map(m => {
             const matches = parentId ? m.id === parentId : m.id.slice(0, 8) === threadShortId;
             if (!matches) return m;
+            if ((m.replies ?? []).some(reply => isSameMessageIdentity(reply, msg))) return m;
             const nextReplies = [...(m.replies ?? []), msg].slice(-3);
             return { ...m, replies: nextReplies, reply_count: (m.reply_count ?? 0) + 1 };
           }));
@@ -690,7 +700,7 @@ export function useAppStore() {
           if (isActiveConversation) {
             // Update channel_name to peer name for consistent frontend display
             if (isDmMessage) msg.channel_name = conversationKey;
-            setMessages(prev => [...prev, msg]);
+            setMessages(prev => appendMessageIfMissing(prev, msg));
           } else if (!isSelfMessage) {
             // Don't bump unread for our own echo — sending from another channel
             // or another tab shouldn't light up the destination we sent to.
@@ -1190,8 +1200,7 @@ export function useAppStore() {
       const res = await api.fetchMessages(activeChannelRef.current, isDm, 50, sender, oldest.id);
       if (activeWorkspaceRef.current !== workspaceId) return;
       setMessages(prev => {
-        const known = new Set(prev.map(m => m.id));
-        const fresh = res.messages.filter(m => !known.has(m.id));
+        const fresh = res.messages.filter(m => !prev.some(existing => isSameMessageIdentity(existing, m)));
         return [...fresh, ...prev];
       });
       setHasMoreMessages(res.hasMore);
