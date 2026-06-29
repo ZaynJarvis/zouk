@@ -441,6 +441,91 @@ async function testHttpOnlyNoWs(browser, opts, results) {
 }
 
 /**
+ * Test: http-then-ws-echo
+ * HTTP response reconciles the optimistic message first; the later WS echo
+ * for the same clientMsgId must not append a second visible message.
+ */
+async function testHttpThenWsEchoNoDuplicate(browser, opts, results) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  try {
+    let echoMessage = null;
+    let echoSent = false;
+
+    await page.route('**/api/messages', async (route) => {
+      const method = route.request().method();
+      if (method !== 'POST') return route.continue();
+      const body = route.request().postDataJSON();
+      const clientMsgId = body?.clientMsgId || null;
+      const msgId = `msg-http-first-${Date.now()}`;
+      echoMessage = {
+        type: 'message',
+        message: {
+          id: msgId,
+          channelName: 'all',
+          channelType: 'channel',
+          senderName: TEST_USER.name,
+          senderType: 'human',
+          content: body?.content || '',
+          createdAt: new Date().toISOString(),
+          ...(clientMsgId ? { clientMsgId } : {}),
+        },
+      };
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          messageId: msgId,
+          message: echoMessage.message,
+          clientMsgId,
+          delivery: { recipientIds: [], recipientCount: 1, sentCount: 1, queuedCount: 0 },
+        }),
+      });
+    });
+
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      ws.send(JSON.stringify({
+        type: 'init',
+        channels: FAKE_CHANNELS,
+        agents: FAKE_AGENTS,
+        humans: FAKE_HUMANS,
+        configs: FAKE_CONFIGS,
+        machines: FAKE_MACHINES,
+      }));
+      const timer = setInterval(() => {
+        if (!echoMessage || echoSent) return;
+        echoSent = true;
+        clearInterval(timer);
+        try { ws.send(JSON.stringify(echoMessage)); } catch (_) {}
+      }, 150);
+      ws.onMessage(() => {});
+      ws.onClose(() => clearInterval(timer));
+    });
+
+    await page.goto(opts.url, { waitUntil: 'domcontentloaded' });
+    await setupAuth(page);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(1500);
+
+    const PROBE = `outbox-http-then-ws-${Date.now()}`;
+    await page.locator('textarea').fill(PROBE);
+    await page.locator('textarea').press('Enter');
+
+    await page.waitForTimeout(2000);
+    const msgCount = await page.locator(`text=${PROBE}`).count();
+    if (msgCount === 1) {
+      pass(results, 'http-then-ws-echo: later WS echo does not duplicate HTTP-reconciled message');
+    } else {
+      fail(results, 'http-then-ws-echo', `expected 1 visible message, got ${msgCount}`);
+    }
+
+    await page.screenshot({ path: resolve(opts.out, 'outbox-05-http-then-ws.png') });
+  } finally {
+    await ctx.close();
+  }
+}
+
+/**
  * Test: zero-recipient-toast
  * Mock server response with recipientCount=0. UI should show an info toast
  * distinguishing "sent, no agent targeted" from a network failure.
@@ -507,6 +592,7 @@ async function main() {
     await testFailThenRetry(browser, opts, results);
     await testWsEchoBeforeHttp(browser, opts, results);
     await testHttpOnlyNoWs(browser, opts, results);
+    await testHttpThenWsEchoNoDuplicate(browser, opts, results);
     await testZeroRecipientToast(browser, opts, results);
   } finally {
     await browser.close();
