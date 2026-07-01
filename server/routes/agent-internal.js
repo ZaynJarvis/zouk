@@ -12,6 +12,13 @@ const AGENT_RECEIVE_BATCH_LIMIT = 500;
 function createAgentInternalRouter(ctx) {
   const router = Router({ mergeParams: true });
 
+  function agentNameFor(agentId) {
+    return ctx.agentPayload(agentId)?.name
+      || ctx.store.agents[agentId]?.name
+      || ctx.agentConfigs.find((c) => c.id === agentId)?.name
+      || agentId;
+  }
+
   // Agent token validation middleware
   router.use("/:agentId", (req, res, next) => {
     const header = req.headers.authorization;
@@ -34,7 +41,7 @@ function createAgentInternalRouter(ctx) {
     const { agentId } = req.params;
     const { target, content, attachmentIds } = req.body;
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
-    const senderName = ctx.agentPayload(agentId)?.name || agentId;
+    const senderName = agentNameFor(agentId);
     const { channelName, channelType, threadId } = ctx.parseTarget(target, senderName);
     const ch = ctx.findOrCreateChannel(channelName, channelType, workspaceId);
 
@@ -78,7 +85,7 @@ function createAgentInternalRouter(ctx) {
   router.get("/:agentId/receive", async (req, res) => {
     const { agentId } = req.params;
     const lastRead = ctx.store.agentReadSeq[agentId] || 0;
-    const selfName = ctx.agentPayload(agentId)?.name || agentId;
+    const selfName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const channelIds = ctx.visibleChannelIdsForAgent(agentId);
     const rows = channelIds.length > 0
@@ -153,7 +160,7 @@ function createAgentInternalRouter(ctx) {
   router.get("/:agentId/history", async (req, res) => {
     const { agentId } = req.params;
     const { channel, limit = 50, before, after, around } = req.query;
-    const agentName = ctx.store.agents[agentId]?.name || agentId;
+    const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const resolved = ctx.resolveTargetChannel(channel, agentName, workspaceId);
     if (!resolved.channel || !ctx.messageVisibleToAgent({
@@ -189,7 +196,7 @@ function createAgentInternalRouter(ctx) {
   // search_messages
   router.get("/:agentId/search", async (req, res) => {
     const { agentId } = req.params;
-    const agentName = ctx.store.agents[agentId]?.name || agentId;
+    const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const { q, limit = 10, channel } = req.query;
     let scopedChannelIds = ctx.visibleChannelIdsForAgent(agentId);
@@ -209,7 +216,7 @@ function createAgentInternalRouter(ctx) {
   router.get("/:agentId/tasks", (req, res) => {
     const { agentId } = req.params;
     const { channel, status } = req.query;
-    const agentName = ctx.store.agents[agentId]?.name || agentId;
+    const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     let tasks = ctx.store.tasks.filter((t) => (t.workspaceId || ctx.DEFAULT_WORKSPACE_ID) === workspaceId);
     if (channel) tasks = tasks.filter((t) => ctx.taskMatchesTarget(t, channel, agentName));
@@ -223,7 +230,7 @@ function createAgentInternalRouter(ctx) {
   router.post("/:agentId/tasks", async (req, res) => {
     const { agentId } = req.params;
     const { channel, tasks: taskDefs } = req.body;
-    const agentName = ctx.store.agents[agentId]?.name || agentId;
+    const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const { channelName, channelType } = ctx.parseTarget(channel, agentName);
     const ch = ctx.findOrCreateChannel(channelName, channelType, workspaceId);
@@ -247,7 +254,7 @@ function createAgentInternalRouter(ctx) {
   router.post("/:agentId/tasks/claim", async (req, res) => {
     const { agentId } = req.params;
     const { channel, task_numbers, message_ids } = req.body;
-    const agentName = ctx.store.agents[agentId]?.name || agentId;
+    const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
 
     const claimTask = async (task) => {
@@ -362,7 +369,7 @@ function createAgentInternalRouter(ctx) {
       task.status = status;
       await ctx.db.saveTask(task);
       await ctx.syncTaskBackingMessage(task);
-      const agentName = ctx.store.agents[agentId]?.name || agentId;
+      const agentName = agentNameFor(agentId);
       const emoji = status === "done" ? "✅" : status === "in_review" ? "👀" : "🔄";
       const chPayload = ctx.taskChannelPayload(task);
       const msg = { id: uuidv4(), seq: ctx.nextSeq(), ...chPayload, threadId: null, senderName: "system", senderType: "system", content: `${emoji} ${agentName} moved #${task_number} "${task.title}" to ${status}`, createdAt: ctx.now(), attachments: [], taskNumber: task_number, taskStatus: status };
@@ -376,7 +383,7 @@ function createAgentInternalRouter(ctx) {
   // resolve-channel
   router.post("/:agentId/resolve-channel", (req, res) => {
     const { agentId } = req.params;
-    const agentName = ctx.store.agents[agentId]?.name || agentId;
+    const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const { target } = req.body;
     const { channelName, channelType } = ctx.parseTarget(target, agentName);

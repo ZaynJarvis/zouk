@@ -1730,7 +1730,9 @@ function formatMessageForClient(msg, viewerName, options = {}) {
 }
 
 function formatMessageForAgent(msg, recipientAgentId) {
-  const agentName = recipientAgentId ? (store.agents[recipientAgentId]?.name || recipientAgentId) : null;
+  const agentName = recipientAgentId
+    ? (store.agents[recipientAgentId]?.name || agentConfigs.find((c) => c.id === recipientAgentId)?.name || recipientAgentId)
+    : null;
   const formatted = formatMessageForClient(msg, agentName);
   return {
     message_id: formatted.messageId,
