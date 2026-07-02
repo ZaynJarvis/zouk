@@ -414,6 +414,7 @@
         <a href="#run">直接运行</a>
         <a href="#api">API 速查</a>
         <a href="#patterns">测试套路</a>
+        <a href="#freshness">回复风暴评测</a>
       </nav>
     </div>
   </header>
@@ -668,6 +669,120 @@ test('my behavior contract', async (t) =&gt; {
         <div class="band amber">
           <p><strong>调试规则：</strong>如果你在修 server 行为，先只跑 <code>node --test server/test-simulation-e2e.mjs</code> 或你的新文件；通过后再跑 <code>npm run test:server</code>。</p>
         </div>
+      </div>
+    </section>
+
+    <section id="freshness">
+      <div class="wrap">
+        <h2>用脚本化 agent 复现「回复风暴」</h2>
+        <p class="lead"><code>server/test-support/zouk-scripted-agents.mjs</code> 在 sandbox 之上加了一层可编排的假 agent：不接真实 runtime，但按真实 daemon 的节奏 ack、思考、发送，专门用来压测 send-freshness 乐观锁（<code>ZOUK_SEND_FRESHNESS</code>）能不能把多 agent 同时抢答同一条消息的「回复风暴」摁下去。</p>
+
+        <div class="band green">
+          <p><strong>核心心智模型：</strong><code>createScriptedAgent</code> 只在自己「空闲」时才 ack 收到的 delivery；如果它正处在 <code>replyDelayMs</code> 的思考窗口里，新到的 delivery 会先排队，等这一轮发送完才补 ack。这一点是必须的 —— 一个「秒 ack 一切」的假 agent 永远不会过期，freshness 检查也就永远不会触发。</p>
+        </div>
+
+        <h3>createScriptedAgent(sim, daemon, opts)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>参数</th>
+              <th>默认值</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>name</code>, <code>machineId</code></td>
+              <td>必填</td>
+              <td>agent 名字（要满足 <code>^[a-z0-9][a-z0-9_-]*$</code>）和它挂在哪个 machine key 下。</td>
+            </tr>
+            <tr>
+              <td><code>channel</code></td>
+              <td><code>'#all'</code></td>
+              <td>订阅并回复的频道。</td>
+            </tr>
+            <tr>
+              <td><code>replyDelayMs</code></td>
+              <td><code>500</code></td>
+              <td>收到 delivery 到发出回复之间的「思考」延迟，多个 agent 错开这个值才能制造抢答时间差。</td>
+            </tr>
+            <tr>
+              <td><code>buildReply(message)</code></td>
+              <td>必填</td>
+              <td>返回要发送的文本；返回 falsy 值表示这条消息不值得回复（同样会被 ack，只是不触发发送）。</td>
+            </tr>
+            <tr>
+              <td><code>onHold</code></td>
+              <td><code>'llm-like'</code></td>
+              <td><code>'llm-like'</code>：若被 hold 时 <code>heldMessages</code> 里已经有别的 agent 抢答过，就放弃、不重发（模拟「看到别人答过就不重复」）。<code>'resend'</code>：无论如何都重发一次。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>返回 <code>{ agentId, name, counters, stop() }</code>，其中 <code>counters</code> 是 <code>{ sends, held, skipped, posted }</code>，可以直接拿来做评测汇总。</p>
+
+        <div class="callout">
+          <strong>常见坑：为什么我的 agent 从来没被 hold 过？</strong>
+          <p>最常见的原因是 channel 里活跃/订阅的 agent 数达到了 <code>agentDeliveryRouter.js</code> 里的 <code>LARGE_CHANNEL_AGENT_THRESHOLD = 4</code> —— 一旦达到 4 个，小频道全量 fanout 就会关闭，未 @提及的人类消息根本不会投递给任何 agent，自然也就没有「过期发送」可言。评测脚本默认用 3 个 agent 就是为了留在这条线以下。</p>
+        </div>
+
+        <h3>server/eval-reply-storm.mjs</h3>
+        <p>一个可以直接跑的评测脚本：1 条人类提问广播进 <code>#all</code>，若干个错峰思考的脚本化 agent 抢答，分别在 <code>ZOUK_SEND_FRESHNESS</code> 打开和关闭两种环境下各跑一次全新的 sandbox 实例，然后打印一张对比表。</p>
+
+        <div class="codebox">
+          <div class="codebar">
+            <span>Run with defaults (3 agents, llm-like policy)</span>
+            <button class="copy" type="button">Copy</button>
+          </div>
+          <pre><code>node server/eval-reply-storm.mjs</code></pre>
+        </div>
+
+        <div class="codebox">
+          <div class="codebar">
+            <span>Custom agent count / hold policy</span>
+            <button class="copy" type="button">Copy</button>
+          </div>
+          <pre><code>node server/eval-reply-storm.mjs --agents 3 --policy resend</code></pre>
+        </div>
+
+        <p>典型输出（3 个 <code>llm-like</code> agent）：</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>freshness</th>
+              <th>posted replies</th>
+              <th>holds issued</th>
+              <th>skipped (redundant)</th>
+              <th>spam score</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ON</td>
+              <td>1</td>
+              <td>2</td>
+              <td>2</td>
+              <td>0</td>
+            </tr>
+            <tr>
+              <td>OFF（<code>ZOUK_SEND_FRESHNESS=0</code>）</td>
+              <td>3</td>
+              <td>0</td>
+              <td>0</td>
+              <td>2</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p><code>spam score</code> = posted replies − 1（第一条回复总是「有效答复」，之后每多一条都是重复噪音）。可以看到打开 freshness 之后，3 个 agent 抢答同一条问题最终只有 1 条真正落地，另外 2 条在乐观锁前被 hold 并识别为冗余而放弃重发；关掉开关则是三个都硬发，完全体现「回复风暴」。</p>
+
+        <ul class="checklist">
+          <li><span class="mark">1</span><span>hold 没触发？先看脚本化 agent 是不是拿 deliver 帧里的 <code>cursor</code> 去 ack（<code>daemon.deliverAck(agentId, seq, cursor)</code>），而不是只传 <code>seq</code>。</span></li>
+          <li><span class="mark">2</span><span>回复目标要落在同一个 scope —— 普通 <code>#all</code> 消息的 scopeKey 是 <code>threadId</code> 为空的那个，跨线程回复不会互相触发 hold。</span></li>
+          <li><span class="mark">3</span><span>agent 自己发的消息不计入「过期」判断 —— 只有别的 sender 的新消息才会让你的发送被 hold。</span></li>
+          <li><span class="mark">4</span><span>把 <code>--agents</code> 调到 <code>LARGE_CHANNEL_AGENT_THRESHOLD</code>（4）或以上会让小频道 fanout 失效，评测会全部归零，这是预期行为不是 bug。</span></li>
+        </ul>
       </div>
     </section>
   </main>

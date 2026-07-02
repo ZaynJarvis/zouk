@@ -102,6 +102,7 @@ class SimulatedSocket {
     this.label = label;
     this.messages = [];
     this.waiters = new Set();
+    this.collectors = new Set();
     this.closed = false;
 
     ws.on('message', (raw) => {
@@ -129,6 +130,13 @@ class SimulatedSocket {
   }
 
   #record(event) {
+    // Collectors are non-exclusive observers: every event is offered to them
+    // before (and independent of) the single-shot waiter/buffer handling
+    // below, so collectFor() never "steals" an event a waitFor() is also
+    // watching for.
+    for (const collector of this.collectors) {
+      if (collector.predicate(event)) collector.matches.push(event);
+    }
     for (const waiter of this.waiters) {
       if (!waiter.predicate(event)) continue;
       clearTimeout(waiter.timer);
@@ -177,6 +185,25 @@ class SimulatedSocket {
 
   waitForType(type, timeoutMs = 3000) {
     return this.waitFor((event) => event.type === type, timeoutMs);
+  }
+
+  // Gathers every already-buffered AND future event matching `predicate`
+  // over a fixed window, instead of resolving on the first match like
+  // waitFor(). Useful for eval-style scenarios that need to count how many
+  // events of a kind landed during a settle window (e.g. all agent replies
+  // posted to a channel), rather than just the first one.
+  collectFor(predicate, windowMs) {
+    const collector = { predicate, matches: [] };
+    for (const event of this.messages) {
+      if (predicate(event)) collector.matches.push(event);
+    }
+    this.collectors.add(collector);
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        this.collectors.delete(collector);
+        resolve(collector.matches);
+      }, windowMs);
+    });
   }
 
   send(event) {
@@ -270,8 +297,10 @@ class SimulatedDaemon extends SimulatedSocket {
     });
   }
 
-  deliverAck(agentId, seq) {
-    this.send({ type: 'agent:deliver:ack', agentId, seq });
+  deliverAck(agentId, seq, cursor) {
+    const payload = { type: 'agent:deliver:ack', agentId, seq };
+    if (cursor) payload.cursor = cursor;
+    this.send(payload);
   }
 }
 
@@ -506,8 +535,8 @@ export class ZoukSimulation {
     return this.get(`/internal/agent/${encodeURIComponent(agentId)}/receive`);
   }
 
-  agentSend(agentId, { target = '#all', content, attachmentIds } = {}) {
-    return this.post(`/internal/agent/${encodeURIComponent(agentId)}/send`, { target, content, attachmentIds });
+  agentSend(agentId, { target = '#all', content, attachmentIds, clientMsgId } = {}) {
+    return this.post(`/internal/agent/${encodeURIComponent(agentId)}/send`, { target, content, attachmentIds, clientMsgId });
   }
 
   agentHistory(agentId, { channel = '#all', limit = 50, before, after, around } = {}) {
