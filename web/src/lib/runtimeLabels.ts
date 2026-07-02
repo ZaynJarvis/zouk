@@ -13,6 +13,7 @@ export const RUNTIME_LABELS: Record<string, string> = {
   coco: 'Coco',
   copilot: 'GitHub Copilot',
   cursor: 'Cursor',
+  droid: 'Droid (factory.ai)',
 };
 
 export function formatRuntime(id: string | null | undefined): string {

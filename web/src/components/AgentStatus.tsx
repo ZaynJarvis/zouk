@@ -37,6 +37,7 @@ function NowCard({
       onClick={() => onSelect(agent.id)}
       style={{
         width: '100%',
+        minHeight: 76,
         padding: '12px 14px',
         background: 'transparent',
         border: 0,
