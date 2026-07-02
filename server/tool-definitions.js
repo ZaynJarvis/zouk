@@ -10,7 +10,7 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
   const allTools = [
     {
       name: "send",
-      description: "Send a message to a channel, DM, or thread. Use the exact incoming thread target for intermediate follow-up in an existing thread; use the top-level channel or DM for final conclusions and completed work. Do not prefix DM messages with the recipient's @name.",
+      description: "Send a message to a channel, DM, or thread. Use the exact incoming thread target for intermediate follow-up in an existing thread; use the top-level channel or DM for final conclusions and completed work. Do not prefix DM messages with the recipient's @name. If the result says the message was HELD because newer messages arrived, read them first: skip sending if your reply became redundant (e.g. someone already answered), otherwise send again (revised if needed) — the retry will go through.",
       inputSchema: {
         type: "object",
         properties: {

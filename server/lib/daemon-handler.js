@@ -80,6 +80,7 @@ function createDaemonHandler(ctx) {
     broadcastToWeb, postSystemMessage,
     hydrateAgentContextUsage,
     replayPendingDeliveries,
+    advanceAgentSeen,
     hasWorkspaceFsCapability,
     now,
     recordWsConnectAttempt, recordInvalidTokenAttempt, recordWsDisconnect,
@@ -718,7 +719,15 @@ function createDaemonHandler(ctx) {
         break;
       }
       case "agent:deliver:ack": {
-        // Acknowledged delivery, no-op
+        // The daemon acks when the delivered text actually reaches the agent's
+        // model (immediately if idle/direct, at turn end if queued). `cursor`
+        // echoes what deliverToAgent attached and advances the seen-seq state
+        // behind the send freshness check. Legacy daemons ack without cursor —
+        // a no-op, same as the old behavior.
+        const { agentId, cursor } = msg;
+        if (agentId && cursor && cursor.scopeKey && Number.isFinite(cursor.seq)) {
+          advanceAgentSeen(agentId, cursor.scopeKey, cursor.seq);
+        }
         break;
       }
       case "agent:workspace:file_tree": {

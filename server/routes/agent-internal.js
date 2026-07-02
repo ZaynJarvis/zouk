@@ -8,6 +8,10 @@ const { v4: uuidv4 } = require("uuid");
 const sharp = require("sharp");
 
 const AGENT_RECEIVE_BATCH_LIMIT = 500;
+// Newest unseen messages shown inline in a held-send response. Older unseen
+// ones are counted (omittedMessageCount) but still marked seen — the shown
+// tail is the operative context.
+const HELD_MESSAGES_SHOWN_LIMIT = 5;
 
 function createAgentInternalRouter(ctx) {
   const router = Router({ mergeParams: true });
@@ -39,11 +43,58 @@ function createAgentInternalRouter(ctx) {
   // send_message
   router.post("/:agentId/send", (req, res) => {
     const { agentId } = req.params;
-    const { target, content, attachmentIds } = req.body;
+    const { target, content, attachmentIds, clientMsgId } = req.body;
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const senderName = agentNameFor(agentId);
     const { channelName, channelType, threadId } = ctx.parseTarget(target, senderName);
     const ch = ctx.findOrCreateChannel(channelName, channelType, workspaceId);
+
+    // Retry idempotency (same mechanism as the human send path): a daemon
+    // HTTP retry after a lost response must not insert a second message.
+    const dedupeKey = clientMsgId ? ctx.recentSendsKey(workspaceId, senderName, clientMsgId) : null;
+    if (dedupeKey) {
+      const cached = ctx.recentSendsGet(dedupeKey);
+      if (cached) return res.json({ messageId: cached.msg.id, recentUnread: [], deduplicated: true });
+    }
+
+    // Optimistic lock: hold the send when the target scope has messages the
+    // agent's model hasn't observed (per agent:deliver:ack / receive /
+    // history). The hold response shows the unseen tail and advances the seen
+    // cursor, so a considered re-send passes unless yet-newer messages land.
+    // Fails open when no cursor exists (fresh agent, server restart) or the
+    // channel tail cache is empty.
+    if (ctx.SEND_FRESHNESS_ENABLED) {
+      const scopeKey = `${ch.id}:${threadId || ""}`;
+      const seenSeq = ctx.agentSeenSeqFor(agentId, scopeKey);
+      if (seenSeq !== undefined) {
+        const tail = ctx.store.channelMessages.get(ch.id) || [];
+        // senderType "system" rows (task lifecycle notices) are excluded: they
+        // are never push-delivered to agents, so they'd otherwise sit above
+        // every cursor and hold every send in channels with task activity.
+        const unseen = tail.filter((m) =>
+          (m.threadId || null) === (threadId || null)
+          && m.seq > seenSeq
+          && m.senderName !== senderName
+          && m.senderType !== "system"
+        );
+        if (unseen.length > 0) {
+          const latestSeq = unseen[unseen.length - 1].seq;
+          ctx.advanceAgentSeen(agentId, scopeKey, latestSeq);
+          const shown = unseen.slice(-HELD_MESSAGES_SHOWN_LIMIT);
+          console.log(`[freshness] held send agent=${agentId} target=${target} seen=${seenSeq} latest=${latestSeq} unseen=${unseen.length}`);
+          return res.json({
+            state: "held",
+            reason: "newer_messages",
+            target,
+            heldMessages: shown.map((m) => ctx.formatMessageForAgent(m, agentId)),
+            newMessageCount: unseen.length,
+            shownMessageCount: shown.length,
+            omittedMessageCount: unseen.length - shown.length,
+            seenUpToSeq: latestSeq,
+          });
+        }
+      }
+    }
 
     const msg = {
       id: uuidv4(),
@@ -78,6 +129,7 @@ function createAgentInternalRouter(ctx) {
       }).catch(() => {});
     }
 
+    if (dedupeKey) ctx.recentSendsSet(dedupeKey, msg, null);
     res.json({ messageId: msg.id, recentUnread: [] });
   });
 
@@ -94,6 +146,11 @@ function createAgentInternalRouter(ctx) {
     const unread = rows
       .filter((m) => m.senderName !== selfName)
       .map((m) => ctx.formatMessageForAgent(m, agentId));
+    // Everything returned here is now in the agent's context — advance the
+    // per-scope seen cursors used by the send freshness check.
+    for (const m of rows) {
+      ctx.advanceAgentSeen(agentId, ctx.messageScopeKey(m), m.seq);
+    }
     if (rows.length >= AGENT_RECEIVE_BATCH_LIMIT) {
       ctx.store.agentReadSeq[agentId] = rows[rows.length - 1].seq;
     } else {
@@ -189,6 +246,9 @@ function createAgentInternalRouter(ctx) {
       const beforeSeq = before ? parseInt(before) : null;
       const afterSeq = after ? parseInt(after) : null;
       rows = await ctx.readChannelHistory({ workspaceId, channelId, threadId, beforeSeq, afterSeq, limit: limitNum });
+    }
+    for (const m of rows) {
+      ctx.advanceAgentSeen(agentId, ctx.messageScopeKey(m), m.seq);
     }
     res.json({ messages: rows.map((m) => ctx.formatMessageForAgent(m, agentId)), last_read_seq: ctx.store.seq, has_more: false, has_older: false, has_newer: false, historyLimited: false, historyLimitMessage: null });
   });

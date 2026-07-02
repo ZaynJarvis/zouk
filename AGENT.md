@@ -22,6 +22,7 @@ Read this first. If your runtime also auto-loads `CLAUDE.md`, treat that file as
 | Chat composer, message list, threads, side panels | `web/src/components/MessageComposer.tsx`, `web/src/components/MessageList.tsx`, `web/src/components/ThreadPanel.tsx`, `web/src/App.tsx` |
 | Agent detail, activity feed, agent state types | `web/src/components/AgentDetail.tsx`, `web/src/components/agent/AgentActivityFeed.tsx`, `web/src/types/index.ts` |
 | Server simulation / e2e sandbox | `server/test-support/zouk-simulation.mjs`, `server/test-simulation-e2e.mjs` |
+| Send freshness / duplicate-reply spam, seen-cursor | `docs/send-freshness.md`, `server/routes/agent-internal.js`, `server/index.js` (search `agentSeenSeq`) |
 | Themes and visual polish | `web/src/themes/*`, `web/src/components/SettingsModal.tsx`, `web/src/components/WorkspaceRail.tsx`, `web/src/index.css` |
 | API payload shape or naming drift | `web/src/lib/api.ts`, `web/src/types/index.ts`, `server/index.js` |
 | UI smoke tests and screenshot QA | `web/tests/ui-smoke.mjs`, `web/scripts/qa-runner.mjs`, `web/scripts/qa-lib.mjs` |

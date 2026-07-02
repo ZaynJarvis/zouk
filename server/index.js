@@ -720,6 +720,13 @@ const store = {
   agents: {}, // agentId -> { name, displayName, runtime, model, status, sessionId, ws }
   humans: [],
   agentReadSeq: {}, // agentId -> last seq delivered/read
+  // Optimistic-lock cursor for agent sends: agentId -> { scopeKey -> highest
+  // message seq the agent's model has actually observed for that scope }.
+  // scopeKey = `${channelId}:${threadId || ""}`. Advanced by daemon
+  // agent:deliver:ack (fires when text reaches the model), /receive, /history,
+  // and held-send responses. In-memory only — on restart the send freshness
+  // check fails open until the agent observes something again.
+  agentSeenSeq: {},
   // channelAgents: channelId -> Map<agentId, { canRead, subscribed }>
   // Absence of (channelId, agentId) = agent is NOT a member of that channel.
   // subscribed controls WS-push wakeup; canRead controls /receive, /history, /search visibility.
@@ -810,6 +817,26 @@ function seedFromBootstrap(msgs) {
 
 function nextSeq() {
   return ++store.seq;
+}
+
+// ─── Send freshness (optimistic lock on agent sends) ──────────────
+// See store.agentSeenSeq. A send is held when the target scope contains
+// messages the sending agent's model has not observed yet.
+
+const SEND_FRESHNESS_ENABLED = process.env.ZOUK_SEND_FRESHNESS !== "0";
+
+function messageScopeKey(msg) {
+  return msg.channelId ? `${msg.channelId}:${msg.threadId || ""}` : null;
+}
+
+function advanceAgentSeen(agentId, scopeKey, seq) {
+  if (!agentId || !scopeKey || !Number.isFinite(seq)) return;
+  const seen = store.agentSeenSeq[agentId] || (store.agentSeenSeq[agentId] = {});
+  if (!seen[scopeKey] || seen[scopeKey] < seq) seen[scopeKey] = seq;
+}
+
+function agentSeenSeqFor(agentId, scopeKey) {
+  return store.agentSeenSeq[agentId]?.[scopeKey];
 }
 function nextTaskNum() {
   return ++store.taskSeq;
@@ -2282,9 +2309,17 @@ async function deliverToAgent(agentId, message) {
       }
     }
 
+    // Seen-cursor handshake: the daemon echoes `cursor` back in
+    // agent:deliver:ack once the text actually reaches the agent's model
+    // (immediately if idle, at turn end if queued). That ack — not this send —
+    // advances store.agentSeenSeq for the send freshness check.
+    const scopeKey = messageScopeKey(message);
+    const cursor = scopeKey && Number.isFinite(message.seq)
+      ? { scopeKey, seq: message.seq }
+      : undefined;
     let payload;
     try {
-      payload = JSON.stringify({ type: "agent:deliver", agentId, seq, message: formatted });
+      payload = JSON.stringify({ type: "agent:deliver", agentId, seq, message: formatted, cursor });
     } catch (e) {
       console.error(`[delivery] serialize failed agent=${agentId} message=${message?.id} channel=${message?.channelName}:`, e.message);
       return "queued";
@@ -2538,6 +2573,9 @@ app.use("/internal/agent", createAgentInternalRouter({
   workspaceIdFromAgent, isReservedName,
   messagesById, messagesByShortId,
   ovLifecycle, isOvPluginForAgent, agentConfigs,
+  // Send freshness (optimistic lock) + retry idempotency
+  SEND_FRESHNESS_ENABLED, messageScopeKey, advanceAgentSeen, agentSeenSeqFor,
+  recentSendsKey, recentSendsGet, recentSendsSet,
 }));
 
 function attachmentDispositionFilename(filename) {
@@ -2725,6 +2763,18 @@ function evictExpiredRecentSends() {
   }
 }
 
+function recentSendsGet(key) {
+  const v = recentSends.get(key);
+  if (!v) return null;
+  if (v.expiresAt < Date.now()) { recentSends.delete(key); return null; }
+  return v;
+}
+
+function recentSendsSet(key, msg, delivery) {
+  evictExpiredRecentSends();
+  recentSends.set(key, { msg, delivery, expiresAt: Date.now() + RECENT_SENDS_TTL_MS });
+}
+
 function persistUserMessage({ workspaceId, channelId, channelName, channelType, threadId, senderName, senderType, content, attachments, clientMsgId }) {
   const msg = {
     id: uuidv4(),
@@ -2826,17 +2876,7 @@ const webApiCtx = {
   validateApiKey, findMachineKeyRecord, saveMachineKeys,
   now, workspaceIdFromAgent, workspaceIdFromReq,
   // clientMsgId idempotency helpers
-  recentSendsKey,
-  recentSendsGet: (key) => {
-    const v = recentSends.get(key);
-    if (!v) return null;
-    if (v.expiresAt < Date.now()) { recentSends.delete(key); return null; }
-    return v;
-  },
-  recentSendsSet: (key, msg, delivery) => {
-    evictExpiredRecentSends();
-    recentSends.set(key, { msg, delivery, expiresAt: Date.now() + RECENT_SENDS_TTL_MS });
-  },
+  recentSendsKey, recentSendsGet, recentSendsSet,
 };
 app.use("/api", createWebApiRouter(webApiCtx));
 
@@ -3005,6 +3045,7 @@ const daemonHandler = createDaemonHandler({
   broadcastToWeb, postSystemMessage,
   hydrateAgentContextUsage,
   replayPendingDeliveries,
+  advanceAgentSeen,
   hasWorkspaceFsCapability,
   now,
   recordWsConnectAttempt, recordInvalidTokenAttempt, recordWsDisconnect,
