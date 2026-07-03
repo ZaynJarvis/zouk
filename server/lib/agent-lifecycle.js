@@ -369,7 +369,10 @@ function createAgentLifecycle(ctx) {
   // Start all auto-start agents (called when daemon connects)
   async function autoStartAgents() {
     const { agentConfigs, store } = ctx;
-    const autoStart = agentConfigs.filter((c) => c.autoStart);
+    // Skip clones (autoStart=false) and any agent with cloneOf set as a
+    // belt-and-suspenders guard — clones must be explicitly started via the
+    // clone API.
+    const autoStart = agentConfigs.filter((c) => c.autoStart && !c.cloneOf);
     for (const config of autoStart) {
       const status = store.agents[config.id]?.status;
       if (status === "active" || status === "starting") continue;
@@ -424,11 +427,305 @@ function createAgentLifecycle(ctx) {
     res.json(result);
   });
 
+  // ─── Clone agent ────────────────────────────────────────────────
+  // Max live clones per parent. Clones are ephemeral helpers — cap keeps
+  // resource usage bounded and prevents runaway fan-out.
+  const MAX_CLONES_PER_PARENT = 4;
+
+  function countLiveClonesOfParent(parentId, workspaceId) {
+    const { agentConfigs, store } = ctx;
+    const DEFAULT_WORKSPACE_ID = ctx.DEFAULT_WORKSPACE_ID;
+    const normalizeWorkspaceId = ctx.normalizeWorkspaceId;
+    const wsId = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
+    let count = 0;
+    for (const cfg of agentConfigs) {
+      if (cfg.cloneOf !== parentId) continue;
+      if (normalizeWorkspaceId(cfg.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+      // Count configs that still exist (dissolved clones are removed from agentConfigs).
+      // Also check the runtime store for active status.
+      count++;
+    }
+    return count;
+  }
+
+  function allocateCloneIdentity(parentCfg, parentId, workspaceId) {
+    const { agentConfigs, store } = ctx;
+    const DEFAULT_WORKSPACE_ID = ctx.DEFAULT_WORKSPACE_ID;
+    const normalizeWorkspaceId = ctx.normalizeWorkspaceId;
+    const isAgentNameTaken = ctx.isAgentNameTaken;
+    const isValidAgentHandle = ctx.isValidAgentHandle;
+    const wsId = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
+    const parentName = parentCfg.name || parentId;
+
+    // Collect existing clone numbers for this parent
+    const usedNumbers = new Set();
+    for (const cfg of agentConfigs) {
+      if (cfg.cloneOf !== parentId) continue;
+      if (normalizeWorkspaceId(cfg.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
+      const match = (cfg.name || "").match(/-c(\d+)$/);
+      if (match) usedNumbers.add(parseInt(match[1], 10));
+    }
+    // Also check running agents
+    for (const [id, a] of Object.entries(store.agents)) {
+      const cfg = agentConfigs.find((c) => c.id === id);
+      if (cfg?.cloneOf !== parentId) continue;
+      const match = (a.name || id).match(/-c(\d+)$/);
+      if (match) usedNumbers.add(parseInt(match[1], 10));
+    }
+
+    // Find the first unused number starting from 1 whose name is not taken by
+    // ANY agent (not just other clones). The -cN suffix might collide with a
+    // regular agent someone created manually.
+    let cloneNum = 1;
+    while (usedNumbers.has(cloneNum) || isAgentNameTaken(`${parentName}-c${cloneNum}`, null, workspaceId)) {
+      cloneNum++;
+    }
+
+    const cloneName = `${parentName}-c${cloneNum}`;
+    const cloneId = `${parentId}-c${cloneNum}`;
+
+    return { cloneName, cloneId, cloneNum };
+  }
+
+  async function cloneAgent(parentId, options = {}) {
+    const {
+      store, agentConfigs, db, agentAuth,
+      daemonConnections, daemonSockets,
+      normalizeWorkspaceId, DEFAULT_WORKSPACE_ID,
+      agentPayload, sanitizedAgentConfigs,
+      broadcastToWeb, workspaceIdFromAgent,
+      saveAgentConfigs,
+      agentAuth: { revoke: revokeToken },
+      purgeAgentMemberships, purgeUnknownAgentState,
+    } = ctx;
+
+    const workspaceId = normalizeWorkspaceId(options.workspaceId || DEFAULT_WORKSPACE_ID);
+
+    // Find parent config
+    const parentCfg = agentConfigs.find((c) => c.id === parentId);
+    if (!parentCfg) return { error: "Parent agent not found", status: 404 };
+    if (normalizeWorkspaceId(parentCfg.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) {
+      return { error: "Parent agent not found", status: 404 };
+    }
+
+    // Reject clones of clones
+    if (parentCfg.cloneOf) {
+      return { error: "Cannot clone a clone. Clone the original agent instead.", status: 400 };
+    }
+
+    // Enforce cap
+    const liveClones = countLiveClonesOfParent(parentId, workspaceId);
+    if (liveClones >= MAX_CLONES_PER_PARENT) {
+      return {
+        error: `Maximum ${MAX_CLONES_PER_PARENT} clones per agent already running`,
+        status: 409,
+      };
+    }
+
+    // Allocate identity
+    const { cloneName, cloneId, cloneNum } = allocateCloneIdentity(parentCfg, parentId, workspaceId);
+
+    // Build clone config: share identity assets, fresh instance fields
+    const cloneConfig = {
+      id: cloneId,
+      workspaceId,
+      name: cloneName,
+      displayName: `${parentCfg.displayName || parentCfg.name || parentId} (clone ${cloneNum})`,
+      description: parentCfg.description || "",
+      systemPrompt: parentCfg.systemPrompt || parentCfg.description || "",
+      runtime: parentCfg.runtime || "claude",
+      model: parentCfg.model,
+      machineId: parentCfg.machineId,
+      workDir: parentCfg.workDir,
+      autoStart: false,
+      lifecycle: "ephemeral",
+      cloneOf: parentId,
+      // Shared OV identity: same user_id + api_key = same memory namespace.
+      // The ov-mcp proxy keys sessions per apiKey+user, so committed archives
+      // are shared; the clone's openvikingSessionId suffix keeps its pending
+      // buffer isolated from the parent.
+      openvikingEnabled: parentCfg.openvikingEnabled,
+      openvikingUserId: parentCfg.openvikingUserId,
+      openvikingApiKey: parentCfg.openvikingApiKey,
+      openvikingUrl: parentCfg.openvikingUrl,
+      openvikingSessionId: parentCfg.openvikingSessionId
+        ? `${parentCfg.openvikingSessionId}-c${cloneNum}`
+        : undefined,
+      openvikingMode: parentCfg.openvikingMode,
+      openvikingCustomUrl: parentCfg.openvikingCustomUrl,
+      openvikingCustomApiKey: parentCfg.openvikingCustomApiKey,
+      ovMcpEnabled: parentCfg.ovMcpEnabled,
+      ovLifecycleMode: parentCfg.ovLifecycleMode,
+      disableLocalOvPlugin: parentCfg.disableLocalOvPlugin,
+      envVars: parentCfg.envVars,
+      customLauncher: parentCfg.customLauncher,
+      picture: parentCfg.picture,
+    };
+
+    // Push config into agentConfigs so startAgentOnDaemon can find it.
+    // We save to disk + DB after successful start, but the in-memory array
+    // needs it for the start path.
+    agentConfigs.push(cloneConfig);
+    saveAgentConfigs(agentConfigs);
+    db.saveAgentConfig(cloneConfig);
+
+    // Start the clone on the parent's machine. Pass resumeSession: false so
+    // it gets a clean session (no conversation context carryover).
+    const result = await startAgentOnDaemon(cloneId, cloneConfig, { resumeSession: false });
+    if (result.error) {
+      // Roll back the config we pushed
+      const idx = agentConfigs.findIndex((c) => c.id === cloneId);
+      if (idx >= 0) agentConfigs.splice(idx, 1);
+      saveAgentConfigs(agentConfigs);
+      db.deleteAgentConfig(cloneId);
+      return { error: result.error, status: 400 };
+    }
+
+    // Mark the clone as active in the runtime store so that the initial prompt
+    // (if any) passes deliverToAllAgents' status==="active" filter. The daemon
+    // socket is already set up — the message will be queued there.
+    if (store.agents[cloneId]) store.agents[cloneId].status = "active";
+
+    // If a channel was requested at clone time, subscribe the clone there.
+    // This is the only way a clone receives channel fan-out — otherwise it's
+    // DM-only (the anti-double-reply policy).
+    if (options.channel) {
+      try {
+        const { setMembership, findOrCreateChannel, parseTarget } = ctx;
+        const { channelName, channelType } = parseTarget(options.channel, cloneName);
+        const ch = await findOrCreateChannel(channelName, channelType, workspaceId);
+        if (ch && setMembership) {
+          await setMembership(ch.id, cloneId, { canRead: true, subscribed: true });
+        }
+      } catch (err) {
+        console.warn(`[clone] Failed to subscribe clone ${cloneId} to channel ${options.channel}: ${err.message}`);
+      }
+    }
+
+    // If a prompt was given, post it as a DM from the caller to the clone.
+    // This wakes the clone immediately via normal delivery.
+    if (options.prompt && options.callerName) {
+      try {
+        const { persistUserMessage, fanoutUserMessage, findOrCreateChannel, parseTarget } = ctx;
+        const dmTarget = `dm:@${cloneName}`;
+        const { channelName, channelType } = parseTarget(dmTarget, options.callerName);
+        const ch = await findOrCreateChannel(channelName, channelType, workspaceId);
+        const msg = persistUserMessage({
+          workspaceId,
+          channelId: ch.id,
+          channelName,
+          channelType,
+          threadId: null,
+          senderName: options.callerName,
+          senderType: "human",
+          content: options.prompt,
+          attachments: [],
+        });
+        await fanoutUserMessage(msg);
+      } catch (err) {
+        console.warn(`[clone] Failed to post initial prompt to clone ${cloneId}: ${err.message}`);
+      }
+    }
+
+    console.log(`[clone] Created clone ${cloneId} (${cloneName}) of ${parentId}`);
+    return { cloneId, name: cloneName, displayName: cloneConfig.displayName };
+  }
+
+  // Clone an agent
+  router.post("/api/agents/:id/clone", ctx.requireAuth, async (req, res) => {
+    try {
+    const { id } = req.params;
+    const workspaceId = req.workspaceId || ctx.DEFAULT_WORKSPACE_ID;
+    if (ctx.workspaceIdFromAgent(id) !== workspaceId) {
+      return res.status(404).json({ error: "Agent not found" });
+    }
+
+    const callerName = req.user?.name || "local-user";
+
+    const result = await cloneAgent(id, {
+      workspaceId,
+      prompt: req.body?.prompt,
+      channel: req.body?.channel,
+      callerName,
+    });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    res.json(result);
+    } catch (err) {
+      console.error("[clone] route error:", err);
+      res.status(500).json({ error: err.message || "Internal error" });
+    }
+  });
+
+  // Dissolve a clone: stop the process, delete the config, purge memberships.
+  // Messages the clone sent remain (they're normal channel/DM history).
+  // Called from the stop route when cfg.cloneOf is set.
+  async function dissolveClone(agentId, workspaceId) {
+    const {
+      store, agentConfigs, db, agentAuth,
+      daemonSockets,
+      broadcastToWeb, sanitizedAgentConfigs,
+      saveAgentConfigs,
+      purgeAgentMemberships, purgeUnknownAgentState,
+    } = ctx;
+
+    const cfg = agentConfigs.find((c) => c.id === agentId);
+    if (!cfg || !cfg.cloneOf) return false;
+
+    // Commit any pending OV session before tearing down
+    if (ctx.ovLifecycle && cfg.openvikingApiKey) {
+      ctx.ovLifecycle.commitSession(agentId).catch(() => {});
+    }
+
+    // Stop the daemon process
+    ctx.sendAgentStop(agentId);
+
+    // Remove config
+    const idx = agentConfigs.findIndex((c) => c.id === agentId);
+    if (idx >= 0) {
+      agentConfigs.splice(idx, 1);
+      saveAgentConfigs(agentConfigs);
+      db.deleteAgentConfig(agentId);
+    }
+
+    // Revoke token
+    agentAuth.revoke(agentId);
+
+    // Purge channel memberships
+    purgeAgentMemberships(agentId);
+
+    // Remove runtime state
+    purgeUnknownAgentState(agentId);
+    if (store.agents[agentId]) delete store.agents[agentId];
+    daemonSockets.delete(agentId);
+
+    // Broadcast removal
+    broadcastToWeb({ type: "agent_status", workspaceId, agentId, status: "deleted" });
+    broadcastToWeb({
+      type: "config_updated",
+      workspaceId,
+      configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || ctx.DEFAULT_WORKSPACE_ID) === workspaceId),
+    });
+
+    console.log(`[clone] Dissolved clone ${agentId} of ${cfg.cloneOf}`);
+    return true;
+  }
+
   // Stop an agent
-  router.post("/api/agents/:id/stop", ctx.requireAuth, (req, res) => {
+  router.post("/api/agents/:id/stop", ctx.requireAuth, async (req, res) => {
+    try {
     const { id } = req.params;
     const workspaceId = req.workspaceId || ctx.DEFAULT_WORKSPACE_ID;
     if (ctx.workspaceIdFromAgent(id) !== workspaceId) return res.status(404).json({ error: "Agent not found" });
+
+    // If this is a clone, dissolve it instead of just stopping
+    const cfg = ctx.agentConfigs.find((c) => c.id === id);
+    if (cfg?.cloneOf) {
+      await dissolveClone(id, workspaceId);
+      return res.json({ success: true, dissolved: true });
+    }
+
     const ws = ctx.daemonSockets.get(id);
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: "agent:stop", agentId: id }));
@@ -439,6 +736,10 @@ function createAgentLifecycle(ctx) {
     }
     console.log(`[api] Stopping agent ${id}`);
     res.json({ success: true });
+    } catch (err) {
+      console.error("[stop] route error:", err);
+      res.status(500).json({ error: err.message || "Internal error" });
+    }
   });
 
   // Reset an agent's conversation context: SIGTERM the running process, wait for
@@ -477,7 +778,7 @@ function createAgentLifecycle(ctx) {
     res.json({ success: true });
   });
 
-  return { startAgentOnDaemon, autoStartAgents, router };
+  return { startAgentOnDaemon, autoStartAgents, cloneAgent, dissolveClone, router };
 }
 
 module.exports = { createAgentLifecycle };

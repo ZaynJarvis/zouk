@@ -101,6 +101,18 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
       },
       local: true,
     },
+    {
+      name: "clone",
+      description: "Clone yourself to create a helper agent that shares your workspace, OpenViking memory, and persona. The clone runs in a clean session (no conversation context carryover) and only receives DMs and @mentions — it does NOT receive channel broadcasts (to avoid double-replying). Use this to parallelize work: spawn a clone for a subtask, send it a DM with instructions, and it will work independently. Up to 4 clones can be active at once.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "Initial instructions to DM to the clone. If provided, the clone receives this as a direct message immediately upon creation." },
+          channel: { type: "string", description: "Optional channel to subscribe the clone to (e.g. '#my-project'). Without this, the clone is DM-only. Use sparingly — the clone will reply to all channel messages." },
+        },
+        required: [],
+      },
+    },
   ];
 
   // OV tools are injected by the caller (server/index.js) from OV's /mcp

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FolderOpen, Activity, Settings, Zap, ArrowLeft, RefreshCw, X } from 'lucide-react';
+import { FolderOpen, Activity, Settings, Zap, ArrowLeft, RefreshCw, X, GitBranch } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../types';
 import { useApp } from '../store/AppContext';
 import { activityLabels } from '../lib/activityStatus';
@@ -374,6 +374,7 @@ export default function AgentDetail({
   onUpdate,
   onStop,
   onDelete,
+  onClone,
   onBack,
 }: {
   agent: ServerAgent;
@@ -382,6 +383,7 @@ export default function AgentDetail({
   onUpdate: (updates: Partial<ServerAgent>) => void;
   onStop: () => void;
   onDelete: () => void;
+  onClone?: () => void;
   onBack?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab || 'settings');
@@ -437,6 +439,28 @@ export default function AgentDetail({
               {agent.description}
             </p>
           )}
+          {agent.cloneOf && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                marginTop: 4,
+                padding: '2px 8px',
+                fontSize: 11,
+                fontWeight: 500,
+                color: 'var(--zk-ember)',
+                background: 'var(--zk-ember-soft)',
+                border: '1px solid var(--zk-ember-line)',
+                borderRadius: 999,
+                fontFamily: 'var(--zk-font-mono)',
+              }}
+              title={`Clone of agent ${agent.cloneOf}`}
+            >
+              <GitBranch size={10} />
+              clone of {agent.cloneOf}
+            </div>
+          )}
         </div>
         <div
           className="hidden sm:block"
@@ -488,7 +512,7 @@ export default function AgentDetail({
         {tab === 'skills' && <SkillsTab agent={agent} onUpdate={onUpdate} />}
         {tab === 'workspace' && <WorkspaceTab agent={agent} />}
         {tab === 'activity' && <ActivityTab agent={agent} />}
-        {tab === 'settings' && <AgentConfigForm agent={agent} machines={machines} onStop={onStop} onDelete={onDelete} />}
+        {tab === 'settings' && <AgentConfigForm agent={agent} machines={machines} onStop={onStop} onDelete={onDelete} onClone={onClone} />}
       </div>
     </div>
   );

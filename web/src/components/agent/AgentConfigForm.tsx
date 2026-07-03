@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Save, Square, Play, Trash2, Camera,
-  Copy, Check, Cpu, Zap,
+  Copy, Check, Cpu, Zap, GitBranch,
 } from 'lucide-react';
 import type { ServerAgent, ServerMachine } from '../../types';
 import { useApp } from '../../store/AppContext';
@@ -17,12 +17,14 @@ export default function AgentConfigForm({
   machines,
   onStop,
   onDelete,
+  onClone,
   compact = false,
 }: {
   agent: ServerAgent;
   machines?: ServerMachine[];
   onStop: () => void;
   onDelete: () => void;
+  onClone?: () => void;
   compact?: boolean;
 }) {
   const { configs, profilePresets, isGuest, startAgent, updateAgentConfig, canAdminWorkspace } = useApp();
@@ -436,6 +438,11 @@ export default function AgentConfigForm({
               {isDirty && (
                 <button onClick={handleSave} className="zk-btn zk-btn--primary">
                   <Save size={12} /> Save
+                </button>
+              )}
+              {!agent.cloneOf && onClone && (
+                <button onClick={onClone} className="zk-btn" title="Create a helper clone sharing this agent's workspace and memory">
+                  <GitBranch size={12} /> Clone
                 </button>
               )}
               <button onClick={onDelete} className="zk-btn zk-btn--danger">

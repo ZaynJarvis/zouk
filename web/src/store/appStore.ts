@@ -1609,6 +1609,17 @@ export function useAppStore() {
     }
   }, [addToast]);
 
+  const cloneAgentAction = useCallback(async (agentId: string, opts?: { prompt?: string; channel?: string }) => {
+    try {
+      const result = await api.cloneAgent(agentId, opts);
+      addToast(`Clone @${result.name} created`, 'success');
+      return result;
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'Failed to clone agent', 'error');
+      throw e;
+    }
+  }, [addToast]);
+
   const addProfilePresetAction = useCallback(async (image: string, opts?: { silent?: boolean }) => {
     const workspaceId = activeWorkspaceRef.current;
     try {
@@ -1916,6 +1927,7 @@ export function useAppStore() {
     stopAgent: stopAgentAction,
     resetAgentContext: resetAgentContextAction,
     deleteAgent: deleteAgentAction,
+    cloneAgent: cloneAgentAction,
     updateAgentConfig: updateAgentConfigAction,
     saveAgentConfig: saveAgentConfigAction,
     loadAgentActivities: loadAgentActivitiesAction,

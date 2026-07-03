@@ -86,6 +86,12 @@ export interface ServerAgent {
   openvikingProvisioned?: boolean;
   openvikingMode?: 'provisioned' | 'custom';
   openvikingCustomConfigured?: boolean;
+  /**
+   * If set, this agent is a clone of the agent with this ID.
+   * Clones share workspace, OV memory, and persona with their parent,
+   * but run in a clean session with a fresh agentId.
+   */
+  cloneOf?: string;
 }
 
 export interface AgentSkill {
