@@ -12,134 +12,140 @@
 // also reports `requestedWorkspaceId` and `requestedWorkspaceAccess` so the
 // client can keep the URL where the user asked to be and surface a denial
 // banner instead of rewriting the location.
+//
+// Ported to ZoukSimulation harness: free ports, temp config dirs, no mock
+// seeding (ZOUK_NO_MOCK=1), and SimulatedSocket event buffering so init
+// payloads are never lost even when they arrive before waitForType().
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { createZoukSimulation, ZoukSimulation } from './test-support/zouk-simulation.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import WebSocket from 'ws';
+import os from 'node:os';
+import net from 'node:net';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_DIR = __dirname;
+const REPO_DIR = path.resolve(SERVER_DIR, '..');
 
-function waitForInit(ws, timeoutMs = 3000) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      ws.off('message', onMsg);
-      resolve(null);
-    }, timeoutMs);
-    const onMsg = (raw) => {
-      try {
-        const ev = JSON.parse(raw.toString());
-        if (ev?.type === 'init') {
-          clearTimeout(timer);
-          ws.off('message', onMsg);
-          resolve(ev);
-        }
-      } catch (_) { /* ignore */ }
-    };
-    ws.on('message', onMsg);
+// ─── Helpers for tests that need sessions pre-populated before server start ──
+
+function appendLog(current, chunk) {
+  const next = current + chunk.toString();
+  return next.length > 24_000 ? next.slice(-24_000) : next;
+}
+
+async function getFreePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
   });
+  const { port } = server.address();
+  await new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  return port;
 }
 
-async function waitForReady(base, timeoutMs = 10_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${base}/api/channels`);
-      if (res.ok) return true;
-    } catch (_) { /* not yet up */ }
-    await new Promise(r => setTimeout(r, 150));
-  }
-  return false;
-}
+/**
+ * Create a ZoukSimulation with extra sessions pre-populated in
+ * sessions.json BEFORE the server boots.  Needed when ALLOW is active
+ * (which disables guest-session creation) or when deterministic user
+ * emails are required for env-based allowlist matching.
+ */
+async function createSimWithSessions(extraSessions, options = {}) {
+  const sim = new ZoukSimulation(options);
+  sim.port = options.port || await getFreePort();
+  sim.configDir = fs.mkdtempSync(path.join(os.tmpdir(), `${sim.name}-config-`));
+  sim.uploadsDir = fs.mkdtempSync(path.join(os.tmpdir(), `${sim.name}-uploads-`));
 
-test('WS init reports requestedWorkspaceAccess instead of silently bouncing to default', async () => {
-  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-cfg-'));
-  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-up-'));
-  const port = 17900;
-  const base = `http://localhost:${port}`;
-  const aliceToken = 'bounce-alice-token';
-  const bobToken = 'bounce-bob-token';
-  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
-    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
-    [bobToken, { name: 'bob', email: 'bob@example.com', picture: null }],
-  ]), 'utf8');
+  const allSessions = [[sim.rootToken, sim.rootUser], ...extraSessions];
+  fs.writeFileSync(
+    path.join(sim.configDir, 'sessions.json'),
+    JSON.stringify(allSessions, null, 2),
+    'utf8',
+  );
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: {
-      ...process.env,
-      DATABASE_URL: '',
-      PORT: String(port),
-      NODE_ENV: 'test',
-      ZOUK_CONFIG_DIR: tmpConfigDir,
-      ZOUK_UPLOADS_DIR: uploadDir,
-    },
+  const env = {
+    ...process.env,
+    DATABASE_URL: '',
+    NODE_ENV: 'test',
+    PORT: String(sim.port),
+    PUBLIC_URL: sim.baseUrl,
+    ZOUK_CONFIG_DIR: sim.configDir,
+    ZOUK_UPLOADS_DIR: sim.uploadsDir,
+    ZOUK_SUPERUSERS: sim.rootUser.email || '',
+    ZOUK_PERF_LOG: '0',
+    ...(!sim.mock ? { ZOUK_NO_MOCK: '1' } : {}),
+    ...sim.env,
+  };
+
+  sim.proc = spawn(process.execPath, [path.join(SERVER_DIR, 'index.js')], {
+    cwd: REPO_DIR,
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  proc.stdout.resume();
-  proc.stderr.resume();
+  sim.proc.stdout.on('data', (chunk) => { sim.stdout = appendLog(sim.stdout, chunk); });
+  sim.proc.stderr.on('data', (chunk) => { sim.stderr = appendLog(sim.stderr, chunk); });
 
-  try {
-    const ready = await waitForReady(base);
-    assert.equal(ready, true, 'bounce regression server must become ready');
+  await sim.waitForReady();
+  return sim;
+}
 
-    // Alice owns the freshly-created workspace; bob has no membership row, so
-    // the post-invite "stable" state is reproduced by simply skipping the
-    // invite altogether. The bouncing bug also triggers on an invitee whose
-    // allowlist row was dropped by a DB hiccup; the surface check is the same.
-    const created = await fetch(`${base}/api/workspaces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
-      body: JSON.stringify({ name: 'Foo' }),
-    });
-    assert.equal(created.status, 200);
-    const createdBody = await created.json();
-    const workspaceId = createdBody.workspace.id;
+// ─── Tests ───────────────────────────────────────────────────────────────────
 
-    // Bob — explicitly NOT a member — asks the WS for /z/foo. Old server
-    // would silently rewrite to default and the client would bounce the URL.
-    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=${encodeURIComponent(workspaceId)}`);
-    await new Promise((resolve, reject) => {
-      ws.once('open', resolve);
-      ws.once('error', reject);
-    });
-    const init = await waitForInit(ws);
-    ws.close();
+test('WS init reports requestedWorkspaceAccess instead of silently bouncing to default', async (t) => {
+  const sim = await createZoukSimulation({
+    name: 'bounce',
+    rootName: 'alice',
+    rootEmail: 'alice@example.com',
+  });
+  t.after(() => sim.stop());
 
-    assert.ok(init, 'bob must receive an init payload');
-    // Server still routes the socket onto default for safety (it can't deliver
-    // foo-scoped state to someone who isn't allowed in), but it now also
-    // reports the original request and the reason for the swap so the client
-    // can avoid rewriting the URL.
-    assert.equal(init.workspaceId, 'default', 'server must fall through to default workspace');
-    assert.equal(init.requestedWorkspaceId, workspaceId, 'server must echo the requested workspace id');
-    assert.equal(init.requestedWorkspaceAccess, 'denied', 'server must mark the workspace request as denied');
+  const aliceToken = sim.rootToken;
+  const bob = await sim.createGuest('bob');
+  const bobToken = bob.token;
 
-    // Alice — the owner — must still see her workspace granted, and the
-    // `requestedWorkspaceAccess` field must report "granted" so the client
-    // doesn't accidentally show a denial banner for the happy path.
-    const okWs = new WebSocket(`ws://localhost:${port}/ws?token=${aliceToken}&workspaceId=${encodeURIComponent(workspaceId)}`);
-    await new Promise((resolve, reject) => {
-      okWs.once('open', resolve);
-      okWs.once('error', reject);
-    });
-    const okInit = await waitForInit(okWs);
-    okWs.close();
+  // Alice owns the freshly-created workspace; bob has no membership row, so
+  // the post-invite "stable" state is reproduced by simply skipping the
+  // invite altogether. The bouncing bug also triggers on an invitee whose
+  // allowlist row was dropped by a DB hiccup; the surface check is the same.
+  const created = await sim.post('/api/workspaces', { name: 'Foo' }, { token: aliceToken });
+  const workspaceId = created.workspace.id;
 
-    assert.ok(okInit, 'alice must receive an init payload');
-    assert.equal(okInit.workspaceId, workspaceId);
-    assert.equal(okInit.requestedWorkspaceId, workspaceId);
-    assert.equal(okInit.requestedWorkspaceAccess, 'granted');
-  } finally {
-    proc.kill('SIGKILL');
-    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
-    fs.rmSync(uploadDir, { recursive: true, force: true });
-  }
+  // Bob — explicitly NOT a member — asks the WS for /z/foo. Old server
+  // would silently rewrite to default and the client would bounce the URL.
+  const bobWs = await sim.connectWebClient({ token: bobToken, workspaceId });
+  t.after(() => bobWs.close());
+  const bobInit = await bobWs.waitForType('init');
+
+  assert.ok(bobInit, 'bob must receive an init payload');
+  // Server still routes the socket onto default for safety (it can't deliver
+  // foo-scoped state to someone who isn't allowed in), but it now also
+  // reports the original request and the reason for the swap so the client
+  // can avoid rewriting the URL.
+  assert.equal(bobInit.workspaceId, 'default', 'server must fall through to default workspace');
+  assert.equal(bobInit.requestedWorkspaceId, workspaceId, 'server must echo the requested workspace id');
+  assert.equal(bobInit.requestedWorkspaceAccess, 'denied', 'server must mark the workspace request as denied');
+
+  // Alice — the owner — must still see her workspace granted, and the
+  // `requestedWorkspaceAccess` field must report "granted" so the client
+  // doesn't accidentally show a denial banner for the happy path.
+  const aliceWs = await sim.connectWebClient({ token: aliceToken, workspaceId });
+  t.after(() => aliceWs.close());
+  const aliceInit = await aliceWs.waitForType('init');
+
+  assert.ok(aliceInit, 'alice must receive an init payload');
+  assert.equal(aliceInit.workspaceId, workspaceId);
+  assert.equal(aliceInit.requestedWorkspaceId, workspaceId);
+  assert.equal(aliceInit.requestedWorkspaceAccess, 'granted');
 });
 
-test('invite endpoint puts member+allowlist behind one atomic boundary (no-DB happy path)', async () => {
+test('invite endpoint puts member+allowlist behind one atomic boundary (no-DB happy path)', async (t) => {
   // No DATABASE_URL → db.enabled is false in this run, so the allowlist row
   // path is skipped and saveWorkspaceMemberStrict no-ops. The point of this
   // test is the happy-path contract: after POST /api/workspaces/:id/members,
@@ -147,84 +153,51 @@ test('invite endpoint puts member+allowlist behind one atomic boundary (no-DB ha
   // and receive `requestedWorkspaceAccess: granted`. If a future refactor of
   // inviteWorkspaceMember accidentally rolls back the in-memory member row
   // on the no-DB path (or forgets to write it at all), this test fails.
-  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-cfg-'));
-  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-up-'));
-  const port = 17902;
-  const base = `http://localhost:${port}`;
-  const aliceToken = 'invite-alice-token';
+  const bobEmail = 'bob@example.com';
   const bobToken = 'invite-bob-token';
-  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
-    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
-    [bobToken, { name: 'bob', email: 'bob@example.com', picture: null }],
-  ]), 'utf8');
-
-  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: {
-      ...process.env,
-      DATABASE_URL: '',
-      PORT: String(port),
-      NODE_ENV: 'test',
-      ZOUK_CONFIG_DIR: tmpConfigDir,
-      ZOUK_UPLOADS_DIR: uploadDir,
+  const sim = await createSimWithSessions(
+    [[bobToken, { name: 'bob', email: bobEmail, picture: null }]],
+    {
+      name: 'invite-atomic',
+      rootName: 'alice',
+      rootEmail: 'alice@example.com',
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  proc.stdout.resume();
-  proc.stderr.resume();
+  );
+  t.after(() => sim.stop());
 
-  try {
-    const ready = await waitForReady(base);
-    assert.equal(ready, true, 'invite atomicity server must become ready');
+  const aliceToken = sim.rootToken;
 
-    const created = await fetch(`${base}/api/workspaces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
-      body: JSON.stringify({ name: 'AtomicFoo' }),
-    });
-    assert.equal(created.status, 200);
-    const workspaceId = (await created.json()).workspace.id;
+  const created = await sim.post('/api/workspaces', { name: 'AtomicFoo' }, { token: aliceToken });
+  const workspaceId = created.workspace.id;
 
-    // Pre-invite: bob is denied.
-    {
-      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=${encodeURIComponent(workspaceId)}`);
-      await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-      const init = await waitForInit(ws);
-      ws.close();
-      assert.equal(init?.requestedWorkspaceAccess, 'denied', 'bob must be denied before invite');
-    }
+  // Pre-invite: bob is denied.
+  {
+    const ws = await sim.connectWebClient({ token: bobToken, workspaceId });
+    t.after(() => ws.close());
+    const init = await ws.waitForType('init');
+    assert.equal(init.requestedWorkspaceAccess, 'denied', 'bob must be denied before invite');
+  }
 
-    // Alice invites bob.
-    const invited = await fetch(`${base}/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${aliceToken}`,
-        'X-Workspace-Id': encodeURIComponent(workspaceId),
-      },
-      body: JSON.stringify({ email: 'bob@example.com', role: 'member', name: 'Bob' }),
-    });
-    assert.equal(invited.status, 200, 'invite endpoint must succeed');
-    const invitedBody = await invited.json();
-    assert.equal(invitedBody.member.email, 'bob@example.com');
+  // Alice invites bob.
+  const invited = await sim.post(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/members`,
+    { email: bobEmail, role: 'member', name: 'Bob' },
+    { token: aliceToken, workspaceId },
+  );
+  assert.equal(invited.member.email, bobEmail, 'invited member email must match');
 
-    // Post-invite: bob is granted.
-    {
-      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=${encodeURIComponent(workspaceId)}`);
-      await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-      const init = await waitForInit(ws);
-      ws.close();
-      assert.equal(init?.workspaceId, workspaceId, 'invited bob must land on the requested workspace');
-      assert.equal(init?.requestedWorkspaceId, workspaceId);
-      assert.equal(init?.requestedWorkspaceAccess, 'granted', 'invited bob must be granted access');
-    }
-  } finally {
-    proc.kill('SIGKILL');
-    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
-    fs.rmSync(uploadDir, { recursive: true, force: true });
+  // Post-invite: bob is granted.
+  {
+    const ws = await sim.connectWebClient({ token: bobToken, workspaceId });
+    t.after(() => ws.close());
+    const init = await ws.waitForType('init');
+    assert.equal(init.workspaceId, workspaceId, 'invited bob must land on the requested workspace');
+    assert.equal(init.requestedWorkspaceId, workspaceId);
+    assert.equal(init.requestedWorkspaceAccess, 'granted', 'invited bob must be granted access');
   }
 });
 
-test('invite path rolls back on strict member-persist failure (louise post-#394 review)', async () => {
+test('invite path rolls back on strict member-persist failure (louise post-#394 review)', async (t) => {
   // Reproduces louise's concern about PR #394's invite-atomicity gap:
   // setWorkspaceMember(persist:true) used to queue a fire-and-forget DB
   // write that could race past the strict await + rollback and re-create
@@ -239,114 +212,60 @@ test('invite path rolls back on strict member-persist failure (louise post-#394 
   // helper, same single strict write — so verifying the workspace-create
   // path covers both. We additionally assert workspace state is fully
   // rolled back (no lingering visible workspace, no in-memory member).
-  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-fail-cfg-'));
-  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-invite-fail-up-'));
-  const port = 17903;
-  const base = `http://localhost:${port}`;
-  const aliceToken = 'invite-fail-alice-token';
-  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
-    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
-  ]), 'utf8');
-
-  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: {
-      ...process.env,
-      DATABASE_URL: '',
-      PORT: String(port),
-      NODE_ENV: 'test',
-      ZOUK_CONFIG_DIR: tmpConfigDir,
-      ZOUK_UPLOADS_DIR: uploadDir,
-      ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL: '1',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const sim = await createZoukSimulation({
+    name: 'invite-rollback',
+    rootName: 'alice',
+    rootEmail: 'alice@example.com',
+    env: { ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL: '1' },
   });
-  proc.stdout.resume();
-  proc.stderr.resume();
+  t.after(() => sim.stop());
 
-  try {
-    const ready = await waitForReady(base);
-    assert.equal(ready, true, 'rollback regression server must become ready');
+  const aliceToken = sim.rootToken;
 
-    const created = await fetch(`${base}/api/workspaces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${aliceToken}` },
-      body: JSON.stringify({ name: 'RollbackFoo' }),
-    });
-    assert.equal(created.status, 500, 'workspace creation must fail loudly when strict member persist fails');
+  const result = await sim.json('POST', '/api/workspaces', {
+    body: { name: 'RollbackFoo' },
+    token: aliceToken,
+  });
+  assert.equal(result.status, 500, 'workspace creation must fail loudly when strict member persist fails');
 
-    // The workspace must be fully rolled back: alice's accessible-workspace
-    // list returned by the WS init should not contain RollbackFoo. We
-    // connect to the default workspace and inspect the `workspaces` array.
-    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${aliceToken}&workspaceId=default`);
-    await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-    const init = await waitForInit(ws);
-    ws.close();
-    assert.ok(init, 'default-workspace init must arrive after the failed create');
-    const visibleIds = new Set((init.workspaces || []).map(w => w.id));
-    assert.ok(!visibleIds.has('rollbackfoo'), 'failed-create workspace must not be visible to alice (in-memory rollback)');
+  // The workspace must be fully rolled back: alice's accessible-workspace
+  // list returned by the WS init should not contain RollbackFoo. We
+  // connect to the default workspace and inspect the `workspaces` array.
+  const ws = await sim.connectWebClient({ token: aliceToken, workspaceId: 'default' });
+  t.after(() => ws.close());
+  const init = await ws.waitForType('init');
+  assert.ok(init, 'default-workspace init must arrive after the failed create');
+  const visibleIds = new Set((init.workspaces || []).map((w) => w.id));
+  assert.ok(!visibleIds.has('rollbackfoo'), 'failed-create workspace must not be visible to alice (in-memory rollback)');
 
-    // Also confirm: hitting /z/rollbackfoo as alice now reports 'missing',
-    // not 'denied' — the workspace was fully removed, not just hidden.
-    const missingWs = new WebSocket(`ws://localhost:${port}/ws?token=${aliceToken}&workspaceId=rollbackfoo`);
-    await new Promise((resolve, reject) => { missingWs.once('open', resolve); missingWs.once('error', reject); });
-    const missingInit = await waitForInit(missingWs);
-    missingWs.close();
-    assert.equal(missingInit?.requestedWorkspaceAccess, 'missing', 'rolled-back workspace must not exist server-side');
-  } finally {
-    proc.kill('SIGKILL');
-    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
-    fs.rmSync(uploadDir, { recursive: true, force: true });
-  }
+  // Also confirm: hitting /z/rollbackfoo as alice now reports 'missing',
+  // not 'denied' — the workspace was fully removed, not just hidden.
+  const missingWs = await sim.connectWebClient({ token: aliceToken, workspaceId: 'rollbackfoo' });
+  t.after(() => missingWs.close());
+  const missingInit = await missingWs.waitForType('init');
+  assert.equal(missingInit.requestedWorkspaceAccess, 'missing', 'rolled-back workspace must not exist server-side');
 });
 
-test('WS init surfaces missing-workspace requests', async () => {
-  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-cfg-'));
-  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-bounce-missing-up-'));
-  const port = 17901;
-  const base = `http://localhost:${port}`;
-  const token = 'bounce-missing-token';
-  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
-    [token, { name: 'someone', email: 'someone@example.com', picture: null }],
-  ]), 'utf8');
-
-  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: {
-      ...process.env,
-      DATABASE_URL: '',
-      PORT: String(port),
-      NODE_ENV: 'test',
-      ZOUK_CONFIG_DIR: tmpConfigDir,
-      ZOUK_UPLOADS_DIR: uploadDir,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+test('WS init surfaces missing-workspace requests', async (t) => {
+  const sim = await createZoukSimulation({
+    name: 'bounce-missing',
+    rootName: 'someone',
+    rootEmail: 'someone@example.com',
   });
-  proc.stdout.resume();
-  proc.stderr.resume();
+  t.after(() => sim.stop());
 
-  try {
-    const ready = await waitForReady(base);
-    assert.equal(ready, true, 'missing-workspace regression server must become ready');
+  const token = sim.rootToken;
+  const ws = await sim.connectWebClient({ token, workspaceId: 'does-not-exist' });
+  t.after(() => ws.close());
+  const init = await ws.waitForType('init');
 
-    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${token}&workspaceId=does-not-exist`);
-    await new Promise((resolve, reject) => {
-      ws.once('open', resolve);
-      ws.once('error', reject);
-    });
-    const init = await waitForInit(ws);
-    ws.close();
-
-    assert.ok(init, 'init must arrive');
-    assert.equal(init.workspaceId, 'default');
-    assert.equal(init.requestedWorkspaceId, 'does-not-exist');
-    assert.equal(init.requestedWorkspaceAccess, 'missing');
-  } finally {
-    proc.kill('SIGKILL');
-    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
-    fs.rmSync(uploadDir, { recursive: true, force: true });
-  }
+  assert.ok(init, 'init must arrive');
+  assert.equal(init.workspaceId, 'default');
+  assert.equal(init.requestedWorkspaceId, 'does-not-exist');
+  assert.equal(init.requestedWorkspaceAccess, 'missing');
 });
 
-test('failed re-invite of removed user keeps tombstone intact (louise post-#395 review)', async () => {
+test('failed re-invite of removed user keeps tombstone intact (louise post-#395 review)', async (t) => {
   // Reproduces louise's concern about the clearWorkspaceMemberRemoval
   // ordering inside inviteWorkspaceMember.
   //
@@ -381,120 +300,80 @@ test('failed re-invite of removed user keeps tombstone intact (louise post-#395 
   //      catch rolls back the member row + allowlist row; tombstone MUST
   //      stay intact (this is the bug being fixed)
   //   6. bob WS-connects to default → requestedWorkspaceAccess === 'denied'
-  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-tombstone-cfg-'));
-  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-tombstone-up-'));
-  const port = 17904;
-  const base = `http://localhost:${port}`;
-  const aliceToken = 'tombstone-alice-token';
+  const aliceEmail = 'alice@example.com';
+  const bobEmail = 'bob@example.com';
   const bobToken = 'tombstone-bob-token';
-  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
-    [aliceToken, { name: 'alice', email: 'alice@example.com', picture: null }],
-    [bobToken, { name: 'bob', email: 'bob@example.com', picture: null }],
-  ]), 'utf8');
 
-  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-    env: {
-      ...process.env,
-      DATABASE_URL: '',
-      PORT: String(port),
-      NODE_ENV: 'test',
-      ZOUK_CONFIG_DIR: tmpConfigDir,
-      ZOUK_UPLOADS_DIR: uploadDir,
-      ALLOW: 'alice@example.com,bob@example.com',
-      // Make alice a superuser so her admin role is deterministic regardless
-      // of which session got enrolled first at startup. The bug we're testing
-      // lives inside inviteWorkspaceMember + tombstone logic, not the
-      // admin-gating front door — so it's safe to bypass the latter for
-      // setup determinism.
-      ZOUK_SUPERUSERS: 'alice@example.com',
-      // Server startup auto-enrolls both sessions in default (via the
-      // visibleWorkspacesForUser fallback at index.js:3168). That means bob
-      // is already a member by the time the test runs; no "first invite" is
-      // needed. The only strict-persist call that happens in this test is
-      // the re-invite below — so fail on call #1.
-      ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL_AT: '1',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  proc.stdout.resume();
-  proc.stderr.resume();
-
-  try {
-    // ALLOW env makes /api/channels return 401 to unauth probes, so the
-    // default waitForReady() can't see ready. /api/auth/config is always
-    // public — poll that instead.
-    const ready = await (async () => {
-      const deadline = Date.now() + 10_000;
-      while (Date.now() < deadline) {
-        try {
-          const res = await fetch(`${base}/api/auth/config`);
-          if (res.ok) return true;
-        } catch (_) { /* not yet up */ }
-        await new Promise(r => setTimeout(r, 150));
-      }
-      return false;
-    })();
-    assert.equal(ready, true, 'tombstone regression server must become ready');
-
-    // Step 1: Confirm bob is auto-enrolled (visibleWorkspacesForUser
-    // fallback at boot). This is our starting "bob is a member" state — no
-    // explicit invite needed.
-
-    // Step 2: Remove bob → tombstone set.
-    const removed = await fetch(`${base}/api/workspaces/default/members/${encodeURIComponent('bob@example.com')}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${aliceToken}`,
-        'X-Workspace-Id': 'default',
-      },
-    });
-    assert.equal(removed.status, 200, 'bob removal must succeed');
-
-    // Sanity: bob is denied immediately after removal — tombstone short-circuit
-    // at line 1076 of server/index.js wins over the allowlist eligibility on
-    // line 1077. If this passes, our pre-condition is correct.
+  const sim = await createSimWithSessions(
+    [[bobToken, { name: 'bob', email: bobEmail, picture: null }]],
     {
-      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=default`);
-      await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-      const init = await waitForInit(ws);
-      ws.close();
-      assert.equal(init?.requestedWorkspaceAccess, 'denied', 'tombstoned bob must be denied pre re-invite');
-    }
-
-    // Step 3: Re-invite bob — strict call #1 (counter starts at 0 because
-    // boot auto-enroll uses setWorkspaceMember(persist:true) which goes
-    // through the fire-and-forget db.saveWorkspaceMember, NOT through
-    // saveWorkspaceMemberStrict). The fault injection throws on this call,
-    // the inviteWorkspaceMember catch block rolls back the in-memory member
-    // row + (no-op) allowlist row. The fix under test is that the tombstone
-    // is NOT touched in this catch path.
-    const reinvited = await fetch(`${base}/api/workspaces/default/members`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${aliceToken}`,
-        'X-Workspace-Id': 'default',
+      name: 'tombstone',
+      rootName: 'alice',
+      rootEmail: aliceEmail,
+      rootToken: 'tombstone-alice-token',
+      env: {
+        ALLOW: `${aliceEmail},${bobEmail}`,
+        // Server startup auto-enrolls both sessions in default (via the
+        // visibleWorkspacesForUser fallback at index.js:3168). That means bob
+        // is already a member by the time the test runs; no "first invite" is
+        // needed. The only strict-persist call that happens in this test is
+        // the re-invite below — so fail on call #1.
+        ZOUK_TEST_FORCE_MEMBER_PERSIST_FAIL_AT: '1',
       },
-      body: JSON.stringify({ email: 'bob@example.com', role: 'member', name: 'Bob' }),
-    });
-    assert.equal(reinvited.status, 500, 're-invite must surface strict-persist failure as 5xx');
+    },
+  );
+  t.after(() => sim.stop());
 
-    // Step 5: The invariant under test — bob MUST still be denied. If the
-    // tombstone-clear ran pre-strict (the old buggy ordering), bob would now
-    // get requestedWorkspaceAccess: 'granted' here via the allowlist
-    // fall-through. That is precisely the silent re-admission louise flagged.
-    const ws = new WebSocket(`ws://localhost:${port}/ws?token=${bobToken}&workspaceId=default`);
-    await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
-    const init = await waitForInit(ws);
-    ws.close();
-    assert.equal(
-      init?.requestedWorkspaceAccess,
-      'denied',
-      'failed re-invite must NOT silently re-admit a removed allowlisted user — tombstone must be intact',
-    );
-  } finally {
-    proc.kill('SIGKILL');
-    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
-    fs.rmSync(uploadDir, { recursive: true, force: true });
+  const aliceToken = sim.rootToken;
+
+  // Step 1: Confirm bob is auto-enrolled (visibleWorkspacesForUser
+  // fallback at boot). This is our starting "bob is a member" state — no
+  // explicit invite needed.
+
+  // Step 2: Remove bob → tombstone set.
+  const removeResult = await sim.json('DELETE',
+    `/api/workspaces/default/members/${encodeURIComponent(bobEmail)}`,
+    { token: aliceToken, workspaceId: 'default' },
+  );
+  assert.equal(removeResult.status, 200, 'bob removal must succeed');
+
+  // Sanity: bob is denied immediately after removal — tombstone short-circuit
+  // at line 1076 of server/index.js wins over the allowlist eligibility on
+  // line 1077. If this passes, our pre-condition is correct.
+  {
+    const ws = await sim.connectWebClient({ token: bobToken, workspaceId: 'default' });
+    t.after(() => ws.close());
+    const init = await ws.waitForType('init');
+    assert.equal(init.requestedWorkspaceAccess, 'denied', 'tombstoned bob must be denied pre re-invite');
   }
+
+  // Step 3: Re-invite bob — strict call #1 (counter starts at 0 because
+  // boot auto-enroll uses setWorkspaceMember(persist:true) which goes
+  // through the fire-and-forget db.saveWorkspaceMember, NOT through
+  // saveWorkspaceMemberStrict). The fault injection throws on this call,
+  // the inviteWorkspaceMember catch block rolls back the in-memory member
+  // row + (no-op) allowlist row. The fix under test is that the tombstone
+  // is NOT touched in this catch path.
+  const reinviteResult = await sim.json('POST',
+    '/api/workspaces/default/members',
+    {
+      body: { email: bobEmail, role: 'member', name: 'Bob' },
+      token: aliceToken,
+      workspaceId: 'default',
+    },
+  );
+  assert.equal(reinviteResult.status, 500, 're-invite must surface strict-persist failure as 5xx');
+
+  // Step 5: The invariant under test — bob MUST still be denied. If the
+  // tombstone-clear ran pre-strict (the old buggy ordering), bob would now
+  // get requestedWorkspaceAccess: 'granted' here via the allowlist
+  // fall-through. That is precisely the silent re-admission louise flagged.
+  const ws = await sim.connectWebClient({ token: bobToken, workspaceId: 'default' });
+  t.after(() => ws.close());
+  const init = await ws.waitForType('init');
+  assert.equal(
+    init.requestedWorkspaceAccess,
+    'denied',
+    'failed re-invite must NOT silently re-admit a removed allowlisted user — tombstone must be intact',
+  );
 });
