@@ -13,8 +13,68 @@ const AGENT_RECEIVE_BATCH_LIMIT = 500;
 // tail is the operative context.
 const HELD_MESSAGES_SHOWN_LIMIT = 5;
 
+// Per-agent send rate limiter: sliding window, in-memory.
+// Default: 20 sends per 10s window (burst 20, sustained ~2/s).
+// Overridable via ZOUK_AGENT_SEND_RATE (max per window) and
+// ZOUK_AGENT_SEND_WINDOW_MS (window in milliseconds).
+// Map capped at AGENT_SEND_RATE_LIMIT_MAX_AGENTS with lazy sweep.
+const AGENT_SEND_RATE_LIMIT_MAX = parseInt(process.env.ZOUK_AGENT_SEND_RATE, 10) || 20;
+const AGENT_SEND_RATE_LIMIT_WINDOW_MS = parseInt(process.env.ZOUK_AGENT_SEND_WINDOW_MS, 10) || 10_000;
+const AGENT_SEND_RATE_LIMIT_MAX_AGENTS = 500;
+
+function createAgentSendRateLimiter({ max = AGENT_SEND_RATE_LIMIT_MAX, windowMs = AGENT_SEND_RATE_LIMIT_WINDOW_MS, maxAgents = AGENT_SEND_RATE_LIMIT_MAX_AGENTS } = {}) {
+  const timestamps = new Map();
+
+  function sweepExpired(nowMs) {
+    for (const [agentId, stamps] of timestamps) {
+      const fresh = stamps.filter((t) => nowMs - t < windowMs);
+      if (fresh.length === 0) {
+        timestamps.delete(agentId);
+      } else if (fresh.length !== stamps.length) {
+        timestamps.set(agentId, fresh);
+      }
+    }
+  }
+
+  return {
+    check(agentId) {
+      const nowMs = Date.now();
+      // Lazy sweep when map grows beyond the cap: evict all expired entries,
+      // then if still over cap, drop oldest agent entries by last-activity.
+      if (timestamps.size >= maxAgents) {
+        sweepExpired(nowMs);
+        if (timestamps.size >= maxAgents) {
+          // Drop agents with the oldest most-recent timestamp until under cap.
+          const sorted = [...timestamps.entries()].sort(
+            (a, b) => a[1][a[1].length - 1] - b[1][b[1].length - 1]
+          );
+          const toRemove = sorted.slice(0, timestamps.size - maxAgents + 1);
+          for (const [id] of toRemove) timestamps.delete(id);
+        }
+      }
+
+      const stamps = timestamps.get(agentId) || [];
+      const fresh = stamps.filter((t) => nowMs - t < windowMs);
+      fresh.push(nowMs);
+      timestamps.set(agentId, fresh);
+
+      const allowed = fresh.length <= max;
+      // retryAfter: seconds until the oldest timestamp in the current window
+      // falls out, freeing one slot. If not yet limited, 0.
+      let retryAfterSeconds = 0;
+      if (!allowed && fresh.length > 0) {
+        const oldest = fresh[0];
+        retryAfterSeconds = Math.max(1, Math.ceil((oldest + windowMs - nowMs) / 1000));
+      }
+      return { allowed, count: fresh.length, retryAfterSeconds };
+    },
+  };
+}
+
 function createAgentInternalRouter(ctx) {
   const router = Router({ mergeParams: true });
+
+  const agentSendRateLimiter = createAgentSendRateLimiter();
 
   function agentNameFor(agentId) {
     return ctx.agentPayload(agentId)?.name
@@ -43,6 +103,17 @@ function createAgentInternalRouter(ctx) {
   // send_message
   router.post("/:agentId/send", (req, res) => {
     const { agentId } = req.params;
+
+    // Per-agent send rate limit — check BEFORE dedupe so a looping agent
+    // that mints a fresh clientMsgId per send is still capped.
+    // Held freshness responses still count as a send attempt; that's fine
+    // because holds are bounded by the unseen-message window.
+    const rate = agentSendRateLimiter.check(agentId);
+    if (!rate.allowed) {
+      res.set("Retry-After", String(rate.retryAfterSeconds));
+      return res.status(429).json({ error: "Too many agent send requests.", retryAfter: rate.retryAfterSeconds });
+    }
+
     const { target, content, attachmentIds, clientMsgId } = req.body;
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const senderName = agentNameFor(agentId);
