@@ -21,7 +21,7 @@ Read this first. If your runtime also auto-loads `CLAUDE.md`, treat that file as
 | WebSocket reconnects, init hydration, view restore | `web/src/lib/ws.ts`, `web/src/store/appStore.ts`, `docs/ios-websocket-reconnect.md` |
 | Chat composer, message list, threads, side panels | `web/src/components/MessageComposer.tsx`, `web/src/components/MessageList.tsx`, `web/src/components/ThreadPanel.tsx`, `web/src/App.tsx` |
 | Agent detail, activity feed, agent state types | `web/src/components/AgentDetail.tsx`, `web/src/components/agent/AgentActivityFeed.tsx`, `web/src/types/index.ts` |
-| Server simulation / e2e sandbox | `server/test-support/zouk-simulation.mjs`, `server/test-simulation-e2e.mjs` |
+| Server simulation / e2e sandbox | `server/test-support/zouk-simulation.mjs`, `server/test-support/zouk-real-daemon.mjs`, `server/test-simulation-e2e.mjs`, `server/test-daemon-e2e.mjs` |
 | Send freshness / duplicate-reply spam, seen-cursor | `docs/send-freshness.md`, `server/routes/agent-internal.js`, `server/index.js` (search `agentSeenSeq`) |
 | Themes and visual polish | `web/src/themes/*`, `web/src/components/SettingsModal.tsx`, `web/src/components/WorkspaceRail.tsx`, `web/src/index.css` |
 | API payload shape or naming drift | `web/src/lib/api.ts`, `web/src/types/index.ts`, `server/index.js` |
@@ -49,6 +49,8 @@ npm run web:dev
 npm run build
 npm run test:server
 node --test server/test-simulation-e2e.mjs
+node --test server/test-daemon-e2e.mjs     # requires built zouk-daemon (skips if missing)
+npm run eval                            # reply-storm + daemon smoke, prints scorecard
 npm run test:ui                 # expects a running server, default http://localhost:7777
 npm run lint --workspace=web
 npm run typecheck --workspace=web

@@ -785,12 +785,59 @@ test('my behavior contract', async (t) =&gt; {
         </ul>
       </div>
     </section>
+
+    <section id="real-daemon">
+      <div class="wrap">
+        <h2>用真实 daemon 跑全栈 e2e</h2>
+        <p class="lead"><code>server/test-support/zouk-real-daemon.mjs</code> 让你在 sandbox 里启动<strong>真正的</strong> <code>zouk-daemon</code> 进程（而不是模拟的 WebSocket），配合 daemon 的 <code>mock</code> runtime，可以在没有任何 LLM CLI 的情况下跑通完整 daemon→agent→MCP→server 链路。</p>
+
+        <div class="band green">
+          <p><strong>前置条件：</strong>需要 <code>../zouk-daemon/dist/index.js</code>（或设 <code>ZOUK_DAEMON_BIN</code>）。测试文件 <code>server/test-daemon-e2e.mjs</code> 在找不到 daemon 时会 <code>t.skip()</code>，不会让 CI 变红。</p>
+        </div>
+
+        <div class="codebox">
+          <div class="codebar">
+            <span>Real daemon quick start</span>
+            <button class="copy" type="button">Copy</button>
+          </div>
+          <pre><code>import { createZoukSimulation } from './test-support/zouk-simulation.mjs';
+import { isRealDaemonAvailable, startRealDaemon, writeMockBehavior }
+  from './test-support/zouk-real-daemon.mjs';
+
+if (!isRealDaemonAvailable()) { t.skip('no daemon'); return; }
+
+const sim = await createZoukSimulation({ name: 'real-daemon-test' });
+const key = await sim.createMachineKey('test-machine');
+
+const daemon = await startRealDaemon(sim, { machineKey: key.rawKey });
+await sim.waitForMachineReady(key.key.id, { runtime: 'mock' });
+
+// Agent replies "pong {sender}" to "ping", "ack: {content}" otherwise
+const workDir = '/tmp/my-agent-work';
+writeMockBehavior(workDir, {
+  rules: [{ match: 'ping', reply: 'pong {{sender}}' }],
+  fallbackReply: 'ack: {{content}}',
+});
+
+await sim.startAgent({
+  agentId: 'my-agent', name: 'mybot', displayName: 'My Bot',
+  runtime: 'mock', machineId: key.key.id, workDir,
+});
+// ... send messages, assert replies land in #all ...
+await daemon.stop();
+await sim.stop();</code></pre>
+        </div>
+
+        <p>完整测试见 <code>server/test-daemon-e2e.mjs</code>，覆盖默认行为、自定义规则、web 事件和 seen-cursor 新鲜度。一键评测：<code>npm run eval</code>。</p>
+      </div>
+    </section>
   </main>
 
   <footer class="footer">
     <div class="wrap">
       <span>入口文件：<code>server/test-support/zouk-simulation.mjs</code></span>
       <span>契约测试：<code>server/test-simulation-e2e.mjs</code></span>
+      <span>真实 daemon：<code>server/test-daemon-e2e.mjs</code></span>
     </div>
   </footer>
 
