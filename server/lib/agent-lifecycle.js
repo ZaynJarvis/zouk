@@ -371,7 +371,8 @@ function createAgentLifecycle(ctx) {
     const { agentConfigs, store } = ctx;
     const autoStart = agentConfigs.filter((c) => c.autoStart);
     for (const config of autoStart) {
-      if (store.agents[config.id]?.status === "active") continue;
+      const status = store.agents[config.id]?.status;
+      if (status === "active" || status === "starting") continue;
       const result = await startAgentOnDaemon(config.id, config);
       if (result.error) {
         const agentName = config.displayName || config.name || config.id;
