@@ -493,6 +493,11 @@ function createDaemonHandler(ctx) {
               sendAgentStop(agentId, ws, { broadcast: false });
               continue;
             }
+            const ownerWs = daemonSockets.get(agentId);
+            if (ownerWs && ownerWs !== ws && ownerWs.readyState === 1) {
+              console.warn(`[agent:${agentId}] Skipping ready adoption from machine ${ws._machineId} — live owner on machine ${ownerWs._machineId}`);
+              continue;
+            }
             connectedAgents.add(agentId);
             daemonSockets.set(agentId, ws);
             const isNew = !store.agents[agentId];
@@ -568,6 +573,13 @@ function createDaemonHandler(ctx) {
         } else {
           const cfg = agentConfigs.find((c) => c.id === agentId);
           if (cfg) syncRuntimeAgentFromConfig(agentId, cfg);
+        }
+        if (status === "active") {
+          const ownerWs = daemonSockets.get(agentId);
+          if (ownerWs && ownerWs !== ws && ownerWs.readyState === 1) {
+            console.warn(`[agent:${agentId}] Ignoring status=active from stale connection machine=${ws._machineId} (live owner on machine ${ownerWs._machineId})`);
+            break;
+          }
         }
         store.agents[agentId].status = status;
         store.agents[agentId].machineId = ws._machineId;
