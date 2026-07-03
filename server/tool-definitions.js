@@ -56,12 +56,12 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
     },
     {
       name: "directory",
-      description: "List all channels, agents, and humans in the workspace.",
+      description: "List all channels, agents, and humans in the workspace. Agent entries include name, displayName, description (capabilities/specialty), runtime, model, status (active/idle/inactive), activity detail, claimedTasks (what they're working on), and channels they subscribe to. Use this to discover WHO can do WHAT before delegating work or picking a collaborator.",
       inputSchema: { type: "object", properties: {} },
     },
     {
       name: "task",
-      description: "Manage tasks: list, create, claim, release, or update status. Set action to choose operation.",
+      description: "Manage tasks: list, create, claim, release, or update status. Set action to choose operation. For create: use optional 'assignee' to delegate a task to another agent (pass their @name or name). The assignee gets woken with a DM and the task is pre-claimed for them. When the assignee later moves the task to done/in_review, you (the creator) automatically get a DM notification — that's the result-collection contract.",
       inputSchema: {
         type: "object",
         properties: {
@@ -69,6 +69,7 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
           channel: { type: "string", description: "Channel scope for the task" },
           status: { type: "string", enum: ["all", "todo", "in_progress", "in_review", "done"], description: "Filter (list) or new status (update)" },
           titles: { type: "array", items: { type: "string" }, description: "Task titles (create)" },
+          assignee: { type: "string", description: "Agent name or @name to assign the task to (create action only). The assignee gets woken via DM and the task is pre-claimed for them." },
           numbers: { type: "array", items: { type: "number" }, description: "Task numbers (claim)" },
           number: { type: "number", description: "Task number (release/update)" },
         },
