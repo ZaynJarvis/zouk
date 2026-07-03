@@ -15,7 +15,7 @@ function shouldSeed(db) {
   return true;
 }
 
-function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateChannel, setMembership, getMembership, appendMessage }) {
+async function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateChannel, setMembership, getMembership, appendMessage }) {
   // Channels
   const wantedChannels = [
     { name: "all", description: "General workspace channel" },
@@ -25,7 +25,7 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
   ];
   const createdChannels = [];
   for (const c of wantedChannels) {
-    const ch = findOrCreateChannel(c.name);
+    const ch = await findOrCreateChannel(c.name);
     if (!ch.description) ch.description = c.description;
     createdChannels.push(ch);
   }
@@ -141,7 +141,7 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
     for (const a of mockAgents) {
       for (const ch of createdChannels) {
         if (!getMembership(ch.id, a.id)) {
-          setMembership(ch.id, a.id, { canRead: true, subscribed: true });
+          await setMembership(ch.id, a.id, { canRead: true, subscribed: true });
         }
       }
     }
@@ -174,8 +174,9 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
       { channel: "ops", sender: "Deploy Bot", senderType: "agent", content: "deploy preview-2026-04-18 healthy ✅" },
       { channel: "ops", sender: "bob", senderType: "human", content: "thanks. holding the prod push until QA signs off." },
     ];
-    samples.forEach((s, i) => {
-      const ch = findOrCreateChannel(s.channel);
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      const ch = await findOrCreateChannel(s.channel);
       store.seq += 1;
       appendMessage({
         id: `mock-msg-${i + 1}`,
@@ -190,7 +191,7 @@ function seed({ store, agentConfigs, machines, addHumanPresence, findOrCreateCha
         createdAt: new Date(baseTime + i * 1000 * 60 * 12).toISOString(),
         attachments: [],
       });
-    });
+    }
   }
 
   console.log("[mock] Seeded mock channels, agents, machines, messages (no DB)");

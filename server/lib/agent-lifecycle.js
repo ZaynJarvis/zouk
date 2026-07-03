@@ -345,7 +345,7 @@ function createAgentLifecycle(ctx) {
       // New agent → subscribe to every regular (non-DM) channel so the legacy
       // "visible everywhere by default" behavior is preserved. Humans can
       // unsubscribe via the /subscriptions API.
-      seedAgentIntoRegularChannels(id);
+      await seedAgentIntoRegularChannels(id);
     } else if (ovApiKey && !agentConfigs[existingIdx].openvikingApiKey) {
       // Backfill an existing keyless agent. machineId is immutable — leave it.
       agentConfigs[existingIdx].openvikingUserId = ovUserId;

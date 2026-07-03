@@ -122,14 +122,15 @@ async function migrate() {
 // ─── Query helpers ───────────────────────────────────────────────
 // Eliminate the repeated if(!pool)/try/catch/perfLog boilerplate.
 
-async function dbExec(label, sql, params, perfFields) {
+async function dbExec(label, sql, params, perfFields, context) {
   if (!pool) return;
   const started = perfNowMs();
   try {
     await pool.query(sql, params);
     logDbPerf(label, perfNowMs() - started, perfFields || {});
   } catch (e) {
-    console.error(`[db] ${label} error:`, e.message);
+    const ctx = context ? ` ${JSON.stringify(context)}` : "";
+    console.error(`[db] ${label} error:${ctx}`, e.message);
   }
 }
 
@@ -168,7 +169,8 @@ function saveMessage(msg) {
      msg.channelName, msg.channelType, msg.threadId || null, msg.senderName, msg.senderType,
      msg.content, msg.createdAt, JSON.stringify(msg.attachments || []),
      msg.taskNumber || null, msg.taskStatus || null, msg.taskAssigneeId || null, msg.taskAssigneeType || null],
-    { workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, channelId: msg.channelId, channelType: msg.channelType, thread: !!msg.threadId });
+    { workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, channelId: msg.channelId, channelType: msg.channelType, thread: !!msg.threadId },
+    { id: msg.id, channelName: msg.channelName, senderName: msg.senderName });
 }
 
 // Bootstrap-only: returns the last N messages globally (seq ASC) to seed the
@@ -516,7 +518,9 @@ function saveChannel(ch) {
      ON CONFLICT (id) DO UPDATE SET
        workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name,
        description = EXCLUDED.description, type = EXCLUDED.type`,
-    [ch.id, ch.workspaceId || DEFAULT_WORKSPACE_ID, ch.name, ch.description || '', ch.type || 'channel']);
+    [ch.id, ch.workspaceId || DEFAULT_WORKSPACE_ID, ch.name, ch.description || '', ch.type || 'channel'],
+    null,
+    { id: ch.id, name: ch.name, workspaceId: ch.workspaceId || DEFAULT_WORKSPACE_ID });
 }
 
 function deleteChannel(id) {
@@ -545,13 +549,17 @@ function saveChannelAgent({ workspaceId = DEFAULT_WORKSPACE_ID, channelId, agent
      ON CONFLICT (channel_id, agent_id) DO UPDATE SET
        workspace_id = EXCLUDED.workspace_id, can_read = EXCLUDED.can_read,
        subscribed = EXCLUDED.subscribed, updated_at = now()`,
-    [workspaceId || DEFAULT_WORKSPACE_ID, channelId, agentId, !!canRead, !!subscribed]);
+    [workspaceId || DEFAULT_WORKSPACE_ID, channelId, agentId, !!canRead, !!subscribed],
+    null,
+    { channelId, agentId, subscribed: !!subscribed, canRead: !!canRead });
 }
 
 function deleteChannelAgent(channelId, agentId) {
   return dbExec("deleteChannelAgent",
     'DELETE FROM channel_agents WHERE channel_id = $1 AND agent_id = $2',
-    [channelId, agentId]);
+    [channelId, agentId],
+    null,
+    { channelId, agentId });
 }
 
 function loadChannelAgents() {
@@ -930,7 +938,9 @@ function saveWorkspaceMember(member) {
   return dbExec("saveWorkspaceMember",
     `INSERT INTO workspace_members (workspace_id, email, role, name, joined_at) VALUES ($1,$2,$3,$4,$5)
      ON CONFLICT (workspace_id, email) DO UPDATE SET role = EXCLUDED.role, name = EXCLUDED.name`,
-    [member.workspaceId || DEFAULT_WORKSPACE_ID, member.email, member.role || 'member', member.name || null, member.joinedAt || new Date().toISOString()]);
+    [member.workspaceId || DEFAULT_WORKSPACE_ID, member.email, member.role || 'member', member.name || null, member.joinedAt || new Date().toISOString()],
+    null,
+    { workspaceId: member.workspaceId || DEFAULT_WORKSPACE_ID, email: member.email, role: member.role || 'member' });
 }
 
 // Same write as saveWorkspaceMember but rethrows the DB error instead of
@@ -972,7 +982,9 @@ async function saveWorkspaceMemberStrict(member) {
 function deleteWorkspaceMember(workspaceId, email) {
   return dbExec("deleteWorkspaceMember",
     'DELETE FROM workspace_members WHERE workspace_id=$1 AND email=$2',
-    [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()]);
+    [workspaceId || DEFAULT_WORKSPACE_ID, String(email || '').trim().toLowerCase()],
+    null,
+    { workspaceId: workspaceId || DEFAULT_WORKSPACE_ID, email: String(email || '').trim().toLowerCase() });
 }
 
 function loadWorkspaceMembers() {

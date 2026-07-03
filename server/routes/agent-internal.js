@@ -101,7 +101,7 @@ function createAgentInternalRouter(ctx) {
   });
 
   // send_message
-  router.post("/:agentId/send", (req, res) => {
+  router.post("/:agentId/send", async (req, res) => {
     const { agentId } = req.params;
 
     // Per-agent send rate limit — check BEFORE dedupe so a looping agent
@@ -118,7 +118,7 @@ function createAgentInternalRouter(ctx) {
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const senderName = agentNameFor(agentId);
     const { channelName, channelType, threadId } = ctx.parseTarget(target, senderName);
-    const ch = ctx.findOrCreateChannel(channelName, channelType, workspaceId);
+    const ch = await ctx.findOrCreateChannel(channelName, channelType, workspaceId);
 
     // Retry idempotency (same mechanism as the human send path): a daemon
     // HTTP retry after a lost response must not insert a second message.
@@ -183,7 +183,7 @@ function createAgentInternalRouter(ctx) {
     };
     ctx.appendMessage(msg);
     ctx.db.saveMessage(msg);
-    ctx.deliverToAllAgents(msg, agentId);
+    ctx.deliverToAllAgents(msg, agentId).catch(() => {});
     ctx.broadcastToWeb({ type: "message", workspaceId, message: ctx.formatMessageForClient(msg) });
 
     // OV managed auto-capture: log agent's response (skip for native agents)
@@ -263,7 +263,7 @@ function createAgentInternalRouter(ctx) {
   });
 
   // update subscription
-  router.patch("/:agentId/subscriptions", (req, res) => {
+  router.patch("/:agentId/subscriptions", async (req, res) => {
     const { agentId } = req.params;
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const { channelId, channelName, channelType = "channel", canRead, subscribed } = req.body || {};
@@ -277,10 +277,10 @@ function createAgentInternalRouter(ctx) {
     const existing = ctx.getMembership(ch.id, agentId) || { canRead: true, subscribed: true };
     const next = { canRead: canRead === undefined ? existing.canRead : !!canRead, subscribed: subscribed === undefined ? existing.subscribed : !!subscribed };
     if (!next.canRead && !next.subscribed) {
-      ctx.removeMembership(ch.id, agentId);
+      await ctx.removeMembership(ch.id, agentId);
       return res.json({ ok: true, membership: null });
     }
-    ctx.setMembership(ch.id, agentId, next);
+    await ctx.setMembership(ch.id, agentId, next);
     res.json({ ok: true, membership: { channelId: ch.id, channelName: ch.name, ...next } });
   });
 
@@ -364,7 +364,7 @@ function createAgentInternalRouter(ctx) {
     const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const { channelName, channelType } = ctx.parseTarget(channel, agentName);
-    const ch = ctx.findOrCreateChannel(channelName, channelType, workspaceId);
+    const ch = await ctx.findOrCreateChannel(channelName, channelType, workspaceId);
     const created = [];
     for (const td of taskDefs) {
       const taskNum = ctx.nextTaskNum();
@@ -512,13 +512,13 @@ function createAgentInternalRouter(ctx) {
   });
 
   // resolve-channel
-  router.post("/:agentId/resolve-channel", (req, res) => {
+  router.post("/:agentId/resolve-channel", async (req, res) => {
     const { agentId } = req.params;
     const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const { target } = req.body;
     const { channelName, channelType } = ctx.parseTarget(target, agentName);
-    const ch = ctx.findOrCreateChannel(channelName, channelType, workspaceId);
+    const ch = await ctx.findOrCreateChannel(channelName, channelType, workspaceId);
     res.json({ channelId: ch.id });
   });
 
