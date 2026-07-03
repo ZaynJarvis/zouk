@@ -211,6 +211,27 @@ async function findMessagesByIdPrefix({ prefix, workspaceId = null, limit = 2 })
   }
 }
 
+// Collect all attachment ids referenced by messages younger than `sinceDays`.
+// Uses jsonb_array_elements to unnest the attachments JSONB array so we get a
+// flat set of ids. Returns a plain array of id strings (deduplicated).
+// Used by the attachment pruner to shield blobs that are still referenced.
+async function getReferencedAttachmentIds(sinceDays = 30) {
+  if (!pool) return [];
+  const cutoff = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
+  const rows = await dbQuery(
+    "getReferencedAttachmentIds",
+    `SELECT DISTINCT elem->>'id' AS id
+     FROM messages, jsonb_array_elements(attachments) AS elem
+     WHERE created_at >= $1
+       AND jsonb_typeof(attachments) = 'array'
+       AND elem->>'id' IS NOT NULL`,
+    [cutoff.toISOString()],
+    (r) => r.id,
+    []
+  );
+  return rows;
+}
+
 // Primary history-fetch helper. Returns messages in seq ASC order so callers
 // can append as a contiguous page. `beforeSeq` / `afterSeq` are exclusive
 // bounds; pass null/undefined to skip the bound. Uses the composite
@@ -1182,6 +1203,7 @@ module.exports = {
   loadMessages,
   getMessageById,
   findMessagesByIdPrefix,
+  getReferencedAttachmentIds,
   queryMessages,
   queryMessagesAround,
   queryMessagesForAgent,

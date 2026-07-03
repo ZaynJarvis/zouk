@@ -2576,14 +2576,58 @@ const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_ATTACHMENT_BYTES } });
 
 // Periodic prune: keep attachment blobs for 14 days, then unlink the blob +
-// sidecar. resolveAttachmentRefs() already falls back to filename:"unknown"
-// for missing ids, so old messages keep rendering without their thumbnails.
+// sidecar. Blobs referenced by any message (in-memory index or DB) are
+// protected from pruning regardless of age — otherwise a 13-day-old message's
+// attachment would silently disappear at day 14. resolveAttachmentRefs() still
+// falls back to filename:"unknown" for missing ids, so truly orphaned blobs
+// get cleaned up without breaking message rendering.
 const ATTACHMENT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const ATTACHMENT_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+
+// Extract attachment ids from a single message's attachments array. Handles
+// both object-shape ({id,...}) and raw string ids (defensive — all current
+// callers go through resolveAttachmentRefs which produces objects).
+function attachmentIdsFromMessage(msg) {
+  if (!msg || !Array.isArray(msg.attachments)) return [];
+  return msg.attachments
+    .map((a) => (typeof a === "string" ? a : a?.id))
+    .filter(Boolean);
+}
+
+// Walk all in-memory message indexes and return a Set of attachment ids that
+// are still referenced. This covers the bootstrap window (last 500 messages)
+// plus any messages appended since boot.
+function collectInMemoryAttachmentRefs() {
+  const ids = new Set();
+  for (const msg of messagesById.values()) {
+    for (const aid of attachmentIdsFromMessage(msg)) ids.add(aid);
+  }
+  for (const arr of store.channelMessages.values()) {
+    for (const msg of arr) {
+      for (const aid of attachmentIdsFromMessage(msg)) ids.add(aid);
+    }
+  }
+  for (const arr of repliesByThreadId.values()) {
+    for (const msg of arr) {
+      for (const aid of attachmentIdsFromMessage(msg)) ids.add(aid);
+    }
+  }
+  return ids;
+}
+
 async function runAttachmentPrune() {
   try {
-    const removed = await attachmentStorage.pruneOlderThan(ATTACHMENT_MAX_AGE_MS);
-    if (removed > 0) console.log(`[attachments] pruned ${removed} blob(s) older than 14 days`);
+    // Build the protected set: in-memory refs first (always available), then
+    // union with DB-derived refs when persistence is enabled.
+    const protectedIds = collectInMemoryAttachmentRefs();
+    if (db.enabled) {
+      const dbRefs = await db.getReferencedAttachmentIds(30);
+      for (const id of dbRefs) protectedIds.add(id);
+    }
+    const removed = await attachmentStorage.pruneOlderThan(ATTACHMENT_MAX_AGE_MS, { protectedIds });
+    if (removed > 0 || protectedIds.size > 0) {
+      console.log(`[attachments] pruned ${removed} blob(s) older than 14 days (${protectedIds.size} protected by message refs)`);
+    }
   } catch (err) {
     console.warn(`[attachments] prune failed: ${err.message}`);
   }
