@@ -147,7 +147,7 @@ function CompactMachineCard({ machine }: { machine: ServerMachine }) {
 
 export default function AgentsView() {
   const {
-    agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent,
+    agents, configs, machines, startAgent, stopAgent, updateAgentConfig, deleteAgent, cloneAgent,
     isGuest, agentDetailTab, setAgentDetailTab, selectedAgentId, setSelectedAgentId,
   } = useApp();
   const [showArchived, setShowArchived] = useState(false);
@@ -446,6 +446,7 @@ export default function AgentsView() {
                 onUpdate={handleUpdateAgent}
                 onStop={() => stopAgent(selected.id)}
                 onDelete={handleDeleteAgent}
+                onClone={() => cloneAgent(selected.id)}
                 onBack={() => setMobileShowDetail(false)}
               />
             ) : (

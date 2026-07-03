@@ -499,6 +499,7 @@ function agentPayload(agentId) {
     picture: cfg.picture || a.picture || undefined,
     lifecycle: cfg.lifecycle === 'ephemeral' ? 'ephemeral' : 'persistent',
     channels: agentChannelNames(agentId),
+    cloneOf: cfg.cloneOf || undefined,
     openvikingProvisioned: !!cfg.openvikingApiKey,
     openvikingMode: cfg.openvikingMode === 'custom' ? 'custom' : 'provisioned',
     openvikingCustomConfigured: !!cfg.openvikingCustomApiKey,
@@ -1825,6 +1826,7 @@ let normalizeInactiveAgentState;
 let broadcastAgentStatus;
 let startAgentOnDaemon;
 let autoStartAgents;
+let cloneAgent;
 
 const onlineHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest, count }
 // Everyone we've ever seen as an authenticated user (seeded from `sessions` table on
@@ -2710,6 +2712,7 @@ app.use("/internal/agent", createAgentInternalRouter({
   resolveAttachmentRefs, resolveTargetChannel, resolveUniqueByIdOrPrefix,
   sanitizedAgentConfigs, saveAgentConfigs, searchVisibleMessages,
   get syncRuntimeAgentFromConfig() { return syncRuntimeAgentFromConfig; },
+  get cloneAgent() { return cloneAgent; },
   syncTaskBackingMessage,
   taskChannelPayload, taskMatchesTarget, taskTitleFromMessage,
   visibleChannelIdsForAgent, withTaskMutationLock,
@@ -3086,11 +3089,16 @@ const agentLifecycle = createAgentLifecycle({
   pendingContextResets,
   ovLifecycle,
   requireAuth,
+  purgeAgentMemberships, purgeUnknownAgentState,
+  persistUserMessage, fanoutUserMessage,
+  findOrCreateChannel, parseTarget, setMembership,
+  get sendAgentStop() { return sendAgentStop; },
   get normalizeInactiveAgentState() { return normalizeInactiveAgentState; },
   get broadcastAgentStatus() { return broadcastAgentStatus; },
 });
 startAgentOnDaemon = agentLifecycle.startAgentOnDaemon;
 autoStartAgents = agentLifecycle.autoStartAgents;
+cloneAgent = agentLifecycle.cloneAgent;
 app.use(agentLifecycle.router);
 
 // ─── Auth + workspace routes (extracted) ────────────────────────

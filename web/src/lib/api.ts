@@ -307,6 +307,17 @@ export async function deleteAgent(agentId: string): Promise<void> {
   if (!res.ok) throw await errorFromResponse(res, 'Failed to delete agent');
 }
 
+export async function cloneAgent(agentId: string, options?: { prompt?: string; channel?: string }): Promise<{ cloneId: string; name: string; displayName: string }> {
+  const url = `${getBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/clone`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+  });
+  if (!res.ok) throw await errorFromResponse(res, 'Failed to clone agent');
+  return res.json();
+}
+
 export interface RuntimeModel {
   id: string;
   label: string;

@@ -759,6 +759,25 @@ function createAgentInternalRouter(ctx) {
     res.json({ ok: true, updated: changed, pictureBytes: pictureDataUri ? Buffer.byteLength(pictureDataUri, "utf8") : 0, agent: ctx.agentPayload(agentId) });
   });
 
+  // clone — agent clones itself (a coordinating agent spawns helpers of itself).
+  // The clone shares identity assets (workspace, OV memory, persona) but runs
+  // in a clean session with a fresh agentId. DM-only by default (anti-double-reply).
+  router.post("/:agentId/clone", async (req, res) => {
+    const { agentId } = req.params;
+    const workspaceId = ctx.workspaceIdFromAgent(agentId);
+    const agentName = agentNameFor(agentId);
+    const result = await ctx.cloneAgent(agentId, {
+      workspaceId,
+      prompt: req.body?.prompt,
+      channel: req.body?.channel,
+      callerName: agentName,
+    });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    res.json({ cloneId: result.cloneId, name: result.name, displayName: result.displayName });
+  });
+
   return router;
 }
 
