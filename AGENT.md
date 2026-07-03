@@ -85,6 +85,7 @@ node web/scripts/qa-runner.mjs --pr <PR_NUMBER>
 
 - `docs/ios-websocket-reconnect.md`: why iOS PWAs can keep a zombie websocket and how `visibilitychange` recovery works.
 - `docs/idle-agent-wake.md`: current idle/live-idle/cached-idle wake behavior and why untargeted broadcasts are expensive.
+- `docs/improvements/2026-07-04-campaign.md`: review index for the 2026-07-04 improvement campaign (full-stack sim, clone, coordination, verified bug fixes).
 
 ## Production Triage (Railway)
 
