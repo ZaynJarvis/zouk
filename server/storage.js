@@ -75,7 +75,11 @@ function createStorage(dir = DEFAULT_DIR) {
   // Delete blob + sidecar pairs whose meta.createdAt is older than maxAgeMs.
   // Falls back to file mtime when meta is missing/unparseable so we can still
   // sweep up orphaned blobs. Returns the count of removed attachment ids.
-  async function pruneOlderThan(maxAgeMs) {
+  //
+  // protectedIds: an optional Set of attachment ids that must NOT be removed,
+  // even if older than the cutoff. Used by the orchestrator to shield blobs
+  // that are still referenced by messages.
+  async function pruneOlderThan(maxAgeMs, { protectedIds } = {}) {
     const cutoff = Date.now() - maxAgeMs;
     let entries;
     try {
@@ -86,6 +90,7 @@ function createStorage(dir = DEFAULT_DIR) {
     const ids = entries.filter((n) => !n.endsWith(".meta.json"));
     let removed = 0;
     for (const id of ids) {
+      if (protectedIds && protectedIds.has(id)) continue;
       let createdAt = null;
       const meta = statSync(id);
       if (meta?.createdAt) {
