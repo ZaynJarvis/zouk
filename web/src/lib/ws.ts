@@ -1,32 +1,20 @@
 import type {
   MessageRecord, ServerChannel, ServerAgent, ServerHuman,
   AgentConfig, ServerMachine, AgentActivity, AgentEntry,
-  Workspace, AgentLifecycleStatus,
+  Workspace, AgentLifecycleStatus, WorkspaceMember, WorkspaceRole,
 } from '../types';
 import { getActiveWorkspaceId } from './workspaceRoute';
-
-export type WsEventType =
-  | 'init'
-  | 'message' | 'new_message'
-  | 'ping'
-  | 'agent_status'
-  | 'agent_activity'
-  | 'daemon_connected' | 'daemon_disconnected'
-  | 'channel_created'
-  | 'workspace_updated' | 'workspace_deleted'
-  | 'agent_started'
-  | 'config_updated'
-  | 'humans_updated'
-  | 'machine:connected' | 'machine:disconnected' | 'machine:updated'
-  | 'workspace:file_tree' | 'workspace:file_content'
-  | 'memory:list_result' | 'memory:content'
-  | 'skills:list_result'
-  | 'machine:workspace:scan_result' | 'machine:workspace:delete_result';
 
 export interface WsInitEvent {
   type: 'init';
   workspaceId?: string;
+  requestedWorkspaceId?: string;
+  requestedWorkspaceAccess?: 'granted' | 'denied' | 'missing' | 'unauthenticated';
   workspaces?: Workspace[];
+  workspaceMembers?: WorkspaceMember[];
+  workspaceAllowlistActive?: boolean;
+  viewerRole?: WorkspaceRole | null;
+  isSuperuser?: boolean;
   channels: ServerChannel[];
   agents: ServerAgent[];
   humans: ServerHuman[];
@@ -63,9 +51,22 @@ export interface WsChannelCreatedEvent {
   channel: ServerChannel;
 }
 
+export interface WsChannelDeletedEvent {
+  type: 'channel_deleted';
+  channelId: string;
+  channelName: string;
+  workspaceId?: string;
+}
+
 export interface WsWorkspaceUpdatedEvent {
   type: 'workspace_updated';
   workspace: Workspace;
+}
+
+export interface WsWorkspaceDeletedEvent {
+  type: 'workspace_deleted';
+  workspaceId?: string;
+  workspace?: Workspace;
 }
 
 export interface WsAgentStartedEvent {
@@ -140,6 +141,27 @@ export interface WsSkillsListResultEvent {
   workspace: import('../types').AgentAvailableSkill[];
 }
 
+export interface WsWorkspaceMembersEvent {
+  type: 'workspace:members';
+  workspaceId: string;
+  members: WorkspaceMember[];
+}
+
+export interface WsMachineWorkspaceScanResultEvent {
+  type: 'machine:workspace:scan_result';
+  workspaceId: string;
+  machineId: string;
+  directories: unknown[];
+}
+
+export interface WsMachineWorkspaceDeleteResultEvent {
+  type: 'machine:workspace:delete_result';
+  workspaceId: string;
+  machineId: string;
+  directoryName: string;
+  success: boolean;
+}
+
 export type WsEvent =
   | WsInitEvent
   | WsMessageEvent
@@ -147,19 +169,26 @@ export type WsEvent =
   | WsAgentActivityEvent
   | WsDaemonEvent
   | WsChannelCreatedEvent
+  | WsChannelDeletedEvent
   | WsWorkspaceUpdatedEvent
+  | WsWorkspaceDeletedEvent
   | WsAgentStartedEvent
   | WsConfigUpdatedEvent
   | WsHumansUpdatedEvent
   | WsMachineConnectedEvent
   | WsMachineUpdatedEvent
   | WsMachineDisconnectedEvent
+  | WsWorkspaceMembersEvent
   | WsWorkspaceFileTreeEvent
   | WsWorkspaceFileContentEvent
   | WsMemoryListResultEvent
   | WsMemoryContentEvent
   | WsSkillsListResultEvent
+  | WsMachineWorkspaceScanResultEvent
+  | WsMachineWorkspaceDeleteResultEvent
   | { type: string; [key: string]: unknown };
+
+export type WsEventType = WsEvent['type'];
 
 export type WsEventHandler = (event: WsEvent) => void;
 

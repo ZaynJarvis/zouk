@@ -888,11 +888,6 @@ export function useAppStore() {
               ? { ...a, workDir: e.workDir }
               : a
           )));
-          setConfigs(prev => prev.map(c => (
-            c.id === e.agentId && c.workDir !== e.workDir
-              ? { ...c, workDir: e.workDir }
-              : c
-          )));
         }
         break;
       }
