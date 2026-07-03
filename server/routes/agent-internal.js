@@ -243,7 +243,33 @@ function createAgentInternalRouter(ctx) {
     const agents = Object.keys(ctx.store.agents).map((id) => {
       const p = ctx.agentPayload(id);
       if ((p?.workspaceId || ctx.DEFAULT_WORKSPACE_ID) !== workspaceId) return null;
-      return { name: p?.name || id, status: p?.status || "inactive" };
+      const cfg = ctx.agentConfigs.find((c) => c.id === id);
+      const agentName = p?.name || id;
+      // Find tasks claimed by this agent
+      const claimedTasks = ctx.store.tasks
+        .filter((t) => (t.workspaceId || ctx.DEFAULT_WORKSPACE_ID) === workspaceId && t.claimedByName === agentName)
+        .map((t) => ({ taskNumber: t.taskNumber, title: t.title, status: t.status }));
+      // Find channel names this agent subscribes to
+      const subscribedChannels = ctx.store.channels
+        .filter((ch) => {
+          if ((ch.workspaceId || ctx.DEFAULT_WORKSPACE_ID) !== workspaceId) return false;
+          if ((ch.type || "channel") !== "channel") return false;
+          const row = ctx.getMembership(ch.id, id);
+          return !!(row && row.subscribed);
+        })
+        .map((ch) => ch.name);
+      return {
+        name: agentName,
+        displayName: p?.displayName || agentName,
+        description: cfg?.description || "",
+        runtime: p?.runtime || null,
+        model: p?.model || null,
+        status: p?.status || "inactive",
+        activity: p?.activity || null,
+        activityDetail: p?.activityDetail || null,
+        claimedTasks,
+        channels: subscribedChannels,
+      };
     }).filter(Boolean);
     res.json({ channels, agents, humans: ctx.store.humans });
   });
@@ -360,23 +386,106 @@ function createAgentInternalRouter(ctx) {
   // create_tasks
   router.post("/:agentId/tasks", async (req, res) => {
     const { agentId } = req.params;
-    const { channel, tasks: taskDefs } = req.body;
+    const { channel, tasks: taskDefs, assignee } = req.body;
     const agentName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const { channelName, channelType } = ctx.parseTarget(channel, agentName);
     const ch = await ctx.findOrCreateChannel(channelName, channelType, workspaceId);
+
+    // Resolve assignee (if provided) to agent id
+    let assigneeId = null;
+    let assigneeName = null;
+    if (assignee) {
+      const clean = String(assignee).replace(/^@/, "").trim();
+      // Search agentConfigs and store.agents for a matching name
+      const lowered = clean.toLowerCase();
+      const cfgMatch = ctx.agentConfigs.find((c) => {
+        if ((c.workspaceId || ctx.DEFAULT_WORKSPACE_ID) !== workspaceId) return false;
+        return (c.name || "").toLowerCase() === lowered || (c.displayName || "").toLowerCase() === lowered;
+      });
+      if (cfgMatch) {
+        assigneeId = cfgMatch.id;
+        assigneeName = cfgMatch.name || cfgMatch.displayName;
+      } else {
+        for (const [id, a] of Object.entries(ctx.store.agents)) {
+          if (ctx.workspaceIdFromAgent(id) !== workspaceId) continue;
+          if ((a.name || "").toLowerCase() === lowered || (a.displayName || "").toLowerCase() === lowered) {
+            assigneeId = id;
+            assigneeName = a.name || a.displayName || id;
+            break;
+          }
+        }
+      }
+      if (!assigneeId) {
+        return res.status(404).json({ error: `assignee_not_found: no agent named "${clean}" in this workspace` });
+      }
+    }
+
     const created = [];
     for (const td of taskDefs) {
       const taskNum = ctx.nextTaskNum();
       const msgId = uuidv4();
-      const task = { taskNumber: taskNum, workspaceId, channelId: ch.id, channelName: ch.name, title: td.title, status: "todo", messageId: msgId, claimedByName: null, claimedByType: null, createdByName: agentName };
+      const task = {
+        taskNumber: taskNum,
+        workspaceId,
+        channelId: ch.id,
+        channelName: ch.name,
+        title: td.title,
+        status: assigneeName ? "in_progress" : "todo",
+        messageId: msgId,
+        claimedByName: assigneeName || null,
+        claimedByType: assigneeName ? "agent" : null,
+        createdByName: agentName,
+      };
       ctx.store.tasks.push(task);
-      const msg = { id: msgId, seq: ctx.nextSeq(), workspaceId, channelId: ch.id, channelName: ch.name, channelType, threadId: null, senderName: "system", senderType: "system", content: `📋 New task #${taskNum}: ${td.title}`, createdAt: ctx.now(), attachments: [], taskNumber: taskNum, taskStatus: "todo" };
+      const msg = {
+        id: msgId,
+        seq: ctx.nextSeq(),
+        workspaceId,
+        channelId: ch.id,
+        channelName: ch.name,
+        channelType,
+        threadId: null,
+        senderName: "system",
+        senderType: "system",
+        content: assigneeName
+          ? `📋 New task #${taskNum}: ${td.title} (assigned to @${assigneeName})`
+          : `📋 New task #${taskNum}: ${td.title}`,
+        createdAt: ctx.now(),
+        attachments: [],
+        taskNumber: taskNum,
+        taskStatus: assigneeName ? "in_progress" : "todo",
+      };
       ctx.appendMessage(msg);
       await ctx.db.saveTask(task);
       await ctx.db.saveMessage(msg);
       ctx.broadcastToWeb({ type: "message", workspaceId, message: ctx.formatMessageForClient(msg) });
-      created.push({ taskNumber: taskNum, messageId: msgId, title: td.title });
+
+      // If assignee is set: wake them with a DM about the assigned task
+      if (assigneeId && assigneeName) {
+        const dmChannelName = `dm:${[agentName, assigneeName].sort().join(",")}`;
+        const dmCh = await ctx.findOrCreateChannel(dmChannelName, "dm", workspaceId);
+        const dmMsg = {
+          id: uuidv4(),
+          seq: ctx.nextSeq(),
+          workspaceId,
+          channelId: dmCh.id,
+          channelName: dmCh.name,
+          channelType: "dm",
+          threadId: null,
+          senderName: agentName,
+          senderType: "agent",
+          content: `You've been assigned task #${taskNum} in #${ch.name}: "${td.title}". Please claim it (if not already) and start working on it. Reply here when done or if you need clarification.`,
+          createdAt: ctx.now(),
+          attachments: [],
+        };
+        ctx.appendMessage(dmMsg);
+        await ctx.db.saveMessage(dmMsg);
+        ctx.deliverToAllAgents(dmMsg, agentId).catch(() => {});
+        ctx.broadcastToWeb({ type: "message", workspaceId, message: ctx.formatMessageForClient(dmMsg) });
+      }
+
+      created.push({ taskNumber: taskNum, messageId: msgId, title: td.title, assignedTo: assigneeName || null });
     }
     res.json({ tasks: created });
   });
@@ -507,6 +616,50 @@ function createAgentInternalRouter(ctx) {
       ctx.appendMessage(msg);
       await ctx.db.saveMessage(msg);
       ctx.broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || workspaceId, message: ctx.formatMessageForClient(msg) });
+
+      // Result-collection contract: if the task creator is an agent (and not
+      // the same agent who just updated status), notify them via DM.
+      if (task.createdByName && task.createdByName !== agentName && (status === "done" || status === "in_review")) {
+        const creatorLowered = task.createdByName.toLowerCase();
+        let creatorId = null;
+        const cfgMatch = ctx.agentConfigs.find((c) => {
+          if ((c.workspaceId || ctx.DEFAULT_WORKSPACE_ID) !== workspaceId) return false;
+          return (c.name || "").toLowerCase() === creatorLowered || (c.displayName || "").toLowerCase() === creatorLowered;
+        });
+        if (cfgMatch) {
+          creatorId = cfgMatch.id;
+        } else {
+          for (const [id, a] of Object.entries(ctx.store.agents)) {
+            if (ctx.workspaceIdFromAgent(id) !== workspaceId) continue;
+            if ((a.name || "").toLowerCase() === creatorLowered || (a.displayName || "").toLowerCase() === creatorLowered) {
+              creatorId = id;
+              break;
+            }
+          }
+        }
+        if (creatorId) {
+          const dmChannelName = `dm:${[task.createdByName, agentName].sort().join(",")}`;
+          const dmCh = await ctx.findOrCreateChannel(dmChannelName, "dm", workspaceId);
+          const dmMsg = {
+            id: uuidv4(),
+            seq: ctx.nextSeq(),
+            workspaceId,
+            channelId: dmCh.id,
+            channelName: dmCh.name,
+            channelType: "dm",
+            threadId: null,
+            senderName: agentName,
+            senderType: "agent",
+            content: `Task #${task_number} "${task.title}" was moved to ${status} by @${agentName}.${status === "done" ? " The work is complete." : " It is ready for review."}`,
+            createdAt: ctx.now(),
+            attachments: [],
+          };
+          ctx.appendMessage(dmMsg);
+          await ctx.db.saveMessage(dmMsg);
+          ctx.deliverToAllAgents(dmMsg, agentId).catch(() => {});
+          ctx.broadcastToWeb({ type: "message", workspaceId, message: ctx.formatMessageForClient(dmMsg) });
+        }
+      }
     }
     res.json({ success: true });
   });
