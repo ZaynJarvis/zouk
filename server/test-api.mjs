@@ -104,6 +104,10 @@ test('schema migration parser keeps channel_agents create-table statement after 
     statements.some((statement) => statement.startsWith('CREATE TABLE IF NOT EXISTS channel_agents')),
     'channel_agents create-table statement must survive schema parsing'
   );
+  assert.ok(
+    statements.some((statement) => statement.startsWith('CREATE TABLE IF NOT EXISTS agent_read_cursors')),
+    'agent_read_cursors create-table statement must survive schema parsing'
+  );
 });
 
 test('guest session: returns token and user for valid name', async () => {
