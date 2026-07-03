@@ -736,9 +736,11 @@ function createDaemonHandler(ctx) {
           console.log(`[agent:${msg.agentId}] Ignoring workspace tree from stale daemon connection on machine ${ws._machineId}`);
           break;
         }
-        const workDirChanged = updateAgentWorkDir(msg.agentId, msg.workDir);
         const wsId = workspaceIdFromAgent(msg.agentId);
-        // Forward to web UI
+        // Forward to web UI. Note: we deliberately do NOT persist msg.workDir
+        // into the agent config here — the agent:status handler already persists
+        // the process CWD authoritatively, and a file-tree scan's workDir is a
+        // runtime-discovered value that must not overwrite saved config state.
         broadcastToWeb({
           type: "workspace:file_tree",
           workspaceId: wsId,
@@ -747,14 +749,6 @@ function createDaemonHandler(ctx) {
           workDir: msg.workDir,
           files: msg.files,
         });
-        if (workDirChanged) {
-          broadcastToWeb({ type: "agent_started", agent: agentPayload(msg.agentId) });
-          broadcastToWeb({
-            type: "config_updated",
-            workspaceId: wsId,
-            configs: sanitizedAgentConfigs().filter((c) => (c.workspaceId || DEFAULT_WORKSPACE_ID) === wsId),
-          });
-        }
         break;
       }
       case "agent:workspace:file_content": {
