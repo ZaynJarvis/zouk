@@ -980,7 +980,7 @@ function getWorkspaceMember(workspaceId, email) {
   return workspaceMembersFor(workspaceId).get(String(email).trim().toLowerCase()) || null;
 }
 
-function setWorkspaceMember(member, { persist = true } = {}) {
+async function setWorkspaceMember(member, { persist = true } = {}) {
   if (!member?.email) return null;
   const workspaceId = normalizeWorkspaceId(member.workspaceId || DEFAULT_WORKSPACE_ID);
   const email = member.email.trim().toLowerCase();
@@ -993,7 +993,7 @@ function setWorkspaceMember(member, { persist = true } = {}) {
     joinedAt: member.joinedAt || now(),
   };
   workspaceMembersFor(workspaceId).set(email, next);
-  if (persist) db.saveWorkspaceMember(next);
+  if (persist) await db.saveWorkspaceMember(next);
   return next;
 }
 
@@ -1067,12 +1067,12 @@ async function inviteWorkspaceMember({ workspaceId, email, role = "member", name
   return member;
 }
 
-function removeWorkspaceMember(workspaceId, email) {
+async function removeWorkspaceMember(workspaceId, email) {
   if (!email) return false;
   const id = normalizeWorkspaceId(workspaceId);
   const normalized = String(email).trim().toLowerCase();
   const removed = workspaceMembersFor(id).delete(normalized);
-  if (removed) db.deleteWorkspaceMember(id, normalized);
+  if (removed) await db.deleteWorkspaceMember(id, normalized);
   return removed;
 }
 
@@ -1091,7 +1091,7 @@ function listWorkspaceMembers(workspaceId) {
   return [...workspaceMembersFor(id).values()].map(workspaceMemberPayload);
 }
 
-function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) {
+async function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) {
   if (!user?.email) return null;
   const id = normalizeWorkspaceId(workspaceId);
   if (!findWorkspace(id)) {
@@ -1104,7 +1104,7 @@ function ensureWorkspaceMemberForUser(user, workspaceId = DEFAULT_WORKSPACE_ID) 
   if (id !== DEFAULT_WORKSPACE_ID) return null;
   if (!isEmailAllowed(user.email, id)) return null;
   const role = workspaceMemberCount(id) === 0 ? "root" : "member";
-  const member = setWorkspaceMember({ workspaceId: id, email: user.email, name: user.name, role });
+  const member = await setWorkspaceMember({ workspaceId: id, email: user.email, name: user.name, role });
   broadcastWorkspaceMembers(id);
   return member;
 }
@@ -1153,8 +1153,13 @@ function visibleWorkspacesForUser(user) {
     }
   }
   if (workspaces.length === 0) {
-    const member = ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
-    if (member) workspaces.push(workspacePayload(ensureWorkspace({ id: DEFAULT_WORKSPACE_ID })));
+    // Fire-and-forget: ensureWorkspaceMemberForUser is async but the in-memory
+    // member row is created synchronously inside setWorkspaceMember, so the
+    // getWorkspaceMember check below will see it even without awaiting.
+    ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID).catch(() => {});
+    if (getWorkspaceMember(DEFAULT_WORKSPACE_ID, user.email)) {
+      workspaces.push(workspacePayload(ensureWorkspace({ id: DEFAULT_WORKSPACE_ID })));
+    }
   }
   return workspaces;
 }
@@ -1257,7 +1262,7 @@ function taskMatchesTarget(task, target, agentName) {
   return _taskMatchesTarget(task, target, agentName, channelForTask);
 }
 
-function findOrCreateChannel(name, type = "channel", workspaceId = DEFAULT_WORKSPACE_ID) {
+async function findOrCreateChannel(name, type = "channel", workspaceId = DEFAULT_WORKSPACE_ID) {
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
   let ch = store.channels.find((c) => (
     (c.workspaceId || DEFAULT_WORKSPACE_ID) === normalizedWorkspaceId
@@ -1276,7 +1281,7 @@ function findOrCreateChannel(name, type = "channel", workspaceId = DEFAULT_WORKS
       members: [],
     };
     store.channels.push(ch);
-    db.saveChannel(ch);
+    await db.saveChannel(ch);
     seedMembershipOnChannelCreate(ch);
   }
   return ch;
@@ -1291,7 +1296,7 @@ function getMembership(channelId, agentId) {
   return ca ? ca.get(agentId) : undefined;
 }
 
-function setMembership(channelId, agentId, { canRead = true, subscribed = true } = {}) {
+async function setMembership(channelId, agentId, { canRead = true, subscribed = true } = {}) {
   const channel = store.channels.find((c) => c.id === channelId);
   let ca = store.channelAgents.get(channelId);
   if (!ca) {
@@ -1301,7 +1306,7 @@ function setMembership(channelId, agentId, { canRead = true, subscribed = true }
   const existing = ca.get(agentId);
   if (existing && existing.canRead === !!canRead && existing.subscribed === !!subscribed) return false;
   ca.set(agentId, { canRead: !!canRead, subscribed: !!subscribed });
-  db.saveChannelAgent({
+  await db.saveChannelAgent({
     workspaceId: channel?.workspaceId || workspaceIdFromAgent(agentId),
     channelId,
     agentId,
@@ -1311,13 +1316,13 @@ function setMembership(channelId, agentId, { canRead = true, subscribed = true }
   return true;
 }
 
-function removeMembership(channelId, agentId) {
+async function removeMembership(channelId, agentId) {
   const ca = store.channelAgents.get(channelId);
   if (ca) {
     ca.delete(agentId);
     if (ca.size === 0) store.channelAgents.delete(channelId);
   }
-  db.deleteChannelAgent(channelId, agentId);
+  await db.deleteChannelAgent(channelId, agentId);
 }
 
 function purgeAgentMemberships(agentId) {
@@ -1409,7 +1414,7 @@ function agentIdByName(name, workspaceId = null) {
 // Seed a newly-registered agent into the `all` channel only.
 // New agents start with visibility only to #all; admins can subscribe them to
 // other channels via the API. DMs are not seeded here.
-function seedAgentIntoRegularChannels(agentId) {
+async function seedAgentIntoRegularChannels(agentId) {
   const agentWorkspaceId = workspaceIdFromAgent(agentId);
   const allChannel = store.channels.find(
     (ch) => (ch.workspaceId || DEFAULT_WORKSPACE_ID) === agentWorkspaceId
@@ -1417,7 +1422,7 @@ function seedAgentIntoRegularChannels(agentId) {
       && (ch.type || "channel") === "channel"
   );
   if (allChannel && !getMembership(allChannel.id, agentId)) {
-    setMembership(allChannel.id, agentId, { canRead: true, subscribed: true });
+    await setMembership(allChannel.id, agentId, { canRead: true, subscribed: true });
   }
 }
 
@@ -1866,21 +1871,50 @@ function queuePendingDelivery(agentId, message) {
   }
 }
 
-function replayPendingDeliveries(agentId) {
+async function replayPendingDeliveries(agentId) {
   const queue = pendingDeliveries.get(agentId);
   if (!queue || queue.length === 0) return;
   pendingDeliveries.delete(agentId);
   const cutoff = Date.now() - PENDING_DELIVERY_TTL_MS;
   let expired = 0;
+  let skipped = 0;
+  const deliverPromises = [];
   for (const item of queue) {
     if (item.queuedAt < cutoff) {
       expired += 1;
       continue;
     }
-    deliverToAgent(agentId, item.message);
+    // Re-check subscription for channel messages (not DMs). An agent who
+    // unsubscribed while offline should not receive queued channel messages
+    // on reconnect. DMs are party-scoped and always delivered.
+    const msg = item.message;
+    const msgWorkspaceId = normalizeWorkspaceId(msg.workspaceId || DEFAULT_WORKSPACE_ID);
+    const ch = msg.channelId
+      ? store.channels.find((c) => c.id === msg.channelId)
+      : store.channels.find((c) => (
+        (c.workspaceId || DEFAULT_WORKSPACE_ID) === msgWorkspaceId
+        && c.name === msg.channelName
+        && (c.type || "channel") === (msg.channelType || "channel")
+      ));
+    const isDm = ch && (ch.type || "channel") === "dm";
+    if (!isDm && ch) {
+      const membership = getMembership(ch.id, agentId);
+      if (!membership || !membership.canRead) {
+        skipped += 1;
+        console.log(`[delivery] replay skipped unsubscribed agent=${agentId} message=${msg.id} channel=${ch.name}`);
+        continue;
+      }
+    }
+    deliverPromises.push(deliverToAgent(agentId, msg));
+  }
+  if (deliverPromises.length > 0) {
+    await Promise.all(deliverPromises);
   }
   if (expired > 0) {
     console.warn(`[delivery] replay dropped ${expired} expired message(s) agent=${agentId} ttl_ms=${PENDING_DELIVERY_TTL_MS}`);
+  }
+  if (skipped > 0) {
+    console.log(`[delivery] replay skipped ${skipped} unsubscribed message(s) agent=${agentId}`);
   }
 }
 
@@ -2436,7 +2470,7 @@ function rebuildDeliveryRoutingWindows(seedMessages = []) {
   });
 }
 
-function deliverToAllAgents(message, excludeAgent = null) {
+async function deliverToAllAgents(message, excludeAgent = null) {
   const workspaceId = normalizeWorkspaceId(message.workspaceId || DEFAULT_WORKSPACE_ID);
   // Resolve the channel row so we can ask who's subscribed. Messages always
   // carry channelId (set at write time); fall back to name/type lookup in
@@ -2477,10 +2511,13 @@ function deliverToAllAgents(message, excludeAgent = null) {
     excludeAgentId: excludeAgent,
   });
 
+  // Concurrent fan-out: deliverToAgent is async, so we await all results
+  // to get accurate sent/queued counts. Previously the loop checked the
+  // return synchronously, so counts were always 0.
+  const results = await Promise.all(recipientIds.map((agentId) => deliverToAgent(agentId, message)));
   let sentCount = 0;
   let queuedCount = 0;
-  for (const agentId of recipientIds) {
-    const result = deliverToAgent(agentId, message);
+  for (const result of results) {
     if (result === "queued") queuedCount++;
     else if (result === "sent") sentCount++;
   }
@@ -2761,7 +2798,7 @@ app.post("/api/agent/:agentId/tool/:toolName", async (req, res) => {
 // Auth middleware: blocks guest (unauthenticated) users from write operations.
 // Also enforces the email allowlist on every request — a session minted before
 // the allowlist became active (or whose email was later removed) is rejected.
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   const user = token ? getAuthSession(token) : null;
   const workspaceId = workspaceIdFromReq(req);
@@ -2771,7 +2808,7 @@ function requireAuth(req, res, next) {
   if (!isEmbedSessionUser(user) && allowlistActive(workspaceId) && !isEmailAllowed(user.email, workspaceId)) {
     return res.status(403).json({ error: "Email not authorized to access this server." });
   }
-  if (!isEmbedSessionUser(user)) ensureWorkspaceMemberForUser(user, workspaceId);
+  if (!isEmbedSessionUser(user)) ensureWorkspaceMemberForUser(user, workspaceId).catch(() => {});
   if (!findWorkspace(workspaceId) || !userCanAccessWorkspace(user, workspaceId)) {
     return res.status(403).json({ error: "Not a member of this workspace." });
   }
@@ -2902,10 +2939,10 @@ function persistUserMessage({ workspaceId, channelId, channelName, channelType, 
   return msg;
 }
 
-function fanoutUserMessage(msg) {
+async function fanoutUserMessage(msg) {
   // Regular channel delivery uses channel_agents membership; DM delivery
   // resolves parties from the canonical channel name inside deliverToAllAgents.
-  const delivery = deliverToAllAgents(msg);
+  const delivery = await deliverToAllAgents(msg);
   // Broadcast to web UI (no viewerName — includes dmParties for frontend to resolve)
   broadcastToWeb({ type: "message", workspaceId: msg.workspaceId || DEFAULT_WORKSPACE_ID, message: formatMessageForClient(msg) });
   return delivery;
@@ -2913,7 +2950,7 @@ function fanoutUserMessage(msg) {
 
 async function postSystemMessage({ workspaceId, channelName = "all", channelType = "channel", content }) {
   const scopedWorkspaceId = workspaceId || DEFAULT_WORKSPACE_ID;
-  const ch = findOrCreateChannel(channelName, channelType, scopedWorkspaceId);
+  const ch = await findOrCreateChannel(channelName, channelType, scopedWorkspaceId);
   const msg = {
     id: uuidv4(),
     seq: nextSeq(),
@@ -3303,7 +3340,7 @@ async function initFromDB() {
 
     // Persist the default `all` channel if it's not already in DB — so it has
     // a row for channel_agents to FK against and doesn't drift between runs.
-    const allCh = findOrCreateChannel("all", "channel", DEFAULT_WORKSPACE_ID);
+    const allCh = await findOrCreateChannel("all", "channel", DEFAULT_WORKSPACE_ID);
     if (allCh) await db.saveChannel(allCh);
 
     // Agent configs: DB wins over file when DB has entries
@@ -3400,17 +3437,21 @@ function reconcileAgentsWithConfigs() {
   // show up with the expected ADMIN/MEMBER badge in the sidebar. Materialise
   // a 'member' row for every known email that doesn't already have one.
   let defaultBackfill = 0;
+  const backfillPromises = [];
   for (const user of authSessions.values()) {
     if (!user?.email || user.guest) continue;
     if (isWorkspaceMemberRemoved(DEFAULT_WORKSPACE_ID, user.email)) continue;
     if (getWorkspaceMember(DEFAULT_WORKSPACE_ID, user.email)) continue;
-    setWorkspaceMember({
+    backfillPromises.push(setWorkspaceMember({
       workspaceId: DEFAULT_WORKSPACE_ID,
       email: user.email,
       name: user.name || null,
       role: "member",
-    });
+    }));
     defaultBackfill += 1;
+  }
+  if (backfillPromises.length > 0) {
+    await Promise.all(backfillPromises);
   }
   if (defaultBackfill > 0) {
     console.log(`[auth] Backfilled ${defaultBackfill} default-workspace member row(s) from auth sessions`);
@@ -3419,7 +3460,7 @@ function reconcileAgentsWithConfigs() {
   reconcileAgentsWithConfigs();
 
   if (mockData.shouldSeed(db)) {
-    mockData.seed({
+    await mockData.seed({
       store,
       agentConfigs,
       machines,
