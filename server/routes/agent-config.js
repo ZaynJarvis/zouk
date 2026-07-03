@@ -21,7 +21,7 @@ function createAgentConfigRouter(ctx) {
     validateCustomLauncher, isOvEnabledForAgent, isPersistentMachineId,
     isValidAgentHandle, isAgentNameTaken, isReservedName,
     profilePresets, PROFILE_PRESET_MAX,
-    generateApiKey, now,
+    generateApiKey, now, setAgentReadSeq, ensureAgentReadSeq,
   } = ctx;
 
   // Mirror config fields that also live on the runtime agent record. Without
@@ -94,7 +94,13 @@ function createAgentConfigRouter(ctx) {
     }
     const saved = agentConfigs.find((c) => c.id === config.id);
     saveAgentConfigs(agentConfigs);
-    db.saveAgentConfig(saved);
+    const saveConfigPromise = db.saveAgentConfig(saved);
+    if (existing < 0 && ensureAgentReadSeq) {
+      ensureAgentReadSeq(saved.id, store.seq, { persist: false });
+      Promise.resolve(saveConfigPromise)
+        .then(() => setAgentReadSeq?.(saved.id, store.agentReadSeq[saved.id] ?? store.seq, { persist: true }))
+        .catch((e) => console.warn(`[db] saveAgentConfig(${saved.id}) before inbox cursor failed:`, e.message));
+    }
     if (syncRuntimeAgentFromConfig(saved.id, saved)) {
       broadcastToWeb({ type: "agent_started", workspaceId: saved.workspaceId || DEFAULT_WORKSPACE_ID, agent: agentPayload(saved.id) });
     }

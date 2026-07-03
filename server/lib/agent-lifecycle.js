@@ -25,7 +25,7 @@ function createAgentLifecycle(ctx) {
       saveAgentConfigs,
       PUBLIC_URL,
       promptEngine, generateToolDefinitions, fetchOvTools,
-      profilePresets, seedAgentIntoRegularChannels,
+      profilePresets, seedAgentIntoRegularChannels, setAgentReadSeq, ensureAgentReadSeq,
       pendingContextResets,
       ovLifecycle,
       machines,
@@ -340,8 +340,14 @@ function createAgentLifecycle(ctx) {
       if (shardedPicture) persisted.picture = shardedPicture;
       agentConfigs.push(persisted);
       saveAgentConfigs(agentConfigs);
-      db.saveAgentConfig(persisted);
+      const saveConfigPromise = db.saveAgentConfig(persisted);
       agentAuth.persistToken(id).catch((e) => console.warn(`[auth] persistToken ${id}: ${e.message}`));
+      if (ensureAgentReadSeq) {
+        ensureAgentReadSeq(id, store.seq, { persist: false });
+        Promise.resolve(saveConfigPromise)
+          .then(() => setAgentReadSeq?.(id, store.agentReadSeq[id] ?? store.seq, { persist: true }))
+          .catch((e) => console.warn(`[db] saveAgentConfig(${id}) before inbox cursor failed:`, e.message));
+      }
       // New agent → subscribe to every regular (non-DM) channel so the legacy
       // "visible everywhere by default" behavior is preserved. Humans can
       // unsubscribe via the /subscriptions API.

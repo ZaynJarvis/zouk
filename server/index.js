@@ -740,7 +740,7 @@ const store = {
   tasks: [], // { taskNumber, channelId, title, status, messageId, claimedByName, claimedByType, createdByName }
   agents: {}, // agentId -> { name, displayName, runtime, model, status, sessionId, ws }
   humans: [],
-  agentReadSeq: {}, // agentId -> last seq delivered/read
+  agentReadSeq: {}, // agentId -> last seq returned by inbox/check_messages
   // Optimistic-lock cursor for agent sends: agentId -> { scopeKey -> highest
   // message seq the agent's model has actually observed for that scope }.
   // scopeKey = `${channelId}:${threadId || ""}`. Advanced by daemon
@@ -838,6 +838,31 @@ function seedFromBootstrap(msgs) {
 
 function nextSeq() {
   return ++store.seq;
+}
+
+function hasAgentReadSeq(agentId) {
+  return Object.prototype.hasOwnProperty.call(store.agentReadSeq, agentId);
+}
+
+function setAgentReadSeq(agentId, seq, { persist = true } = {}) {
+  if (!agentId) return 0;
+  const next = Math.max(0, Math.floor(Number(seq) || 0));
+  const current = hasAgentReadSeq(agentId)
+    ? Math.max(0, Math.floor(Number(store.agentReadSeq[agentId]) || 0))
+    : 0;
+  const value = Math.max(current, next);
+  store.agentReadSeq[agentId] = value;
+  if (persist) {
+    db.saveAgentReadSeq(agentId, value).catch((e) =>
+      console.warn(`[db] saveAgentReadSeq(${agentId}) failed:`, e.message)
+    );
+  }
+  return value;
+}
+
+function ensureAgentReadSeq(agentId, seq = store.seq, { persist = true } = {}) {
+  if (hasAgentReadSeq(agentId)) return store.agentReadSeq[agentId];
+  return setAgentReadSeq(agentId, seq, { persist });
 }
 
 // ─── Send freshness (optimistic lock on agent sends) ──────────────
@@ -1844,6 +1869,8 @@ function hasKnownAgentConfig(agentId) {
 function purgeUnknownAgentState(agentId) {
   pendingDeliveries.delete(agentId);
   if (store.agents[agentId]) delete store.agents[agentId];
+  delete store.agentReadSeq[agentId];
+  delete store.agentSeenSeq[agentId];
   daemonSockets.delete(agentId);
   for (const machine of machines.values()) {
     if (Array.isArray(machine.agentIds)) {
@@ -2626,6 +2653,7 @@ app.use("/internal/agent", createAgentInternalRouter({
   getMessageByIdAnywhere, matchesTarget, messageVisibleToAgent,
   nextSeq, nextTaskNum, now, parseTarget,
   readChannelHistory, readChannelHistoryAround, readMessagesForAgent,
+  setAgentReadSeq, ensureAgentReadSeq,
   resolveAttachmentRefs, resolveTargetChannel, resolveUniqueByIdOrPrefix,
   sanitizedAgentConfigs, saveAgentConfigs, searchVisibleMessages,
   get syncRuntimeAgentFromConfig() { return syncRuntimeAgentFromConfig; },
@@ -2978,6 +3006,7 @@ const agentConfigModule = createAgentConfigRouter({
   isValidAgentHandle, isAgentNameTaken, isReservedName,
   profilePresets, PROFILE_PRESET_MAX,
   generateApiKey, now,
+  setAgentReadSeq, ensureAgentReadSeq,
   ovLifecycle,
 });
 const { syncRuntimeAgentFromConfig } = agentConfigModule;
@@ -3002,6 +3031,7 @@ const agentLifecycle = createAgentLifecycle({
   PUBLIC_URL,
   promptEngine, generateToolDefinitions, fetchOvTools,
   profilePresets, seedAgentIntoRegularChannels,
+  setAgentReadSeq, ensureAgentReadSeq,
   pendingContextResets,
   ovLifecycle,
   requireAuth,
@@ -3163,6 +3193,7 @@ async function initFromDB() {
       dbKeys,
       channelAgents,
       taskTimeRows,
+      agentReadSeqRows,
     ] = await Promise.all([
       db.loadMaxSeq(),
       db.loadMaxTaskNum(),
@@ -3176,6 +3207,7 @@ async function initFromDB() {
       db.loadMachineKeys(),
       db.loadChannelAgents(),
       db.loadTaskMessageTimes(),
+      db.loadAgentReadSeqs(),
     ]);
 
     if (maxSeq > store.seq) store.seq = maxSeq;
@@ -3252,6 +3284,14 @@ async function initFromDB() {
       console.log(`[db] Loaded ${channelAgents.length} channel_agents memberships`);
     }
 
+    if (agentReadSeqRows && agentReadSeqRows.length > 0) {
+      for (const row of agentReadSeqRows) {
+        if (!row?.agentId) continue;
+        store.agentReadSeq[row.agentId] = Math.max(0, Math.floor(Number(row.lastReadSeq) || 0));
+      }
+      console.log(`[db] Loaded ${agentReadSeqRows.length} agent inbox cursor(s)`);
+    }
+
     // NOTE: The legacy one-time backfill (auto-subscribe all agents to channels
     // with no membership rows) has been removed. New channels intentionally
     // start with no agent visibility; agents are seeded only into #all at
@@ -3271,6 +3311,21 @@ async function initFromDB() {
       // DB is empty but file has configs — seed DB from file
       for (const cfg of agentConfigs) await db.saveAgentConfig(cfg);
       console.log(`[db] Seeded ${agentConfigs.length} agent configs to DB`);
+    }
+
+    let initializedReadCursors = 0;
+    for (const cfg of agentConfigs) {
+      if (!cfg?.id || hasAgentReadSeq(cfg.id)) continue;
+      // One-time migration/default: inbox is unread-from-now, not historical
+      // channel replay. Agents can use history/search for older context.
+      store.agentReadSeq[cfg.id] = store.seq;
+      db.saveAgentReadSeq(cfg.id, store.seq).catch((e) =>
+        console.warn(`[db] bootstrap saveAgentReadSeq(${cfg.id}) failed:`, e.message)
+      );
+      initializedReadCursors += 1;
+    }
+    if (initializedReadCursors > 0) {
+      console.log(`[db] Initialized ${initializedReadCursors} missing agent inbox cursor(s) at seq ${store.seq}`);
     }
 
     await profilePresets.hydrateFromDb();
