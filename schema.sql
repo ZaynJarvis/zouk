@@ -167,6 +167,15 @@ ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS disable_local_ov_plugin BOOLE
 -- existing OV memory is never orphaned).
 ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS openviking_session_id TEXT;
 
+-- Durable cursor for agent inbox/check_messages. Without this, a server restart
+-- resets the in-memory cursor to 0 and agents can receive historical channel
+-- messages as "unread" in large batches.
+CREATE TABLE IF NOT EXISTS agent_read_cursors (
+  agent_id      TEXT PRIMARY KEY REFERENCES agent_configs(id) ON DELETE CASCADE,
+  last_read_seq BIGINT NOT NULL DEFAULT 0,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token      TEXT PRIMARY KEY,
   name       TEXT NOT NULL,

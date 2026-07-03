@@ -338,6 +338,25 @@ async function queryMessagesForAgent({ workspaceId, channelIds, sinceSeq = 0, li
   }
 }
 
+function saveAgentReadSeq(agentId, lastReadSeq) {
+  const seq = Math.max(0, Math.floor(Number(lastReadSeq) || 0));
+  return dbExec("saveAgentReadSeq",
+    `INSERT INTO agent_read_cursors (agent_id, last_read_seq, updated_at)
+     VALUES ($1, $2, now())
+     ON CONFLICT (agent_id) DO UPDATE SET
+       last_read_seq = GREATEST(agent_read_cursors.last_read_seq, EXCLUDED.last_read_seq),
+       updated_at = now()`,
+    [agentId, seq]);
+}
+
+function loadAgentReadSeqs() {
+  return dbQuery("loadAgentReadSeqs",
+    `SELECT agent_id AS "agentId", last_read_seq AS "lastReadSeq" FROM agent_read_cursors`,
+    [],
+    (row) => ({ agentId: row.agentId, lastReadSeq: Math.max(0, Math.floor(Number(row.lastReadSeq) || 0)) }),
+    null);
+}
+
 // Keyword search across an agent's visible channels. ILIKE on a 1M-row table
 // without a trigram/FTS index runs ~100ms at our scale — acceptable for the
 // low-QPS agent search path. Add a GIN trgm index later if it gets hot.
@@ -1185,6 +1204,8 @@ module.exports = {
   queryMessages,
   queryMessagesAround,
   queryMessagesForAgent,
+  saveAgentReadSeq,
+  loadAgentReadSeqs,
   searchMessages,
   queryThreadReplies,
   queryThreadRepliesBatch,
