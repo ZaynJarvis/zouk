@@ -518,7 +518,7 @@ function createDaemonHandler(ctx) {
             }
             broadcastToWeb({ type: "agent_started", agent: agentPayload(agentId) });
             hydrateAgentContextUsage(agentId);
-            replayPendingDeliveries(agentId);
+            replayPendingDeliveries(agentId).catch(() => {});
           }
         }
         // Reconcile stale agent state: any agent on this machine that is not
@@ -615,7 +615,7 @@ function createDaemonHandler(ctx) {
         }
         if (status === "active") hydrateAgentContextUsage(agentId);
         if (status === "active") {
-          replayPendingDeliveries(agentId);
+          replayPendingDeliveries(agentId).catch(() => {});
           if (!wasActive) {
             db.trimAgentActivities(agentId).catch((e) =>
               console.error(`[db] trimAgentActivities(${agentId}) failed:`, e.message)
@@ -834,7 +834,7 @@ function createDaemonHandler(ctx) {
     ws._workspaceId = normalizeWorkspaceId(workspaceId);
     const user = token ? ctx.getAuthSession(token) : null;
     if (user && !ctx.isEmbedSessionUser(user) && ws._workspaceId === DEFAULT_WORKSPACE_ID && ctx.findWorkspace(ws._workspaceId) && ctx.isEmailAllowed(user.email, ws._workspaceId)) {
-      ctx.ensureWorkspaceMemberForUser(user, ws._workspaceId);
+      ctx.ensureWorkspaceMemberForUser(user, ws._workspaceId).catch(() => {});
     }
     // Track the workspace the client *asked* for so init can report whether
     // we honoured it. Previously we silently rewrote to default and the

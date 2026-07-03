@@ -13,7 +13,7 @@
     "dev": "node bin/start.js",
     "server": "node server/index.js",
     "web:dev": "npm run dev --workspace=web",
-    "test:server": "node --test server/test-api.mjs server/test-openviking-admin.mjs server/test-agent-status.mjs server/test-daemon-swap.mjs server/test-daemon-health.mjs server/test-simulation-e2e.mjs server/test-freshness-e2e.mjs server/test-image-dimensions.mjs server/test-profile-presets.mjs server/test-workspace-ids.mjs server/test-workspace-bounce.mjs server/test-ov-lifecycle.mjs server/test-ov-api.mjs server/test-ov-mcp-proxy.mjs server/test-prompt-guidance.mjs server/test-attachments-prune.mjs server/test-agent-send-rate-limit.mjs server/test-ready-race.mjs server/notifications/__tests__/*.test.cjs",
+    "test:server": "node --test server/test-api.mjs server/test-openviking-admin.mjs server/test-agent-status.mjs server/test-daemon-swap.mjs server/test-daemon-health.mjs server/test-simulation-e2e.mjs server/test-freshness-e2e.mjs server/test-image-dimensions.mjs server/test-profile-presets.mjs server/test-workspace-ids.mjs server/test-workspace-bounce.mjs server/test-ov-lifecycle.mjs server/test-ov-api.mjs server/test-ov-mcp-proxy.mjs server/test-prompt-guidance.mjs server/test-attachments-prune.mjs server/test-agent-send-rate-limit.mjs server/test-ready-race.mjs server/test-delivery-counts.mjs server/test-pending-delivery-unsubscribe.mjs server/notifications/__tests__/*.test.cjs",
     "test:ui": "node web/tests/ui-smoke.mjs",
     "test": "npm run test:server"
   },

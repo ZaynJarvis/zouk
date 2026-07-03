@@ -30,7 +30,7 @@ function createWebApiRouter(ctx) {
   } = ctx;
 
   // Send message from web UI (human user)
-  router.post("/messages", requireAuth, (req, res) => {
+  router.post("/messages", requireAuth, async (req, res) => {
     // Prefer the authenticated user's name over any body field so a stale client
     // state can't pollute canonical DM channel names (would split PM threads).
     // Falls back to the legacy body.senderName, then to "local-user" for tooling.
@@ -66,7 +66,7 @@ function createWebApiRouter(ctx) {
         return res.status(403).json({ error: "Embed session is not allowed to write to this channel." });
       }
     }
-    const ch = resolved.channel || findOrCreateChannel(channelName, channelType, workspaceId);
+    const ch = resolved.channel || await findOrCreateChannel(channelName, channelType, workspaceId);
 
     const msg = persistUserMessage({
       workspaceId,
@@ -81,7 +81,7 @@ function createWebApiRouter(ctx) {
       clientMsgId: clientMsgId || undefined,
     });
 
-    const delivery = fanoutUserMessage(msg);
+    const delivery = await fanoutUserMessage(msg);
 
     // Cache for idempotent retry. TTL + cap are enforced by the server-side
     // helper (evictExpiredRecentSends).
@@ -140,7 +140,7 @@ function createWebApiRouter(ctx) {
     });
 
     res.json({ messageId: msg.id, message: msg });
-    fanoutUserMessage(msg);
+    fanoutUserMessage(msg).catch(() => {});
   });
 
   // Upload an attachment from the web UI. Shares the same on-disk storage the
@@ -242,12 +242,12 @@ function createWebApiRouter(ctx) {
   });
 
   // Create channel
-  router.post("/channels", requireAuth, (req, res) => {
+  router.post("/channels", requireAuth, async (req, res) => {
     const { name, description } = req.body;
     const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
-    const ch = findOrCreateChannel(name, "channel", workspaceId);
+    const ch = await findOrCreateChannel(name, "channel", workspaceId);
     ch.description = description || "";
-    db.saveChannel(ch);
+    await db.saveChannel(ch);
     broadcastToWeb({ type: "channel_created", workspaceId, channel: ch });
     res.json({ channel: ch });
   });
@@ -288,7 +288,7 @@ function createWebApiRouter(ctx) {
   });
 
   // Set (or remove) a single agent's membership on a channel. Admin-facing.
-  router.patch("/channels/:id/agents/:agentId", requireAuth, (req, res) => {
+  router.patch("/channels/:id/agents/:agentId", requireAuth, async (req, res) => {
     const { id, agentId } = req.params;
     const { canRead, subscribed } = req.body || {};
     const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
@@ -301,19 +301,19 @@ function createWebApiRouter(ctx) {
       subscribed: subscribed === undefined ? existing.subscribed : !!subscribed,
     };
     if (!next.canRead && !next.subscribed) {
-      removeMembership(ch.id, agentId);
+      await removeMembership(ch.id, agentId);
       return res.json({ ok: true, membership: null });
     }
-    setMembership(ch.id, agentId, next);
+    await setMembership(ch.id, agentId, next);
     res.json({ ok: true, membership: { channelId: ch.id, agentId, ...next } });
   });
 
-  router.delete("/channels/:id/agents/:agentId", requireAuth, (req, res) => {
+  router.delete("/channels/:id/agents/:agentId", requireAuth, async (req, res) => {
     const { id, agentId } = req.params;
     const workspaceId = req.workspaceId || DEFAULT_WORKSPACE_ID;
     const ch = store.channels.find((c) => c.id === id && (c.workspaceId || DEFAULT_WORKSPACE_ID) === workspaceId);
     if (!ch) return res.status(404).json({ error: "Channel not found" });
-    removeMembership(ch.id, agentId);
+    await removeMembership(ch.id, agentId);
     res.json({ ok: true });
   });
 

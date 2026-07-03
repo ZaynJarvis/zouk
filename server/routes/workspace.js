@@ -137,7 +137,7 @@ function createWorkspaceRouter(ctx) {
       }
     }
 
-    const updated = setWorkspaceMember({
+    const updated = await setWorkspaceMember({
       workspaceId,
       email,
       name: target.name,
@@ -176,7 +176,7 @@ function createWorkspaceRouter(ctx) {
       }
     }
 
-    removeWorkspaceMember(workspaceId, email);
+    await removeWorkspaceMember(workspaceId, email);
     markWorkspaceMemberRemoved(workspaceId, email, req.user?.email || null);
 
     // Mirror the invite path: drop the per-workspace allowlist row so the
@@ -536,7 +536,7 @@ function createWorkspaceRouter(ctx) {
       addedAt: row.addedAt,
       addedBy: row.addedBy,
     });
-    setWorkspaceMember({ workspaceId, email: row.email, role: "member" });
+    await setWorkspaceMember({ workspaceId, email: row.email, role: "member" });
     res.json({ ok: true, entry: { email: row.email, source: "db", addedAt: row.addedAt, addedBy: row.addedBy } });
   });
 

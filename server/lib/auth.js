@@ -242,7 +242,7 @@ function createAuthModule(ctx) {
     const sessionToken = crypto.randomBytes(32).toString("hex");
     authSessions.set(sessionToken, user);
     if (userCanAccessWorkspace(user, DEFAULT_WORKSPACE_ID)) {
-      ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
+      await ensureWorkspaceMemberForUser(user, DEFAULT_WORKSPACE_ID);
     }
     persistSession(sessionToken, user).catch(e => console.warn("[auth] persistSession error:", e.message));
     const changed = upsertAllTimeHuman({
@@ -614,7 +614,7 @@ function createAuthModule(ctx) {
         return res.status(500).json({ error: `Failed to provision workspace membership: ${e.message}` });
       }
     }
-    const all = findOrCreateChannel("all", "channel", id);
+    const all = await findOrCreateChannel("all", "channel", id);
     all.description = "General channel";
     await db.saveChannel(all);
     if (ownerEmail) broadcastWorkspaceMembers(id);
