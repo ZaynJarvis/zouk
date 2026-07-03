@@ -88,6 +88,27 @@ function appendMessageIfMissing(messages: MessageRecord[], msg: MessageRecord): 
   return messages.some(m => isSameMessageIdentity(m, msg)) ? messages : [...messages, msg];
 }
 
+function compareStableKeys(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+function agentStableKey(agent: Pick<ServerAgent, 'id' | 'name'>): string {
+  return agent.id || agent.name || '';
+}
+
+function configStableKey(config: Pick<AgentConfig, 'id' | 'name'>): string {
+  return config.id || config.name || '';
+}
+
+function sortAgentsById<T extends Pick<ServerAgent, 'id' | 'name'>>(agents: T[]): T[] {
+  return [...agents].sort((a, b) => compareStableKeys(agentStableKey(a), agentStableKey(b)));
+}
+
+function sortConfigsById<T extends Pick<AgentConfig, 'id' | 'name'>>(configs: T[]): T[] {
+  return [...configs].sort((a, b) => compareStableKeys(configStableKey(a), configStableKey(b)));
+}
+
 // Route post-login: priority is
 //   1. workspace embedded in the URL the user actually clicked from
 //   2. workspace the auth API said the request was for (`requestedWorkspaceId`,
@@ -502,8 +523,9 @@ export function useAppStore() {
       case 'init': {
         const e = event as { workspaceId?: string; requestedWorkspaceId?: string; requestedWorkspaceAccess?: 'granted' | 'denied' | 'missing' | 'unauthenticated'; workspaces?: Workspace[]; workspaceMembers?: WorkspaceMember[]; workspaceAllowlistActive?: boolean; viewerRole?: WorkspaceRole | null; isSuperuser?: boolean; channels: ServerChannel[]; agents: ServerAgent[]; humans: ServerHuman[]; configs: AgentConfig[]; machines: ServerMachine[] };
         const nextChannels = e.channels || [];
-        const nextAgents = e.agents || [];
+        const nextAgents = sortAgentsById(e.agents || []);
         const nextHumans = e.humans || [];
+        const nextConfigs = sortConfigsById(e.configs || []);
         if (e.workspaces && e.workspaces.length > 0) setWorkspaces(e.workspaces);
         setWorkspaceMembers(e.workspaceMembers || []);
         setWorkspaceAllowlistActive(!!e.workspaceAllowlistActive);
@@ -546,7 +568,7 @@ export function useAppStore() {
           });
         });
         setHumans(nextHumans);
-        setConfigs(e.configs || []);
+        setConfigs(nextConfigs);
         setMachines(e.machines || []);
         if (!hasResolvedInitialViewRef.current) {
           hasResolvedInitialViewRef.current = true;
@@ -799,15 +821,15 @@ export function useAppStore() {
             // we've already accumulated locally.
             const preservedEntries = e.agent.entries ?? copy[idx].entries;
             copy[idx] = { ...e.agent, entries: preservedEntries };
-            return copy;
+            return sortAgentsById(copy);
           }
-          return [...prev, e.agent];
+          return sortAgentsById([...prev, e.agent]);
         });
         break;
       }
       case 'config_updated': {
         const e = event as { configs: AgentConfig[] };
-        setConfigs(e.configs || []);
+        setConfigs(sortConfigsById(e.configs || []));
         break;
       }
       case 'humans_updated': {

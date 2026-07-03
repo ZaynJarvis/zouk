@@ -12,6 +12,13 @@ import { formatRuntime, formatRuntimes } from '../lib/runtimeLabels';
 import { AgentAvatar } from './zk/primitives';
 import ViewHeader from './ViewHeader';
 
+function compareAgentIds(a: ServerAgent, b: ServerAgent): number {
+  const aKey = a.id || a.name || '';
+  const bKey = b.id || b.name || '';
+  if (aKey === bKey) return 0;
+  return aKey < bKey ? -1 : 1;
+}
+
 function AgentListItem({
   agent,
   isSelected,
@@ -171,7 +178,7 @@ export default function AgentsView() {
         status: 'inactive' as const,
         activity: 'offline' as const,
       } as ServerAgent));
-    return [...filteredAgents, ...offlineFromConfigs];
+    return [...filteredAgents, ...offlineFromConfigs].sort(compareAgentIds);
   }, [filteredAgents, configs, agents]);
 
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
