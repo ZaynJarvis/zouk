@@ -9,7 +9,7 @@ import type { ServerAgent } from '../types';
 import { fetchAgentOvStatus } from '../lib/api';
 import { AgentActivityFeed } from './agent/AgentActivityFeed';
 import AgentConfigForm from './agent/AgentConfigForm';
-import AgentProfileSummary from './agent/AgentProfileSummary';
+import AgentProfileSummary, { type AgentProfileAction } from './agent/AgentProfileSummary';
 import {
   Preview,
   TreeView,
@@ -27,7 +27,7 @@ const TAB_CONFIG: { key: Tab; label: string; icon: typeof Activity }[] = [
   { key: 'config', label: 'Config', icon: SettingsIcon },
 ];
 
-function ProfileTab({ agent }: { agent: ServerAgent }) {
+function ProfileTab({ agent, action }: { agent: ServerAgent; action?: AgentProfileAction }) {
   const { loadAgentActivities } = useApp();
   const entries = agent.entries || [];
 
@@ -39,7 +39,7 @@ function ProfileTab({ agent }: { agent: ServerAgent }) {
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="shrink-0 overflow-y-auto scrollbar-thin px-4 pt-3 pb-2 space-y-3 max-h-[55%]">
-        <AgentProfileSummary agent={agent} />
+        <AgentProfileSummary agent={agent} action={action} />
       </div>
 
       <div style={{ flexShrink: 0, borderTop: '1px solid var(--zk-line)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -388,14 +388,24 @@ function MemoryTab({ agent }: { agent: ServerAgent }) {
 }
 
 function ConfigTab({ agent }: { agent: ServerAgent }) {
-  const { machines, stopAgent, deleteAgent, closeAgentProfileRail, setAgentProfileId } = useApp();
+  const { machines, stopAgent, deleteAgent, cloneAgent, closeAgentProfileRail, setAgentProfileId } = useApp();
 
   const handleDelete = async () => {
     const label = agent.displayName || agent.name;
-    if (!window.confirm(`Delete agent ${label}? This removes the saved config and disconnects the running agent.`)) return;
-    await deleteAgent(agent.id);
+    if (agent.cloneOf) {
+      if (!window.confirm(`Delete clone ${label}? This removes the clone session and keeps message history.`)) return;
+      await stopAgent(agent.id);
+    } else {
+      if (!window.confirm(`Delete agent ${label}? This removes the saved config and disconnects the running agent.`)) return;
+      await deleteAgent(agent.id);
+    }
     setAgentProfileId(null);
     closeAgentProfileRail();
+  };
+
+  const handleClone = async () => {
+    if (agent.cloneOf) return;
+    await cloneAgent(agent.id);
   };
 
   return (
@@ -404,6 +414,7 @@ function ConfigTab({ agent }: { agent: ServerAgent }) {
       machines={machines}
       onStop={() => stopAgent(agent.id)}
       onDelete={handleDelete}
+      onClone={agent.cloneOf ? undefined : handleClone}
       compact
     />
   );
@@ -425,7 +436,11 @@ function ConfigTab({ agent }: { agent: ServerAgent }) {
  * also clears `rightPanel='agent_profile'` so the modal unmounts.
  */
 export default function AgentProfilePanel({ inline = false }: { inline?: boolean }) {
-  const { agents, configs, closeAgentProfileRail, agentProfileId, agentProfileTab, setAgentProfileTab } = useApp();
+  const {
+    agents, configs, closeAgentProfileRail, agentProfileId, agentProfileTab,
+    setAgentProfileTab, cloneAgent, stopAgent, setAgentProfileId,
+  } = useApp();
+  const [profileActionBusy, setProfileActionBusy] = useState<'clone' | 'delete-clone' | null>(null);
   const tab = (agentProfileTab === 'workspace' ? 'profile' : agentProfileTab) as Tab;
   const setTab = (next: Tab) => setAgentProfileTab(next);
 
@@ -464,6 +479,28 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
     if (agentProfileId && !agent) closeAgentProfileRail();
   }, [agentProfileId, agent, closeAgentProfileRail]);
 
+  const handleProfileClone = useCallback(async () => {
+    if (!agent || agent.cloneOf || profileActionBusy) return;
+    setProfileActionBusy('clone');
+    try {
+      await cloneAgent(agent.id);
+    } finally {
+      setProfileActionBusy(null);
+    }
+  }, [agent, cloneAgent, profileActionBusy]);
+
+  const handleProfileDeleteClone = useCallback(async () => {
+    if (!agent || !agent.cloneOf || profileActionBusy) return;
+    setProfileActionBusy('delete-clone');
+    try {
+      await stopAgent(agent.id);
+      setAgentProfileId(null);
+      closeAgentProfileRail();
+    } finally {
+      setProfileActionBusy(null);
+    }
+  }, [agent, closeAgentProfileRail, profileActionBusy, setAgentProfileId, stopAgent]);
+
   const outerClass = inline
     ? 'w-full h-full flex flex-col'
     : 'w-screen lg:w-[30vw] lg:min-w-[340px] lg:max-w-[520px] h-full flex flex-col animate-slide-in-right';
@@ -471,6 +508,22 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
   if (!agent) {
     return null;
   }
+
+  const profileAction: AgentProfileAction | undefined = agent.cloneOf
+    ? {
+      kind: 'delete-clone',
+      title: `Delete clone ${agent.displayName || agent.name}`,
+      onClick: handleProfileDeleteClone,
+      disabled: profileActionBusy !== null,
+    }
+    : agent.archivedAt
+      ? undefined
+      : {
+        kind: 'clone',
+        title: `Clone ${agent.displayName || agent.name}`,
+        onClick: handleProfileClone,
+        disabled: profileActionBusy !== null,
+      };
 
   return (
     <div
@@ -529,7 +582,7 @@ export default function AgentProfilePanel({ inline = false }: { inline?: boolean
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
-        {tab === 'profile' && <ProfileTab agent={agent} />}
+        {tab === 'profile' && <ProfileTab agent={agent} action={profileAction} />}
         {tab === 'memory' && <MemoryTab key={agent.id} agent={agent} />}
         {tab === 'config' && <ConfigTab key={agent.id} agent={agent} />}
       </div>

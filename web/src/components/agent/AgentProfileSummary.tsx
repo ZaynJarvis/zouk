@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { GitBranch, Trash2 } from 'lucide-react';
 import { useApp } from '../../store/AppContext';
 import type { ServerAgent } from '../../types';
 import { activityLabels } from '../../lib/activityStatus';
@@ -10,11 +11,19 @@ import {
   avatarRadiusClass,
 } from '../../lib/avatarStatus';
 
+export type AgentProfileAction = {
+  kind: 'clone' | 'delete-clone';
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+};
+
 export default function AgentProfileSummary({
   agent,
   compact = false,
   showStatusDot = true,
   avatarShape = 'agent',
+  action,
   className,
   style,
 }: {
@@ -22,6 +31,7 @@ export default function AgentProfileSummary({
   compact?: boolean;
   showStatusDot?: boolean;
   avatarShape?: 'agent' | 'rounded';
+  action?: AgentProfileAction;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -35,6 +45,7 @@ export default function AgentProfileSummary({
   const avatarSizeClass = compact ? 'w-9 h-9 text-sm' : 'w-12 h-12 text-base';
   const avatarRadius = avatarShape === 'rounded' ? 'rounded-md' : avatarRadiusClass(theme);
   const titleSize = compact ? 14 : 15;
+  const ActionIcon = action?.kind === 'delete-clone' ? Trash2 : GitBranch;
 
   return (
     <div className={className} style={style}>
@@ -77,6 +88,27 @@ export default function AgentProfileSummary({
             {agent.activityDetail && isActive ? ` · ${agent.activityDetail}` : ''}
           </div>
         </div>
+        {action && (
+          <button
+            type="button"
+            onClick={action.onClick}
+            disabled={action.disabled}
+            className="zk-btn zk-btn--ghost zk-btn--icon"
+            title={action.title}
+            aria-label={action.title}
+            style={{
+              flexShrink: 0,
+              width: compact ? 28 : 30,
+              height: compact ? 28 : 30,
+              padding: 0,
+              color: action.kind === 'delete-clone' ? 'var(--zk-err)' : 'var(--zk-ember)',
+              opacity: action.disabled ? 0.55 : 1,
+              cursor: action.disabled ? 'wait' : 'pointer',
+            }}
+          >
+            <ActionIcon size={compact ? 13 : 14} />
+          </button>
+        )}
       </div>
 
       {agent.description && (
