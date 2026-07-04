@@ -1783,30 +1783,91 @@ function formatMessageForClient(msg, viewerName, options = {}) {
   return base;
 }
 
-function formatMessageForAgent(msg, recipientAgentId) {
+/**
+ * Build a delivery payload that guarantees the agent:deliver contract.
+ *
+ * Contract (docs/agent-delivery-routing.md "Phase 2 TODO"):
+ *   - seq, message_id, channel_type, thread_id, parent_message_id must never be undefined
+ *   - timestamp must be a valid ISO string
+ *   - sender_type must be a known string
+ *
+ * In production, missing values are coerced to safe defaults with a console.warn.
+ * In test mode or with ZOUK_STRICT_DELIVERY=1, a missing required field throws.
+ *
+ * @param {object} msg - raw message object (must have id, seq, channelType, createdAt, senderType)
+ * @param {string|null} recipientAgentId - agent receiving this delivery (for name resolution)
+ * @returns {object} normalized delivery payload with guaranteed fields
+ */
+function buildDeliveryPayload(msg, recipientAgentId) {
+  const STRICT = process.env.NODE_ENV === "test" || process.env.ZOUK_STRICT_DELIVERY === "1";
+
+  if (!msg || typeof msg !== "object") {
+    const err = new Error("[delivery-contract] buildDeliveryPayload: msg is not an object");
+    if (STRICT) throw err;
+    console.warn(err.message);
+    return null;
+  }
+
   const agentName = recipientAgentId
     ? (store.agents[recipientAgentId]?.name || agentConfigs.find((c) => c.id === recipientAgentId)?.name || recipientAgentId)
     : null;
   const formatted = formatMessageForClient(msg, agentName);
+
+  // Required fields: coerce undefined to safe defaults, never undefined.
+  const messageId = formatted.messageId || msg.id;
+  const channelType = formatted.channelType || msg.channelType || "channel";
+  const threadId = formatted.threadId !== undefined ? formatted.threadId : (msg.threadId || null);
+  const parentMessageId = formatted.parentMessageId !== undefined ? formatted.parentMessageId : null;
+  const timestamp = formatted.createdAt || msg.createdAt || new Date().toISOString();
+  const senderType = formatted.senderType || msg.senderType || "human";
+  const seq = Number.isFinite(msg.seq) ? msg.seq : -1;
+
+  // Strict-mode assertion: required fields must be present on the raw message.
+  if (STRICT) {
+    const violations = [];
+    if (!messageId) violations.push("message_id");
+    if (!channelType || channelType === "channel" && !msg.channelType) {
+      // channelType defaulting to "channel" is acceptable for non-thread msgs
+    }
+    if (!Number.isFinite(msg.seq)) violations.push("seq");
+    if (!formatted.createdAt && !msg.createdAt) violations.push("timestamp");
+    if (!formatted.senderType && !msg.senderType) violations.push("sender_type");
+    if (violations.length > 0) {
+      throw new Error(
+        `[delivery-contract] message ${msg.id || "(no id)"} missing required fields: ${violations.join(", ")}`
+      );
+    }
+  } else if (!Number.isFinite(msg.seq) || !messageId || !formatted.createdAt && !msg.createdAt) {
+    console.warn(
+      `[delivery-contract] coercing missing fields for message ${msg.id || "(no id)"}: `
+      + `seq=${msg.seq} message_id=${messageId} timestamp=${formatted.createdAt || msg.createdAt}`
+    );
+  }
+
   return {
-    message_id: formatted.messageId,
+    seq,
+    message_id: messageId,
     workspace_id: formatted.workspaceId,
     sender_name: formatted.senderName,
-    sender_type: formatted.senderType,
+    sender_type: senderType,
     channel_name: formatted.channelName,
-    channel_type: formatted.channelType,
-    parent_channel_name: formatted.parentChannelName,
-    parent_channel_type: formatted.parentChannelType,
-    thread_id: formatted.threadId,
-    parent_message_id: formatted.parentMessageId,
+    channel_type: channelType,
+    parent_channel_name: formatted.parentChannelName !== undefined ? formatted.parentChannelName : null,
+    parent_channel_type: formatted.parentChannelType !== undefined ? formatted.parentChannelType : null,
+    thread_id: threadId,
+    parent_message_id: parentMessageId,
     content: formatted.content,
-    timestamp: formatted.createdAt,
-    attachments: formatted.attachments,
-    task_status: formatted.taskStatus,
-    task_number: formatted.taskNumber,
-    task_assignee_id: formatted.taskAssigneeId,
-    task_assignee_type: formatted.taskAssigneeType,
+    timestamp,
+    attachments: formatted.attachments || [],
+    task_status: formatted.taskStatus !== undefined ? formatted.taskStatus : null,
+    task_number: formatted.taskNumber !== undefined ? formatted.taskNumber : null,
+    task_assignee_id: formatted.taskAssigneeId !== undefined ? formatted.taskAssigneeId : null,
+    task_assignee_type: formatted.taskAssigneeType !== undefined ? formatted.taskAssigneeType : null,
   };
+}
+
+function formatMessageForAgent(msg, recipientAgentId) {
+  return buildDeliveryPayload(msg, recipientAgentId);
 }
 
 // ─── WebSocket: daemon connections ────────────────────────────────
@@ -2704,7 +2765,7 @@ app.use("/internal/agent", createAgentInternalRouter({
   MAX_AGENT_DISPLAYNAME_LEN, MAX_AGENT_DESCRIPTION_LEN,
   AGENT_PICTURE_DIM, AGENT_PICTURE_MIME_RE, MAX_AGENT_PICTURE_OUTPUT_BYTES,
   agentPayload, appendMessage, broadcastToWeb, deliverToAllAgents,
-  findOrCreateChannel, formatMessageForAgent, formatMessageForClient,
+  findOrCreateChannel, formatMessageForAgent, buildDeliveryPayload, formatMessageForClient,
   getMembership, setMembership, removeMembership,
   getMessageByIdAnywhere, matchesTarget, messageVisibleToAgent,
   nextSeq, nextTaskNum, now, parseTarget,
