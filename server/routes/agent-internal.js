@@ -186,6 +186,9 @@ function createAgentInternalRouter(ctx) {
     ctx.deliverToAllAgents(msg, agentId).catch(() => {});
     ctx.broadcastToWeb({ type: "message", workspaceId, message: ctx.formatMessageForClient(msg) });
 
+    // Update clone idle-tracking on message sent by the clone
+    if (ctx.touchCloneActivity) ctx.touchCloneActivity(agentId);
+
     // OV managed auto-capture: log agent's response (skip for native agents)
     const agentCfg = ctx.agentConfigs.find((c) => c.id === agentId);
     if (ctx.ovLifecycle && agentCfg?.openvikingApiKey && !ctx.isOvPluginForAgent(agentCfg)) {
@@ -227,6 +230,8 @@ function createAgentInternalRouter(ctx) {
     } else {
       ctx.store.agentReadSeq[agentId] = ctx.store.seq;
     }
+    // Update clone idle-tracking when the clone polls for/receives messages
+    if (ctx.touchCloneActivity && unread.length > 0) ctx.touchCloneActivity(agentId);
     res.json({ messages: unread });
   });
 
@@ -770,12 +775,68 @@ function createAgentInternalRouter(ctx) {
       workspaceId,
       prompt: req.body?.prompt,
       channel: req.body?.channel,
+      idleMinutes: req.body?.idleMinutes,
       callerName: agentName,
     });
     if (result.error) {
       return res.status(result.status || 400).json({ error: result.error });
     }
-    res.json({ cloneId: result.cloneId, name: result.name, displayName: result.displayName });
+    res.json({ cloneId: result.cloneId, name: result.name, displayName: result.displayName, cloneIdleTtlMs: result.cloneIdleTtlMs });
+  });
+
+  // dissolve — remove a clone permanently. Only allowed for clones (cfg.cloneOf set).
+  //   - No target: self-dissolve, only valid when the caller is a clone.
+  //   - target '<name>': dissolve one of the caller's own clones (caller must be parent).
+  // Any attempt to dissolve a non-clone → 403.
+  router.post("/:agentId/dissolve", async (req, res) => {
+    const { agentId } = req.params;
+    const workspaceId = ctx.workspaceIdFromAgent(agentId);
+    const { agentConfigs, normalizeWorkspaceId, DEFAULT_WORKSPACE_ID, dissolveClone, touchCloneActivity } = ctx;
+    const target = req.body?.target;
+
+    if (!target || target === agentId) {
+      // Self-dissolve: only allowed if the caller is a clone
+      const callerCfg = agentConfigs.find((c) => c.id === agentId);
+      if (!callerCfg || !callerCfg.cloneOf) {
+        return res.status(403).json({ error: "Self-dissolve is only allowed for clones. Non-clone agents cannot be dissolved via MCP." });
+      }
+      await dissolveClone(agentId, workspaceId);
+      return res.json({ success: true, dissolved: callerCfg.name || agentId });
+    }
+
+    // Target dissolve: resolve target name to agent id
+    const cleanTarget = String(target).replace(/^@/, "").trim();
+    const lowered = cleanTarget.toLowerCase();
+    let targetCfg = agentConfigs.find((c) => {
+      if (normalizeWorkspaceId(c.workspaceId || DEFAULT_WORKSPACE_ID) !== workspaceId) return false;
+      return (c.name || "").toLowerCase() === lowered || (c.displayName || "").toLowerCase() === lowered;
+    });
+    if (!targetCfg) {
+      // Also check store.agents for running agents
+      for (const [id, a] of Object.entries(ctx.store.agents)) {
+        if (ctx.workspaceIdFromAgent(id) !== workspaceId) continue;
+        if ((a.name || "").toLowerCase() === lowered || (a.displayName || "").toLowerCase() === lowered) {
+          targetCfg = agentConfigs.find((c) => c.id === id);
+          break;
+        }
+      }
+    }
+    if (!targetCfg) {
+      return res.status(404).json({ error: `Agent "${cleanTarget}" not found in this workspace` });
+    }
+
+    // Invariant: target must be a clone
+    if (!targetCfg.cloneOf) {
+      return res.status(403).json({ error: `Cannot dissolve "${cleanTarget}": it is not a clone. MCP dissolve can never touch a non-clone agent.` });
+    }
+
+    // Caller must be the parent of the target clone
+    if (targetCfg.cloneOf !== agentId) {
+      return res.status(403).json({ error: `Cannot dissolve "${cleanTarget}": you are not its parent. Only the parent agent can dissolve its own clones.` });
+    }
+
+    await dissolveClone(targetCfg.id, workspaceId);
+    return res.json({ success: true, dissolved: targetCfg.name || targetCfg.id });
   });
 
   return router;

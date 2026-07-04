@@ -103,12 +103,24 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
     },
     {
       name: "clone",
-      description: "Clone yourself to create a helper agent that shares your workspace, OpenViking memory, and persona. The clone runs in a clean session (no conversation context carryover) and only receives DMs and @mentions — it does NOT receive channel broadcasts (to avoid double-replying). Use this to parallelize work: spawn a clone for a subtask, send it a DM with instructions, and it will work independently. Up to 4 clones can be active at once.",
+      description: "Clone yourself to create a helper agent that shares your workspace, OpenViking memory, and persona. The clone runs in a clean session (no conversation context carryover) and only receives DMs and @mentions — it does NOT receive channel broadcasts (to avoid double-replying). Use this to parallelize work: spawn a clone for a subtask, send it a DM with instructions, and it will work independently. Up to 4 clones can be active at once. Clones auto-dissolve after being idle for idleMinutes (default 30, max 1440). When a clone finishes its job, use the 'dissolve' tool to clean it up immediately.",
       inputSchema: {
         type: "object",
         properties: {
           prompt: { type: "string", description: "Initial instructions to DM to the clone. If provided, the clone receives this as a direct message immediately upon creation." },
           channel: { type: "string", description: "Optional channel to subscribe the clone to (e.g. '#my-project'). Without this, the clone is DM-only. Use sparingly — the clone will reply to all channel messages." },
+          idleMinutes: { type: "number", description: "Minutes of inactivity before the clone auto-dissolves. Default 30, max 1440 (24h). Values <= 0 or invalid use the default. Fractional values allowed (e.g. 0.05 = 3 seconds for testing)." },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "dissolve",
+      description: "Dissolve a clone, permanently removing its config and stopping its process. Can only affect clones (agents with cloneOf set). With no target, self-dissolves — only works if you are a clone. With a target name, dissolves one of your own clones (you must be its parent). Non-clone agents can never be dissolved via this tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          target: { type: "string", description: "Clone name to dissolve (e.g. 'zeus.2'). Must be one of your own clones. Omit to self-dissolve (only valid if you are a clone)." },
         },
         required: [],
       },
