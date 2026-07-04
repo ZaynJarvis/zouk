@@ -1584,8 +1584,8 @@ export function useAppStore() {
 
   const stopAgentAction = useCallback(async (agentId: string) => {
     try {
-      await api.stopAgent(agentId);
-      addToast('Agent stopping...', 'info');
+      const result = await api.stopAgent(agentId);
+      addToast(result?.dissolved ? 'Clone deleted' : 'Agent stopping...', 'info');
     } catch (e) {
       addToast(e instanceof Error ? e.message : 'Failed to stop agent', 'error');
     }

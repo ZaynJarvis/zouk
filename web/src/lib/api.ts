@@ -289,10 +289,11 @@ export async function startAgent(config: {
   return res.json();
 }
 
-export async function stopAgent(agentId: string): Promise<void> {
+export async function stopAgent(agentId: string): Promise<{ success?: boolean; dissolved?: boolean } | undefined> {
   const url = `${getBaseUrl()}/api/agents/${agentId}/stop`;
   const res = await fetch(url, { method: 'POST', headers: getAuthHeaders() });
   if (!res.ok) throw await errorFromResponse(res, 'Failed to stop agent');
+  return res.json().catch(() => undefined);
 }
 
 export async function resetAgentContext(agentId: string): Promise<void> {

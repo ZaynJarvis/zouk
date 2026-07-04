@@ -30,6 +30,7 @@ export default function AgentConfigForm({
   const { configs, profilePresets, isGuest, startAgent, updateAgentConfig, canAdminWorkspace } = useApp();
 
   const savedConfig = configs.find((c) => c.id === agent.id);
+  const isClone = !!agent.cloneOf;
   const persistedDisplayName = savedConfig?.displayName ?? agent.displayName ?? agent.name;
   const persistedDescription = savedConfig?.description ?? agent.description ?? '';
   const persistedLifecycle: 'persistent' | 'ephemeral' =
@@ -440,27 +441,29 @@ export default function AgentConfigForm({
                   <Save size={12} /> Save
                 </button>
               )}
-              {!agent.cloneOf && onClone && (
+              {!isClone && onClone && (
                 <button onClick={onClone} className="zk-btn" title="Create a helper clone sharing this agent's workspace and memory">
                   <GitBranch size={12} /> Clone
                 </button>
               )}
               <button onClick={onDelete} className="zk-btn zk-btn--danger">
-                <Trash2 size={12} /> Delete agent
+                <Trash2 size={12} /> {isClone ? 'Delete clone' : 'Delete agent'}
               </button>
-              {agent.status === 'active' ? (
-                <button onClick={onStop} className="zk-btn zk-btn--danger" style={{ marginLeft: 'auto' }}>
-                  <Square size={12} /> Stop
-                </button>
-              ) : (
-                <button onClick={() => startAgent({
-                    id: agent.id, name: agent.name, displayName: agent.displayName,
-                    description: agent.description, runtime: agent.runtime ?? 'claude', model: agent.model,
-                  })} className="zk-btn"
-                  style={{ marginLeft: 'auto', color: 'var(--zk-ok)', borderColor: 'rgba(111,182,151,0.25)' }}
-                >
-                  <Play size={12} /> Start
-                </button>
+              {!isClone && (
+                agent.status === 'active' ? (
+                  <button onClick={onStop} className="zk-btn zk-btn--danger" style={{ marginLeft: 'auto' }}>
+                    <Square size={12} /> Stop
+                  </button>
+                ) : (
+                  <button onClick={() => startAgent({
+                      id: agent.id, name: agent.name, displayName: agent.displayName,
+                      description: agent.description, runtime: agent.runtime ?? 'claude', model: agent.model,
+                    })} className="zk-btn"
+                    style={{ marginLeft: 'auto', color: 'var(--zk-ok)', borderColor: 'rgba(111,182,151,0.25)' }}
+                  >
+                    <Play size={12} /> Start
+                  </button>
+                )
               )}
             </div>
           </>
