@@ -10,7 +10,7 @@
 //   7. Clone-of-clone rejected
 //   8. Cap enforced (4 live clones per parent)
 //   9. Name allocation dodges an existing same-name agent
-//  10. Clone names use dot notation (zeus.2) and pass validation
+//  10. Clone names use dot notation (zeus.1) and pass validation
 //  11. DM with dot handle resolves
 //  12. @mention with dot handle resolves
 //  13. Non-clone agent with dot in name is rejected
@@ -77,8 +77,9 @@ describe("agent clone", () => {
     assert.ok(result.name, "response should include name");
     assert.ok(result.cloneId !== parentId, "cloneId should differ from parentId");
     assert.ok(result.name.startsWith(parentName + "."), "clone name should have .N suffix");
-    // First clone should be .2 (parent is implicitly .1)
-    assert.equal(result.name, parentName + ".2", "first clone should be named zeus.2");
+    // First clone should be .1; the parent keeps its unsuffixed handle.
+    assert.equal(result.name, parentName + ".1", "first clone should be named zeus.1");
+    assert.equal(result.displayName, result.name, "clone display name should match its handle");
 
     // Verify daemon received agent:start for the clone
     const startEvt = await daemon.waitForStart(result.cloneId, 2000);
@@ -113,7 +114,7 @@ describe("agent clone", () => {
     daemon.agentStatus(cloneId, { status: "active", workDir: "/home/zeus/workspace" });
     await sleep(SLEEP_SETTLE_MS);
 
-    // Send a DM to the clone (dot handle: dm:@zeus.2)
+    // Send a DM to the clone (dot handle: dm:@zeus.1)
     const dmTarget = `dm:@${cloneName}`;
     await sim.sendHumanMessage({ target: dmTarget, content: "Hello clone, do this task" });
 
@@ -260,7 +261,7 @@ describe("agent clone", () => {
   });
 
   it("enforces max 4 live clones per parent", async () => {
-    // Create 4 clones (the max). First clone is .2, then .3, .4, .5
+    // Create 4 clones (the max). First clone is .1, then .2, .3, .4
     const cloneIds = [];
     for (let i = 0; i < 4; i++) {
       const result = await sim.post(`/api/agents/${parentId}/clone`, {}, { token: sim.rootToken });
@@ -280,21 +281,21 @@ describe("agent clone", () => {
   });
 
   it("name allocation dodges used clone numbers (sequential numbering)", async () => {
-    // Create first clone — should be .2 (parent is implicitly .1)
+    // Create first clone — should be .1; parent is unsuffixed.
     const result1 = await sim.post(`/api/agents/${parentId}/clone`, {}, { token: sim.rootToken });
-    assert.equal(result1.name, "zeus.2", "first clone should be zeus.2");
+    assert.equal(result1.name, "zeus.1", "first clone should be zeus.1");
     daemon.agentStatus(result1.cloneId, { status: "active", workDir: "/home/zeus/workspace" });
     await sleep(SLEEP_SETTLE_MS);
 
-    // Create second clone — should be .3 (dodges .2 which is taken)
+    // Create second clone — should be .2 (dodges .1 which is taken)
     const result2 = await sim.post(`/api/agents/${parentId}/clone`, {}, { token: sim.rootToken });
-    assert.equal(result2.name, "zeus.3", "second clone should be zeus.3");
+    assert.equal(result2.name, "zeus.2", "second clone should be zeus.2");
     daemon.agentStatus(result2.cloneId, { status: "active", workDir: "/home/zeus/workspace" });
     await sleep(SLEEP_SETTLE_MS);
 
-    // Create third clone — should be .4
+    // Create third clone — should be .3
     const result3 = await sim.post(`/api/agents/${parentId}/clone`, {}, { token: sim.rootToken });
-    assert.equal(result3.name, "zeus.4", "third clone should be zeus.4");
+    assert.equal(result3.name, "zeus.3", "third clone should be zeus.3");
   });
 
   it("name allocation recognizes legacy -cN clone names", async () => {
@@ -313,11 +314,11 @@ describe("agent clone", () => {
     });
 
     // Clone the parent — the legacy -c99 should be recognized and number 99
-    // should be in the used set. The first available number starting from 2
-    // that's not used is 2 (99 is used but 2 is free).
+    // should be in the used set. The first available number starting from 1
+    // that's not used is 1 (99 is used but 1 is free).
     const result = await sim.post(`/api/agents/${parentId}/clone`, {}, { token: sim.rootToken });
     assert.ok(result.name, "clone should have a name");
-    assert.equal(result.name, "zeus.2", "clone should use .2 (legacy -c99 doesn't block it)");
+    assert.equal(result.name, "zeus.1", "clone should use .1 (legacy -c99 doesn't block it)");
   });
 
   it("clone with initial prompt posts a DM to the clone", async () => {
@@ -351,7 +352,7 @@ describe("agent clone", () => {
     // Verify the clone's name includes the parent name and a number
     const match = result.name.match(/^zeus\.(\d+)$/);
     assert.ok(match, "clone name should match zeus.N pattern");
-    assert.ok(parseInt(match[1], 10) >= 2, "clone number should be >= 2");
+    assert.ok(parseInt(match[1], 10) >= 1, "clone number should be >= 1");
   });
 
   it("non-clone agent with dot in name is rejected", async () => {
@@ -382,7 +383,7 @@ describe("agent clone", () => {
     // Create a clone with dot name
     const cloneResult = await sim.post(`/api/agents/${parentId}/clone`, {}, { token: sim.rootToken });
     const cloneId = cloneResult.cloneId;
-    const cloneName = cloneResult.name; // e.g. "zeus.2"
+    const cloneName = cloneResult.name; // e.g. "zeus.1"
     daemon.agentStatus(cloneId, { status: "active", workDir: "/home/zeus/workspace" });
     await sleep(SLEEP_SETTLE_MS);
 
@@ -406,16 +407,16 @@ describe("agent clone", () => {
   it("@mention regex correctly extracts dot handle from content", async () => {
     // Verify the mention regex includes dots in the extracted handle.
     // The regex: /@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/gu
-    const content1 = "Hey @zeus.2, please help with this";
+    const content1 = "Hey @zeus.1, please help with this";
     const match1 = content1.match(/@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/gu);
     assert.ok(match1, "should find a mention match");
-    assert.equal(match1[0], "@zeus.2", "mention should include the full dot handle");
+    assert.equal(match1[0], "@zeus.1", "mention should include the full dot handle");
 
     // Trailing dot should NOT be included (sentence punctuation)
-    const content2 = "Hey @zeus.2. How are you?";
+    const content2 = "Hey @zeus.1. How are you?";
     const match2 = content2.match(/@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/gu);
     assert.ok(match2, "should find a mention with trailing dot");
-    assert.equal(match2[0], "@zeus.2", "trailing dot should not be included in mention");
+    assert.equal(match2[0], "@zeus.1", "trailing dot should not be included in mention");
 
     // Multi-level dots (unlikely but safe)
     const content3 = "@foo.bar.baz mentioned";
