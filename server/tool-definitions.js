@@ -120,7 +120,7 @@ function generateToolDefinitions({ tools = null, hasOv = false } = {}) {
       inputSchema: {
         type: "object",
         properties: {
-          target: { type: "string", description: "Clone name to dissolve (e.g. 'zeus.2'). Must be one of your own clones. Omit to self-dissolve (only valid if you are a clone)." },
+          target: { type: "string", description: "Clone name to dissolve (e.g. 'zeus.1'). Must be one of your own clones. Omit to self-dissolve (only valid if you are a clone)." },
         },
         required: [],
       },

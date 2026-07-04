@@ -486,10 +486,10 @@ function createAgentLifecycle(ctx) {
       if (match) usedNumbers.add(parseInt(match[1], 10));
     }
 
-    // Find the first unused number starting from 2 (zeus.2 is the first clone
-    // — the parent is implicitly "zeus.1"). Dodge collisions with ANY agent
-    // name, not just other clones.
-    let cloneNum = 2;
+    // Find the first unused clone number. The parent keeps its unsuffixed handle,
+    // so the first clone is zeus.1. Dodge collisions with ANY agent name, not
+    // just other clones.
+    let cloneNum = 1;
     while (usedNumbers.has(cloneNum) || isAgentNameTaken(`${parentName}.${cloneNum}`, null, workspaceId)) {
       cloneNum++;
     }
@@ -546,7 +546,7 @@ function createAgentLifecycle(ctx) {
       id: cloneId,
       workspaceId,
       name: cloneName,
-      displayName: `${parentCfg.displayName || parentCfg.name || parentId} (clone ${cloneNum})`,
+      displayName: cloneName,
       description: parentCfg.description || "",
       systemPrompt: parentCfg.systemPrompt || parentCfg.description || "",
       runtime: parentCfg.runtime || "claude",
