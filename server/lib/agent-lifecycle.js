@@ -453,36 +453,38 @@ function createAgentLifecycle(ctx) {
     const DEFAULT_WORKSPACE_ID = ctx.DEFAULT_WORKSPACE_ID;
     const normalizeWorkspaceId = ctx.normalizeWorkspaceId;
     const isAgentNameTaken = ctx.isAgentNameTaken;
-    const isValidAgentHandle = ctx.isValidAgentHandle;
     const wsId = normalizeWorkspaceId(workspaceId || DEFAULT_WORKSPACE_ID);
     const parentName = parentCfg.name || parentId;
 
-    // Collect existing clone numbers for this parent
+    // Collect existing clone numbers for this parent.
+    // Recognize both the current ".N" scheme and the legacy "-cN" scheme so
+    // nothing breaks if old clones still exist on disk.
     const usedNumbers = new Set();
+    const cloneNumRe = /(?:\.|-c)(\d+)$/;
     for (const cfg of agentConfigs) {
       if (cfg.cloneOf !== parentId) continue;
       if (normalizeWorkspaceId(cfg.workspaceId || DEFAULT_WORKSPACE_ID) !== wsId) continue;
-      const match = (cfg.name || "").match(/-c(\d+)$/);
+      const match = (cfg.name || "").match(cloneNumRe);
       if (match) usedNumbers.add(parseInt(match[1], 10));
     }
     // Also check running agents
     for (const [id, a] of Object.entries(store.agents)) {
       const cfg = agentConfigs.find((c) => c.id === id);
       if (cfg?.cloneOf !== parentId) continue;
-      const match = (a.name || id).match(/-c(\d+)$/);
+      const match = (a.name || id).match(cloneNumRe);
       if (match) usedNumbers.add(parseInt(match[1], 10));
     }
 
-    // Find the first unused number starting from 1 whose name is not taken by
-    // ANY agent (not just other clones). The -cN suffix might collide with a
-    // regular agent someone created manually.
-    let cloneNum = 1;
-    while (usedNumbers.has(cloneNum) || isAgentNameTaken(`${parentName}-c${cloneNum}`, null, workspaceId)) {
+    // Find the first unused number starting from 2 (zeus.2 is the first clone
+    // — the parent is implicitly "zeus.1"). Dodge collisions with ANY agent
+    // name, not just other clones.
+    let cloneNum = 2;
+    while (usedNumbers.has(cloneNum) || isAgentNameTaken(`${parentName}.${cloneNum}`, null, workspaceId)) {
       cloneNum++;
     }
 
-    const cloneName = `${parentName}-c${cloneNum}`;
-    const cloneId = `${parentId}-c${cloneNum}`;
+    const cloneName = `${parentName}.${cloneNum}`;
+    const cloneId = `${parentId}.${cloneNum}`;
 
     return { cloneName, cloneId, cloneNum };
   }

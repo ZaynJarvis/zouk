@@ -1,10 +1,10 @@
-import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings, X } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { Bot, Plus, Server, Monitor, ChevronDown, ChevronRight, Settings, X, GitBranch } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../store/AppContext';
 import type { ServerAgent, ServerMachine } from '../types';
 
 
-import { isMobileViewport } from '../lib/layout';
+import { isMobileViewport, isStandalonePWA } from '../lib/layout';
 import AgentDetail from './AgentDetail';
 import CreateAgentDialog, { type CreateAgentConfig } from './CreateAgentDialog';
 import MachineSetupDialog from './MachineSetupDialog';
@@ -25,12 +25,22 @@ function AgentListItem({
   onClick,
   onOpenSettings,
   onDelete,
+  onClone,
+  onDissolve,
+  isClone,
+  pending,
+  forceShowActions,
 }: {
   agent: ServerAgent;
   isSelected: boolean;
   onClick: () => void;
   onOpenSettings: () => void;
   onDelete?: () => void;
+  onClone?: () => void;
+  onDissolve?: () => void;
+  isClone?: boolean;
+  pending?: boolean;
+  forceShowActions?: boolean;
 }) {
   const isInactive = agent.status === 'inactive';
 
@@ -44,10 +54,11 @@ function AgentListItem({
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        padding: '10px 14px',
+        padding: isClone ? '6px 14px 6px 42px' : '10px 14px',
         background: isSelected ? 'var(--zk-bg-3)' : 'transparent',
         borderBottom: '1px solid var(--zk-line)',
         color: isSelected ? 'var(--zk-ink)' : 'var(--zk-ink-dim)',
+        opacity: pending ? 0.5 : 1,
       }}
       onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--zk-bg-2)'; }}
       onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
@@ -61,12 +72,59 @@ function AgentListItem({
           }}
         />
       )}
+      {isClone && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            left: 28,
+            top: 0,
+            bottom: 0,
+            width: 1,
+            background: 'var(--zk-line)',
+          }}
+        />
+      )}
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <AgentAvatar agent={agent} size="md" />
+        <AgentAvatar agent={agent} size={isClone ? 'sm' : 'md'} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--zk-ink)' }} className="zk-truncate">
+        <div style={{ fontSize: isClone ? 12 : 13, fontWeight: 600, color: 'var(--zk-ink)' }} className="zk-truncate">
           {agent.displayName || agent.name}
+          {isClone && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+                marginLeft: 6,
+                padding: '1px 6px',
+                fontSize: 10,
+                fontWeight: 500,
+                color: 'var(--zk-ember)',
+                background: 'var(--zk-ember-soft)',
+                border: '1px solid var(--zk-ember-line)',
+                borderRadius: 999,
+                fontFamily: 'var(--zk-font-mono)',
+                verticalAlign: 'middle',
+              }}
+            >
+              <GitBranch size={9} />
+              clone
+            </span>
+          )}
+          {pending && (
+            <span
+              style={{
+                marginLeft: 6,
+                fontSize: 10,
+                color: 'var(--zk-ink-mute)',
+                fontFamily: 'var(--zk-font-mono)',
+              }}
+            >
+              starting…
+            </span>
+          )}
         </div>
         <div
           className="zk-truncate"
@@ -76,12 +134,32 @@ function AgentListItem({
         </div>
       </div>
       {agent.archivedAt && <span className="zk-pill">Archived</span>}
+
+      {/* Quick clone button — visible on hover for non-clone agents */}
+      {!isClone && onClone && !agent.archivedAt && (
+        <span
+          role="button"
+          onClick={(e) => { e.stopPropagation(); onClone(); }}
+          className="zk-btn zk-btn--ghost zk-btn--icon hidden sm:inline-flex"
+          style={{
+            opacity: forceShowActions ? 1 : 0,
+            transition: 'opacity 140ms var(--zk-ease-out)',
+            padding: 4,
+            color: 'var(--zk-ember)',
+          }}
+          title={`Clone ${agent.displayName || agent.name}`}
+        >
+          <GitBranch size={12} />
+        </span>
+      )}
+
+      {/* Settings gear — visible on hover */}
       <span
         role="button"
         onClick={(e) => { e.stopPropagation(); onOpenSettings(); }}
         className="zk-btn zk-btn--ghost zk-btn--icon hidden sm:inline-flex"
         style={{
-          opacity: 0,
+          opacity: forceShowActions ? 1 : 0,
           transition: 'opacity 140ms var(--zk-ease-out)',
           padding: 4,
         }}
@@ -89,6 +167,24 @@ function AgentListItem({
       >
         <Settings size={12} />
       </span>
+
+      {/* Dissolve button for clones */}
+      {isClone && onDissolve && (
+        <span
+          role="button"
+          onClick={(e) => { e.stopPropagation(); onDissolve(); }}
+          className="zk-btn zk-btn--ghost zk-btn--icon"
+          style={{
+            padding: 4,
+            color: 'var(--zk-ink-mute)',
+          }}
+          title="Dissolve clone — removes the session, keeps message history"
+        >
+          <X size={12} />
+        </span>
+      )}
+
+      {/* Delete for inactive agents */}
       {isInactive && onDelete && (
         <span
           role="button"
@@ -155,6 +251,8 @@ export default function AgentsView() {
   const [showMachineSetup, setShowMachineSetup] = useState(false);
   const [machinesExpanded, setMachinesExpanded] = useState(true);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
+  const [pendingCloneIds, setPendingCloneIds] = useState<Set<string>>(new Set());
+  const forceShowActions = isMobileViewport() || isStandalonePWA();
 
   const filteredAgents = useMemo(() =>
     showArchived
@@ -177,9 +275,44 @@ export default function AgentsView() {
         picture: c.picture,
         status: 'inactive' as const,
         activity: 'offline' as const,
+        cloneOf: c.cloneOf,
       } as ServerAgent));
     return [...filteredAgents, ...offlineFromConfigs].sort(compareAgentIds);
   }, [filteredAgents, configs, agents]);
+
+  // Build tree: parent agents + their clone children
+  const agentTree = useMemo(() => {
+    const parents: ServerAgent[] = [];
+    const clonesByParent = new Map<string, ServerAgent[]>();
+
+    for (const a of unifiedEntities) {
+      if (a.cloneOf) {
+        const list = clonesByParent.get(a.cloneOf) || [];
+        list.push(a);
+        clonesByParent.set(a.cloneOf, list);
+      } else {
+        parents.push(a);
+      }
+    }
+
+    // Sort clones within each parent group
+    for (const [, list] of clonesByParent) {
+      list.sort(compareAgentIds);
+    }
+
+    // Flatten: parent followed by its clones
+    const flat: Array<{ agent: ServerAgent; isClone: boolean }> = [];
+    for (const p of parents) {
+      flat.push({ agent: p, isClone: false });
+      const clones = clonesByParent.get(p.id);
+      if (clones) {
+        for (const c of clones) {
+          flat.push({ agent: c, isClone: true });
+        }
+      }
+    }
+    return flat;
+  }, [unifiedEntities]);
 
   const archivedCount = useMemo(() => agents.filter((a) => a.archivedAt).length, [agents]);
   const selected = agents.find((a) => a.id === selectedAgentId)
@@ -237,6 +370,41 @@ export default function AgentsView() {
     setSelectedAgentId((current) => (current === selected.id ? null : current));
     if (isMobileViewport()) setMobileShowDetail(false);
   };
+
+  const handleQuickClone = useCallback(async (agentId: string) => {
+    try {
+      const result = await cloneAgent(agentId);
+      // Mark as pending until agent_started arrives
+      if (result?.cloneId) {
+        setPendingCloneIds((prev) => {
+          const next = new Set(prev);
+          next.add(result.cloneId);
+          return next;
+        });
+      }
+    } catch {
+      // toast already shown by store
+    }
+  }, [cloneAgent]);
+
+  const handleDissolve = useCallback(async (agentId: string) => {
+    await stopAgent(agentId);
+  }, [stopAgent]);
+
+  // Clear pending when the clone shows up in the live agents list
+  useEffect(() => {
+    if (pendingCloneIds.size === 0) return;
+    const liveIds = new Set(agents.map((a) => a.id));
+    let changed = false;
+    const next = new Set(pendingCloneIds);
+    for (const id of pendingCloneIds) {
+      if (liveIds.has(id)) {
+        next.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) setPendingCloneIds(next);
+  }, [agents, pendingCloneIds]);
 
   useEffect(() => {
     if (agentDetailTab === 'settings' && isMobileViewport() && selectedAgentId) {
@@ -383,16 +551,21 @@ export default function AgentsView() {
               <hr className="zk-hr" style={{ margin: '4px 14px' }} />
             )}
 
-            {/* Agents */}
-            {unifiedEntities.length > 0 ? (
-              unifiedEntities.map((agent) => (
+            {/* Agents — parents with indented clone children */}
+            {agentTree.length > 0 ? (
+              agentTree.map(({ agent, isClone }) => (
                 <AgentListItem
                   key={agent.id}
                   agent={agent}
                   isSelected={agent.id === (selected?.id ?? '')}
+                  isClone={isClone}
+                  pending={pendingCloneIds.has(agent.id)}
+                  forceShowActions={forceShowActions}
                   onClick={() => handleSelectAgent(agent.id)}
                   onOpenSettings={() => handleOpenAgentSettings(agent.id)}
-                  onDelete={agent.status === 'inactive' ? () => handleDeleteInactive(agent.id) : undefined}
+                  onDelete={!isClone && agent.status === 'inactive' ? () => handleDeleteInactive(agent.id) : undefined}
+                  onClone={!isClone && !agent.archivedAt ? () => handleQuickClone(agent.id) : undefined}
+                  onDissolve={isClone ? () => handleDissolve(agent.id) : undefined}
                 />
               ))
             ) : (

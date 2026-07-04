@@ -1,12 +1,16 @@
 // Trigger an @mention popup only when `@` starts a new word — i.e. it is at
 // the very start of the input or immediately after whitespace / a newline.
 // This prevents email addresses like `foo@bar.com` from opening the popup.
-export const MENTION_QUERY_REGEX = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u;
+// Dots are allowed inside the query (e.g. `@zeus.2` for clone handles).
+export const MENTION_QUERY_REGEX = /(?:^|\s)@([\p{L}\p{N}_.-]*)$/u;
 
 // When rendering a sent message, highlight tokens that look like `@handle`.
 // The leading boundary (start-of-string or whitespace) is captured in group 1
 // so we can reinsert it into the rendered output. Group 2 is the handle.
-export const MENTION_TOKEN_REGEX = /(^|\s)@([\p{L}\p{N}_-]+)/gu;
+// Dots are allowed inside mentions (e.g. `@zeus.2`) but each dot must be
+// followed by at least one name character — trailing dots are sentence
+// punctuation, not part of the handle.
+export const MENTION_TOKEN_REGEX = /(^|\s)@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/gu;
 
 function normalizeWhitespace(value: string): string {
   return value.trim().replace(/\s+/g, ' ');
@@ -15,7 +19,7 @@ function normalizeWhitespace(value: string): string {
 export function toMentionHandle(value: string): string {
   return normalizeWhitespace(value)
     .replace(/\s+/g, '_')
-    .replace(/[^\p{L}\p{N}_-]/gu, '');
+    .replace(/[^\p{L}\p{N}_.-]/gu, '');
 }
 
 export function buildMentionSearchTerms(...values: Array<string | undefined>): string[] {
