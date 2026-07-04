@@ -27,7 +27,10 @@ function agentMatchesMention(agent, mention) {
 
 function extractMentions(content) {
   const mentions = [];
-  const regex = /@([\p{L}\p{N}_-]+)/gu;
+  // Allow dots inside mentions (e.g. @zeus.2 for clone names) but not trailing
+  // dots — those are sentence punctuation. Each dot must be followed by at
+  // least one name character.
+  const regex = /@([\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*)/gu;
   let match;
   while ((match = regex.exec(String(content || ""))) !== null) {
     mentions.push(match[1].toLowerCase());

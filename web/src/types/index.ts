@@ -263,6 +263,11 @@ export interface AgentConfig {
   // "/usr/local/bin/codex" or "env LANG=C claude"). Daemon whitespace-splits this into argv.
   // Empty/null = use the runtime default. Not supported for vikingbot.
   customLauncher?: string | null;
+  /**
+   * If set, this config is a clone of the agent with this ID.
+   * Clones share workspace, OV memory, and persona with their parent.
+   */
+  cloneOf?: string;
 }
 
 export interface ServerMachine {
