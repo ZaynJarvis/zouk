@@ -455,7 +455,7 @@ function createAuthModule(ctx) {
     res.json({ ok: true });
   });
 
-  router.put("/api/auth/profile", requireAuth, (req, res) => {
+  router.put("/api/auth/profile", requireAuth, async (req, res) => {
     const token = req.headers.authorization?.replace("Bearer ", "");
     const { name, picture } = req.body;
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -540,6 +540,22 @@ function createAuthModule(ctx) {
       existing.gravatarUrl = user.gravatarUrl || undefined;
       existing.guest = false;
     }
+
+    const memberWorkspaceIds = new Set();
+    const memberEmail = normalizeEmailInput(user.email);
+    if (memberEmail) {
+      for (const [workspaceId, members] of store.workspaceMembers) {
+        const member = members.get(memberEmail);
+        if (!member || member.name === trimmed) continue;
+        await setWorkspaceMember({
+          ...member,
+          workspaceId,
+          email: memberEmail,
+          name: trimmed,
+        });
+        memberWorkspaceIds.add(normalizeWorkspaceId(workspaceId));
+      }
+    }
     upsertAllTimeHuman({
       id: humanId(trimmed),
       name: trimmed,
@@ -547,6 +563,9 @@ function createAuthModule(ctx) {
       gravatarUrl: user.gravatarUrl || undefined,
     });
     broadcastHumans();
+    for (const workspaceId of memberWorkspaceIds) {
+      broadcastWorkspaceMembers(workspaceId);
+    }
     db.saveSession(token, user).catch(e => console.warn("[auth] saveSession error:", e.message));
     res.json({ user });
   });

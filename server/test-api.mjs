@@ -822,6 +822,111 @@ test('workspace members: restricted default removal blocks until re-invited', as
   }
 });
 
+test('profile rename updates workspace member roster for other clients', async () => {
+  const tmpConfigDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-rename-'));
+  const uploadDir = fs.mkdtempSync(path.join(path.sep === '/' ? '/tmp' : process.env.TEMP || '.', 'zouk-member-rename-uploads-'));
+  const port = TEST_PORT + 32;
+  const base = `http://localhost:${port}`;
+  const viewerToken = 'member-rename-viewer-token';
+  const targetToken = 'member-rename-target-token';
+  const viewerEmail = 'member-rename-viewer@example.com';
+  const targetEmail = 'member-rename-target@example.com';
+  fs.mkdirSync(tmpConfigDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpConfigDir, 'sessions.json'), JSON.stringify([
+    [viewerToken, { name: 'member-rename-viewer', email: viewerEmail, picture: null }],
+    [targetToken, { name: 'member-rename-target', email: targetEmail, picture: null }],
+  ]), 'utf8');
+
+  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    env: {
+      ...process.env,
+      DATABASE_URL: '',
+      PORT: String(port),
+      NODE_ENV: 'test',
+      ALLOW: '',
+      ZOUK_CONFIG_DIR: tmpConfigDir,
+      ZOUK_UPLOADS_DIR: uploadDir,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  proc.stdout.resume();
+  proc.stderr.resume();
+
+  let ws = null;
+  try {
+    const deadline = Date.now() + 10_000;
+    let ready = false;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${base}/api/auth/config`);
+        if (res.ok) {
+          ready = true;
+          break;
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    assert.equal(ready, true, 'member rename test server must become ready');
+
+    const viewerHeaders = { Authorization: `Bearer ${viewerToken}`, 'X-Workspace-Id': 'default' };
+    const before = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: viewerHeaders,
+    }));
+    assert.equal(before.status, 200);
+    assert.ok(
+      before.body.members.some(m => m.email === targetEmail && m.name === 'member-rename-target'),
+      'target session should be listed under its original profile name before rename'
+    );
+
+    ws = new WebSocket(`ws://localhost:${port}/ws?token=${viewerToken}`);
+    const initPromise = waitForMessageOrTimeout(ws, ev => ev.type === 'init', 3000);
+    await new Promise((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    const init = await initPromise;
+    assert.ok(init, 'viewer websocket should receive init before rename');
+
+    const membersPromise = waitForMessageOrTimeout(ws, ev => (
+      ev.type === 'workspace:members'
+      && ev.workspaceId === 'default'
+      && ev.members?.some(m => m.email === targetEmail && m.name === 'member-rename-renamed')
+    ), 3000);
+
+    const renamed = await json(await fetch(`${base}/api/auth/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${targetToken}`, 'X-Workspace-Id': 'default' },
+      body: JSON.stringify({ name: 'member-rename-renamed' }),
+    }));
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.user.name, 'member-rename-renamed');
+
+    const broadcast = await membersPromise;
+    assert.ok(broadcast, 'other connected clients must receive a workspace member rename broadcast');
+
+    const after = await json(await fetch(`${base}/api/workspaces/default/members`, {
+      headers: viewerHeaders,
+    }));
+    assert.equal(after.status, 200);
+    assert.ok(
+      after.body.members.some(m => m.email === targetEmail && m.name === 'member-rename-renamed'),
+      'workspace member row should persist the renamed profile name'
+    );
+    assert.ok(
+      !after.body.members.some(m => m.email === targetEmail && m.name === 'member-rename-target'),
+      'old profile name must not remain in the workspace member roster'
+    );
+  } finally {
+    if (ws) await closeWs(ws);
+    proc.kill('SIGTERM');
+    if (proc.exitCode == null) {
+      await new Promise((resolve) => proc.once('exit', resolve));
+    }
+    fs.rmSync(tmpConfigDir, { recursive: true, force: true });
+    fs.rmSync(uploadDir, { recursive: true, force: true });
+  }
+});
+
 // ─── Tasks ────────────────────────────────────────────────────────────────────
 
 test('claim_tasks: existing task can be claimed by its task message id', async () => {
