@@ -37,6 +37,7 @@ import WebSocket from 'ws';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const { splitSqlStatements } = require('./db.js');
+const { syncWorkspaceMemberNamesFromSessions } = require('./lib/workspace-member-profile-sync.js');
 const TEST_PORT = 17779;
 const BASE = `http://localhost:${TEST_PORT}`;
 
@@ -925,6 +926,69 @@ test('profile rename updates workspace member roster for other clients', async (
     fs.rmSync(tmpConfigDir, { recursive: true, force: true });
     fs.rmSync(uploadDir, { recursive: true, force: true });
   }
+});
+
+test('workspace member profile sync refreshes stale PEOPLE names from auth sessions', async () => {
+  const authSessions = new Map([
+    ['profile-token', { name: 'profile-sync-renamed', email: 'Profile.Sync@Example.com', picture: null }],
+    ['guest-token', { name: 'guest-profile-sync', email: 'guest-profile-sync@example.com', guest: true }],
+    ['embed-token', { name: 'embed-profile-sync', email: 'embed-profile-sync@example.com', embed: { workspaceId: 'default' } }],
+  ]);
+  const workspaceMembers = new Map([
+    ['default', new Map([
+      ['profile.sync@example.com', {
+        workspaceId: 'default',
+        email: 'profile.sync@example.com',
+        role: 'member',
+        name: 'profile-sync-old',
+        joinedAt: '2026-07-04T00:00:00.000Z',
+      }],
+      ['guest-profile-sync@example.com', {
+        workspaceId: 'default',
+        email: 'guest-profile-sync@example.com',
+        role: 'member',
+        name: 'guest-old',
+      }],
+    ])],
+    ['team', new Map([
+      ['profile.sync@example.com', {
+        workspaceId: 'team',
+        email: 'profile.sync@example.com',
+        role: 'root',
+        name: 'profile-sync-old',
+      }],
+      ['embed-profile-sync@example.com', {
+        workspaceId: 'team',
+        email: 'embed-profile-sync@example.com',
+        role: 'member',
+        name: 'embed-old',
+      }],
+    ])],
+  ]);
+  const updates = [];
+  const count = await syncWorkspaceMemberNamesFromSessions({
+    authSessions,
+    workspaceMembers,
+    setWorkspaceMember: async (member) => {
+      updates.push(member);
+      workspaceMembers.get(member.workspaceId).set(member.email, member);
+      return member;
+    },
+    normalizeEmail: (email) => String(email || '').trim().toLowerCase(),
+    normalizeWorkspaceId: (id) => id || 'default',
+    isProfileSession: (user) => !!user && !user.guest && !user.embed && !!user.email && !!user.name,
+  });
+
+  assert.equal(count, 2);
+  assert.deepEqual(
+    updates.map((member) => [member.workspaceId, member.email, member.name, member.role]).sort(),
+    [
+      ['default', 'profile.sync@example.com', 'profile-sync-renamed', 'member'],
+      ['team', 'profile.sync@example.com', 'profile-sync-renamed', 'root'],
+    ]
+  );
+  assert.equal(workspaceMembers.get('default').get('guest-profile-sync@example.com').name, 'guest-old');
+  assert.equal(workspaceMembers.get('team').get('embed-profile-sync@example.com').name, 'embed-old');
 });
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────

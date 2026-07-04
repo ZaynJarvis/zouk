@@ -39,6 +39,7 @@ const {
   WS_REVOKE_BLOCK_MS,
 } = require("./lib/ws-tracker");
 const { createAllowlistManager } = require("./lib/auth-allowlist");
+const { syncWorkspaceMemberNamesFromSessions } = require("./lib/workspace-member-profile-sync");
 const {
   dmChannelName, dmChannelParties, canonicalizeDmChannelName, dmPeerFrom,
   parseTarget, formatTarget, matchesTarget,
@@ -3498,6 +3499,17 @@ function reconcileAgentsWithConfigs() {
       picture: user.picture || undefined,
       gravatarUrl: user.gravatarUrl || (user.email ? gravatarUrl(user.email) : undefined),
     });
+  }
+  const memberNameBackfill = await syncWorkspaceMemberNamesFromSessions({
+    authSessions,
+    workspaceMembers: store.workspaceMembers,
+    setWorkspaceMember,
+    normalizeEmail: normalizeEmailInput,
+    normalizeWorkspaceId,
+    isProfileSession: (user) => !!user && !user.guest && !isEmbedSessionUser(user) && !!user.email && !!user.name,
+  });
+  if (memberNameBackfill > 0) {
+    console.log(`[auth] Refreshed ${memberNameBackfill} workspace member profile name(s) from auth sessions`);
   }
   // Backfill default-workspace membership. The default workspace is the
   // public lobby — every authenticated email implicitly has 'member' access,
