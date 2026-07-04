@@ -430,3 +430,411 @@ describe("agent clone", () => {
     assert.equal(match4[0], "@zeus", "plain mention without dots should work");
   });
 });
+
+// ─── Clone idle auto-dissolve + dissolve tool tests ──────────────
+
+describe("clone idle auto-dissolve", () => {
+  let sim;
+  let daemon;
+  let parentId;
+  const parentName = "zeus";
+  let machineKeyId;
+
+  async function setupWithSweepInterval(sweepIntervalMs) {
+    sim = await createZoukSimulation({
+      mock: true,
+      env: sweepIntervalMs ? { ZOUK_CLONE_SWEEP_INTERVAL_MS: String(sweepIntervalMs) } : {},
+    });
+    const machineKeyResult = await sim.createMachineKey("sim-machine");
+    machineKeyId = machineKeyResult.key.id;
+    const machineRawKey = machineKeyResult.rawKey;
+    daemon = await sim.connectDaemon({ key: machineRawKey });
+    daemon.ready({ runtimes: ["claude"] });
+    await sleep(SLEEP_SETTLE_MS);
+
+    const startResult = await sim.startAgent({
+      id: "agent-zeus01",
+      name: parentName,
+      displayName: "Zeus",
+      runtime: "claude",
+      model: "sonnet",
+      machineId: machineKeyId,
+      workDir: "/home/zeus/workspace",
+      description: "God of thunder",
+      openvikingEnabled: true,
+      openvikingUserId: "zeus",
+      openvikingApiKey: "ov-zeus-key",
+      openvikingSessionId: "zeus",
+    });
+    parentId = startResult.agentId;
+
+    const startEvt = await daemon.waitForStart(parentId, 2000);
+    assert.ok(startEvt, "daemon should receive agent:start for parent");
+    daemon.agentStatus(parentId, { status: "active", workDir: "/home/zeus/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+  }
+
+  afterEach(async () => {
+    if (daemon) await daemon.close().catch(() => {});
+    if (sim) await sim.stop().catch(() => {});
+  });
+
+  it("clone created with tiny idleMinutes auto-dissolves after TTL", async () => {
+    await setupWithSweepInterval(200); // 200ms sweep interval
+    const idleMinutes = 0.03; // ~1.8 seconds
+    const result = await sim.post(
+      `/api/agents/${parentId}/clone`,
+      { idleMinutes },
+      { token: sim.rootToken }
+    );
+    const cloneId = result.cloneId;
+    const cloneName = result.name;
+    assert.ok(cloneId, "clone should be created");
+    assert.ok(result.cloneIdleTtlMs, "response should include cloneIdleTtlMs");
+    assert.ok(
+      result.cloneIdleTtlMs >= 1700 && result.cloneIdleTtlMs <= 1900,
+      `cloneIdleTtlMs should be ~1800ms, got ${result.cloneIdleTtlMs}`
+    );
+
+    daemon.agentStatus(cloneId, { status: "active", workDir: "/home/zeus/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+
+    // Verify clone exists
+    let configs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+    assert.ok(configs.configs.find((c) => c.id === cloneId), "clone should exist before TTL");
+
+    // Wait for auto-dissolve (TTL ~1.8s, sweep every 200ms → should dissolve within ~2.5s)
+    const dissolved = await sim.waitUntil(async () => {
+      const cfgs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+      return !cfgs.configs.find((c) => c.id === cloneId);
+    }, "clone auto-dissolve", 5000, 100);
+    assert.ok(dissolved, "clone should be auto-dissolved after idle TTL");
+
+    // Verify parent still exists
+    configs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+    assert.ok(configs.configs.find((c) => c.id === parentId), "parent should still exist");
+  });
+
+  it("activity resets the idle clock", async () => {
+    await setupWithSweepInterval(200);
+    const idleMinutes = 0.05; // ~3 seconds
+    const result = await sim.post(
+      `/api/agents/${parentId}/clone`,
+      { idleMinutes },
+      { token: sim.rootToken }
+    );
+    const cloneId = result.cloneId;
+    const cloneName = result.name;
+    daemon.agentStatus(cloneId, { status: "active", workDir: "/home/zeus/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+
+    // Wait 1.5s (half of TTL), then send a DM to the clone to reset idle clock
+    await sleep(1500);
+    await sim.sendHumanMessage({ target: `dm:@${cloneName}`, content: "wake up clone" });
+
+    // The delivery should reset the idle timestamp.
+    // Wait another 2s — if the clock was NOT reset, the clone would have been
+    // idle for 3.5s > 3s TTL and should be dissolved. But since we reset it,
+    // it should still be alive.
+    await sleep(2000);
+
+    const configs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+    assert.ok(
+      configs.configs.find((c) => c.id === cloneId),
+      "clone should still exist after activity reset idle clock (total idle < TTL since last activity)"
+    );
+  });
+
+  it("default TTL applied when idleMinutes omitted", async () => {
+    await setupWithSweepInterval();
+    const result = await sim.post(
+      `/api/agents/${parentId}/clone`,
+      {},
+      { token: sim.rootToken }
+    );
+    const cloneId = result.cloneId;
+    assert.ok(cloneId, "clone should be created");
+    assert.ok(result.cloneIdleTtlMs, "response should include cloneIdleTtlMs");
+    assert.equal(
+      result.cloneIdleTtlMs,
+      30 * 60_000,
+      "default cloneIdleTtlMs should be 30 minutes"
+    );
+
+    // Verify the config has the value
+    const configs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+    const cloneCfg = configs.configs.find((c) => c.id === cloneId);
+    assert.ok(cloneCfg, "clone config should exist");
+    assert.equal(cloneCfg.cloneIdleTtlMs, 30 * 60_000, "config should have default TTL");
+  });
+
+  it("invalid idleMinutes values fall back to default", async () => {
+    await setupWithSweepInterval();
+    const testCases = [0, -1, "abc", null, undefined];
+    for (const bad of testCases) {
+      const result = await sim.post(
+        `/api/agents/${parentId}/clone`,
+        { idleMinutes: bad },
+        { token: sim.rootToken }
+      );
+      // Some may fail due to cap (4 clones max). Check only if created.
+      if (result.cloneId) {
+        assert.equal(
+          result.cloneIdleTtlMs,
+          30 * 60_000,
+          `idleMinutes=${JSON.stringify(bad)} should default to 30m`
+        );
+        // Clean up by stopping (dissolving) the clone
+        await sim.stopAgent(result.cloneId);
+        await sleep(100);
+      }
+    }
+  });
+
+  it("idleMinutes is capped at 1440 (24h)", async () => {
+    await setupWithSweepInterval();
+    const result = await sim.post(
+      `/api/agents/${parentId}/clone`,
+      { idleMinutes: 2000 },
+      { token: sim.rootToken }
+    );
+    assert.ok(result.cloneId, "clone should be created");
+    assert.equal(
+      result.cloneIdleTtlMs,
+      1440 * 60_000,
+      "cloneIdleTtlMs should be capped at 1440 minutes"
+    );
+  });
+});
+
+describe("clone dissolve tool (MCP)", () => {
+  let sim;
+  let daemon;
+  let parentId;
+  const parentName = "zeus";
+  let machineKeyId;
+
+  beforeEach(async () => {
+    sim = await createZoukSimulation({ mock: true });
+    const machineKeyResult = await sim.createMachineKey("sim-machine");
+    machineKeyId = machineKeyResult.key.id;
+    const machineRawKey = machineKeyResult.rawKey;
+    daemon = await sim.connectDaemon({ key: machineRawKey });
+    daemon.ready({ runtimes: ["claude"] });
+    await sleep(SLEEP_SETTLE_MS);
+
+    const startResult = await sim.startAgent({
+      id: "agent-zeus01",
+      name: parentName,
+      displayName: "Zeus",
+      runtime: "claude",
+      model: "sonnet",
+      machineId: machineKeyId,
+      workDir: "/home/zeus/workspace",
+      description: "God of thunder",
+      openvikingEnabled: true,
+      openvikingUserId: "zeus",
+      openvikingApiKey: "ov-zeus-key",
+      openvikingSessionId: "zeus",
+    });
+    parentId = startResult.agentId;
+
+    const startEvt = await daemon.waitForStart(parentId, 2000);
+    assert.ok(startEvt, "daemon should receive agent:start for parent");
+    daemon.agentStatus(parentId, { status: "active", workDir: "/home/zeus/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+  });
+
+  afterEach(async () => {
+    if (daemon) await daemon.close().catch(() => {});
+    if (sim) await sim.stop().catch(() => {});
+  });
+
+  async function createClone(idleMinutes) {
+    const body = {};
+    if (idleMinutes !== undefined) body.idleMinutes = idleMinutes;
+    const result = await sim.post(
+      `/api/agents/${parentId}/clone`,
+      body,
+      { token: sim.rootToken }
+    );
+    daemon.agentStatus(result.cloneId, { status: "active", workDir: "/home/zeus/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+    return result;
+  }
+
+  it("self-dissolve via internal route works for a clone", async () => {
+    const clone = await createClone();
+    const cloneId = clone.cloneId;
+
+    // Call dissolve on the clone itself (self-dissolve)
+    const res = await sim.json("POST", `/internal/agent/${cloneId}/dissolve`, {
+      body: {},
+    });
+    assert.equal(res.status, 200, "self-dissolve should succeed for a clone");
+    assert.ok(res.body?.success, "response should indicate success");
+
+    // Verify clone is gone
+    const configs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+    assert.equal(
+      configs.configs.find((c) => c.id === cloneId),
+      undefined,
+      "clone config should be removed after self-dissolve"
+    );
+
+    // Parent still exists
+    assert.ok(configs.configs.find((c) => c.id === parentId), "parent should still exist");
+  });
+
+  it("parent dissolves own clone by name", async () => {
+    const clone = await createClone();
+    const cloneId = clone.cloneId;
+    const cloneName = clone.name;
+
+    // Call dissolve from the parent targeting the clone by name
+    const res = await sim.json("POST", `/internal/agent/${parentId}/dissolve`, {
+      body: { target: cloneName },
+    });
+    assert.equal(res.status, 200, "parent dissolving own clone should succeed");
+    assert.ok(res.body?.success, "response should indicate success");
+    assert.equal(res.body?.dissolved, cloneName, "response should name the dissolved clone");
+
+    // Verify clone is gone
+    const configs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+    assert.equal(
+      configs.configs.find((c) => c.id === cloneId),
+      undefined,
+      "clone config should be removed after parent dissolve"
+    );
+  });
+
+  it("403: dissolve targeting the parent (non-clone)", async () => {
+    // Create a second agent to use as the caller
+    const otherResult = await sim.startAgent({
+      id: "agent-athena01",
+      name: "athena",
+      displayName: "Athena",
+      runtime: "claude",
+      model: "sonnet",
+      machineId: machineKeyId,
+      workDir: "/home/athena/workspace",
+    });
+    daemon.agentStatus(otherResult.agentId, { status: "active", workDir: "/home/athena/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+
+    // Try to dissolve the parent (not a clone) from athena
+    const res = await sim.json("POST", `/internal/agent/${otherResult.agentId}/dissolve`, {
+      body: { target: parentName },
+    });
+    assert.equal(res.status, 403, "dissolving a non-clone should return 403");
+    assert.ok(
+      res.body?.error?.toLowerCase().includes("not a clone") || res.body?.error?.toLowerCase().includes("non-clone"),
+      "error should mention that target is not a clone"
+    );
+  });
+
+  it("403: self-dissolve from a non-clone agent", async () => {
+    // Try to self-dissolve the parent (not a clone)
+    const res = await sim.json("POST", `/internal/agent/${parentId}/dissolve`, {
+      body: {},
+    });
+    assert.equal(res.status, 403, "self-dissolve from non-clone should return 403");
+    assert.ok(
+      res.body?.error?.toLowerCase().includes("clone"),
+      "error should mention that self-dissolve is only for clones"
+    );
+  });
+
+  it("403: dissolve targeting another agent's clone", async () => {
+    // Create a clone of zeus
+    const zeusClone = await createClone();
+
+    // Create a second parent agent
+    const otherResult = await sim.startAgent({
+      id: "agent-athena01",
+      name: "athena",
+      displayName: "Athena",
+      runtime: "claude",
+      model: "sonnet",
+      machineId: machineKeyId,
+      workDir: "/home/athena/workspace",
+    });
+    daemon.agentStatus(otherResult.agentId, { status: "active", workDir: "/home/athena/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+
+    // athena tries to dissolve zeus's clone — should fail
+    const res = await sim.json("POST", `/internal/agent/${otherResult.agentId}/dissolve`, {
+      body: { target: zeusClone.name },
+    });
+    assert.equal(res.status, 403, "dissolving someone else's clone should return 403");
+    assert.ok(
+      res.body?.error?.toLowerCase().includes("parent"),
+      "error should mention that caller is not the parent"
+    );
+
+    // Verify zeus's clone still exists
+    const configs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+    assert.ok(
+      configs.configs.find((c) => c.id === zeusClone.cloneId),
+      "zeus's clone should still exist after failed dissolve attempt"
+    );
+  });
+
+  it("404: dissolve targeting non-existent agent", async () => {
+    const res = await sim.json("POST", `/internal/agent/${parentId}/dissolve`, {
+      body: { target: "nonexistent" },
+    });
+    assert.equal(res.status, 404, "dissolving non-existent agent should return 404");
+  });
+
+  it("DM notice posted before auto-dissolve", async () => {
+    // Create a clone with tiny TTL and fast sweep
+    // We need a fresh sim with sweep env
+    await sim.stop();
+    sim = await createZoukSimulation({
+      mock: true,
+      env: { ZOUK_CLONE_SWEEP_INTERVAL_MS: "200" },
+    });
+    const mk = await sim.createMachineKey("sim-machine2");
+    const rawKey = mk.rawKey;
+    daemon = await sim.connectDaemon({ key: rawKey });
+    daemon.ready({ runtimes: ["claude"] });
+    await sleep(SLEEP_SETTLE_MS);
+
+    const sr = await sim.startAgent({
+      id: "agent-zeus02",
+      name: "zeus",
+      displayName: "Zeus",
+      runtime: "claude",
+      model: "sonnet",
+      machineId: mk.key.id,
+      workDir: "/home/zeus/workspace",
+    });
+    daemon.agentStatus(sr.agentId, { status: "active", workDir: "/home/zeus/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+
+    const cloneResult = await sim.post(
+      `/api/agents/${sr.agentId}/clone`,
+      { idleMinutes: 0.03 },
+      { token: sim.rootToken }
+    );
+    const cloneId = cloneResult.cloneId;
+    const cloneName = cloneResult.name;
+    daemon.agentStatus(cloneId, { status: "active", workDir: "/home/zeus/workspace" });
+    await sleep(SLEEP_SETTLE_MS);
+
+    // Wait for auto-dissolve
+    await sim.waitUntil(async () => {
+      const cfgs = await sim.get("/api/agent-configs", { token: sim.rootToken });
+      return !cfgs.configs.find((c) => c.id === cloneId);
+    }, "clone auto-dissolve with DM notice", 5000, 100);
+
+    // Check DM channel history for the auto-dissolve notice
+    const dmChannelName = `dm:${["zeus", cloneName].sort().join(",")}`;
+    const msgs = await sim.getMessages({ channel: dmChannelName });
+    const notice = msgs.messages?.find((m) =>
+      m.content?.includes("auto-dissolved")
+    );
+    assert.ok(notice, `DM notice about auto-dissolve should exist in ${dmChannelName}. Got: ${JSON.stringify(msgs.messages?.map(m => m.content))}`);
+  });
+});

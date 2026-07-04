@@ -665,6 +665,8 @@ function createDaemonHandler(ctx) {
             }
             return;
           }
+          // Update clone idle-tracking on activity frames for the clone
+          if (ctx.touchCloneActivity) ctx.touchCloneActivity(agentId);
           const prev = store.agents[agentId]?.activity;
           if (store.agents[agentId]) {
             store.agents[agentId].activity = activity;

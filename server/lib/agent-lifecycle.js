@@ -427,6 +427,17 @@ function createAgentLifecycle(ctx) {
     res.json(result);
   });
 
+  // ─── Clone idle TTL constants ───────────────────────────────────
+  const DEFAULT_CLONE_IDLE_MINUTES = 30;
+  const MAX_CLONE_IDLE_MINUTES = 1440; // 24h
+
+  function resolveCloneIdleTtlMs(idleMinutes) {
+    const n = Number(idleMinutes);
+    if (!Number.isFinite(n) || n <= 0) return DEFAULT_CLONE_IDLE_MINUTES * 60_000;
+    const capped = Math.min(n, MAX_CLONE_IDLE_MINUTES);
+    return Math.round(capped * 60_000);
+  }
+
   // ─── Clone agent ────────────────────────────────────────────────
   // Max live clones per parent. Clones are ephemeral helpers — cap keeps
   // resource usage bounded and prevents runaway fan-out.
@@ -527,6 +538,9 @@ function createAgentLifecycle(ctx) {
     // Allocate identity
     const { cloneName, cloneId, cloneNum } = allocateCloneIdentity(parentCfg, parentId, workspaceId);
 
+    // Resolve idle TTL
+    const cloneIdleTtlMs = resolveCloneIdleTtlMs(options.idleMinutes);
+
     // Build clone config: share identity assets, fresh instance fields
     const cloneConfig = {
       id: cloneId,
@@ -542,6 +556,7 @@ function createAgentLifecycle(ctx) {
       autoStart: false,
       lifecycle: "ephemeral",
       cloneOf: parentId,
+      cloneIdleTtlMs,
       // Shared OV identity: same user_id + api_key = same memory namespace.
       // The ov-mcp proxy keys sessions per apiKey+user, so committed archives
       // are shared; the clone's openvikingSessionId suffix keeps its pending
@@ -588,6 +603,10 @@ function createAgentLifecycle(ctx) {
     // socket is already set up — the message will be queued there.
     if (store.agents[cloneId]) store.agents[cloneId].status = "active";
 
+    // Seed idle-tracking timestamp for the sweeper.
+    if (!store.cloneLastActive) store.cloneLastActive = {};
+    store.cloneLastActive[cloneId] = Date.now();
+
     // If a channel was requested at clone time, subscribe the clone there.
     // This is the only way a clone receives channel fan-out — otherwise it's
     // DM-only (the anti-double-reply policy).
@@ -630,7 +649,7 @@ function createAgentLifecycle(ctx) {
     }
 
     console.log(`[clone] Created clone ${cloneId} (${cloneName}) of ${parentId}`);
-    return { cloneId, name: cloneName, displayName: cloneConfig.displayName };
+    return { cloneId, name: cloneName, displayName: cloneConfig.displayName, cloneIdleTtlMs };
   }
 
   // Clone an agent
@@ -648,6 +667,7 @@ function createAgentLifecycle(ctx) {
       workspaceId,
       prompt: req.body?.prompt,
       channel: req.body?.channel,
+      idleMinutes: req.body?.idleMinutes,
       callerName,
     });
     if (result.error) {
@@ -702,6 +722,9 @@ function createAgentLifecycle(ctx) {
     if (store.agents[agentId]) delete store.agents[agentId];
     daemonSockets.delete(agentId);
 
+    // Clean up idle tracking
+    if (store.cloneLastActive) delete store.cloneLastActive[agentId];
+
     // Broadcast removal
     broadcastToWeb({ type: "agent_status", workspaceId, agentId, status: "deleted" });
     broadcastToWeb({
@@ -713,6 +736,89 @@ function createAgentLifecycle(ctx) {
     console.log(`[clone] Dissolved clone ${agentId} of ${cfg.cloneOf}`);
     return true;
   }
+
+  // ─── Clone idle auto-dissolve sweeper ───────────────────────────
+  // Periodically checks clones whose idle TTL has expired and dissolves them.
+  // Also posts a system notice into the parent↔clone DM channel so the parent
+  // can see why the clone vanished.
+  const CLONE_SWEEP_INTERVAL_MS = parseInt(process.env.ZOUK_CLONE_SWEEP_INTERVAL_MS, 10) || 60_000;
+
+  function touchCloneActivity(agentId) {
+    const { store } = ctx;
+    if (!store.cloneLastActive) store.cloneLastActive = {};
+    if (store.cloneLastActive[agentId] !== undefined) {
+      store.cloneLastActive[agentId] = Date.now();
+    }
+  }
+
+  async function runCloneSweep() {
+    const { store, agentConfigs, normalizeWorkspaceId, DEFAULT_WORKSPACE_ID } = ctx;
+    if (!store.cloneLastActive) return;
+    const now = Date.now();
+    const toDissolve = [];
+
+    for (const cfg of agentConfigs) {
+      if (!cfg.cloneOf) continue;
+      if (!cfg.cloneIdleTtlMs) continue;
+      const lastActive = store.cloneLastActive[cfg.id];
+      if (lastActive === undefined) continue;
+      const idleMs = now - lastActive;
+      if (idleMs >= cfg.cloneIdleTtlMs) {
+        toDissolve.push(cfg);
+      }
+    }
+
+    for (const cfg of toDissolve) {
+      const workspaceId = normalizeWorkspaceId(cfg.workspaceId || DEFAULT_WORKSPACE_ID);
+      const idleMinutes = Math.round(cfg.cloneIdleTtlMs / 60_000);
+      const cloneName = cfg.name || cfg.id;
+
+      // Post a system notice into the parent↔clone DM channel before dissolving.
+      // This is best-effort: if the DM channel doesn't exist or posting fails,
+      // we still dissolve the clone.
+      try {
+        const parentCfg = agentConfigs.find((c) => c.id === cfg.cloneOf);
+        if (parentCfg && ctx.findOrCreateChannel && ctx.appendMessage && ctx.broadcastToWeb && ctx.formatMessageForClient) {
+          const parentName = parentCfg.name || cfg.cloneOf;
+          const dmChannelName = `dm:${[parentName, cloneName].sort().join(",")}`;
+          const ch = await ctx.findOrCreateChannel(dmChannelName, "dm", workspaceId);
+          if (ch) {
+            const notice = {
+              id: uuidv4(),
+              seq: ctx.nextSeq ? ctx.nextSeq() : Date.now(),
+              workspaceId,
+              channelId: ch.id,
+              channelName: ch.name,
+              channelType: "dm",
+              threadId: null,
+              senderName: "system",
+              senderType: "system",
+              content: `🧹 ${cloneName} auto-dissolved after ${idleMinutes}m idle`,
+              createdAt: ctx.now ? ctx.now() : new Date().toISOString(),
+              attachments: [],
+            };
+            ctx.appendMessage(notice);
+            if (ctx.db && ctx.db.saveMessage) ctx.db.saveMessage(notice).catch(() => {});
+            ctx.broadcastToWeb({ type: "message", workspaceId, message: ctx.formatMessageForClient(notice) });
+          }
+        }
+      } catch (err) {
+        console.warn(`[clone-sweep] DM notice failed for ${cfg.id}: ${err.message}`);
+      }
+
+      try {
+        await dissolveClone(cfg.id, workspaceId);
+        console.log(`[clone-sweep] Auto-dissolved ${cfg.id} (${cloneName}) after ${idleMinutes}m idle`);
+      } catch (err) {
+        console.warn(`[clone-sweep] dissolve failed for ${cfg.id}: ${err.message}`);
+      }
+    }
+  }
+
+  // Start the sweeper. Use .unref() so it doesn't keep the process alive
+  // during test teardown.
+  const _sweepTimer = setInterval(() => { runCloneSweep().catch(() => {}); }, CLONE_SWEEP_INTERVAL_MS);
+  if (_sweepTimer.unref) _sweepTimer.unref();
 
   // Stop an agent
   router.post("/api/agents/:id/stop", ctx.requireAuth, async (req, res) => {
@@ -780,7 +886,7 @@ function createAgentLifecycle(ctx) {
     res.json({ success: true });
   });
 
-  return { startAgentOnDaemon, autoStartAgents, cloneAgent, dissolveClone, router };
+  return { startAgentOnDaemon, autoStartAgents, cloneAgent, dissolveClone, touchCloneActivity, runCloneSweep, router };
 }
 
 module.exports = { createAgentLifecycle };

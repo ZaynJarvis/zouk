@@ -1889,6 +1889,7 @@ let broadcastAgentStatus;
 let startAgentOnDaemon;
 let autoStartAgents;
 let cloneAgent;
+let touchCloneActivity;
 
 const onlineHumans = new Map(); // humanName -> { id, name, picture, gravatarUrl, guest, count }
 // Everyone we've ever seen as an authenticated user (seeded from `sessions` table on
@@ -2491,6 +2492,8 @@ async function deliverToAgent(agentId, message) {
       queuePendingDelivery(agentId, message);
       return "queued";
     }
+    // Update clone idle-tracking on delivery to the clone
+    if (touchCloneActivity) touchCloneActivity(agentId);
     // Do NOT pre-mark as read here. Pre-marking was breaking mid-turn steering
     // for notification-mode drivers (Claude): the daemon would notify the agent
     // "N new messages waiting", the agent would call check_messages, and the
@@ -2775,12 +2778,15 @@ app.use("/internal/agent", createAgentInternalRouter({
   sanitizedAgentConfigs, saveAgentConfigs, searchVisibleMessages,
   get syncRuntimeAgentFromConfig() { return syncRuntimeAgentFromConfig; },
   get cloneAgent() { return cloneAgent; },
+  get dissolveClone() { return agentLifecycle.dissolveClone; },
+  get touchCloneActivity() { return agentLifecycle.touchCloneActivity; },
   syncTaskBackingMessage,
   taskChannelPayload, taskMatchesTarget, taskTitleFromMessage,
   visibleChannelIdsForAgent, withTaskMutationLock,
   workspaceIdFromAgent, isReservedName,
   messagesById, messagesByShortId,
   ovLifecycle, isOvPluginForAgent, agentConfigs,
+  normalizeWorkspaceId,
   // Send freshness (optimistic lock) + retry idempotency
   SEND_FRESHNESS_ENABLED, messageScopeKey, advanceAgentSeen, agentSeenSeqFor,
   recentSendsKey, recentSendsGet, recentSendsSet,
@@ -3154,6 +3160,7 @@ const agentLifecycle = createAgentLifecycle({
   purgeAgentMemberships, purgeUnknownAgentState,
   persistUserMessage, fanoutUserMessage,
   findOrCreateChannel, parseTarget, setMembership,
+  appendMessage, formatMessageForClient, nextSeq, now,
   get sendAgentStop() { return sendAgentStop; },
   get normalizeInactiveAgentState() { return normalizeInactiveAgentState; },
   get broadcastAgentStatus() { return broadcastAgentStatus; },
@@ -3161,6 +3168,7 @@ const agentLifecycle = createAgentLifecycle({
 startAgentOnDaemon = agentLifecycle.startAgentOnDaemon;
 autoStartAgents = agentLifecycle.autoStartAgents;
 cloneAgent = agentLifecycle.cloneAgent;
+touchCloneActivity = agentLifecycle.touchCloneActivity;
 app.use(agentLifecycle.router);
 
 // ─── Auth + workspace routes (extracted) ────────────────────────
@@ -3288,6 +3296,7 @@ const daemonHandler = createDaemonHandler({
   get parseOvListResult() { return parseOvListResult; },
   get ovHttpReadContent() { return ovHttpReadContent; },
   get autoStartAgents() { return autoStartAgents; },
+  get touchCloneActivity() { return agentLifecycle.touchCloneActivity; },
 });
 const { server } = daemonHandler;
 sendAgentStop = daemonHandler.sendAgentStop;
