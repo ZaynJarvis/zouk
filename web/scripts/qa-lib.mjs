@@ -28,7 +28,7 @@ export const FAKE_CHANNELS = [
   { id: 'ch-zouk', name: 'zouk', description: 'Dev',     members: [] },
 ];
 export const FAKE_MACHINES = [
-  { id: 'machine-001', hostname: 'bytedance', os: 'darwin arm64', runtimes: ['claude'], capabilities: ['agent:start'] },
+  { id: 'machine-001', hostname: 'workstation', os: 'darwin arm64', runtimes: ['claude'], capabilities: ['agent:start'] },
 ];
 
 /**
