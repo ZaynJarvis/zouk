@@ -31,7 +31,7 @@ if [ ! -f "$OV_CONF" ]; then
     [ -n "$EMB_KEY" ] && echo "[setup] Reusing keys from ~/.openviking/ov.conf"
   fi
   if [ -z "$EMB_KEY" ]; then
-    read -rp "  Embedding API key (VolcEngine): " EMB_KEY
+    read -rp "  Embedding API key: " EMB_KEY
     read -rp "  VLM API key (blank = same):     " VLM_KEY
   fi
   VLM_KEY="${VLM_KEY:-$EMB_KEY}"

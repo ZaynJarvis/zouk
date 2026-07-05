@@ -26,7 +26,7 @@ const AGENTS = [
   { id: 'agent-tim',  name: 'tim',  displayName: 'Tim',  runtime: 'claude', model: 'claude-sonnet-4-6', status: 'active', activity: 'thinking', machineId: 'm1', channels: ['all'] },
 ];
 const CHANNELS = [{ id: 'ch-all', name: 'all', description: 'General' }];
-const MACHINES = [{ id: 'm1', hostname: 'bytedance', os: 'darwin arm64', runtimes: ['claude'] }];
+const MACHINES = [{ id: 'm1', hostname: 'workstation', os: 'darwin arm64', runtimes: ['claude'] }];
 
 const now = new Date().toISOString();
 const extraMessages = [
