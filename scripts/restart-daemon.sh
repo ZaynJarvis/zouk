@@ -30,8 +30,7 @@ log() { echo "[restart] $*"; }
 DAEMON_DIR="${DAEMON_DIR:-}"
 if [ -z "$DAEMON_DIR" ]; then
   for d in \
-    "$HOME/code/c/zouk-daemon" \
-    "/Users/lululiang/code/c/zouk-daemon"; do
+    "$HOME/code/c/zouk-daemon"; do
     if [ -f "$d/src/index.ts" ]; then
       DAEMON_DIR="$d"
       break
