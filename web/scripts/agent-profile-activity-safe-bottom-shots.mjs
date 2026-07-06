@@ -42,7 +42,7 @@ const AGENT_BOB = {
   status: 'active',
   activity: 'working',
   machineId: 'machine-001',
-  workDir: '/Users/lululiang/.zouk/agents/agent-490a845f',
+  workDir: '/Users/shared/.zouk/agents/agent-490a845f',
   channels: ['all', 'daemon', 'issue', 'ov'],
   skills: [],
   // Many entries so the activity feed scrolls.

@@ -50,7 +50,7 @@ const AGENT = {
   id: 'agent-alice-001',
   name: 'alice',
   displayName: 'Alice',
-  description: 'Operations agent — screenshot QA + local ops on lululiang machine.',
+  description: 'Operations agent — screenshot QA + local ops on a local development machine.',
   runtime: 'claude',
   model: 'claude-opus-4-7',
   status: 'active',

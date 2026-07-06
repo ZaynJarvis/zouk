@@ -138,7 +138,7 @@ export default function MachineSetupDialog({
               className="zk-input"
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
-              placeholder="Key name (e.g. lululiang-imac)"
+              placeholder="Key name (e.g. studio-mac-mini)"
               onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
             />
             <button
