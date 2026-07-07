@@ -210,7 +210,12 @@ function createAgentInternalRouter(ctx) {
   // check_messages (receive)
   router.get("/:agentId/receive", async (req, res) => {
     const { agentId } = req.params;
-    const lastRead = ctx.store.agentReadSeq[agentId] || 0;
+    const receiveStartedSeq = ctx.store.seq;
+    // Inbox is unread-from-cursor. Missing cursor means "start from now" so a
+    // restarted/migrated agent does not receive old channel history as inbox.
+    const lastRead = ctx.ensureAgentReadSeq
+      ? ctx.ensureAgentReadSeq(agentId, receiveStartedSeq)
+      : (ctx.store.agentReadSeq[agentId] || receiveStartedSeq || 0);
     const selfName = agentNameFor(agentId);
     const workspaceId = ctx.workspaceIdFromAgent(agentId);
     const channelIds = ctx.visibleChannelIdsForAgent(agentId);
@@ -225,11 +230,11 @@ function createAgentInternalRouter(ctx) {
     for (const m of rows) {
       ctx.advanceAgentSeen(agentId, ctx.messageScopeKey(m), m.seq);
     }
-    if (rows.length >= AGENT_RECEIVE_BATCH_LIMIT) {
-      ctx.store.agentReadSeq[agentId] = rows[rows.length - 1].seq;
-    } else {
-      ctx.store.agentReadSeq[agentId] = ctx.store.seq;
-    }
+    const nextReadSeq = rows.length >= AGENT_RECEIVE_BATCH_LIMIT
+      ? rows[rows.length - 1].seq
+      : Math.max(receiveStartedSeq, rows[rows.length - 1]?.seq || lastRead);
+    if (ctx.setAgentReadSeq) ctx.setAgentReadSeq(agentId, nextReadSeq);
+    else ctx.store.agentReadSeq[agentId] = nextReadSeq;
     // Update clone idle-tracking when the clone polls for/receives messages
     if (ctx.touchCloneActivity && unread.length > 0) ctx.touchCloneActivity(agentId);
     res.json({ messages: unread });
