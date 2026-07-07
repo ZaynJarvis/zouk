@@ -949,6 +949,9 @@ function saveWorkspaceMember(member) {
 // leave the post-restart state inconsistent (allowlist row present, member
 // row missing) and re-introduce the bouncing bug from the other side.
 async function saveWorkspaceMemberStrict(member) {
+  if (!member || typeof member !== 'object' || !member.email) {
+    throw new Error('invalid workspace member persist payload');
+  }
   // Test-only fault-injection hooks. Let the invite-atomicity regression
   // tests exercise the strict-fail rollback branches without needing a live
   // DB (the tests run with DATABASE_URL='', so pool is null). Both hooks are

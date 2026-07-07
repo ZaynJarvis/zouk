@@ -1036,7 +1036,7 @@ async function inviteWorkspaceMember({ workspaceId, email, role = "member", name
   // our rollback completed — recreating the very member-without-allowlist
   // half-state we are trying to prevent. The strict persist below is the
   // single source of truth for the member row.
-  const member = setWorkspaceMember({ workspaceId: id, email: normalized, role, name }, { persist: false });
+  const member = await setWorkspaceMember({ workspaceId: id, email: normalized, role, name }, { persist: false });
   try {
     // saveWorkspaceMemberStrict no-ops when DB is disabled, so this call is
     // safe to make unconditionally; we want the strict path to be the ONLY
